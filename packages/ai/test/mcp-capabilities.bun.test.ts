@@ -14,17 +14,14 @@
  */
 import { describe, test, expect, beforeAll, afterEach } from "bun:test";
 import { createSign, generateKeyPairSync } from "node:crypto";
-import { McpServer } from "../src/mcp/server.ts";
+import type { McpServer } from "../src/mcp/server.ts";
+import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, jwt, noop, type AnyRouteBuilder } from "@routecraft/routecraft";
 import { mcp } from "../src/index.ts";
-import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
 import { Client } from "@modelcontextprotocol/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
-
-const MCP_STORE_KEY =
-  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
 
 const ISSUER = "https://idp.capabilities.example";
 const AUDIENCE = "https://mcp.capabilities.example";
@@ -178,10 +175,10 @@ describe("capabilities exposed as MCP tools", () => {
   async function startSecured(): Promise<string> {
     t = await testContext()
       .routes(capabilities())
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       name: "capability-server",
       version: "1.0.0",
       transport: "http",

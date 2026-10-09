@@ -1,27 +1,33 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   CraftContext,
   DefaultExchange,
   HeadersKeys,
   authenticate,
   authorize,
-  isAuthentic,
-  isRestored,
+  defaultAuthority,
   type Exchange,
+  principalOf,
 } from "../src/index.ts";
+import { isRestored } from "../src/auth/restored.ts";
 // The serializer is engine machinery, not public API: it is reached through
 // the intra-package barrel the executor uses, not the package index.
 import {
   DATE_TAG,
   deserializeExchange,
   serializeExchange,
-} from "../src/deferral/index.ts";
+} from "../src/plugins/deferral/public.ts";
 // Not public API: the Secret brand is reserved for #526 and reachable only
 // from inside the package, which is exactly the position the serializer's
 // refusal has to be tested from.
 import { BRAND, setBrand } from "../src/brand.ts";
 
 const context = new CraftContext();
+
+// The restorer resolves the application's authority, which only an
+// application with its plugins installed has.
+beforeAll(() => context.initPlugins());
+afterAll(() => context.stop());
 
 function exchangeWith(
   body: unknown,
@@ -442,7 +448,7 @@ describe("restored principals", () => {
    */
   test("marks a rehydrated principal restored rather than authentic", () => {
     const principal = authenticate({ subject: "user:jaco", roles: ["admin"] });
-    expect(isAuthentic(principal)).toBe(true);
+    expect(defaultAuthority.isAuthentic(principal)).toBe(true);
 
     const revived = deserializeExchange(
       context,
@@ -451,9 +457,9 @@ describe("restored principals", () => {
       ),
     );
 
-    expect(revived.principal?.subject).toBe("user:jaco");
-    expect(isRestored(revived.principal)).toBe(true);
-    expect(isAuthentic(revived.principal)).toBe(false);
+    expect(principalOf(revived)?.subject).toBe("user:jaco");
+    expect(isRestored(principalOf(revived))).toBe(true);
+    expect(defaultAuthority.isAuthentic(principalOf(revived))).toBe(false);
   });
 
   /**
@@ -493,7 +499,7 @@ describe("restored principals", () => {
       context,
       serializeExchange(exchangeWith({ amountCents: 1 })),
     );
-    expect(revived.principal).toBeUndefined();
+    expect(principalOf(revived)).toBeUndefined();
   });
 
   /**
@@ -513,7 +519,7 @@ describe("restored principals", () => {
     );
     const twice = deserializeExchange(context, serializeExchange(once));
 
-    expect(isRestored(twice.principal)).toBe(true);
-    expect(isAuthentic(twice.principal)).toBe(false);
+    expect(isRestored(principalOf(twice))).toBe(true);
+    expect(defaultAuthority.isAuthentic(principalOf(twice))).toBe(false);
   });
 });

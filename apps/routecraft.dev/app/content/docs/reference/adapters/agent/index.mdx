@@ -64,7 +64,7 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `system` | `string` | -- | Yes | System prompt. Load from disk yourself when sourcing from a file |
 | `user` | `string \| LlmPromptPart[] \| (exchange) => string \| LlmPromptPart[]` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects). The array form sends content parts, so an agent can take a recording or an image directly: see [content parts](/docs/reference/adapters/llm#content-parts) |
 | `tools` | `ToolSelection` | -- | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
-| `principal` | `boolean \| (principal, exchange) => string` | `false` | No | When `true`, append a built-in `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. Pass a function to render the section yourself. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
+| `principal` | `boolean \| (principal, exchange) => string` | `false` | No | When `true`, append a built-in `## Caller` section to the system prompt describing the caller's principal (`ex.auth.principal`: identity + roles), or stating the request is unauthenticated. Pass a function to render the section yourself. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | -- | No | Schema for structured output. The agent requests provider-level structured output, validates the response, and parses it onto `AgentResult.output` |
 | `validate` | `(result, { exchange, turnsUsed }) => void \| string \| Promise<void \| string>` | -- | No | Checked after the final reply (and after `output` parsing). Return nothing to accept the result, return a non-empty string to send the agent back for another turn with that string as a corrective message (a blank string fails the dispatch with `RC5003`), or throw to fail the dispatch. Retries share the `maxTurns` budget; when it runs out while `validate` still rejects, the dispatch fails with `RC5003`. Per-agent only, never a default. See [Judging agent results](/docs/advanced/judging-agent-results) |
 | `session` | `string \| (exchange) => string` | -- | No | The conversation this message continues. The id is the conversation's identity, so naming the same one twice continues the same conversation, exactly as `headers["routecraft.id"]` names an exchange. Every message for one id shares one transcript, kept in the context's [session store](/docs/reference/configuration#sessions). See [Sessions](#sessions-an-agent-that-remembers) |
@@ -176,7 +176,7 @@ craft()
 Who may post to a session is the route's own [`.authorize()`](/docs/reference/operations/authorize), in one of two shapes. A session that must be one caller's derives its id from the principal, so no two callers share one:
 
 ```ts skip="fragment: the session option on its own, without its route"
-agent('max', { session: (ex) => `${ex.principal?.subject}:${ex.body.session}` })
+agent('max', { session: (ex) => `${principalOf(ex)?.subject}:${ex.body.session}` })
 ```
 
 The id is a retrieval handle, so it has to be known to be retrieved, the same way a deferral is resumed by its token. A hardcoded id (`session: 'support'`) is therefore a deliberate choice rather than a mistake: every invocation of that route continues one conversation, on one transcript that grows for as long as the route runs. Derive the id from the message when each caller, thread or ticket should get its own.
@@ -218,7 +218,7 @@ Provider credentials are configured once in `llmPlugin()` and shared across all 
 
 #### Telling the agent who the caller is
 
-By default the only part of the exchange that reaches the model is the body (as the user prompt). The authenticated caller (`exchange.principal`) is **not** in the prompt, so the model does not know who it is serving unless you put that there yourself.
+By default the only part of the exchange that reaches the model is the body (as the user prompt). The authenticated caller (`ex.auth.principal`) is **not** in the prompt, so the model does not know who it is serving unless you put that there yourself.
 
 Set `principal: true` to append a `## Caller` section to the system prompt. It is appended after your own prompt and any `blocks`, and it covers the unauthenticated case explicitly so the model never invents an identity:
 

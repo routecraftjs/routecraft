@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testContext } from "@routecraft/testing";
-import { createDeferralRuntime } from "../src/deferral/config.ts";
+import { createDeferralRuntime } from "../src/plugins/deferral/index.ts";
 import { claimDatabasePath } from "../src/shared/sqlite/claims.ts";
 import {
   DEFAULT_DEFERRAL_DB_PATH,
@@ -44,6 +44,11 @@ function record(overrides: Partial<NewDeferral> = {}): NewDeferral {
     callBinding: "call-1",
     waitingFor: "resume",
     deferredAt: new Date("2026-08-10T09:00:00.000Z"),
+    errorPath: {
+      origin: "step",
+      handler: "acme.step-up/park",
+      refusedScopes: ["payouts:approve"],
+    },
     ...overrides,
   };
 }
@@ -111,6 +116,9 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       expect(read?.stepState).toEqual(written.stepState);
       expect(read?.meta).toEqual(written.meta);
       expect(read?.callBinding).toBe(written.callBinding);
+      // The resume addresses an error-path record by this, so a store that
+      // drops it hands the resume to the wrong site.
+      expect(read?.errorPath).toEqual(written.errorPath);
       expect(read?.state).toBe("waiting");
       expect(read?.waitingFor).toBe(written.waitingFor);
       expect(read?.deferredAt.getTime()).toBe(written.deferredAt.getTime());

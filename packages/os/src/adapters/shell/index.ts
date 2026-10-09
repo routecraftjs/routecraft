@@ -65,7 +65,7 @@ export function shell<T = unknown>(
 }
 
 export { untrusted, type ShellArg, type UntrustedArg } from "./untrusted.ts";
-export { shellPlugin, type ShellPluginOptions } from "./plugin.ts";
+export { SHELL, shellPlugin, type ShellPluginOptions } from "./plugin.ts";
 export type {
   IsolationName,
   ShellArgs,

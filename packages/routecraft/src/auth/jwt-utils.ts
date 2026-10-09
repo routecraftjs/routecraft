@@ -4,7 +4,7 @@ import type {
   JwtAudience,
   OAuthPrincipal,
   Principal,
-} from "./types.ts";
+} from "../principal.ts";
 
 function stringClaim(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;

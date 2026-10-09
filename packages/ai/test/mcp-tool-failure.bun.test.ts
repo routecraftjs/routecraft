@@ -2,27 +2,24 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
+  definePlugin,
   direct,
   noop,
   rcError,
+  refuse,
   type AnyRouteBuilder,
   type Exchange,
   type Principal,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { z } from "zod";
-import { McpServer } from "../src/mcp/server.ts";
+import type { McpServer } from "../src/mcp/server.ts";
+import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { mcp, mcpPlugin } from "../src/index.ts";
-import {
-  MCP_PLUGIN_REGISTERED,
-  type McpLocalToolEntry,
-} from "../src/mcp/types.ts";
+import { type McpLocalToolEntry } from "../src/mcp/types.ts";
 import { enforceAdvertisedOutput } from "../src/mcp/tool-result-guards.ts";
 import { rpcBody } from "./fixtures/rpc-body.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
-
-const MCP_STORE_KEY =
-  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
 
 const INIT_PARAMS = {
   protocolVersion: "2024-11-05" as const,
@@ -51,9 +48,12 @@ describe("MCP tool failure text", () => {
   });
 
   async function serve(routes: AnyRouteBuilder[]): Promise<McpServer> {
-    t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
+    t = await testContext()
+      .routes(routes)
+      .with({ plugins: [mcpPort()] })
+      .build();
     await t.startAndWaitReady();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     return server;
   }
 
@@ -200,6 +200,42 @@ describe("MCP tool failure text", () => {
 
     expect(result.content[0]!.text).toBe(
       'Error: Tool "outer" failed (RC5065).',
+    );
+  });
+
+  /**
+   * @case A plugin's validate hook refuses the tool's route
+   * @preconditions A plugin whose admitted validate hook refuses "archive" with kind "conflict" and a reason
+   * @expectedResult The refusal text names the kind, the code and the hook's reason, and never the hook
+   */
+  test("answers a validate hook refusal with its kind and reason", async () => {
+    t = await testContext()
+      .routes([
+        craft().id("archive").description("Guarded").from(mcp()).to(noop()),
+      ])
+      .with({
+        plugins: [
+          mcpPort(),
+          definePlugin({
+            id: "test.guard",
+            hooks: {
+              admitted: {
+                id: "once",
+                phase: "validate",
+                run: () => refuse("already archived", { kind: "conflict" }),
+              },
+            },
+          }),
+        ],
+      })
+      .build();
+    await t.startAndWaitReady();
+    server = mcpServerFor(t.ctx);
+
+    const result = await callTool(server, "archive", {});
+
+    expect(result.content[0]!.text).toBe(
+      'Error: Tool "archive" refused the call (conflict, RC5068): already archived',
     );
   });
 

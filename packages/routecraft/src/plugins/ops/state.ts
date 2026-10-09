@@ -160,9 +160,9 @@ function includedIn(view: HealthView, component: HealthComponent): boolean {
 /**
  * The read surface other components get.
  *
- * Published on the store instead of {@link HealthState} itself. Withholding
- * the constructor prevents nothing: `ctx.getStore(OPS_HEALTH_STATE)` hands
- * back the live instance, so a wider type would let any consumer call
+ * Published on the `OPS` port instead of {@link HealthState} itself.
+ * Withholding the constructor prevents nothing: `OPS.health` hands back the
+ * live instance, so a wider type would let any consumer call
  * `sourceDied` or `reportIndicator` and drive the ledger into a state the
  * framework never observed, which is the invariant the whole design rests on.
  * The `/ops` action surface will get a deliberate mutating interface when it

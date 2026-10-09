@@ -1,80 +1,11 @@
 import type { HealthLedger } from "./state";
-import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
+import { port } from "../../kernel/port.ts";
+import type { PortLookup } from "../../kernel/port.ts";
 import type { Duration } from "../../shared/duration.ts";
+import type { RemoteRoute } from "../remotes/store";
 import { assertIndicatorName } from "./indicator";
 import type { FailureDomain, Health, OpsResource } from "./types";
-
-/**
- * Symbol key the ops plugin publishes its per-context ledger under.
- *
- * Exposed on the store so other surfaces can read health without going
- * through HTTP: the CLI's TUI, a future management console, and the `/ops`
- * action endpoints all need the same ledger the endpoints report from.
- * `Symbol.for` so the key is shared across duplicate package copies in a
- * workspace, matching every other plugin's convention.
- */
-export const OPS_HEALTH_STATE: unique symbol = Symbol.for(
-  "routecraft.plugin.ops.health-state",
-);
-
-/**
- * Symbol key for the management resources other packages contribute, keyed
- * by resource name. Written by {@link registerOpsResource}, read by the ops
- * mount per request, so a resource registered by a plugin applied before
- * or after the ops plugin is served alike.
- */
-export const OPS_RESOURCES: unique symbol = Symbol.for(
-  "routecraft.plugin.ops.resources",
-);
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [OPS_HEALTH_STATE]: HealthLedger;
-    [OPS_RESOURCES]: Map<string, OpsResource>;
-  }
-}
-
-/** Names the mount serves itself; a contributed resource cannot take them. */
-const RESERVED_RESOURCE_NAMES = new Set(["routes", "events"]);
-
-/** A resource name is one path segment: what an operator types after `/ops/`. */
-const RESOURCE_NAME = /^[a-z][a-z0-9-]*$/;
-
-/**
- * Contribute a read-only resource to the management API. See
- * {@link OpsResource} for the contract and where it is served.
- *
- * Call it from a plugin's `apply()`. It needs no ops plugin to be present:
- * the registration lives on the context store and is served when an ops
- * mount exists, and inert otherwise.
- *
- * @throws RC5053 on a reserved or malformed name, or a name already taken
- */
-export function registerOpsResource<TItem>(
-  ctx: CraftContext,
-  resource: OpsResource<TItem>,
-): void {
-  if (typeof resource.name !== "string" || !RESOURCE_NAME.test(resource.name)) {
-    throw rcError("RC5053", undefined, {
-      message: `Management resource name "${resource.name}" must be one lowercase path segment (letters, digits and dashes), because it is what follows /ops/ on the wire.`,
-    });
-  }
-  if (RESERVED_RESOURCE_NAMES.has(resource.name)) {
-    throw rcError("RC5053", undefined, {
-      message: `Management resource name "${resource.name}" is served by the ops mount itself and cannot be contributed.`,
-    });
-  }
-  const registry =
-    ctx.getStore(OPS_RESOURCES) ?? new Map<string, OpsResource>();
-  if (registry.has(resource.name)) {
-    throw rcError("RC5053", undefined, {
-      message: `Management resource "${resource.name}" is already registered on this context. One contributor per name.`,
-    });
-  }
-  registry.set(resource.name, resource as OpsResource);
-  ctx.setStore(OPS_RESOURCES, registry);
-}
 
 /**
  * An indicator another plugin contributes, without the app listing it.
@@ -83,20 +14,18 @@ export function registerOpsResource<TItem>(
  * in `ops.indicators`. A plugin that watches a dependency the app never
  * wrote a line for (the remotes plugin and the instances it imports from)
  * has no such handle to hand the app, so it contributes the declaration
- * here and reports through the function the contribution returns. The
- * ops plugin binds it to its ledger at start, and before that, or without
- * an ops plugin at all, a report is inert for the same reason a push
- * through an unbound handle is: health instrumentation must not be able
- * to fail the code it instruments.
+ * through {@link OPS} and reports through the function the contribution
+ * returns. The ops plugin binds it to its ledger at start, and before that
+ * a report is kept for replay, because health instrumentation must not be
+ * able to fail the code it instruments.
  */
 export interface ContributedIndicator {
   readonly name: string;
   readonly domain?: FailureDomain;
   readonly maxAge?: Duration;
   /**
-   * Where reports go: one sink per ops ledger that bound the indicator, so a
-   * context carrying two ops mounts reports into both. Empty until an ops
-   * plugin binds it, and empty again after teardown.
+   * Where reports go: the ledger's sink once the ops plugin bound the
+   * indicator. Empty before that, and empty again after teardown.
    */
   readonly sinks: Set<(health: Health, reportedAt: number) => void>;
   /**
@@ -108,53 +37,169 @@ export interface ContributedIndicator {
   last?: { health: Health; at: number };
 }
 
-/**
- * Symbol key for the indicators other plugins contribute, keyed by name.
- * Written by {@link contributeOpsIndicator}, bound by the ops plugin's
- * `start()`, so a contribution made from any plugin's `apply()` is served
- * whatever order the plugins were applied in.
- *
- * @internal
- */
-export const OPS_CONTRIBUTED_INDICATORS: unique symbol = Symbol.for(
-  "routecraft.plugin.ops.contributed-indicators",
-);
+/** What a plugin declares when it contributes an indicator. */
+export type IndicatorContribution = Omit<
+  ContributedIndicator,
+  "sinks" | "last"
+>;
 
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [OPS_CONTRIBUTED_INDICATORS]: Map<string, ContributedIndicator>;
+/**
+ * The operational surface, as other plugins reach it: the health ledger to
+ * read, and the seams to contribute management resources, indicators and
+ * routes imported from elsewhere. Provided by the ops plugin.
+ *
+ * A contributor declares `optional: [OPS]`, which orders the ops plugin
+ * ahead of it, and contributes from its own `bind`.
+ */
+export interface OpsService {
+  /**
+   * The live health ledger, for surfaces that read health without going
+   * through HTTP: a TUI, a console, the `/ops` endpoints themselves.
+   */
+  readonly health: HealthLedger;
+  /**
+   * Contribute a read-only resource to the management API. See
+   * {@link OpsResource} for the contract and where it is served.
+   *
+   * @throws RC5053 on a reserved or malformed name, or a name already taken
+   */
+  registerResource<TItem>(resource: OpsResource<TItem>): void;
+  /** Whether a resource by this name is already contributed. */
+  hasResource(name: string): boolean;
+  /**
+   * Contribute an indicator to the health report.
+   *
+   * @returns The function to report through. A report made before the ops
+   *   plugin binds the indicator is kept and replayed into the ledger when
+   *   it binds, at the time it was made.
+   * @throws RC5053 on a malformed name, or a name another contributor took
+   */
+  contributeIndicator(
+    definition: IndicatorContribution,
+  ): (health: Health) => void;
+  /**
+   * Contribute routes imported from other instances, read per request so
+   * the listing follows every refresh. Listed, described and dispatched
+   * through the local door beside the local routes.
+   */
+  contributeRemoteRoutes(routes: () => ReadonlyMap<string, RemoteRoute>): void;
+}
+
+/** The operational surface of an application. */
+export const OPS = port<OpsService>("routecraft.ops@1");
+
+/** Names the mount serves itself; a contributed resource cannot take them. */
+const RESERVED_RESOURCE_NAMES = new Set(["routes", "events"]);
+
+/** A resource name is one path segment: what an operator types after `/ops/`. */
+const RESOURCE_NAME = /^[a-z][a-z0-9-]*$/;
+
+function assertResourceName(name: unknown): void {
+  if (typeof name !== "string" || !RESOURCE_NAME.test(name)) {
+    throw rcError("RC5053", undefined, {
+      message: `Management resource name "${String(name)}" must be one lowercase path segment (letters, digits and dashes), because it is what follows /ops/ on the wire.`,
+    });
+  }
+  if (RESERVED_RESOURCE_NAMES.has(name)) {
+    throw rcError("RC5053", undefined, {
+      message: `Management resource name "${name}" is served by the ops mount itself and cannot be contributed.`,
+    });
   }
 }
 
 /**
- * Contribute an indicator to the health report from a plugin's `apply()`.
+ * The contributions one ops plugin collects for one application.
  *
- * Returns the function to report through. A report made before an ops
- * plugin binds the indicator is kept and replayed into the ledger when it
- * binds, at the time it was made; in a context with no ops plugin a report
- * goes nowhere.
+ * @internal Built by the ops plugin and provided as {@link OPS}.
+ */
+export class OpsContributions implements OpsService {
+  readonly resources = new Map<string, OpsResource>();
+  readonly indicators = new Map<string, ContributedIndicator>();
+  private readonly remoteSources: Array<
+    () => ReadonlyMap<string, RemoteRoute>
+  > = [];
+
+  constructor(readonly health: HealthLedger) {}
+
+  registerResource<TItem>(resource: OpsResource<TItem>): void {
+    assertResourceName(resource.name);
+    if (this.resources.has(resource.name)) {
+      throw rcError("RC5053", undefined, {
+        message: `Management resource "${resource.name}" is already registered on this context. One contributor per name.`,
+      });
+    }
+    this.resources.set(resource.name, resource as OpsResource);
+  }
+
+  hasResource(name: string): boolean {
+    return this.resources.has(name);
+  }
+
+  contributeIndicator(
+    definition: IndicatorContribution,
+  ): (health: Health) => void {
+    assertIndicatorName(definition.name, "contributeOpsIndicator");
+    if (this.indicators.has(definition.name)) {
+      throw rcError("RC5053", undefined, {
+        message: `Indicator "${definition.name}" is already contributed on this context. One contributor per name.`,
+      });
+    }
+    const entry: ContributedIndicator = { ...definition, sinks: new Set() };
+    this.indicators.set(definition.name, entry);
+    return (health) => {
+      const at = Date.now();
+      entry.last = { health, at };
+      for (const sink of entry.sinks) sink(health, at);
+    };
+  }
+
+  contributeRemoteRoutes(routes: () => ReadonlyMap<string, RemoteRoute>): void {
+    this.remoteSources.push(routes);
+  }
+
+  /** Every contributed imported route, by local endpoint. */
+  remoteRoutes(): ReadonlyMap<string, RemoteRoute> {
+    if (this.remoteSources.length === 1) return this.remoteSources[0]!();
+    const merged = new Map<string, RemoteRoute>();
+    for (const source of this.remoteSources) {
+      for (const [endpoint, route] of source()) merged.set(endpoint, route);
+    }
+    return merged;
+  }
+}
+
+/**
+ * Contribute a read-only resource to the management API from a plugin's
+ * `bind`. Inert in an application with no ops plugin; the plugin must
+ * declare `optional: [OPS]` either way.
  *
+ * @param c - The contributing plugin's context
+ * @param resource - The resource
+ * @throws RC5053 on a reserved or malformed name, or a name already taken
+ */
+export function registerOpsResource<TItem>(
+  c: PortLookup,
+  resource: OpsResource<TItem>,
+): void {
+  assertResourceName(resource.name);
+  c.lookup(OPS)?.registerResource(resource);
+}
+
+/**
+ * Contribute an indicator to the health report from a plugin's `bind`.
+ *
+ * Returns the function to report through. In an application with no ops
+ * plugin a report goes nowhere; the plugin must declare `optional: [OPS]`
+ * either way.
+ *
+ * @param c - The contributing plugin's context
+ * @param definition - The indicator
  * @throws RC5053 on a malformed name, or a name another contributor took
  */
 export function contributeOpsIndicator(
-  ctx: CraftContext,
-  definition: Omit<ContributedIndicator, "sinks" | "last">,
+  c: PortLookup,
+  definition: IndicatorContribution,
 ): (health: Health) => void {
   assertIndicatorName(definition.name, "contributeOpsIndicator");
-  const registry =
-    ctx.getStore(OPS_CONTRIBUTED_INDICATORS) ??
-    new Map<string, ContributedIndicator>();
-  if (registry.has(definition.name)) {
-    throw rcError("RC5053", undefined, {
-      message: `Indicator "${definition.name}" is already contributed on this context. One contributor per name.`,
-    });
-  }
-  const entry: ContributedIndicator = { ...definition, sinks: new Set() };
-  registry.set(definition.name, entry);
-  ctx.setStore(OPS_CONTRIBUTED_INDICATORS, registry);
-  return (health) => {
-    const at = Date.now();
-    entry.last = { health, at };
-    for (const sink of entry.sinks) sink(health, at);
-  };
+  return c.lookup(OPS)?.contributeIndicator(definition) ?? (() => undefined);
 }

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   DeferSignal,
   craft,
   direct,
@@ -13,6 +13,7 @@ import {
   simple,
   type Enricher,
   type Exchange,
+  deferralOf,
 } from "../src/index.ts";
 import { asDeferred, storeWith, deferring } from "./helpers/deferral.ts";
 
@@ -34,7 +35,7 @@ function deferCapable(): Enricher<unknown, unknown> {
     fetch: (ex: Exchange<unknown>) => {
       const state = peekResumeStepState(ex);
       if (state !== undefined) {
-        return { resumed: true, state, payload: ex.deferral.result };
+        return { resumed: true, state, payload: deferralOf(ex).result };
       }
       throw new DeferSignal({
         schema: Approval,
@@ -180,7 +181,7 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
     expect(t.errors.length).toBeGreaterThan(0);
     expect(t.errors[0]).toMatchObject({ rc: "RC5051" });
     expect((t.errors[0] as Error).message).toMatch(/split/i);
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS)!;
     expect((await runtime.store.pending()).count).toBe(0);
   });
 
@@ -205,7 +206,7 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
     expect(t.errors.length).toBeGreaterThan(0);
     expect(t.errors[0]).toMatchObject({ rc: "RC5051" });
     expect((t.errors[0] as Error).message).toMatch(/multicast|side flow/i);
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS)!;
     expect((await runtime.store.pending()).count).toBe(0);
   });
 });
@@ -247,7 +248,7 @@ describe("cancellation around the deferral (RC5054)", () => {
     // Let the abandoned run settle past its blocking step before inspecting
     // the store.
     await sleep(200);
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS)!;
     expect((await runtime.store.pending()).count).toBe(0);
   });
 

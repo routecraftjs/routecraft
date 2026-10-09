@@ -13,6 +13,7 @@ import {
   getExchangeContext,
   getExchangeRoute,
   emitExchangeDropped,
+  principalOf,
 } from "../exchange.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rcError } from "../error.ts";
@@ -48,8 +49,8 @@ export interface DedupeOptions {
    * A custom `key` is used VERBATIM: nothing is added to it, so every
    * caller returning the same key dedupes against every other. When
    * callers must not dedupe each other, put the caller's identity
-   * (`ex.principal?.issuer` and `subject`, plus `ex.principal?.actor` on a
-   * route that admits delegation) in the key. Supply `key` as well when
+   * (`principalOf(ex)?.issuer` and `subject`, plus `principalOf(ex)?.actor`
+   * on a route that admits delegation) in the key. Supply `key` as well when
    * the body is not JSON-serialisable or when a stable identity lives in a
    * header (a file path, an event id) that should survive body changes.
    */
@@ -134,10 +135,10 @@ function defaultDedupeKey(exchange: Exchange<unknown>): string {
         "Default dedupe key has nothing to key on: the exchange body is undefined. " +
         "A bodiless request such as an http() GET carries its input in the routecraft.http.params and " +
         "routecraft.http.query headers, which the default key does not read. Supply a key, e.g. " +
-        "dedupe({ key: (ex) => JSON.stringify([ex.principal?.issuer, ex.principal?.subject, " +
+        "dedupe({ key: (ex) => JSON.stringify([principalOf(ex)?.issuer, principalOf(ex)?.subject, " +
         "ex.headers['routecraft.http.params'], ex.headers['routecraft.http.query']]) }). " +
         "A custom key is used verbatim: drop the principal only when callers may dedupe each other, " +
-        "and on a route that admits delegation add each ex.principal.actor hop as well.",
+        "and on a route that admits delegation add each principalOf(ex)?.actor hop as well.",
     });
   }
   let bodyHash: string;
@@ -151,7 +152,7 @@ function defaultDedupeKey(exchange: Exchange<unknown>): string {
     });
   }
   const identity = JSON.stringify([
-    principalIdentity(exchange.principal),
+    principalIdentity(principalOf(exchange)),
     bodyHash,
   ]);
   return createHash("sha256").update(identity).digest("hex");

@@ -11,16 +11,21 @@ function thrownString(fn: () => unknown): string {
 }
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
+  AUTHORITY,
   authenticate,
   authorize,
   craft,
-  delegate,
-  isAuthentic,
-  markAuthentic,
+  HeadersKeys,
+  defaultAuthority,
+  definePlugin,
   simple,
+  type Authority,
   type Principal,
   type PrincipalClaims,
+  type Source,
+  principalOf,
 } from "../../src/index.ts";
+import { delegate } from "../helpers/authority.ts";
 
 const EYWA_ISS = "https://agents.example.com";
 
@@ -56,7 +61,7 @@ describe("delegate() helper", () => {
     expect(delegated.roles).toEqual(["member", "admin"]);
     expect(delegated.actor?.subject).toBe("agent:zoe");
     expect(delegated.actor?.subjectProfile).toBe("ai_agent");
-    expect(isAuthentic(delegated)).toBe(true);
+    expect(defaultAuthority.isAuthentic(delegated)).toBe(true);
   });
 
   /**
@@ -279,7 +284,7 @@ describe("delegation state cannot be forged", () => {
   /**
    * @case The actor chain and mayAct of an authentic principal cannot be mutated in place
    * @preconditions Authentic principal carrying a two-hop chain and a mayAct entry
-   * @expectedResult Rewriting the current actor, a nested actor, or pushing to mayAct all throw, so a holder of ex.principal cannot rewrite policy inputs
+   * @expectedResult Rewriting the current actor, a nested actor, or pushing to mayAct all throw, so a holder of ex.auth.principal cannot rewrite policy inputs
    */
   test("freezes the chain and the consent list", () => {
     const withConsent = authenticate({
@@ -309,7 +314,7 @@ describe("delegation state cannot be forged", () => {
   /**
    * @case The subject's own policy arrays are frozen on any authentic principal
    * @preconditions Plain authenticate() mint carrying roles and scopes
-   * @expectedResult Pushing onto principal.roles or principal.scopes throws, so a holder of ex.principal cannot escalate an authentic identity in place
+   * @expectedResult Pushing onto principal.roles or principal.scopes throws, so a holder of ex.auth.principal cannot escalate an authentic identity in place
    */
   test("freezes the subject's own roles and scopes", () => {
     const principal = authenticate({
@@ -377,7 +382,7 @@ describe("delegation state cannot be forged", () => {
       subject: "agent:zoe",
     };
     const sharedRoles = ["member"];
-    const principal = markAuthentic({
+    const principal = defaultAuthority.brand({
       kind: "custom",
       scheme: "custom",
       subject: "user_jaco",
@@ -407,7 +412,7 @@ describe("delegation state cannot be forged", () => {
       subject: "agent:loop",
     };
     (cyclic as { actor?: Principal }).actor = cyclic;
-    const principal = markAuthentic({
+    const principal = defaultAuthority.brand({
       kind: "custom",
       scheme: "custom",
       subject: "user_jaco",
@@ -417,9 +422,10 @@ describe("delegation state cannot be forged", () => {
     const check = authorize({ actor: "any" });
     expect(
       thrownString(() =>
-        check({ body: "x", principal } as unknown as Parameters<
-          typeof check
-        >[0]),
+        check({
+          body: "x",
+          headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+        } as unknown as Parameters<typeof check>[0]),
       ),
     ).toContain("RC5036");
   });
@@ -672,7 +678,10 @@ describe("authorize() delegation awareness", () => {
     const check = authorize({ scopes: ["mail:send", "employees:read"] });
     let caught: unknown;
     try {
-      check({ body: "x", principal } as unknown as Parameters<typeof check>[0]);
+      check({
+        body: "x",
+        headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+      } as unknown as Parameters<typeof check>[0]);
     } catch (err) {
       caught = err;
     }
@@ -825,7 +834,7 @@ describe(".delegate() builder step", () => {
   /**
    * @case The builder step mints the delegated principal onto the exchange
    * @preconditions .authenticate() mints the user, .delegate() returns zoe claims with a ceiling
-   * @expectedResult Downstream exchange.principal has subject user, actor zoe, intersected scopes
+   * @expectedResult Downstream ex.auth.principal has subject user, actor zoe, intersected scopes
    */
   test("delegates mid-route", async () => {
     const s = spy<string>();
@@ -847,7 +856,7 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    const principal = s.lastReceived().principal;
+    const principal = principalOf(s.lastReceived());
     expect(principal?.subject).toBe("user_jaco");
     expect(principal?.actor?.subject).toBe("agent:zoe");
     expect(principal?.scopes).toEqual(["mail:send"]);
@@ -903,7 +912,56 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal).toBeUndefined();
+    expect(principalOf(s.lastReceived())).toBeUndefined();
+  });
+
+  /**
+   * @case No consent against a replacement authority that resolves the principal from a header the strip does not touch
+   * @preconditions A replacement AUTHORITY whose read falls back to an "x-shadow" header; a source emitting a minted principal under that header only; .delegate() resolver returns undefined; default options
+   * @expectedResult The delegate step itself fails with RC5012 and the destination receives nothing: the principal the authority resolves survived the strip, so the exchange cannot continue anonymous
+   */
+  test("the drop fails closed when the authority still resolves a principal", async () => {
+    const shadowing: Authority = {
+      ...defaultAuthority,
+      read: (exchange) =>
+        principalOf(exchange) ??
+        (exchange.headers["x-shadow"] as Principal | undefined),
+    };
+    const replacement = definePlugin({
+      id: "test.shadowing",
+      provides: [AUTHORITY],
+      replaces: [AUTHORITY],
+      bind(c) {
+        c.provide(AUTHORITY, shadowing);
+      },
+    });
+    const shadowed: Source<string> = {
+      subscribe: async (sub) => {
+        await sub.emit({ message: "hello", headers: { "x-shadow": jaco() } });
+      },
+    };
+    const s = spy<string>();
+    const failures: unknown[] = [];
+    t = await testContext()
+      .with({ plugins: [replacement] })
+      .routes(
+        craft()
+          .id("drop-shadowed")
+          .from(shadowed)
+          .delegate(() => undefined)
+          .to(s),
+      )
+      .build();
+    t.ctx.on("route:exchange:failed", ((payload: {
+      details: { error: unknown };
+    }) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual([]);
+    expect(String(failures[0])).toContain("RC5012");
+    expect(String(failures[0])).toContain("cannot continue anonymous");
   });
 
   /**
@@ -927,8 +985,8 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal?.subject).toBe("user_jaco");
-    expect(s.lastReceived().principal?.actor).toBeUndefined();
+    expect(principalOf(s.lastReceived())?.subject).toBe("user_jaco");
+    expect(principalOf(s.lastReceived())?.actor).toBeUndefined();
   });
 
   /**
@@ -951,7 +1009,7 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal?.subject).toBe("agent:zoe");
+    expect(principalOf(s.lastReceived())?.subject).toBe("agent:zoe");
   });
 
   /**
@@ -975,7 +1033,7 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    const principal = s.lastReceived().principal;
+    const principal = principalOf(s.lastReceived());
     expect(principal?.subject).toBe("user_jaco");
     expect(principal?.actor?.subject).toBe("agent:zoe");
   });
@@ -999,7 +1057,7 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal).toBeUndefined();
+    expect(principalOf(s.lastReceived())).toBeUndefined();
   });
 
   /**

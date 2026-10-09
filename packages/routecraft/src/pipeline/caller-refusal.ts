@@ -2,11 +2,12 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { rcCodeOf } from "../brand.ts";
 import { formatIssuePath } from "../error.ts";
 import {
+  insufficientAuthorityOf,
   isAuthorizationRefusal,
-  type InsufficientAuthority,
-} from "../auth/authorize.ts";
-import type { Principal } from "../auth/types.ts";
-import { isInputValidationFailure } from "./validation.ts";
+} from "../authorization-refusal.ts";
+import type { Principal } from "../principal.ts";
+import { raisedHookRefusalOf, type RefusalKind } from "../kernel/hooks.ts";
+import { MAX_WIRE_ISSUES, raisedInputValidationOf } from "./validation.ts";
 
 /** One schema issue as a door shows it to a caller: where, and what. */
 export interface WireIssue {
@@ -25,11 +26,7 @@ export interface WireIssues {
   omitted: number;
 }
 
-/**
- * How many schema issues a door sends. A payload with thousands of bad array
- * items would otherwise produce an answer proportional to the damage.
- */
-export const MAX_WIRE_ISSUES = 20;
+export { MAX_WIRE_ISSUES } from "./validation.ts";
 
 /**
  * The longest path or message a wire issue carries. A path echoes the
@@ -97,13 +94,19 @@ export function wireIssues(
  * - `insufficient_scope`: the credential lacks a scope. `scopes` lists the
  *   missing ones, or with `anyOf` the whole accepted set, of which one
  *   suffices.
+ * - `refused`: a plugin's validate hook refused the exchange on the
+ *   dispatched route. `as` is the hook's own say over the answer and
+ *   `reason` its words for the caller, clipped like a schema issue. The hook
+ *   and the slot stay in the log: naming them would tell a prober which
+ *   plugin it tripped.
  */
 export type CallerRefusal =
   | ({ kind: "input"; in: "body" | "headers" } & WireIssues)
   | { kind: "unauthenticated" }
   | { kind: "expired" }
   | { kind: "insufficient_permissions" }
-  | { kind: "insufficient_scope"; scopes: string[]; anyOf: boolean };
+  | { kind: "insufficient_scope"; scopes: string[]; anyOf: boolean }
+  | { kind: "refused"; as: RefusalKind; reason: string };
 
 /** What a door knows about the call whose route failed. */
 export interface CallerRefusalOrigin {
@@ -143,12 +146,25 @@ export interface CallerRefusalOrigin {
  * cause of a route failure is whatever its steps threw, hostnames, file
  * paths and upstream response text included.
  *
- * Attribution is by origin, never by code:
+ * Attribution is by origin, never by code, and the origin is read from a
+ * snapshot the raising site bound to the error, never from the error's
+ * public `cause`. A handler between the raising site and the door can
+ * replace `cause`, replace the nested detail or mutate a schema issue, and
+ * none of it moves the refusal onto another route or changes what reaches
+ * the caller; a detail copied under a new error carries no binding, so that
+ * error maps as nothing at all:
  *
- * - `RC5065` maps only when it carries the `InputValidationFailure` detail
- *   for the dispatched route. One without it was thrown by something other
- *   than `.input()`, and one naming another route came up through
- *   `direct()`, so neither is the caller's.
+ * - `RC5065` and `RC5049` map only when a framework validator (`.input()`,
+ *   the resume door) raised them and bound an input snapshot naming the
+ *   dispatched route. One without a snapshot was thrown by something else,
+ *   one a step built by hand is that step's failure whatever shape it gave
+ *   it, and one naming another route came up through `direct()`, so none of
+ *   them is the caller's. The issues the door sends are the snapshot's.
+ * - `RC5068` maps only when the kernel raised it for a validate hook and
+ *   bound a hook snapshot naming the dispatched route, for the same reasons.
+ *   A hook refusing as `unauthenticated` on a door that reads no credential
+ *   is answered as `forbidden`: a challenge would send the caller after a
+ *   credential the door never reads.
  * - The authorization codes map only when {@link isAuthorizationRefusal}
  *   says `authorize()` raised them on the dispatched route about the
  *   principal the door admitted. The same codes come out of adapters for an
@@ -169,19 +185,29 @@ export function callerRefusalOf(
   origin: CallerRefusalOrigin,
 ): CallerRefusal | undefined {
   const code = rcCodeOf(error);
-  if (code === "RC5065") {
-    const cause = (error as Error).cause;
-    if (
-      !isInputValidationFailure(cause) ||
-      cause.invalid.routeId !== origin.routeId
-    ) {
+  if (code === "RC5065" || code === "RC5049") {
+    const invalid = raisedInputValidationOf(error);
+    if (invalid === undefined || invalid.routeId !== origin.routeId) {
       return undefined;
     }
+    const wire = wireIssues(invalid.issues);
     return {
       kind: "input",
-      in: cause.invalid.in,
-      ...wireIssues(cause.invalid.issues),
+      in: invalid.in,
+      issues: wire.issues,
+      omitted: wire.omitted + invalid.omitted,
     };
+  }
+  if (code === "RC5068") {
+    const refused = raisedHookRefusalOf(error);
+    if (refused === undefined || refused.routeId !== origin.routeId) {
+      return undefined;
+    }
+    const as =
+      refused.kind === "unauthenticated" && origin.credentialCouldHelp !== true
+        ? "forbidden"
+        : refused.kind;
+    return { kind: "refused", as, reason: clip(refused.reason) };
   }
   if (
     !isAuthorizationRefusal(error, {
@@ -204,12 +230,10 @@ export function callerRefusalOf(
     case "RC5036":
       return { kind: "insufficient_permissions" };
     case "RC5038": {
-      const missing = (
-        error.cause as Partial<InsufficientAuthority> | undefined
-      )?.missing;
+      const missing = insufficientAuthorityOf(error);
       return {
         kind: "insufficient_scope",
-        scopes: missing?.scopes ?? [],
+        scopes: [...(missing?.scopes ?? [])],
         anyOf: missing?.mode === "any",
       };
     }

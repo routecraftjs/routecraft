@@ -9,6 +9,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
+import { definePlugin, refuse, type Plugin } from "@routecraft/routecraft";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 import {
@@ -133,6 +134,64 @@ describe("ACP mount failures on the wire", () => {
     );
     expect(logged).toHaveLength(1);
     expect(String(logged[0]?.[1])).toContain(HOST);
+  });
+
+  /**
+   * @case A refusal the caller caused on the turn route crosses by kind, never as an internal error
+   * @preconditions A plain agent; a plugin whose validate hook on the agent's turn route refuses as rate_limited, and one on a second harness that refuses as invalid; a session opened and prompted on each
+   * @expectedResult The rate-limited prompt answers -32001 carrying RC5068, the kind and the hook's reason as its message; the invalid prompt answers -32602 the same way; neither is logged at error
+   */
+  test("a validate hook's refusal answers by its kind", async () => {
+    const refusing = (kind: "rate_limited" | "invalid"): Plugin =>
+      definePlugin({
+        id: `test.refuse-${kind}`,
+        hooks: {
+          admitted: {
+            id: "gate",
+            phase: "validate",
+            routes: ["routecraft.acp.agent.max"],
+            run: () => refuse(`no more today (${kind})`, { kind }),
+          },
+        },
+      });
+    const prompt = async (
+      harness: AcpHarness,
+    ): Promise<{ code: number; message: string; data?: unknown }> =>
+      harness.connect(async (agent) => {
+        const session = await agent.buildSession("/work").start();
+        const refused = await refusalOf(
+          agent.request("session/prompt", {
+            sessionId: session.sessionId,
+            prompt: [{ type: "text", text: "hello" }],
+          }),
+        );
+        session.dispose();
+        return refused;
+      });
+
+    h = await acpHarness({
+      agents: PLAIN,
+      plugins: [refusing("rate_limited")],
+    });
+    const limited = await prompt(h);
+    expect(limited.code).toBe(-32001);
+    expect(limited.message).toBe("no more today (rate_limited)");
+    expect(limited.data).toEqual({
+      code: "RC5068",
+      kind: "rate_limited",
+      reason: "no more today (rate_limited)",
+    });
+    expect(h.t.contextLogger.error.mock.calls).toHaveLength(0);
+    await h.t.stop();
+
+    h = await acpHarness({ agents: PLAIN, plugins: [refusing("invalid")] });
+    const invalid = await prompt(h);
+    expect(invalid.code).toBe(-32602);
+    expect(invalid.data).toEqual({
+      code: "RC5068",
+      kind: "invalid",
+      reason: "no more today (invalid)",
+    });
   });
 
   /**

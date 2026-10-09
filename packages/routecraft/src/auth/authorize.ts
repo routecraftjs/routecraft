@@ -1,264 +1,31 @@
-import { HeadersKeys, type Exchange } from "../exchange.ts";
+import type { Exchange } from "../exchange.ts";
 import { rcError, type RoutecraftError } from "../error.ts";
 import type { CallableValidator } from "../operations/validate.ts";
-import { isAuthentic } from "./authentic.ts";
 import { isPrincipalExpired } from "./expiry.ts";
-import { isRestored } from "./restored.ts";
+import { authorityOf } from "../kernel/authority.ts";
 import { actorMatches } from "./delegate.ts";
-import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
+import type { Principal, PrincipalProfile } from "../principal.ts";
 
-/**
- * Machine-readable detail attached to an `RC5038` error's cause, naming
- * exactly what the principal lacked. Read it off `error.cause` to drive a
- * consent flow:
- *
- * ```ts
- * const missing = (err.cause as InsufficientAuthority | undefined)?.missing
- * if (missing?.mode === "any") offerChoice(missing.scopes)
- * else if (missing?.scopes) requestGrant(missing.scopes)
- * ```
- *
- * Carries the scopes the principal lacked for a `scopes` refusal, and the
- * whole accepted set for an `anyScope` one, where any single entry would
- * have opened the door.
- *
- * In-process only: `RoutecraftError.toJSON()` serialises the cause's message
- * and stack, not its own properties, so a consumer reading the failure from
- * a serialised event log sees the scope names in the message text but not
- * this structured field.
- */
-export interface InsufficientAuthority extends Error {
-  missing: {
-    scopes: string[];
-    /**
-     * How to read `scopes`. `"all"` lists the required scopes the
-     * principal lacked, every one of them needed. `"any"` lists the whole
-     * accepted set of an `anyScope` check, of which ONE suffices, so a
-     * consent flow can offer the choice rather than requesting all of them.
-     *
-     * Optional because an application throwing this shape itself (the
-     * documented workaround before `anyScope` existed) predates the field;
-     * `authorize()` always sets it. Absent means `"all"`.
-     */
-    mode?: "all" | "any";
-  };
-}
+import {
+  insufficientAuthorityOf,
+  isAuthorizationRefusal,
+  refusal,
+  type InsufficientAuthority,
+} from "../authorization-refusal.ts";
+import type {
+  ActorSpec,
+  AuthorizeOptions,
+  SubjectMatcher,
+} from "../authorize-options.ts";
 
-/**
- * Refusals raised by an {@link authorize} check, keyed to the id of the
- * route whose exchange was refused.
- *
- * A module-private `WeakMap` rather than a property brand, for the reason
- * `authentic.ts` gives: membership cannot be enumerated, read back, or
- * copied onto another object. The codes `authorize()` throws are shared
- * with adapters that raise them for upstream or operator faults (an IMAP
- * login refused, a delegation misconfigured), so the code alone cannot say
- * whether the caller was refused. Only the origin can, and a copyable brand
- * would let any step dress its own failure up as the caller's.
- *
- * The route id and the refused principal ride along because a refusal
- * can be about someone other than the caller. A route calling another
- * through `direct()` receives the callee's refusal as its own step failure,
- * and a pipeline that swaps in an identity of its own (`.authenticate()`, a
- * delegation) and then checks it refused the instance, not the caller.
- */
-interface RefusalOrigin {
-  routeId: string | undefined;
-  principal: Principal | undefined;
-}
-
-const refusals = new WeakMap<object, RefusalOrigin>();
-
-function refusal(
-  exchange: Exchange<unknown>,
-  error: RoutecraftError,
-): RoutecraftError {
-  // The validator is public and callable on a hand-built exchange-like
-  // object, which may carry no headers at all.
-  const headers = exchange.headers as Exchange["headers"] | undefined;
-  const routeId = headers?.[HeadersKeys.ROUTE_ID];
-  refusals.set(error, {
-    routeId: typeof routeId === "string" ? routeId : undefined,
-    principal: headers?.[HeadersKeys.AUTH_PRINCIPAL] as Principal | undefined,
-  });
-  return error;
-}
-
-/**
- * Whether `error` is a refusal raised by an {@link authorize} check, as
- * opposed to the same code thrown by anything else.
- *
- * Doors use this to answer a refusal with a client status (401 / 403)
- * while an adapter's `RC5012` for a rejected upstream login stays a server
- * fault. With `caller`, only a refusal of that caller counts: raised on an
- * exchange of the route the door dispatched, about the very principal the
- * door admitted (compared by reference, the way identity is carried per
- * hop). A refusal raised further down the call chain, or of an identity the
- * pipeline substituted, is the instance's fault and does not match.
- *
- * @param error - Any thrown value
- * @param caller - The route the door dispatched and the principal it
- *   admitted (`undefined` when it admitted none)
- * @returns `true` when `authorize()` raised this exact error object, for
- *   `caller` when given
- */
-export function isAuthorizationRefusal(
-  error: unknown,
-  caller?: { routeId: string; principal: Principal | undefined },
-): error is RoutecraftError {
-  if (typeof error !== "object" || error === null) return false;
-  const origin = refusals.get(error);
-  if (origin === undefined) return false;
-  return (
-    caller === undefined ||
-    (origin.routeId === caller.routeId && origin.principal === caller.principal)
-  );
-}
-
-/**
- * Constraint on who is driving the request (the outermost `actor`).
- *
- * - `'none'`: reject when any actor is present. This is the DEFAULT: a
- *   capability is not reachable through delegation unless it says so, per
- *   the security-defaults policy (production-safe unconfigured default).
- * - `'any'`: accept any actor (and no actor).
- * - {@link ActorMatcher}: require an actor matching the given identity.
- * - Array: OR across entries; include `'none'` to also accept direct calls.
- * - Predicate: full custom check over `(actor, subject)`.
- *
- * Per RFC 8693 section 4.1, only the OUTERMOST actor is considered; prior
- * actors in a nested chain are audit data and never a policy input.
- */
-export type ActorSpec =
-  | "none"
-  | "any"
-  | ActorMatcher
-  | Array<"none" | ActorMatcher>
-  | ((actor: Principal | undefined, subject: Principal) => boolean);
-
-/**
- * Constraint on whose authority is being exercised (the subject). All
- * provided fields must match; array-valued fields are an OR across values.
- */
-export interface SubjectMatcher {
-  /** Subject id(s) to accept. */
-  subject?: string | string[];
-  /** Issuer the subject is scoped to. */
-  issuer?: string;
-  /** Entity profile(s) to accept (e.g. restrict a route to `ai_agent`). */
-  profile?: PrincipalProfile | PrincipalProfile[];
-}
-
-/**
- * Options accepted by {@link authorize}. All criteria are AND-combined: the
- * principal must satisfy every provided constraint to pass the check.
- */
-export interface AuthorizeOptions {
-  /**
-   * Required roles. The principal must carry every listed role on
-   * `principal.roles`. Roles are SUBJECT attributes: they describe who the
-   * action is for and pass through delegation unchanged, so this checks the
-   * subject even when an actor is driving. Defaults to no role check.
-   */
-  roles?: string[];
-  /**
-   * Required scopes. The principal must carry every listed scope on
-   * `principal.scopes`. Scopes are CREDENTIAL capabilities: delegation
-   * intersects them at every hop, so this checks the effective (narrowed)
-   * set. Defaults to no scope check.
-   */
-  scopes?: string[];
-  /**
-   * Required scopes, any ONE of which admits the principal, where `scopes`
-   * requires every one. For a scope family whose variants are
-   * interchangeable at the door (`leave:read`, `leave:read:self`,
-   * `leave:read:base`): any of them opens it, and the exact variant held
-   * narrows what the pipeline returns further down.
-   *
-   * Refuses with RC5038 naming the whole accepted set rather than one
-   * entry, because no single entry was required and a consent flow should
-   * be able to offer the caller the choice.
-   *
-   * Composes with `scopes` as an AND of the two conditions: every entry of
-   * `scopes`, and at least one entry of `anyScope`. Defaults to no check.
-   *
-   * An empty array is refused with RC2001 when the validator is built,
-   * rather than read as no check. It is the one list on these options whose
-   * empty form is not vacuously satisfied: a requirement of no scopes admits
-   * everyone, while an accepted set naming nobody admits nobody, and a set
-   * computed empty would otherwise remove a route's only scope gate in
-   * silence. Omit the option to mean no check.
-   */
-  anyScope?: string[];
-  /**
-   * Whether `scopes` and `anyScope` may also be satisfied from the ACTOR's
-   * scopes. Defaults to `false`, so a route that does not ask is unchanged.
-   *
-   * With `true` the scope checks read the subject's ring plus the OUTERMOST
-   * actor's, which is how an agent exercises its own standing authority on
-   * a caller's behalf: an agent legitimately holds scopes nobody who asks
-   * it for something holds. Only the outermost actor is read, matching the
-   * rule `actor` already follows (RFC 8693 section 4.1); prior actors in a
-   * nested chain stay audit data.
-   *
-   * Never applies to `roles` under any combination. A role is what the
-   * principal IS; scopes are what a keyring CARRIES, and only keyrings are
-   * inheritable. An agent driving a request does not become the subject.
-   *
-   * A no-op under the default `actor: 'none'`, which admits no actor for
-   * the flag to read. That combination is a harmless misconfiguration
-   * rather than an error.
-   *
-   * It reads `actor.scopes`, so the actor has to carry some. An actor minted
-   * by `delegate()` does. An actor parsed from a token's RFC 8693 `act`
-   * claim does NOT: the claim has no scope member, and the parser will not
-   * invent authority from an unstandardised one. For token-borne delegation,
-   * map whatever your IdP emits with `ClaimMappers.actor`, or the check sees
-   * an empty ring and refuses.
-   *
-   * The check reads the UNION of the two rings, so a caller passes on their
-   * own scopes or on the agent's. The agent is not a cap: `delegate()`
-   * deliberately does not intersect delegated scopes with the actor's own,
-   * and this flag does not either. What an agent's grant bounds is the
-   * additional authority a caller gains by going through it, which is why
-   * this is opt-in per route rather than a context-wide setting: a gate that
-   * must stay on the subject's own ring simply does not set it.
-   */
-  effective?: boolean;
-  /**
-   * Custom predicate for advanced checks. Return `false` to reject. Runs
-   * after the built-in checks.
-   */
-  predicate?: (principal: Principal) => boolean;
-  /**
-   * Clock skew tolerance in seconds applied to the `expiresAt` check.
-   * Matches the semantics of `jwt({ clockToleranceSec })` and
-   * `jwks({ clockToleranceSec })`: a token whose `expiresAt` is less than
-   * `clockToleranceSec` seconds in the past is still accepted. Defaults to
-   * `0` (strict). Set to the same value used on the source-side verifier so
-   * a token accepted at the route boundary is not rejected mid-pipeline by
-   * a fraction of a second.
-   */
-  clockToleranceSec?: number;
-  /**
-   * Constrain whose authority is exercised. Throws RC5035 on mismatch.
-   * Defaults to no subject constraint.
-   */
-  subject?: SubjectMatcher | ((subject: Principal) => boolean);
-  /**
-   * Constrain who is driving. Defaults to `'none'`: a principal carrying an
-   * actor (a delegate acting on the subject's behalf) is rejected with
-   * RC5034 unless the route explicitly admits one. See {@link ActorSpec}.
-   */
-  actor?: ActorSpec;
-  /**
-   * Maximum delegation chain length (number of nested actors). Applies only
-   * once the `actor` spec admits an actor at all. Defaults to `1`: one
-   * delegation hop is accepted, a re-delegated chain (agent to sub-agent)
-   * throws RC5036 until a route raises the limit deliberately.
-   */
-  maxDelegationDepth?: number;
-}
+export {
+  insufficientAuthorityOf,
+  isAuthorizationRefusal,
+  type ActorSpec,
+  type AuthorizeOptions,
+  type InsufficientAuthority,
+  type SubjectMatcher,
+};
 
 /**
  * Depth of the actor chain: 0 for no actor, 1 per nesting level.
@@ -439,7 +206,8 @@ export function authorize(
   return (exchange: Exchange<unknown>) => {
     const refuse = (...args: Parameters<typeof rcError>): RoutecraftError =>
       refusal(exchange, rcError(...args));
-    const principal = exchange.principal;
+    const authority = authorityOf(exchange);
+    const principal = authority.read(exchange);
     if (!principal) {
       throw refuse("RC5012", new Error("No authenticated principal"), {
         message: "Authorization failed: no authenticated principal",
@@ -458,7 +226,7 @@ export function authorize(
     // a self-asserted one. Both are rejected, but the caller's next move
     // differs: a restored identity needs re-verification against the live
     // credential, not a mint.
-    if (isRestored(principal)) {
+    if (authority.isRestored(principal)) {
       throw refuse(
         "RC5043",
         new Error("Principal was restored from a deferral"),
@@ -471,7 +239,7 @@ export function authorize(
       );
     }
 
-    if (!isAuthentic(principal)) {
+    if (!authority.isAuthentic(principal)) {
       throw refuse("RC5023", new Error("Principal is not authentic"), {
         message:
           "Authorization failed: principal was not established by a trusted origin",
@@ -570,14 +338,17 @@ export function authorize(
       if (scopes && scopes.length > 0) {
         const missing = scopes.filter((scope) => !granted.has(scope));
         if (missing.length > 0) {
-          throw refusal(exchange, insufficientScope(missing, "all"));
+          throw refusal(exchange, insufficientScope(missing, "all", effective));
         }
       }
       if (
         anyScope !== undefined &&
         !anyScope.some((scope) => granted.has(scope))
       ) {
-        throw refusal(exchange, insufficientScope([...anyScope], "any"));
+        throw refusal(
+          exchange,
+          insufficientScope([...anyScope], "any", effective),
+        );
       }
     }
 
@@ -624,10 +395,16 @@ function grantedScopes(principal: Principal, effective: boolean): Set<string> {
  * principal lacked, since every one was required. `"any"` names the whole
  * accepted set, since no single entry was required and any one of them would
  * have opened the door.
+ *
+ * `effective` records which ring the gate read, because that is what decides
+ * whether a lend on the actor's ring could satisfy it at all. Carried on the
+ * cause rather than inferred from the message, so a consent flow can decline
+ * an impossible ask without parsing prose.
  */
 function insufficientScope(
   scopes: string[],
   mode: "all" | "any",
+  effective: boolean,
 ): RoutecraftError {
   const detail =
     mode === "all"
@@ -641,7 +418,7 @@ function insufficientScope(
           ? `Missing required scopes: ${scopes.join(", ")}`
           : `Missing any of the accepted scopes: ${scopes.join(", ")}`,
       ),
-      { missing: { scopes, mode } },
+      { missing: { scopes, mode, effective } },
     ) satisfies InsufficientAuthority,
     {
       message: `Authorization failed: principal is ${detail}`,

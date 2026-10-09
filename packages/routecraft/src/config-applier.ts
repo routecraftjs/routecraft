@@ -1,4 +1,4 @@
-import type { CraftPlugin } from "./context.ts";
+import type { Plugin } from "./kernel/plugin.ts";
 // Self-reference via the published specifier so ecosystem augmentations
 // (`declare module "@routecraft/routecraft" { interface CraftConfig { ... } }`)
 // propagate into this module's view of `CraftConfig`. Importing through
@@ -7,22 +7,23 @@ import type { CraftPlugin } from "./context.ts";
 import type { CraftConfig } from "@routecraft/routecraft";
 
 /**
- * Build a {@link CraftPlugin} from the value found at a given key on
+ * Build a {@link Plugin} from the value found at a given key on
  * {@link CraftConfig}. Receives the non-undefined value of `config[K]` and
- * returns a plugin whose `apply` and (optional) `teardown` participate in the
- * standard plugin lifecycle.
+ * returns the plugin's descriptor. Pure: it may be called more than once for
+ * one configuration (by `defineProject` and by the application), so any work
+ * belongs in the plugin's `bind`.
  *
  * @template K - Key on `CraftConfig` this applier handles
  */
 export type ConfigApplier<K extends keyof CraftConfig> = (
   options: NonNullable<CraftConfig[K]>,
-) => CraftPlugin;
+) => Plugin;
 
 /**
  * Internal applier signature used by the registry. Public callers go through
  * {@link registerConfigApplier} which preserves the typed `K`.
  */
-type AnyConfigApplier = (options: unknown) => CraftPlugin;
+type AnyConfigApplier = (options: unknown) => Plugin;
 
 /**
  * Cross-instance registry. `Symbol.for` so multiple copies of the package in
@@ -54,8 +55,8 @@ function getRegistry(): Map<string, AnyConfigApplier> {
  * Ecosystem packages call this once at module load time (typically from a
  * side-effect import) so that setting `config[key]` becomes equivalent to
  * pushing the corresponding plugin onto `config.plugins`. Resulting plugins
- * participate in the standard lifecycle: `apply()` runs during
- * `initPlugins()`, `teardown()` runs during `context.stop()`.
+ * participate in the standard lifecycle: `bind()` runs while the application
+ * is installed, `stop()` runs during `context.stop()`.
  *
  * The framework invokes the applier whenever `config[key] !== undefined`.
  * Falsy values (`false`, `0`, `""`, `null`) are still passed through; only
@@ -99,13 +100,32 @@ export function registerConfigApplier<K extends keyof CraftConfig>(
 /**
  * Get the registered config appliers in registration order.
  *
- * Consumed by `CraftContext` and `ContextBuilder` to convert first-class
- * config keys into plugins at construction time. Iteration order matches
- * registration order, which the constructor relies on to position ecosystem
- * appliers between core inline conversions and `config.plugins`.
- *
  * @internal
  */
 export function getConfigAppliers(): ReadonlyMap<string, AnyConfigApplier> {
   return getRegistry();
+}
+
+/**
+ * The plugins a configuration installs, defaults aside: one per config key
+ * that is set, in applier registration order, then `plugins` as listed.
+ * `applicationPlugins` puts the defaults this list does not displace ahead
+ * of it. The application and `defineProject` both compose from this, so the
+ * plugins a project's routes are typed by are the ones its application
+ * installs.
+ *
+ * The guard is strictly `value !== undefined`: appliers are an open
+ * registry, and a key whose valid value is `false`, `0` or `""` is still set.
+ *
+ * @internal
+ */
+export function configuredPlugins(config: CraftConfig): unknown[] {
+  const record = config as unknown as Record<string, unknown>;
+  const plugins: unknown[] = [];
+  for (const [key, factory] of getRegistry()) {
+    const value = record[key];
+    if (value !== undefined) plugins.push(factory(value));
+  }
+  plugins.push(...(config.plugins ?? []));
+  return plugins;
 }

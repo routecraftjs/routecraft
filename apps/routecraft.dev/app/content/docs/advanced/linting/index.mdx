@@ -75,8 +75,8 @@ The plugin ships two presets: `recommended` (rules at their default levels) and 
 ## Principal minting is a sanctioned exception
 
 `restrict-principal-minting` (error in both presets) treats identity fabrication as a
-security decision, not a convenience. `.authenticate()` and the `authenticate()` /
-`markAuthentic()` helpers produce a branded principal every downstream `authorize()`
+security decision, not a convenience. `.authenticate()`, the `authenticate()` / `markAuthentic()` helpers and an
+authority's `mint()` / `brand()` produce a branded principal every downstream `authorize()`
 trusts, so the rule flags every mint site and you sanction the legitimate ones
 explicitly, either with a scoped disable comment carrying a justification:
 

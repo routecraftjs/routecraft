@@ -6,7 +6,13 @@ export type {
   AgentTurnRequest,
 } from "./runtime.ts";
 export { AgentSessionStore } from "./store.ts";
-export type { SessionCasResult, SessionStore, StoredSession } from "./port.ts";
+export { SESSION_STORE } from "./port.ts";
+export type {
+  ResolvedSessionStore,
+  SessionCasResult,
+  SessionStore,
+  StoredSession,
+} from "./port.ts";
 export { MemorySessionStore } from "./memory-store.ts";
 export { DEFAULT_SESSION_DB_PATH, SqliteSessionStore } from "./sqlite-store.ts";
 export {

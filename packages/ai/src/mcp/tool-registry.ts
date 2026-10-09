@@ -3,14 +3,14 @@ import { deriveTagsFromAnnotations } from "./annotation-tags.ts";
 
 /**
  * Central registry of MCP tools discovered from remote MCP servers.
- * Stored in context store under MCP_TOOL_REGISTRY for agent adapter discovery.
+ * Held by the MCP service (the `MCP` port) for agent tool discovery.
  *
  * Populated automatically by mcpPlugin for these sources:
  * - stdio clients: long-lived subprocess MCP servers
  * - HTTP clients: remote HTTP MCP servers (tools refreshed periodically)
  *
  * Local `mcp()` routes defined in the same context are NOT auto-populated here;
- * they live in the parallel `MCP_LOCAL_TOOL_REGISTRY` store and are read from
+ * they live in the service's parallel `local` registry and are read from
  * there by the MCP server when responding to `tools/list`. The "local" transport
  * label remains a valid value for callers that want to manually register tools
  * with that provenance.

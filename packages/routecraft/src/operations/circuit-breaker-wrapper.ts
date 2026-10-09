@@ -3,13 +3,15 @@ import { rcError } from "../error.ts";
 import { logger } from "../logger.ts";
 import type { CraftContext } from "../context.ts";
 import type { ForwardFn, Route } from "../route.ts";
+import type { RouteKey } from "../kernel/positions.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
-import { WrapperStep } from "./wrapper.ts";
-import { wrapperEventScope } from "./event-scope.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
 import { defaultRetryOn } from "./retry-wrapper.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
+import { runStepPosition } from "./position-run.ts";
+import { RESILIENCE, type Position } from "../kernel/positions.ts";
 
 /**
  * The three states of a circuit breaker.
@@ -352,14 +354,14 @@ export class CircuitBreakerController extends RouteScopedController<CircuitBreak
   }
 
   acquire(
-    route: Route | undefined,
+    route: RouteKey | undefined,
     hooks: CircuitBreakerHooks,
   ): CircuitBreakerDecision {
     return this.stateFor(route).acquire(Date.now(), hooks);
   }
 
   recordSuccess(
-    route: Route | undefined,
+    route: RouteKey | undefined,
     probe: boolean,
     hooks: CircuitBreakerHooks,
   ): void {
@@ -367,7 +369,7 @@ export class CircuitBreakerController extends RouteScopedController<CircuitBreak
   }
 
   recordFailure(
-    route: Route | undefined,
+    route: RouteKey | undefined,
     error: Error,
     probe: boolean,
     hooks: CircuitBreakerHooks,
@@ -410,7 +412,7 @@ export interface CircuitBreakerEventScope {
  * @internal
  */
 export function circuitBreakerEmitHooks(
-  context: CraftContext | undefined,
+  context: Pick<CraftContext, "emit"> | undefined,
   scoped: CircuitBreakerEventScope,
   emit: boolean,
   options: ResolvedCircuitBreakerOptions,
@@ -511,7 +513,7 @@ export async function circuitOpenOutcome(
  */
 export async function executeWithCircuitBreaker(
   controller: CircuitBreakerController,
-  route: Route | undefined,
+  route: RouteKey | undefined,
   hooks: CircuitBreakerHooks,
   onOpen: () => Promise<StepOutcome>,
   run: () => Promise<StepOutcome>,
@@ -551,56 +553,33 @@ export class CircuitBreakerWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedCircuitBreakerOptions;
-  readonly #controller: CircuitBreakerController;
+  readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, options: CircuitBreakerOptions) {
     super(inner);
     this.#options = resolveCircuitBreakerOptions(options);
-    this.#controller = new CircuitBreakerController(this.#options);
   }
 
   protected override describeOptions(): unknown {
     return this.#options;
   }
 
-  protected override async runInner(
+  override get requiredPosition(): RequiredPosition {
+    return { port: RESILIENCE, method: "circuitBreaker" };
+  }
+
+  protected override runInner(
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const { route, context, routeId, stepLabel, correlationId } =
-      wrapperEventScope(exchange, this);
-    const shouldEmit = Boolean(route && context && routeId);
-    const scoped: CircuitBreakerEventScope = {
-      routeId: routeId as string,
-      exchangeId: exchange.id,
-      correlationId,
-      stepLabel,
-      scope: "step",
-      ...(this.#controller.label !== undefined
-        ? { label: this.#controller.label }
-        : {}),
-    };
-    const hooks = circuitBreakerEmitHooks(
-      context,
-      scoped,
-      shouldEmit,
-      this.#controller.options,
-    );
-
-    const forward = circuitBreakerForward(route, exchange);
-
-    return executeWithCircuitBreaker(
-      this.#controller,
-      route,
-      hooks,
-      () =>
-        circuitOpenOutcome(
-          exchange,
-          this.#controller.options,
-          forward,
-          `for step "${stepLabel}"`,
-        ),
-      () => this.inner.execute(exchange, ctx),
+    return runStepPosition(
+      this,
+      this.inner,
+      this.#positions,
+      "circuitBreaker",
+      (provider) => provider.circuitBreaker(this.#options),
+      exchange,
+      ctx,
     );
   }
 }

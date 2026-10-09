@@ -83,49 +83,97 @@ The runtime path is the existing catch in
 Wrappers piggyback on it for free by rethrowing on unrecoverable
 failure.
 
+### What a step-scope `.error()` handler may return
+
+The three plain answers (a recovery body, `recovery.drop()`,
+`recovery.rethrow()`) all work at step scope, because none of them needs
+to know WHERE in the route the wrapper sits.
+
+`recovery.defer()` does, and is refused there with `RC5051`. A park needs
+a POSITION to revive at, and positions are assigned by the defer-site walk
+to the entries of `definition.steps`, which is the OUTERMOST wrapper of a
+stack: an `.error()` wrapped by a `.retry()` is not in that array at all
+and cannot look its own site up. A park resolved by guessing would revive
+a continuation that re-enters the stack somewhere the approval was never
+taken against, which is the class of bug the site walk exists to prevent.
+
+The two scopes that CAN name a position reach the same failure: the
+route-scope `.error()` handler, and an error-slot hook. Both leave
+the resolution to the executor, which holds the failing step. If a future
+change gives a wrapper a stable address within the walk, this refusal is
+what should be revisited, and the message names the alternatives so a user
+is never merely blocked.
+
 ## 5. Implementation skeleton
 
-A new wrapper takes about 40 lines plus builder glue. Subclass
+A new wrapper takes about 30 lines plus builder glue. Subclass
 `WrapperStep<T>` from `packages/routecraft/src/operations/wrapper.ts`
 and implement `runInner(exchange, ctx)`, returning the inner step's
 `StepOutcome` (or a substitute outcome on recovery), and
-`describeOptions()`, returning the options the wrapper was built with:
+`describeOptions()`, returning the options the wrapper was built with.
+
+A wrapper that is a chain position at route scope (`retry`, `timeout`,
+`circuitBreaker`, `concurrency`, `throttle`, `cache`) holds no behaviour
+of its own: the behaviour is the provider's position, and the wrapper
+resolves the provider through the port when the exchange runs
+(both helpers live in `operations/position-run.ts` and build once per
+application, except the throttle position, which `positionFor` builds once
+per route through `perRoute` because its gate bakes the route id into its
+events). `runStepPosition` resolves a `Position` from `RESILIENCE` and
+runs it with a `PositionRun` whose `attempt` is the wrapped step and whose
+`scope` is `"step"`; the cache wrapper resolves its position from `CACHE`
+through `positionFor` and runs it with a `CacheRun`, that port's own run
+shape. A step-scope wrapper declares the port it depends on through
+`WrapperStep.requiredPosition`; the route checks at start that a provider
+for it is installed (`RC1111` otherwise, nested sub-pipelines and wrapper
+stacks included) and resolves the provider on first use, so the position's
+state stays per application. A wrapper that resolves no provider (`.error()`,
+`.delay()`) has an undefined `requiredPosition`. That is what makes one plugin replacing a
+port fill both scopes:
 
 ```ts
-export class TimeoutWrapperStep<T extends Adapter = Adapter>
-  extends WrapperStep<T>
-{
-  private readonly ms: number;
+import { runStepPosition } from "./position-run.ts";
+
+export class TimeoutWrapperStep<
+  T extends Adapter = Adapter,
+> extends WrapperStep<T> {
+  readonly #options: ResolvedTimeoutOptions;
+  readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, duration: Duration) {
     super(inner);
-    this.ms = resolveTimeoutOptions(duration).timeoutMs;
+    this.#options = resolveTimeoutOptions(duration);
   }
 
   protected override describeOptions(): unknown {
-    return { ms: this.ms };
+    return this.#options;
   }
 
-  protected override async runInner(
+  protected override runInner(
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    return await Promise.race([
-      this.inner.execute(exchange, ctx),
-      sleep(this.ms).then(() => {
-        throw rcError("RC5011", undefined, {
-          message: `Step "${this.label}" exceeded ${this.ms}ms timeout`,
-        });
-      }),
-    ]);
+    return runStepPosition(
+      this,
+      this.inner,
+      this.#positions,
+      "timeout",
+      (provider) => provider.timeout(this.#options),
+      exchange,
+      ctx,
+    );
   }
 }
 ```
 
+A wrapper that is NOT a position (`.error()`, `.delay()`) implements its
+behaviour in `runInner` directly.
+
 Key contract points:
 
 - The inner step never sees the engine's work queue: it returns a `StepOutcome` (`continue` / `complete` / `drop` / `branch` / `fanOut`) and the pipeline executor owns all scheduling. A failed inner step has, by construction, scheduled nothing, so recovery simply substitutes an outcome (typically `{ kind: "continue", exchange: recovered }`). There is no buffer to capture, relay, or clear.
-- Pass `ctx` (the `StepContext`) through to `this.inner.execute(exchange, ctx)` unchanged; it carries the narrow executor capabilities (e.g. `takePending` for join steps) and the wrapper must not intercept them. One sanctioned exception: a wrapper that owns a cancellation boundary (`.timeout()`) derives a new context whose `signal` links its own `AbortController` with any enclosing `ctx.signal` via `AbortSignal.any`, leaving every other capability untouched, so the inner step can abort cancellation-aware IO when the earliest enclosing deadline fires.
+- Pass `ctx` (the `StepContext`) through to `this.inner.execute(exchange, ctx)` unchanged; it carries the narrow executor capabilities (e.g. `takePending` for join steps) and the wrapper must not intercept them. One sanctioned exception: a position that owns a cancellation boundary (`timeout`) abandons its attempt through the signal it passes to `attempt(signal)`, which `stepPositionRun` links with any enclosing `ctx.signal` via `AbortSignal.any`, leaving every other capability untouched, so the inner step can abort cancellation-aware IO when the earliest enclosing deadline fires.
+- The provider's events carry `scope` and `stepLabel` from the run, so a step-scope run emits `scope: "step"` with the wrapped step's label and a route-scope run `scope: "route"`; a position never hard-codes either.
 - Throwing from `runInner` propagates out so the executor's catch in `pipeline/executor.ts` cascades to the route-level handler (or default error path). Wrappers do not need to re-emit `step:failed` themselves; the template emits it via try/catch.
 - `describeOptions()` is abstract, so a wrapper that omits it does not compile. A step-scope `.cache()` stacked above the wrapper, and a route-scope `.cache()` over the pipeline, fold the returned value into the default key (see section 9), so an edit to the wrapper's options misses instead of replaying entries the old options produced. Return all of the resolved configuration, presentation fields such as an event `label` included, the same way a step's own label is part of its definition fingerprint: a rename costs one cold cache, never a wrong hit. Return configuration, never runtime state: callables as themselves (their source is hashed), plain data as plain data, and `null` for a wrapper with no options. A controller or other live object projects to `[opaque]` and contributes nothing.
 
@@ -294,9 +342,9 @@ accordingly.
   refused at build on a
   route whose pipeline contains `.authenticate()`, because a hit would
   skip it. Route scope is
-  wired into `RouteDefinition.postParseFilters` (the `cache-check`
-  filter at chain position #9) and `RouteDefinition.postFromFilters`
-  (the `cache-store` filter at position #10); see
+  configured on `RouteDefinition.cache` and filled by the `CACHE`
+  provider as the `cache-check` (position #9) and `cache-store`
+  (position #10) steps; see
   [Pre-from Filter Chain](./pre-from-filter-chain.md) for the full
   composition contract. Routes with an unbalanced `.split()` (no
   matching `.aggregate()`) reject route-scope cache at build time

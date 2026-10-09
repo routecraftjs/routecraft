@@ -1,16 +1,9 @@
 import { rcError } from "../error.ts";
 import { markAuthentic } from "./authentic.ts";
-import type { Principal } from "./types.ts";
+import type { Principal } from "../principal.ts";
 
-/**
- * Identity claims accepted by {@link authenticate}. Derived from
- * {@link Principal} so the two never drift: `kind` and `scheme` are optional
- * (they default), every other `Principal` field is carried through, and
- * `subject` stays required because every minted identity must name who it
- * represents.
- */
-export type PrincipalClaims = Partial<Pick<Principal, "kind" | "scheme">> &
-  Omit<Principal, "kind" | "scheme" | "actor" | "grantId">;
+export type { PrincipalClaims } from "../principal.ts";
+import type { PrincipalClaims } from "../principal.ts";
 
 /**
  * Mint an authenticated {@link Principal} from identity claims you have

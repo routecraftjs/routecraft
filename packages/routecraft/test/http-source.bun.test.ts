@@ -279,7 +279,7 @@ describe("HTTP Source Adapter", () => {
   /**
    * @case Global bearer auth admits a valid JWT and attaches the principal
    * @preconditions http.auth = jwt({...}); client sends a valid Authorization header
-   * @expectedResult 200 + the principal subject is reachable via exchange.principal
+   * @expectedResult 200 + the principal subject is reachable via ex.auth.principal
    */
   test("global bearer auth admits valid JWT", async () => {
     const bound = await bootHttp({
@@ -288,7 +288,7 @@ describe("HTTP Source Adapter", () => {
         .from(http({ path: "/me", method: "GET" }))
         .process(async (ex) =>
           DefaultExchange.rewrap(ex, {
-            body: { subject: ex.principal?.subject ?? null },
+            body: { subject: ex.auth.principal?.subject ?? null },
           }),
         )
         .to(noop()),
@@ -519,7 +519,7 @@ describe("HTTP Source Adapter", () => {
         .from(http({ path: "/account", method: "GET" }))
         .process(async (ex) =>
           DefaultExchange.rewrap(ex, {
-            body: { subject: ex.principal?.subject ?? null },
+            body: { subject: ex.auth.principal?.subject ?? null },
           }),
         )
         .to(noop()),
@@ -1601,7 +1601,7 @@ describe("HTTP Source Adapter -- Auth coverage", () => {
         .from(http({ path: "/v", method: "GET" }))
         .process(async (ex) =>
           DefaultExchange.rewrap(ex, {
-            body: { subject: ex.principal?.subject },
+            body: { subject: ex.auth.principal?.subject },
           }),
         )
         .to(noop()),
@@ -1642,8 +1642,8 @@ describe("HTTP Source Adapter -- Auth coverage", () => {
         .process(async (ex) =>
           DefaultExchange.rewrap(ex, {
             body: {
-              subject: ex.principal?.subject,
-              roles: ex.principal?.roles ?? [],
+              subject: ex.auth.principal?.subject,
+              roles: ex.auth.principal?.roles ?? [],
             },
           }),
         )
@@ -2518,7 +2518,7 @@ describe("HTTP Source Adapter -- regression: auth hardening", () => {
         .from(http({ path: "/fp", method: "GET" }))
         .process(async (ex) =>
           DefaultExchange.rewrap(ex, {
-            body: { subject: ex.principal?.subject },
+            body: { subject: ex.auth.principal?.subject },
           }),
         )
         .to(noop()),

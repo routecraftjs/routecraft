@@ -7,12 +7,20 @@ import {
   type SerializedExchange,
   type Step,
 } from "../src/index.ts";
+import {
+  definePlugin,
+  defineProject,
+  direct,
+  noop,
+  step as typedStep,
+} from "../src/index.ts";
 // Engine machinery, reached through the intra-package barrel.
 import {
   actionFingerprint,
   continuationTailHash,
   describeSchema,
-} from "../src/deferral/index.ts";
+} from "../src/plugins/deferral/public.ts";
+import { stepDefinitionFingerprint } from "../src/kernel/continuation/hash.ts";
 
 /**
  * Build a step whose identity is carried by a transformer callable, which
@@ -517,6 +525,59 @@ describe("continuationTailHash over factory-built adapters", () => {
         ),
         expected,
       ),
+    );
+  });
+});
+
+describe("stepDefinitionFingerprint over plugin steps", () => {
+  /**
+   * @case Two step() callbacks that differ only in a returned literal
+   * @preconditions Steps built with step(() => "bank-A") and step(() => "bank-B"), the same step built twice
+   * @expectedResult The fingerprints differ between the callbacks and match for the same callback, so a deferred approval parked under one implementation cannot resume into the other after a redeploy
+   */
+  test("the callback of a step() is part of its fingerprint", () => {
+    const bankA = () => typedStep<unknown, string>(() => "bank-A");
+    const bankB = () => typedStep<unknown, string>(() => "bank-B");
+
+    expect(stepDefinitionFingerprint(bankA())).not.toBe(
+      stepDefinitionFingerprint(bankB()),
+    );
+    expect(stepDefinitionFingerprint(bankA())).toBe(
+      stepDefinitionFingerprint(bankA()),
+    );
+  });
+
+  /**
+   * @case A plugin step wrapped by .retry()
+   * @preconditions Two plugins whose step callbacks return different literals; routes built through a project calling .retry() before the step
+   * @expectedResult The wrapper's fingerprints differ, since it delegates the inner step's adapter and the callback lives there
+   */
+  test("a wrapper keeps the callback in the fingerprint", () => {
+    const tail = (payee: string) => {
+      const payment = definePlugin({
+        id: "test.payment",
+        steps: {
+          pay: () =>
+            payee === "A"
+              ? typedStep<unknown, string>(() => "bank-A")
+              : typedStep<unknown, string>(() => "bank-B"),
+        },
+      });
+      return defineProject({ plugins: [payment] })
+        .craft()
+        .id("pay")
+        .from(direct())
+        .retry({ maxAttempts: 2 })
+        .pay()
+        .to(noop())
+        .build()[0]!.steps;
+    };
+
+    expect(stepDefinitionFingerprint(tail("A")[0]!)).not.toBe(
+      stepDefinitionFingerprint(tail("B")[0]!),
+    );
+    expect(stepDefinitionFingerprint(tail("A")[0]!)).toBe(
+      stepDefinitionFingerprint(tail("A")[0]!),
     );
   });
 });

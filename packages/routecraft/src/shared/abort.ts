@@ -36,3 +36,63 @@ export function anySignal(
   if (present.length === 0) return NEVER_ABORTED;
   return present.length === 1 ? present[0]! : AbortSignal.any(present);
 }
+
+/**
+ * What {@link settleOrAbort} rejects with when the signal wins.
+ *
+ * A symbol rather than an error, so an abort can never be confused with
+ * something the hook itself threw: every caller has to distinguish the two,
+ * because they mean different things to an operator (a hook that broke
+ * against one that never settled) even where they produce one code on the
+ * wire.
+ */
+export const HOOK_ABORTED: unique symbol = Symbol("routecraft.hook.aborted");
+
+/**
+ * Run a user-supplied hook, bounded by a cancellation signal.
+ *
+ * The framework awaits application code in several places where an unsettled
+ * hook would hold the step, and the step holds `drain()`: the resume door's
+ * `authorize` and `elevate`, and the notification a `recovery.defer()`
+ * directive carries. Each needs its own error code, log line and refusal
+ * vocabulary, and none of them needs its own listener lifecycle, so that part
+ * lives here once.
+ *
+ * The listener is removed on every path, including the one where the hook
+ * wins the race, so bounding a hook against a long-lived route signal does
+ * not accumulate listeners on it.
+ *
+ * @param run - The hook call, deferred so a synchronous throw inside it
+ *   rejects the race rather than escaping before the bound is armed
+ * @param signal - What may cut the hook short. Absent means unbounded, which
+ *   is the caller's decision to make and never this function's.
+ * @returns What the hook resolved with
+ * @throws {@link HOOK_ABORTED} when the signal fires first, and whatever the
+ *   hook threw otherwise
+ */
+export async function settleOrAbort<T>(
+  run: () => T | Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  // Before `run` is called at all: the bound below only settles the race,
+  // and reaching a notification hook at all means telling a human about work
+  // whose route is already being torn down.
+  if (signal?.aborted) throw HOOK_ABORTED;
+
+  let onAbort: (() => void) | undefined;
+  // Armed before the hook is invoked, and first in the race, so an abort the
+  // hook itself raises while running synchronously is still an abort rather
+  // than the value it went on to return.
+  const bound = new Promise<never>((_, reject) => {
+    if (!signal) return;
+    onAbort = () => {
+      reject(HOOK_ABORTED);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([bound, (async () => run())()]);
+  } finally {
+    if (onAbort && signal) signal.removeEventListener("abort", onAbort);
+  }
+}

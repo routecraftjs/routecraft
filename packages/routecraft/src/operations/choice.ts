@@ -8,8 +8,8 @@ import {
   emitExchangeDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { COLLECT_STEPS, NESTED_STEPS } from "../dsl-symbol.ts";
-import type { NestedSteps } from "../deferral/sites.ts";
+import { BUILDER_KIND, COLLECT_STEPS, NESTED_STEPS } from "../dsl-symbol.ts";
+import type { NestedSteps } from "../kernel/continuation/sites.ts";
 import {
   StepBuilderBase,
   type BuilderState,
@@ -18,6 +18,8 @@ import {
 } from "../step-builder-base.ts";
 import type { Destination } from "./to.ts";
 import type { Enricher } from "./enrich.ts";
+import type { PluginMethods, StepCatalogue } from "../kernel/steps.ts";
+import type { ShippedPlugins } from "../kernel/steps.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.
@@ -31,6 +33,15 @@ import type { Enricher } from "./enrich.ts";
 export type ChoicePredicate<T = unknown> = (exchange: Exchange<T>) => boolean;
 
 /**
+ * What a branch callback receives: a path builder with the same plugin step
+ * methods as its route.
+ *
+ * @template S - The state entering the branch
+ */
+export type BranchBuilder<S extends BuilderState> = PathBuilder<S> &
+  PluginMethods<S, PathBuilder<S>>;
+
+/**
  * A single fan-out path: either a bare destination (the exchange is sent to
  * it) or a callback that builds a sub-pipeline on a {@link PathBuilder}. This
  * is the one shared path shape used by `choice` (`when` / `otherwise`),
@@ -42,11 +53,13 @@ export type ChoicePredicate<T = unknown> = (exchange: Exchange<T>) => boolean;
  *
  * @template In  - Body type entering the path
  * @template Out - Body type the path produces (defaults to `In`)
+ * @template P - The plugins installed where the route runs, so a branch has
+ *   the same step methods and facets as its route
  */
-export type Path<In = unknown, Out = In> =
+export type Path<In = unknown, Out = In, P = ShippedPlugins> =
   | Destination<In>
   | Enricher<In, unknown>
-  | ((b: PathBuilder<PathState<In>>) => PathBuilder<PathState<Out>>);
+  | ((b: BranchBuilder<PathState<In, P>>) => PathBuilder<PathState<Out, P>>);
 
 /**
  * Internal representation of one registered branch: a predicate plus the
@@ -67,10 +80,10 @@ interface ChoiceBranch {
  * @template In  - Body type entering the branch
  * @template Out - Body type the branch produces
  */
-export interface WhenDescriptor<In = unknown, Out = In> {
+export interface WhenDescriptor<In = unknown, Out = In, P = ShippedPlugins> {
   readonly kind: "when";
   readonly predicate: ChoicePredicate<In>;
-  readonly path: Path<In, Out>;
+  readonly path: Path<In, Out, P>;
 }
 
 /**
@@ -80,9 +93,13 @@ export interface WhenDescriptor<In = unknown, Out = In> {
  * @template In  - Body type entering the branch
  * @template Out - Body type the branch produces
  */
-export interface OtherwiseDescriptor<In = unknown, Out = In> {
+export interface OtherwiseDescriptor<
+  In = unknown,
+  Out = In,
+  P = ShippedPlugins,
+> {
   readonly kind: "otherwise";
-  readonly path: Path<In, Out>;
+  readonly path: Path<In, Out, P>;
 }
 
 /**
@@ -91,8 +108,8 @@ export interface OtherwiseDescriptor<In = unknown, Out = In> {
  * @template In  - Body type entering the branches
  * @template Out - Body type every branch must converge on
  */
-export type ChoiceDescriptor<In = unknown, Out = In> =
-  WhenDescriptor<In, Out> | OtherwiseDescriptor<In, Out>;
+export type ChoiceDescriptor<In = unknown, Out = In, P = ShippedPlugins> =
+  WhenDescriptor<In, Out, P> | OtherwiseDescriptor<In, Out, P>;
 
 /**
  * Register a conditional branch for `.choice(...)`. The predicate receives
@@ -118,23 +135,24 @@ export type ChoiceDescriptor<In = unknown, Out = In> =
  * @param predicate - Receives the exchange; returns true if this branch handles it
  * @param branch - Sub-pipeline callback (overload 1) or bare destination (overload 2)
  */
-export function when<In = unknown, Out = In>(
+export function when<In = unknown, Out = In, P = ShippedPlugins>(
   predicate: ChoicePredicate<In>,
-  branch: (b: PathBuilder<PathState<In>>) => PathBuilder<PathState<Out>>,
-): WhenDescriptor<In, Out>;
-export function when<In = unknown>(
+  branch: (
+    b: BranchBuilder<PathState<In, P>>,
+  ) => PathBuilder<PathState<Out, P>>,
+): WhenDescriptor<In, Out, P>;
+export function when<In = unknown, P = ShippedPlugins>(
   predicate: ChoicePredicate<In>,
   destination: Destination<In>,
-): WhenDescriptor<In, In>;
-export function when<In = unknown, R = unknown>(
+): WhenDescriptor<In, In, P>;
+export function when<In = unknown, R = unknown, P = ShippedPlugins>(
   predicate: ChoicePredicate<In>,
   enricher: Enricher<In, R>,
-): WhenDescriptor<In, FetchedBody<In, R>>;
-export function when(
-  predicate: ChoicePredicate<unknown>,
-  path: Path<unknown, unknown>,
-): WhenDescriptor<unknown, unknown> {
-  return { kind: "when", predicate, path };
+): WhenDescriptor<In, FetchedBody<In, R>, P>;
+// The implementation takes `unknown`: checking each overload against a
+// typed path would compare builder types structurally, which is deep.
+export function when(predicate: ChoicePredicate<unknown>, path: unknown) {
+  return { kind: "when", predicate, path } as WhenDescriptor<unknown, unknown>;
 }
 
 /**
@@ -148,19 +166,19 @@ export function when(
  *
  * @param branch - Sub-pipeline callback (overload 1) or bare adapter (overloads 2 and 3)
  */
-export function otherwise<In = unknown, Out = In>(
-  branch: (b: PathBuilder<PathState<In>>) => PathBuilder<PathState<Out>>,
-): OtherwiseDescriptor<In, Out>;
-export function otherwise<In = unknown>(
+export function otherwise<In = unknown, Out = In, P = ShippedPlugins>(
+  branch: (
+    b: BranchBuilder<PathState<In, P>>,
+  ) => PathBuilder<PathState<Out, P>>,
+): OtherwiseDescriptor<In, Out, P>;
+export function otherwise<In = unknown, P = ShippedPlugins>(
   destination: Destination<In>,
-): OtherwiseDescriptor<In, In>;
-export function otherwise<In = unknown, R = unknown>(
+): OtherwiseDescriptor<In, In, P>;
+export function otherwise<In = unknown, R = unknown, P = ShippedPlugins>(
   enricher: Enricher<In, R>,
-): OtherwiseDescriptor<In, FetchedBody<In, R>>;
-export function otherwise(
-  path: Path<unknown, unknown>,
-): OtherwiseDescriptor<unknown, unknown> {
-  return { kind: "otherwise", path };
+): OtherwiseDescriptor<In, FetchedBody<In, R>, P>;
+export function otherwise(path: unknown) {
+  return { kind: "otherwise", path } as OtherwiseDescriptor<unknown, unknown>;
 }
 
 /**
@@ -168,10 +186,15 @@ export function otherwise(
  * destination becomes a single `.to()` step; a callback is run against a
  * fresh {@link PathBuilder} and its collected steps are returned.
  *
+ * @param catalogue - The enclosing builder's plugin steps, so the branch
+ *   builder has the same methods
  * @internal
  */
-export function compilePath(path: Path<unknown, unknown>): Step<Adapter>[] {
-  const builder = new PathBuilder<PathState<unknown>>();
+export function compilePath(
+  path: Path<unknown, unknown, unknown>,
+  catalogue: StepCatalogue,
+): Step<Adapter>[] {
+  const builder = new PathBuilder<PathState<unknown, unknown>>(catalogue);
   if (typeof path === "function") {
     path(builder);
   } else {
@@ -190,7 +213,8 @@ export function compilePath(path: Path<unknown, unknown>): Step<Adapter>[] {
  * @internal
  */
 export function compileChoiceBranches(
-  descriptors: readonly ChoiceDescriptor<unknown, unknown>[],
+  descriptors: readonly ChoiceDescriptor<unknown, unknown, unknown>[],
+  catalogue: StepCatalogue,
 ): ChoiceBranch[] {
   const whenBranches: ChoiceBranch[] = [];
   let otherwiseBranch: ChoiceBranch | undefined;
@@ -198,7 +222,7 @@ export function compileChoiceBranches(
     if (descriptor.kind === "when") {
       whenBranches.push({
         predicate: descriptor.predicate,
-        steps: compilePath(descriptor.path),
+        steps: compilePath(descriptor.path, catalogue),
         label: "when",
       });
     } else {
@@ -213,7 +237,7 @@ export function compileChoiceBranches(
       }
       otherwiseBranch = {
         predicate: () => true,
-        steps: compilePath(descriptor.path),
+        steps: compilePath(descriptor.path, catalogue),
         label: "otherwise",
       };
     }
@@ -231,9 +255,10 @@ export function compileChoiceBranches(
  * @internal
  */
 export function buildChoiceStep(
-  descriptors: readonly ChoiceDescriptor<unknown, unknown>[],
+  descriptors: readonly ChoiceDescriptor<unknown, unknown, unknown>[],
+  catalogue: StepCatalogue,
 ): ChoiceStep {
-  return new ChoiceStep(compileChoiceBranches(descriptors));
+  return new ChoiceStep(compileChoiceBranches(descriptors, catalogue));
 }
 
 /**
@@ -298,7 +323,13 @@ export class HaltStep implements Step<HaltAdapter> {
 export class PathBuilder<
   S extends BuilderState = BuilderState,
 > extends StepBuilderBase<S> {
+  declare readonly [BUILDER_KIND]: "path";
   private readonly steps: Step<Adapter>[] = [];
+
+  constructor(catalogue?: StepCatalogue) {
+    super(catalogue);
+    this.installSteps();
+  }
 
   protected override pushStep<T extends Adapter>(step: Step<T>): void {
     this.steps.push(this.applyPendingWrappers(step));

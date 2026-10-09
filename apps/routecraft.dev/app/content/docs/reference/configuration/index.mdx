@@ -8,7 +8,21 @@ Full reference for `CraftConfig` fields and logging options.
 
 ## CraftConfig
 
-The main configuration object for context settings. Export it as `craftConfig` (named export) alongside your capabilities when using `craft run`. The recommended pattern is `defineConfig`, an identity helper that types the object as `CraftConfig`, so every key autocompletes (including [ecosystem keys](#ecosystem-keys-added-by)) and a key `CraftConfig` does not declare is a compile error:
+The main configuration object for context settings. A project declares it in `craft.config.ts` with `defineProject`, which takes the configuration and the plugins the project installs, and default-exports the result; `craft start` reads that export:
+
+```ts
+// craft.config.ts
+import { defineProject } from '@routecraft/routecraft'
+
+export default defineProject({
+  name: 'orders-service',
+  shutdown: { timeout: '20s' },
+})
+```
+
+`defineProject` returns `{ craft, config, plugins }`: `config` is the `CraftConfig` below, and `craft()` is a route builder typed by the installed plugins. See [`defineProject`](/docs/reference/plugins#defineproject).
+
+For a single file run with `craft run`, export the configuration as `craftConfig` (named export) alongside your capabilities. `defineConfig` is an identity helper that types the object as `CraftConfig`, so every key autocompletes (including [ecosystem keys](#ecosystem-keys-added-by)) and a key `CraftConfig` does not declare is a compile error. `defineProject` checks keys the same way.
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
@@ -84,7 +98,8 @@ A disabled route is registered and known to the context, not started, not intaki
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
 | `deferral` | `DeferralConfig` | Only when a route can reach `.defer()` or `.resume()` | -- | Where deferred exchanges are stored and how resume tokens are signed. A context with a deferrable route and no `deferral` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#deferral)) |
 | `shutdown` | `{ timeout?: Duration }` | No | `{ timeout: 30000 }` | How long a graceful shutdown may drain before it is forced ([details](#shutdown)) |
-| `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
+| `plugins` | `Plugin[]` | No | -- | Plugins to install, bound in dependency order before routes are registered ([details](/docs/reference/plugins)) |
+| `hooks` | `HooksConfig` | No | -- | The order of plugin hooks within a slot, and hooks switched off ([details](#hooks)) |
 
 ### Ecosystem keys (added by `@routecraft/ai`)
 
@@ -113,7 +128,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-The keys apply in a fixed order (`llm`, `mcp`, `embedding`, `agent`, `sessions`, `acp`), whatever order they are written in, and before anything in `plugins`. That is what lets `acp` serve the agents `agent` registered in any key order, where the `plugins: [acpPlugin()]` form has to be listed after `agentPlugin()`.
+The keys apply in a fixed order (`llm`, `mcp`, `embedding`, `agent`, `sessions`, `acp`), whatever order they are written in, and before anything in `plugins`. Plugins then bind in dependency order, and a repeatable contribution such as `agentPlugin()` binds ahead of the other consumers of its port, so `acp` and `plugins: [acpPlugin()]` alike serve every registered agent whatever the list order.
 
 The legacy `plugins: [llmPlugin(...)]` form continues to work and is the right escape hatch for shared plugin instances or programmatic composition.
 
@@ -412,8 +427,8 @@ stage leaves, so it names route ids rather than a total. Then:
   cooperatively as soon as shutdown begins, gracefully or not. Records it had
   claimed are not lost either way, because the claim is a lease and the next
   process to run the sweep picks them up once it expires. Note that plugin
-  teardown waits for that in-flight sweep rather than abandoning it, which is
-  part of why teardown sits outside the bound.
+  `stop` waits for that in-flight sweep rather than abandoning it, which is
+  part of why plugin stop sits outside the bound.
 - **Nothing is settled or denied on the way down.** A deferred exchange
   survives a forced shutdown exactly as it survives a graceful one. Only a
   cancelled run denies its own deferral, and shutdown is not that.
@@ -426,18 +441,42 @@ same answer arrives twice: `context.stop()` resolves with
 [`context:stopped`](/docs/reference/events#context-events) carries the same
 pair for a subscriber that never sees the return value.
 
-Plugin teardown itself is not bounded by this key. Teardown releases
+Plugin `stop` itself is not bounded by this key. Stopping a plugin releases
 resources, and cutting it short would trade a bounded shutdown for a leaked
 one.
 
-**So `timeout` is not the whole shutdown budget.** Teardown runs after the
+**So `timeout` is not the whole shutdown budget.** Plugin stop runs after the
 deadline, and a plugin that drains on its own clock adds to the total: a
 named server drains up to its
 [`shutdownGrace`](/docs/reference/plugins/serversplugin), which also
 defaults to 30 seconds. A context with an HTTP mount and both defaults can
 therefore take up to 60 seconds to exit. When you size `timeout` against a
-platform kill timer, budget for the teardown that follows it, not for
+platform kill timer, budget for the plugin stop that follows it, not for
 `timeout` alone.
+
+## Hooks
+
+Plugins add hooks to the slots of the chain around every route; the `hooks` key is the application's say over them when two disagree. Each hook is addressed as `pluginId/hookId`.
+
+```ts
+import { defineProject } from '@routecraft/routecraft'
+
+export default defineProject({
+  hooks: {
+    order: { 'beforeAuth/mutate': ['acme.tenancy/normaliseTenant'] },
+    disable: ['acme.legacy/setTenantFromPath'],
+  },
+})
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `order` | `Record<string, string[]>` | The exact order of one phase of one slot, keyed `slot/phase`. Hooks it does not name run after the named ones, in plugin order |
+| `disable` | `string[]` | Hooks switched off. Slots only; a chain position is never disabled |
+
+A name that matches no installed hook, or an `order` key that is not `slot/phase`, refuses the build with [`RC1112`](/docs/reference/errors#rc-1112).
+
+A failure the route's own `.error()` did not settle reaches the `error` slot, where a plugin's error hook may recover it, drop it, or park it with [`recovery.defer()`](/docs/reference/operations/error#recovery-defer-request). There is no config-level error handler: write the hook in a plugin and list the plugin in `plugins`. Slots, phases and every hook field are in the [Plugins reference](/docs/reference/plugins#hooks); worked examples are in the [Plugins guide](/docs/advanced/plugins#hooks).
 
 ## Logging configuration
 

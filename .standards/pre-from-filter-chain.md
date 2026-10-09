@@ -36,49 +36,61 @@ position maps onto `RouteDefinition` and the pipeline executor.
 
 ## 6. Implementation status
 
-Today (as of #112 / #395 / 0.6.0):
+As of 0.8 (see [plugin-architecture.md](./plugin-architecture.md) section 3):
 
-- All filters 1-10 are implemented; the chain runs in the order
+- All positions 1-10 are implemented; the chain runs in the order
   documented above.
-- The chain is **first-class data** on `RouteDefinition`:
-  - `preParseFilters: Step<Adapter>[]` -- authorize steps in
-    declaration order (chain position #2).
-  - `postParseFilters: Step<Adapter>[]` -- route-scope cache-check
-    filter (chain position #9). Route-scope `throttle` (#5) is a
-    one-shot gate but must sit OUTSIDE the retry / timeout segments,
-    which wrap this array, so it rides on its own field (below)
-    rather than here.
-  - `circuitBreaker?: CircuitBreakerController` -- route-scope
-    `.circuitBreaker()` (#6). Unlike the cache filters it is not a
-    flat step: it scopes OVER the tail (when open it skips the tail;
-    when closed it runs it and observes the outcome) and holds
-    persistent per-Route state (the failure window + open/half-open
-    machine), so the builder stores the live controller here once and
-    the executor wraps the tail in a breaker segment around it,
-    OUTSIDE the retry (#7) / timeout (#8) segments.
-  - `postFromFilters: Step<Adapter>[]` -- route-scope cache-store
-    filter (chain position #10).
-  - `errorHandler?: ErrorHandler` -- the `.error()` route-scope
-    catch (chain position #1; implemented as the queue loop's
-    try/catch boundary rather than a step).
-- Parse (chain position #3) is **dynamic per exchange** (set on
-  exchange internals by the source adapter), so `runPipeline`
-  interleaves it at runtime between `preParseFilters` and
-  `postParseFilters`.
+- **The definition carries configuration, never the thing that does the
+  work.** `RouteDefinition` holds `authorize` (one entry per
+  `.authorize()` call), `throttle` (one per call), `circuitBreaker`,
+  `retry`, `timeout`, `concurrency` (one per call) and `cache` as
+  resolved options, plus `errorHandler` (position #1, the run's catch
+  boundary rather than a step). The position options are plain data, safe
+  to share across applications; the definition as a whole is not, since it
+  also carries the route's `sources`, its `steps` and the `errorHandler`
+  closure.
+- **Providers fill the positions per application.** When a route compiles
+  (before any route starts), `compilePositions()` in
+  `packages/routecraft/src/pipeline/positions.ts` asks the application's
+  `RESILIENCE`, `CACHE` and `ENFORCEMENT` providers for each configured
+  position. The defaults (`routecraft.resilience`, `routecraft.cache`,
+  `routecraft.auth`) are installed in every application; a plugin that
+  `replaces` the port fills the position instead. A configured position
+  with no provider is `RC1111` and the application does not start. A
+  breaker's window and a bulkhead's slots are built once per route by the
+  provider, so they are the route's own.
+- **One position step.** The executor wraps the tail in one generic step
+  per surrounding position (`buildPositionStep` in
+  `packages/routecraft/src/pipeline/executor.ts`), handing the provider a
+  `PositionRun`: `attempt(signal)` runs the tail once through a nested
+  executor that rethrows instead of failing the exchange, plus `signal`
+  (intake or abandon), `abandon`, `mustWait`, `forward` and `emit`. The
+  provider decides how often, and whether, the tail runs; the executor owns
+  what one run of it is. A step-scope run carries `mustWait` too, read from
+  the `StepContext` the executor hands a claimed continuation, so a bulkhead
+  after `.from()` queues a resumed exchange the way the route-scope one does. Gates (`authorize`, `throttle`) and the cache
+  pair are ordinary steps the providers return.
+- **Plugin hooks sit in named slots between positions**: `beforeAuth`
+  before `authorize`, `afterAuth` after it, `admitted` once `input` has
+  run, `perAttempt` inside `retry` and outside `timeout`, `exit` after
+  the pipeline and before the output stage, and `error` beside the
+  catch boundary. Order within a slot is phase first (observe, mutate,
+  validate), then the plugin list; see plugin-architecture.md section 3.
+- Parse (chain position #3) is **dynamic per exchange** (set on exchange
+  internals by the source adapter), so `runPipeline` interleaves it at
+  runtime between `authorize` and the rest of the chain.
 - The cache key flows from `cache-check` to `cache-store` via
   `internals.cacheKey` on the exchange (per-invocation, no shared
-  closure). `cache-check` derives it after `authorize` and `input`
-  have run; the default key hashes the route id, a fingerprint of
-  the pipeline a hit skips (`RouteDefinition.cachePipeline`, set at
-  build), the principal's issuer and subject with each `actor` hop,
-  and the validated body,
-  and a custom `key` is used verbatim (see `.standards/security.md`
-  § 4). Because `cache-check` runs before the pipeline, a route whose
-  pipeline contains `.authenticate()` refuses route-scope `.cache()`
-  at build (`RC5003`): a hit would skip authentication.
-- The builder assembles all three arrays in the chain order
-  regardless of which `.authorize()` / `.cache()` / `.error()`
-  methods were called first on the builder.
+  closure). `cache-check` derives it after `authorize` and `input` have
+  run; the default key hashes the route id, a fingerprint of the pipeline
+  a hit skips (`RouteDefinition.cachePipeline`, set at build), the
+  principal's issuer and subject with each `actor` hop, and the validated
+  body, and a custom `key` is used verbatim (see `.standards/security.md`
+  section 4). Because `cache-check` runs before the pipeline, a route whose
+  pipeline contains `.authenticate()` refuses route-scope `.cache()` at
+  build (`RC5003`): a hit would skip authentication.
+- The builder records the configuration in the chain's terms regardless of
+  which `.authorize()` / `.cache()` / `.error()` methods were called first.
 
 Input validation (chain position #4) is folded into the chain
 (#447). Like parse, it is dynamic per exchange:
@@ -109,67 +121,31 @@ other consumer-route failure. Previously the eager path emitted
 cross-route accounting notes in
 `packages/routecraft/test/direct-validation.bun.test.ts`.
 
-Filters 7-8 (`retry` #148, `timeout` #147) are shipped. They are
-NOT flat `postParseFilters` entries: each scopes OVER the chain
-tail below it (retry re-runs it, timeout bounds each run), which a
-sequential filter in a flat step queue cannot express. They live as
-`retry` / `timeout` fields on `RouteDefinition`; the pipeline
-executor wraps the tail (`postParseFilters` + user steps +
-`postFromFilters`) in segment steps that re-enter `runPipeline`
-with `rethrowUnhandled` so a failed attempt surfaces to the
-wrapping segment instead of firing the default error path per
-attempt. See `buildRetrySegmentStep` / `buildTimeoutSegmentStep`
-in `packages/routecraft/src/pipeline/executor.ts`.
-
-Filter 5 (`throttle` #151) is shipped. It is a one-shot admission
-gate (it neither re-runs nor bounds the tail), so it is a flat
-`buildThrottleCheckStep` rather than a segment; but because the chain
-places it OUTSIDE retry (#7) / timeout (#8), the executor prepends it
-to the tail AFTER those segments wrap, so a retried attempt re-runs
-only the tail below it and never re-acquires a token. It rides on the
-`throttle` field of `RouteDefinition` (built once per route around a
-shared token bucket), not in `postParseFilters` (which the segments
-wrap). See `buildThrottleCheckStep` in
-`packages/routecraft/src/pipeline/synthetic-steps.ts` and the
-`deps.definition.throttle` placement in
-`packages/routecraft/src/pipeline/executor.ts`.
-
-Filter 8.5 (`concurrency` #448) is shipped. Like the circuit breaker it
-scopes OVER the tail (acquires a slot, runs the tail, releases on settle)
-and holds persistent per-Route state (the slot pool / semaphores), so its
-live `ConcurrencyController`(s) ride on the `concurrency` field of
-`RouteDefinition` (built once per route; one controller per stacked
-`.concurrency()` call) and the executor wraps the tail in a bulkhead
-segment per controller. It is the INNERMOST resilience segment, wrapped
-BEFORE retry (#7) / timeout (#8) so each is outside it: a slot is held per
-attempt and freed between retry backoffs, and a `reject`-mode `RC5026` can
-be re-attempted by an outer retry. See `buildConcurrencySegmentStep` in
-`packages/routecraft/src/pipeline/executor.ts`.
-
-Filter 6 (`circuitBreaker` #139) is shipped. Like retry / timeout it
-scopes OVER the tail (it conditionally runs and observes it), so it is
-a segment, not a flat `postParseFilters` entry. Unlike them it also
-holds persistent per-Route state, so its live `CircuitBreakerController`
-rides on the `circuitBreaker` field of `RouteDefinition` (built once per
-route) and the executor wraps the tail in a breaker segment around it,
-OUTSIDE the retry (#7) / timeout (#8) segments and INSIDE the throttle
-(#5) gate. See `buildCircuitBreakerSegmentStep` in
-`packages/routecraft/src/pipeline/executor.ts`. The route-scope breaker
-fast-fails (fallback or `RC5025`) when open but does NOT yet pause the
-source consumer during cooldown; true source backpressure is a tracked
-follow-up (see `.standards/resilience-wrappers.md` section 7).
+The surrounding positions nest, from the inside out: `concurrency`
+(innermost, so a slot is held per attempt and freed between retry backoffs,
+and a `reject`-mode `RC5026` can be re-attempted by an outer retry; stacked
+calls nest with the first declared outermost), `timeout` (every attempt gets
+its own deadline), the `perAttempt` slot, `retry`, then `circuitBreaker`
+(outside retry, so one exhausted run of attempts records one failure). The
+`throttle` gates run once per exchange outside all of them, so a retried
+attempt never re-acquires a token. The route-scope breaker fast-fails
+(fallback or `RC5025`) when open but does NOT yet pause the source consumer
+during cooldown; true source backpressure is a tracked follow-up (see
+`.standards/resilience-wrappers.md` section 7).
 
 ---
 
 ## 7. Resume re-enters partway down the chain
 
-Three runs re-enter a route partway down its pipeline: a `.resume()` reviving a `.defer()`, a `.debounce()` release, and an `enterErrorChannel()` re-entry pushing a failure at an exchange that is not running. None re-enters the chain by traversing it, so which positions apply is **declared per position** in `pipeline/chain-policy.ts` rather than implied by how the run is executed.
+Four runs re-enter a route partway down its pipeline: a `.resume()` reviving a `.defer()`, a `.debounce()` release, an `enterErrorChannel()` re-entry pushing a failure at an exchange that is not running, and an **admission** resume of an exchange parked from the error path before the route admitted it. None re-enters the chain by traversing it, so which positions apply is **declared per position** in `pipeline/chain-policy.ts` rather than implied by how the run is executed.
 
-`CHAIN_SURVIVAL` is keyed by `Exclude<keyof RouteDefinition, NonChainField>` and valued by a record over every kind, so each position states an answer for all three, with its own reason for each. Adding a field to `RouteDefinition` fails the build until it is either excluded as a non-chain field or given a policy; adding a fourth kind fails every row until each says what it means. `detachedDefinition()` builds the executed definition from that record, and `ExecutorDeps["definition"]` is the same type it produces, so the fields the executor consumes cannot drift from the fields the policy classifies.
+`CHAIN_SURVIVAL` is keyed by `Exclude<keyof RouteDefinition, NonChainField>` and valued by a record over every kind, so each position states an answer for all four, with its own reason for each. Adding a field to `RouteDefinition` fails the build until it is either excluded as a non-chain field or given a policy; adding a fourth kind fails every row until each says what it means. `detachedDefinition()` builds the executed definition from that record, and `ExecutorDeps["definition"]` is the same type it produces, so the fields the executor consumes cannot drift from the fields the policy classifies.
 
 Per-kind reasons are not ceremony. The same position is off for genuinely different reasons: `circuitBreaker` is off for a resume because a continuation runs after the deferral is claimed, so refusing there spends an approval, and off for the error channel because an open breaker must not suppress the report of a failure.
 
-As declared today, a resume carries `error` (#1), `retry` (#7), `timeout` (#8) and `concurrency` (#8.5); a debounce release and an error-channel re-entry each carry `error` alone. A re-entrant defer site (a defer-capable `.to()` / `.enrich()` step such as the agent step) resumes under the same policy; the only difference is that its continuation begins with the deferring step itself, which re-runs to finish the work it deferred in the middle of. The user-facing per-position table with the reasoning is on the [filter chain page](https://routecraft.dev/docs/advanced/filter-chain); do not re-document it here. The reasons also live beside each entry in the policy record, which is what a maintainer reads first.
+As declared today, a resume carries `error` (#1), `retry` (#7), `timeout` (#8) and `concurrency` (#8.5); a debounce release and an error-channel re-entry each carry `error` alone.
+
+An **admission** resume carries those four and `authorize` (#2) as well, and it is the only kind that does. It exists because `recovery.defer()` can park a failure raised in the chain ITSELF, above the pipeline, so execution one never finished admitting the exchange: the continuation has to do it. The reason the `resume` column turns `authorize` off does not hold there, because a door's `elevate` hook supplied a LIVE principal, so `RC5043` does not fire and the gate that refused gets to read the lent scope; without it the lend would never be checked against the gate it was lent for. `input` (#4) runs too, rebuilt from `discovery.input`, which the live route still holds. `parse` (#3) does NOT: a source-attached parser arrives per message on the queue envelope and is neither storable with the record nor re-derivable from the route, so an admission park raised while one is pending is refused with `RC5051` rather than resumed against an unparsed body. Every other position keeps the answer it gives an ordinary resume, and for the same reasons: a position that REFUSES work without attempting it must not sit below the store transition. A re-entrant defer site (a defer-capable `.to()` / `.enrich()` step such as the agent step) resumes under the same policy; the only difference is that its continuation begins with the deferring step itself, which re-runs to finish the work it deferred in the middle of. The user-facing per-position table with the reasoning is on the [filter chain page](https://routecraft.dev/docs/advanced/filter-chain); do not re-document it here. The reasons also live beside each entry in the policy record, which is what a maintainer reads first.
 
 One caveat belongs here rather than on the docs page, because it is a property of the chain ORDER this standard fixes: `timeout` (#8) wraps `concurrency` (#8.5), so a route declaring both can have a resume's deadline elapse while its continuation is still queued for a slot, failing work that never started. Narrowing that needs the order to differ per kind, which section 2 does not allow.
 

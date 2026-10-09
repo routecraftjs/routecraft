@@ -4,13 +4,8 @@ import type {
   PseudoFactory,
   PseudoKeyedFactory,
 } from "../../testing/src/adapters/pseudo/index.ts";
-import {
-  craft,
-  simple,
-  noop,
-  log,
-  type RouteBuilder,
-} from "@routecraft/routecraft";
+import { craft, simple, noop, log } from "@routecraft/routecraft";
+import { expectBodyOf } from "./helpers/types.ts";
 import type { Exchange } from "@routecraft/routecraft";
 
 // Option/result types for type-level and runtime tests.
@@ -51,82 +46,72 @@ function mockExchange<T = unknown>(body: T): Exchange<T> {
 describe("Pseudo adapter", () => {
   describe("type-level compilation", () => {
     /**
-     * @case Pseudo in .from() is accepted and RouteBuilder type is R
+     * @case Pseudo in .from() is accepted and the body type is R
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ body: UserData; deferral?: unknown }>
+     * @expectedResult Body type is UserData
      */
-    test("from() with pseudo sets RouteBuilder<{ body: R; deferral?: unknown }>", () => {
+    test("from() with pseudo sets body R", () => {
       const src = pseudo<{ poll: number }>("src");
       const route = craft().from(src<UserData>({ poll: 1000 }));
-      expectTypeOf(route).toEqualTypeOf<
-        RouteBuilder<{ body: UserData; deferral?: unknown }>
-      >();
+      expectBodyOf(route).toEqualTypeOf<UserData>();
     });
 
     /**
      * @case Pseudo in .enrich() is accepted and the body type becomes R
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ body: EnrichedData; deferral?: unknown }> (aggregator omitted = replace)
+     * @expectedResult Body type is EnrichedData (aggregator omitted = replace)
      */
-    test("enrich() with pseudo replaces RouteBuilder<{ body: R; deferral?: unknown }>", () => {
+    test("enrich() with pseudo replaces the body with R", () => {
       const mcp = pseudo<McpOpts>("mcp");
       const route = craft()
         .from(simple("hello"))
         .enrich(mcp<EnrichedData>({ server: "x", tool: "y" }));
-      expectTypeOf(route).toEqualTypeOf<
-        RouteBuilder<{ body: EnrichedData; deferral?: unknown }>
-      >();
+      expectBodyOf(route).toEqualTypeOf<EnrichedData>();
     });
 
     /**
      * @case Pseudo in .to() is accepted; send wins, so the body is unchanged
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ body: string; deferral?: unknown }>
+     * @expectedResult Body type is string
      */
     test("to() with pseudo preserves the body type (send wins)", () => {
       const db = pseudo<{ table: string }>("db");
       const route = craft()
         .from(simple("data"))
         .to(db<{ id: string }>({ table: "events" }));
-      expectTypeOf(route).toEqualTypeOf<
-        RouteBuilder<{ body: string; deferral?: unknown }>
-      >();
+      expectBodyOf(route).toEqualTypeOf<string>();
     });
 
     /**
      * @case Pseudo in .tap() preserves current body type
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ body: { count: number }; deferral?: unknown }>
+     * @expectedResult Body type is { count: number }
      */
     test("tap() with pseudo preserves current type", () => {
       const metrics = pseudo<{ metric: string }>("metrics");
       const route = craft()
         .from(simple({ count: 1 }))
         .tap(metrics({ metric: "items" }));
-      expectTypeOf(route).toEqualTypeOf<
-        RouteBuilder<{ body: { count: number }; deferral?: unknown }>
-      >();
+      expectBodyOf(route).toEqualTypeOf<{ count: number }>();
     });
 
     /**
-     * @case Pseudo in .process() is accepted and RouteBuilder type is R
+     * @case Pseudo in .process() is accepted and the body type is R
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ body: { answer: string }; deferral?: unknown }>
+     * @expectedResult Body type is { answer: string }
      */
-    test("process() with pseudo sets RouteBuilder<{ body: R; deferral?: unknown }>", () => {
+    test("process() with pseudo sets body R", () => {
       const ai = pseudo<{ model: string }>("ai");
       const route = craft()
         .from(simple("prompt"))
         .process(ai<{ answer: string }>({ model: "gpt-4" }));
-      expectTypeOf(route).toEqualTypeOf<
-        RouteBuilder<{ body: { answer: string }; deferral?: unknown }>
-      >();
+      expectBodyOf(route).toEqualTypeOf<{ answer: string }>();
     });
 
     /**
      * @case Chained pseudo enrich then split then to composes types
      * @preconditions src, mcp, and db pseudo factories; bare enrich replaces the body
-     * @expectedResult RouteBuilder<{ body: string; deferral?: unknown }> (send wins in .to, body flows on)
+     * @expectedResult Body type is string (send wins in .to, body flows on)
      */
     test("chained pseudo adapters compose types correctly", () => {
       const src = pseudo<{ poll: number }>("src");
@@ -137,9 +122,7 @@ describe("Pseudo adapter", () => {
         .enrich(mcp<{ messages: string[] }>({ server: "gmail", tool: "list" }))
         .split<string>((ex) => ex.body.messages)
         .to(db<{ id: string }>({ table: "emails" }));
-      expectTypeOf(route).toEqualTypeOf<
-        RouteBuilder<{ body: string; deferral?: unknown }>
-      >();
+      expectBodyOf(route).toEqualTypeOf<string>();
     });
 
     /**

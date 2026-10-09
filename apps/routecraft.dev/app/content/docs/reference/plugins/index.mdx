@@ -3,29 +3,42 @@ title: Plugins
 ---
 
 <Lead>
-Built-in plugins that extend the Routecraft runtime. Each entry opens its own reference page with the full options and behaviour.
+Built-in plugins that extend the Routecraft runtime, and the full plugin API: the descriptor, the plugin context, the lifecycle and its faults, ports, hooks, steps and facets.
 </Lead>
 
 <PluginIndex />
 
 <Callout>
 
-Core adapter defaults (`cron`, `direct`) are set via dedicated fields on `CraftConfig`, not via plugins. See [Configuration](/docs/reference/configuration) and [Merged Options](/docs/advanced/merged-options).
+Core adapter defaults (`cron`, `direct`) are set with dedicated `CraftConfig` fields. Each field installs the adapter's plugin for you, so you never list it in `plugins`. See [Configuration](/docs/reference/configuration) and [Merged Options](/docs/advanced/merged-options).
 
 </Callout>
 
+How to write a plugin, with a worked example for each part, is on the [Plugins guide](/docs/advanced/plugins). This page lists every field, member and fault.
+
 ## First-class config keys
 
-Importing `@routecraft/ai` augments `CraftConfig` with first-class keys for the AI plugins. Setting `llm`, `mcp`, `embedding`, `agent`, or `sessions` on the config is equivalent to pushing the corresponding plugin onto `plugins: []` (`sessions` maps to `sessionsPlugin`, documented under [Configuration](/docs/reference/configuration#sessions)). Lifecycle (`apply`, `start`, `teardown`, plugin events) is identical.
+A config key installs the matching plugin with its options. Importing `@routecraft/ai` augments `CraftConfig` with keys for the AI plugins: setting `llm`, `mcp`, `embedding`, `agent`, or `sessions` is equivalent to listing the corresponding plugin in `plugins` (`sessions` maps to `sessionsPlugin`, documented under [Configuration](/docs/reference/configuration#sessions)). The plugin's lifecycle and events are identical either way. A key and an explicit plugin for the same feature are two installations of one id and fail with [`RC1101`](/docs/reference/errors#rc-1101).
 
-Still supported, and what you want for shared plugin instances or
-programmatic composition:
+Recommended for declarative configuration:
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
+import '@routecraft/ai' // augments CraftConfig
+
+export default defineProject({
+  llm: { providers: { openai: { apiKey: '...' } } },
+  mcp: { clients: {} },
+})
+```
+
+The factories remain available, for a plugin instance you build once and reuse, or for programmatic composition:
+
+```ts
+import { defineProject } from '@routecraft/routecraft'
 import { llmPlugin, mcpPlugin } from '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   plugins: [
     llmPlugin({ providers: { openai: { apiKey: '...' } } }),
     mcpPlugin({ clients: {} }),
@@ -33,99 +46,287 @@ export const craftConfig = defineConfig({
 })
 ```
 
-Recommended for declarative configs:
+## `defineProject` \{#defineproject}
 
-```ts
-import { defineConfig } from '@routecraft/routecraft'
-import '@routecraft/ai' // augments CraftConfig
+`defineProject({ plugins, ...config })` declares a project and returns `{ craft, config, plugins }`. `craft.config.ts` default-exports it, and `craft start` reads that export.
 
-export const craftConfig = defineConfig({
-  llm: { providers: { openai: { apiKey: '...' } } },
-  mcp: { clients: {} },
-})
-```
+| Member | Type | Meaning |
+| --- | --- | --- |
+| `craft()` | `() => PreFromBuilder` | A route builder typed by exactly the installed plugins plus the [default plugins](#default-plugins). A step or facet of a plugin the project does not install is a compile error. |
+| `config` | `CraftConfig` | The configuration to start the application with, `plugins` included. Pass it to `ContextBuilder.with()` or `testContext().with()`. |
+| `plugins` | `readonly Plugin[]` | The plugins the project lists, as given. |
 
-The factories listed above remain available unchanged. Use them via `plugins: []` when you need to instantiate a plugin once and reuse it (across multiple contexts) or compose plugins programmatically.
+A misspelled config key is a compile error, as it is with `defineConfig`. A config key that installs a plugin with steps or a facet (`deferral`) types the project's routes when it is set: the package registering the key merges its plugin type into `ConfigKeyPlugins`, so a third-party key gets the same typing as a first-party one. The root `craft()` export is typed by the plugins `@routecraft/routecraft` ships; a route that uses an uninstalled plugin's step refuses to start with [`RC1111`](/docs/reference/errors#rc-1111), and reading an uninstalled plugin's facet fails with the same code.
+
+A plain config object still loads: `craft start` accepts a default-exported `defineProject(...)`, a named `craftConfig` export, or a default-exported config object, in that order. `craft run <file>` reads the file's named `craftConfig` export.
+
+## Plugin descriptor
+
+`definePlugin(descriptor)` returns the descriptor unchanged, keeping its literal types.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | `string` | Dotted identity, unique per application: `routecraft.deferral`, `acme.approvals`. A duplicate is `RC1101`. |
+| `namespace` | `string` | The prefix the plugin's facet, route options and events live under. Defaults to the last segment of `id`; unique per application (`RC1102`). |
+| `requires` | `Port[]` | Ports the plugin cannot run without. A missing provider is `RC1104`. |
+| `optional` | `Port[]` | Ports the plugin uses when present, read with `lookup()`. |
+| `provides` | `Port[]` | Ports the plugin provides in `bind`. Two providers of one port is `RC1105`. |
+| `replaces` | `Port[]` | Ports whose other provider this plugin displaces. Each must also be in `provides` (`RC1106`). The displaced plugin still binds, starts and stops: replacing a port selects a provider and never removes a plugin, so a displaced plugin that owns a resource (the `servers` listener) keeps it, and an application that wants it gone leaves its config key out. |
+| `installs` | `Plugin[]` | Plugins this one brings along, installed ahead of it and once per id, unless the application lists that id itself. Two bundles bringing different descriptors under one single id the application does not list is `RC1101`; repeatable descriptors under one id each install, numbered. |
+| `repeatable` | `boolean` | Several installs may coexist, named `id#1`, `id#2`, ... in list order. A repeatable plugin may not provide or replace a port, or declare hooks, points, steps or a facet. It binds ahead of every other plugin that uses the ports it uses, so a reader sees every contribution, unless that order would contradict the declared dependencies. |
+| `keepsAlive` | `boolean` | The plugin owns a lifetime past the routes (a listener, a subscription): when every route has completed, the application keeps running until stopped. |
+| `hooks` | `Hooks` | Hooks in the chain's [slots](#slots), or at a point another plugin declares. |
+| `points` | `{ name: string }[]` | Moments this plugin declares and invokes from its own steps, where other plugins add hooks. |
+| `steps` | `Record<string, StepFactory>` | Route methods this plugin adds, by name. See [steps](#steps). |
+| `facet` | `(exchange) => view` | What `ex.<namespace>` reads. See [facets](#facets). |
+| `bind(c)` | `(c: PluginContext) => void \| Promise<void>` | Require, provide, observe, register routes. Runs in dependency order. |
+| `start(c)` | `(c: PluginContext) => void \| Promise<void>` | Begin work that needs running routes. Awaited. |
+| `stop(c, info)` | `(c: PluginContext, info: StopInfo) => void \| Promise<void>` | Release what `bind` and `start` acquired. Reverse order. |
+
+## Plugin context
+
+`bind`, `start` and `stop` receive a `PluginContext`. A plugin never receives the `CraftContext`.
+
+| Member | Meaning |
+| --- | --- |
+| `id`, `namespace` | The plugin's own id and namespace. |
+| `logger` | A child logger carrying the plugin id. |
+| `require(port)` | The provider of a port declared in `requires` or `optional`. Throws `RC1108` for an undeclared port and `RC1104` when an optional port has no provider. |
+| `lookup(port)` | Like `require`, but `undefined` when an optional port has no provider. |
+| `provide(port, value)` | Provide a port declared in `provides`. In `bind` only: `RC1109` for an undeclared port, `RC1110` after the application froze. |
+| `observe(event, handler)` | Subscribe to an [event](/docs/reference/events). Returns the unsubscribe function, for a subscription that ends before the plugin does; every subscription is released with the plugin at stop, so none needs tracking. |
+| `emit(event, details)` | Emit an event. Any name the `EventDetailsMap` declares is accepted, the framework's included, so a plugin emits under its own names (declared by augmenting `EventDetailsMap`) and never poses as the framework to telemetry or audit. |
+| `onDispose(fn)` | Register a release that runs at stop, after the plugin's own `stop`, in reverse registration order. Every one runs even when another throws, and they run when this plugin's own `bind` throws after registering them. |
+| `frozen` | True once the last `bind` returned. A plugin that collects contributions through its port refuses later ones with [`RC1110`](/docs/reference/errors#rc-1110). |
+| `routes.register(...definitions)` | Add routes. In `bind` only (`RC1110` afterwards). |
+| `routes.list()`, `routes.get(id)` | Read-only views of registered routes: `id`, `definition`, `enabled`, `disabledReason`. The definition is read-only down the graph, at the type and at runtime: a write through it is `RC1110`. |
+| `routes.hooksOf(id)` | The hooks that apply to a route in the order they run, each as `{ slot, point, phase?, plugin, id }`. Empty before the routes compile. |
+| `execution` | The verbs that drive the application, below. |
+
+### Execution
+
+| Member | Meaning |
+| --- | --- |
+| `deliver(endpoint, body, headers?)` | Hand a body to the route listening on a `direct()` endpoint and resolve with its reply, typed `unknown` for the caller to narrow. `RC5004` when nothing listens. |
+| `resume(request)` | Resume a parked exchange by its token on the plugin's own behalf, with no ingress door and no live principal. `RC5052` when no plugin provides continuations. |
+| `sweep({ boot? })` | Run one pass of the kernel's sweep over parked exchanges: heal stale claims, purge settled records past retention, retire overdue ones through each route's error channel. The deferral plugin calls it on its cadence. Resolves with how many were retired. |
+| `capabilities()` | Discoverable capabilities of the enabled routes. |
+| `whenStarted()` | Resolves once every route signalled readiness and every `start` returned. |
+| `requestStop()` | Ask the application to stop. Returns at once; never await a stop from inside a lifecycle function. |
 
 ## Lifecycle
 
-A plugin has one required hook, `apply(ctx)`, and two optional ones, `start(ctx)` and `teardown(ctx, info)`. Which one a piece of work belongs in is decided by what has to already exist for that work to be correct.
+| Function | Runs | The routes are | Use it for |
+| --- | --- | --- | --- |
+| `bind(c)` | While the application is installed, in dependency order, before any route is registered | Not registered yet | Requiring and providing ports, resolving config, opening resources, observing events |
+| `start(c)` | After every route has started | Running | Work that drives routes or needs them able to serve |
+| `stop(c, info)` | During shutdown, or when an install or start failed partway | Stopping, stopped, or never started | Releasing what `bind` opened, stopping what `start` began |
 
-| Hook | Runs | The routes are | Use it for |
-|------|------|----------------|------------|
-| `apply(ctx)` | While the context is being built | Not registered yet | Resolving config, opening resources, populating the context store |
-| `start(ctx)` | After every route has started | Running | Work that drives routes or needs them able to serve |
-| `teardown(ctx, info)` | During shutdown, or when a build or start failed partway | Stopping, stopped, or never started | Releasing what `apply` opened, stopping what `start` began |
+The stages an application goes through, and the fault each one raises:
 
-```ts
-import type { CraftPlugin, CraftContext } from '@routecraft/routecraft'
+| Stage | What happens | Faults |
+| --- | --- | --- |
+| 1. Identity | One plugin per id, one per namespace, one key per port name, the one `port()` mints. | [`RC1101`](/docs/reference/errors#rc-1101), [`RC1102`](/docs/reference/errors#rc-1102), [`RC1103`](/docs/reference/errors#rc-1103) |
+| 2. Resolution | Every required port resolves to exactly one provider. | [`RC1104`](/docs/reference/errors#rc-1104), [`RC1105`](/docs/reference/errors#rc-1105), [`RC1106`](/docs/reference/errors#rc-1106) |
+| 3. Order | A topological sort over `requires` and `optional`; a repeatable plugin binds ahead of every other consumer of the ports it uses; ties keep list order. Default plugins come first. | [`RC1107`](/docs/reference/errors#rc-1107) |
+| 4. Bind | Each plugin's `bind` runs in that order and must provide what it declared. | [`RC1108`](/docs/reference/errors#rc-1108), [`RC1109`](/docs/reference/errors#rc-1109) |
+| 5. Freeze | Nothing more is accepted: ports, routes, hooks. | [`RC1110`](/docs/reference/errors#rc-1110) |
+| 6. Compile | Routes register; every hook is placed; every position and plugin step a route uses must have a provider. | [`RC1111`](/docs/reference/errors#rc-1111), [`RC1112`](/docs/reference/errors#rc-1112), [`RC1113`](/docs/reference/errors#rc-1113), [`RC1114`](/docs/reference/errors#rc-1114), [`RC1115`](/docs/reference/errors#rc-1115), [`RC1116`](/docs/reference/errors#rc-1116) |
+| 7. Start | Routes start and signal readiness, then each plugin's `start`. | |
+| 8. Stop | Reverse dependency order, consumers before providers; failures aggregated. | |
 
-export function heartbeatPlugin(everyMs = 60_000): CraftPlugin {
-  // Keyed by context, not a closure slot: one plugin instance can be applied
-  // to more than one context in a process, and a single slot would let the
-  // second start overwrite the first context's timer.
-  const timers = new WeakMap<CraftContext, ReturnType<typeof setInterval>>()
+Stages 1 to 3 run before any plugin binds, so their faults leave nothing to release. Each lifecycle function is awaited before the next plugin's runs. Events `plugin:binding` / `plugin:bound` bracket `bind`, `plugin:starting` / `plugin:started` bracket `start`, and `plugin:stopping` / `plugin:stopped` bracket `stop` (see [plugin events](/docs/reference/events#plugin-events)).
 
-  return {
-    name: 'heartbeat',
-    apply(ctx: CraftContext) {
-      ctx.logger.debug({}, 'heartbeat configured')
-    },
-    start(ctx: CraftContext) {
-      const timer = setInterval(() => {
-        ctx.logger.info({}, 'still running')
-      }, everyMs)
-      timer.unref?.()
-      timers.set(ctx, timer)
-    },
-    teardown(ctx: CraftContext) {
-      const timer = timers.get(ctx)
-      if (timer) clearInterval(timer)
-      timers.delete(ctx)
-    },
-  }
-}
-```
+A throwing `start` fails `context.start()` with the original error, and every bound plugin is stopped in reverse order before it surfaces, including plugins whose `start` never ran. A failure during `bind` or route registration unwinds the same way: only plugins whose `bind` returned are stopped, and the original error surfaces unchanged even if a `stop` throws on the way out.
 
-`ContextBuilder.build()` applies plugins BEFORE it registers routes, so `apply` must not assume a route exists. Anything that reads or drives routes belongs in `start`, which runs once they are up.
+A stop that lands mid-boot waits for the lifecycle function still running before it stops that plugin, so a plugin always observes its function entered, settled, then `stop`. No lifecycle function runs once the stop walk has begun.
 
-Most plugins need only the required hook: a plugin that supplies typed, validated defaults to the context store is a config helper, and `apply` alone covers it.
+To abort a boot, `throw`. To stand the application down without failing the boot, call `c.execution.requestStop()`, which returns at once. A lifecycle function must never wait for the application's own stop: the stop waits for the function, and neither settles.
 
-A plugin instance may be applied and started against more than one context in a process, so per-run state a hook creates must be keyed by the `ctx` it was handed rather than held in a closure slot.
-
-Hooks run in registration order and each is awaited before the next plugin's, at both `apply` and `start`. A hook that throws during `start` fails `context.start()` with the original error, and every applied plugin is torn down in reverse order before it surfaces, including plugins whose `start()` never ran.
-
-A failure during `build()` unwinds the same way, so a plugin that opened a resource before a later plugin refused does not leak it: `build()` returns no context, so nothing else could ever release it. Only plugins whose `apply()` returned are torn down, and the original error surfaces unchanged even if a teardown throws on the way out.
-
-A `stop()` that lands mid-boot waits for the hook that is still running before it tears that plugin down, so the order a plugin observes is always its hook entered, its hook settled, then `teardown`. Anything a hook acquires after its last `await` is therefore covered by the release that follows it. The wait is unbounded and covers `apply` and `start` alone, never the route work that only ends at shutdown, and no further hook runs once teardown has begun.
-
-A hook may shut the context down, but it must never `await` its own `stop()`: the hook would wait for a shutdown that is waiting for the hook, and neither settles. Use `throw` to abort the boot with a reason, which unwinds through the teardown walk and surfaces the error, or call `ctx.stop()` without awaiting it to stand the context down without failing the boot. The rule is documented rather than enforced, and awaiting it hangs at boot on the first run.
-
-```ts skip="fragment: not a complete statement on its own"
-async start(ctx: CraftContext) {
-  // Abort the boot, with the reason reaching the operator:
-  if (!configured) throw new Error("mail credentials missing");
-  // Or request shutdown without failing the boot:
-  void ctx.stop();
-}
-```
-
-`teardown` receives a second argument describing how far the context got, so a plugin never has to infer it:
+`stop` receives a second argument describing how far the application got:
 
 | Field | Means |
-|-------|-------|
-| `partial` | This is not a fully started context: it never started (a build that failed partway, or an embedder that built and stopped without calling `start()`) or a `start()` hook threw. Routes may not be registered and later plugins may never have applied. |
-| `started` | This plugin's own `start()` returned. Always `false` for a plugin with no `start()` hook, and during a build-failure unwind. |
+| --- | --- |
+| `partial` | This is not a fully started application: it never started (an install that failed partway, or an embedder that built and stopped without calling `start()`) or a `start` threw. Routes may not be registered and later plugins may never have bound. |
+| `started` | This plugin's own `start` returned. Always `false` for a plugin with no `start`, and during an install-failure unwind. |
 
-Ignore both and the hook behaves as it always did, which is correct for any plugin that only closes what `apply()` opened. A plugin that stops what `start()` began reads `started` instead of guarding on its own bookkeeping.
+A plugin that only closes what `bind` opened can ignore both. A plugin that stops what `start` began reads `started`.
 
-`start` is awaited, so the context is not ready until every hook has resolved. Use it for startup work that finishes: the deferral plugin scans for deferrals that expired while the process was down, so those escalations reach their routes before new traffic does. Work that does not finish (a poll loop, a subscription) is begun in `start` and left to the plugin's own timer, as above, rather than awaited inside the hook.
+`start` is awaited, so the application is not ready until every `start` has resolved. Use it for startup work that finishes, and begin unbounded work (a poll loop, a subscription) there without awaiting it. A plugin descriptor may serve more than one application in a process, so per-run state is released with `c.onDispose()` or keyed by the `PluginContext`, never held in a closure slot.
 
 <Callout type="note" title="Waiting for a context to be ready">
 
-`ctx.start()` resolves when the context **stops**, not when it comes up: a context with an indefinite route (an HTTP server, a `direct()` endpoint) keeps running. Await `ctx.whenStarted()` for readiness. It resolves once no route is still coming up and every `start()` hook has finished, and rejects if a hook or the config refuses. A single route failing to come up is not observable there, since the context keeps the others running.
+`ctx.start()` resolves when the context **stops**, not when it comes up: a context with an indefinite route (an HTTP server, a `direct()` endpoint) keeps running. Await `ctx.whenStarted()`, or `c.execution.whenStarted()` from a plugin, for readiness. It resolves once no route is still coming up and every `start` has finished, and rejects if a `start` or the config refuses. A single route failing to come up is not observable there, since the context keeps the others running.
 
 </Callout>
+
+## Ports
+
+`port<T>(name)` declares a port. The name is `owner.capability@version` in lowercase dotted segments; anything else is `RC1103`. Call it once at module scope and export the token: the identity is the name, so two copies of the declaring module resolve as one port; two tokens with one name but different keys in one application are `RC1103`. Load one build of one install per process: ports resolve across copies, but the refusal a door answers is bound in the copy that raised it, and the context warns at build when it finds more than one copy.
+
+Adapters read a port at runtime through the context they run in, with `context.require(port)` or `context.lookup(port)`.
+
+The ports the framework ships:
+
+| Token | Name | Provided by |
+| --- | --- | --- |
+| `DIRECT` | `routecraft.direct@1` | `routecraft.direct` |
+| `RESILIENCE` | `routecraft.resilience@1` | `routecraft.resilience` |
+| `CACHE` | `routecraft.cache@1` | `routecraft.cache` |
+| `AUTHORITY` | `routecraft.principals@1` | `routecraft.principals` |
+| `ENFORCEMENT` | `routecraft.enforcement@1` | `routecraft.auth` |
+| `CONTINUATIONS` | `routecraft.continuations@1` | `routecraft.deferral` |
+| `WEB_INGRESS` | `routecraft.servers@1` | `routecraft.servers` |
+| `HTTP` | `routecraft.http@1` | `routecraft.http` |
+| `OPS` | `routecraft.ops@1` | `routecraft.ops` |
+| `REMOTES` | `routecraft.remotes@1` | `routecraft.remotes` |
+| `CRON_DEFAULTS` | `routecraft.cron.defaults@1` | `routecraft.cron` |
+| `MAIL` | `routecraft.mail@1` | `routecraft.mail` |
+| `CARDDAV` | `routecraft.carddav@1` | `routecraft.carddav` |
+| `AGENTS` | `routecraft.ai.agents@1` | `routecraft.ai.agent` (`@routecraft/ai`) |
+| `SESSION_STORE` | `routecraft.ai.session-store@1` | `routecraft.ai.sessions` (`@routecraft/ai`) |
+| `MCP` | `routecraft.ai.mcp@1` | `routecraft.ai.mcp` (`@routecraft/ai`) |
+| `LLM` | `routecraft.ai.llm@1` | `routecraft.ai.llm` (`@routecraft/ai`) |
+| `EMBEDDING` | `routecraft.ai.embedding@1` | `routecraft.ai.embedding` (`@routecraft/ai`) |
+| `SURFACES` | `routecraft.ai.surfaces@1` | `routecraft.ai.surfaces` (`@routecraft/ai`) |
+| `SHELL` | `routecraft.os.shell@1` | `routecraft.os.shell` (`@routecraft/os`) |
+
+`RESILIENCE`, `CACHE` and `ENFORCEMENT` fill the chain's route-scope positions. The default providers are exported as `resilienceProvider`, `cacheProvider(fallback?)` and `enforcementProvider`, so a replacement can delegate to them; `cacheProvider` takes the provider a `.cache()` without one of its own runs against, a fresh in-memory one by default. A step-scope wrapper (`.retry()` and the rest called after `.from()`) resolves the same provider when the exchange runs, so a replacement fills both scopes (see [Slots](#slots)). A plugin that replaces a port is named once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.
+
+`AUTHORITY` decides who an exchange acts for and whether to trust it. It provides `mint(claims)`, `brand(principal)`, `isAuthentic(principal)`, `restore(record)`, `isRestored(principal)` and `read(exchange)`. `authorityOf(exchangeOrContext)` returns the application's authority. Every mint and every check goes through it, so a replacement decides both sides; `delegate()` and the ingress mounts take the authority explicitly rather than assuming the default. `defaultAuthority` is exported for a replacement that decorates it.
+
+## Default plugins
+
+Installed in every application, ahead of its own plugins:
+
+| Plugin | Factory | Provides | Steps and facet |
+| --- | --- | --- | --- |
+| `routecraft.direct` | `directPlugin()` | `DIRECT` | |
+| `routecraft.resilience` | `resiliencePlugin()` | `RESILIENCE` | |
+| `routecraft.cache` | `cachePlugin()` | `CACHE` | |
+| `routecraft.principals` | `principalsPlugin()` | `AUTHORITY` | |
+| `routecraft.auth` | `authPlugin()` | `ENFORCEMENT` | steps `authenticate`, `delegate`; facet `ex.auth` |
+
+An application plugin with the same id takes a default's place. A plugin that declares `replaces` for a default's port is selected over it while the default still binds. The deferral plugin (`routecraft.deferral`, installed by the `deferral` config key) adds the `defer` and `resume` steps and the `ex.deferral` facet.
+
+## Hooks
+
+### Slots
+
+The chain around every route runs in a fixed order. **Positions** belong to the framework and hold one thing each; a plugin can replace what fills a position through its port, but cannot move, remove or add one. **Slots** sit between positions, and any number of plugins add hooks there.
+
+| In order | Kind | Filled by |
+| --- | --- | --- |
+| `error` | slot | hooks; the route's own `.error()` runs first |
+| `beforeAuth` | slot | hooks |
+| `authorize` | position | `ENFORCEMENT` |
+| `afterAuth` | slot | hooks |
+| `parse`, `input` | positions | the kernel; not replaceable |
+| `admitted` | slot | hooks |
+| `throttle`, `circuitBreaker`, `retry` | positions | `RESILIENCE` |
+| `perAttempt` | slot | wrappers |
+| `timeout`, `concurrency` | positions | `RESILIENCE` |
+| `cacheCheck` | position | `CACHE` |
+| the pipeline | | the route's steps |
+| `cacheStore` | position | `CACHE` |
+| `exit` | slot | hooks, over completed exchanges only |
+
+`SLOTS` exports the slot names in order. A hook in a slot or point that does not exist is `RC1112`.
+
+The resilience methods and `.cache()` placed after `.from()` are the same positions around one step. The wrapper resolves the same provider when the exchange runs, with `scope: "step"` and the step's label on the `PositionRun` (`"route"` and `"route"` at route scope), so a plugin replacing `RESILIENCE` or `CACHE` fills both scopes; `throttle(options, scope)` takes the scope, and the step-scope cache runs through `CachePositions.wrap`. A step wrapped in a method no installed plugin provides fails with `RC1111` when it runs.
+
+### Phases
+
+| Phase | May | Enforced |
+| --- | --- | --- |
+| `observe` | read | returning anything but `undefined` is `RC1115` |
+| `mutate` | return `{ headers?, body? }` to change the exchange, or nothing | writing an engine-owned header (`routecraft.id`, `routecraft.route`, `routecraft.operation`, `routecraft.split_hierarchy`) is `RC1115`. A body patch is applied as returned and never re-validated: in `beforeAuth` and `afterAuth` the route's `.input()` validates it afterwards, in `admitted` and `exit` it is trusted, so a hook there adds to the validated shape rather than replacing it, and a hook that must replace the body belongs in `afterAuth` |
+| `validate` | return nothing to allow, or `refuse(reason, { kind? })` to refuse | returning anything else is `RC1115`; a refusal fails the run with [`RC5068`](/docs/reference/errors#rc-5068), and a door answers the caller with the kind (`invalid`, `unauthenticated`, `forbidden` by default, `not_found`, `conflict`, `gone`, `rate_limited`, `unavailable`) and the reason |
+
+A slot runs observe, then mutate, then validate. `exit` has no validate phase. In the `error` slot the phases are `observe` and `mutate`, and `mutate` is the deciding phase: a hook answers with a recovery body, `recovery.drop()`, `recovery.defer(...)` or `recovery.rethrow()`, or `undefined` to pass, and the first answer decides. Inside a phase, hooks run in the order the application lists the plugins. When two mutate hooks write the same header in one slot, the later wins and the framework warns once per route naming both.
+
+`perAttempt` takes wrappers rather than phased hooks: `{ wrap(proceed, exchange, info) }`. A wrapper surrounds every attempt of the route's work at route scope, inside the `.retry()` declared before `.from()` and outside `.timeout()`; it may time, trace or guard an attempt and may throw, but does not change the exchange. A `.retry()` placed after `.from()` is a step inside the route's work, so its attempts run inside one wrapper call. Wrappers run in plugin list order; `hooks.order` does not address `perAttempt`, which has no phases. An observe or mutate hook that throws in an exchange slot fails the exchange; in the `error` slot an observe hook that throws is logged and the rest of the slot still runs.
+
+### Hook fields
+
+| Field | Applies to | Meaning |
+| --- | --- | --- |
+| `id` | all | The hook's name, addressed as `pluginId/id` by `hooks.order` and `hooks.disable`. Required, and stable across the plugin's releases: a hook without one is `RC1117`. |
+| `phase` | all but `perAttempt` | `observe`, `mutate` or `validate`. |
+| `run(exchange, info)` | exchange slots and points | The hook. |
+| `run(error, exchange, info)` | `error` | The error hook. |
+| `wrap(proceed, exchange, info)` | `perAttempt` | The wrapper. |
+| `routes` | all | Only these route ids. Combined with `tags` as alternatives. |
+| `tags` | all | Only routes carrying one of these tags. |
+| `runs` | all | The run kinds the hook applies to: `normal`, `resume`, `debounce`, `errorChannel`. Defaults to `normal` only, except in `error`, which defaults to every kind. `beforeAuth`, `afterAuth` and `admitted` see admissions only: a normal run, and an admission resume (a park raised before the route admitted the exchange), which runs `afterAuth` and `admitted` around the `authorize` it re-runs. An admission resume is an admission, so those slots see it as kind `normal` and a hook keeping the default runs on it; the `error` slot, points and `perAttempt` see the same run as kind `resume`. |
+| `writes` | `mutate` | The headers the hook writes, so a conflict is reported at start rather than on the first request. |
+| `mayDefer` | `error` | The hook may answer `recovery.defer()`. Makes every route it applies to deferrable, so the application refuses to start without a deferral runtime ([`RC5052`](/docs/reference/errors#rc-5052)). |
+| `schema` | `error` | What a resume payload must satisfy when the hook parks with `recovery.defer()`. Read back live at the resume door and validated there ([`RC5049`](/docs/reference/errors#rc-5049)); a schema that changed or disappeared under a parked exchange refuses the resume ([`RC5048`](/docs/reference/errors#rc-5048)). |
+
+`info` carries `routeId`, `tags`, `slot` and `kind`. An error hook's `info` also carries `execution` (`1` on the first run, `2` once the exchange is a resumed continuation) and `forward`, which sends to a `direct()` endpoint under the failing exchange's principal.
+
+An error hook that throws is reported as `route:error-handler:failed` with `scope: "slot"` and the hook's id under `hook`, and the slot continues to the next hook. A failure an error hook decides reaches neither `context:error` nor `route:exchange:failed`.
+
+### Points
+
+A plugin may declare `points: [{ name: 'approvals.decided' }]` and run the hooks other plugins place there from its own step, with `ctx.invoke(name, exchange)` in a step's `execute`. Another plugin places a hook there under `hooks.points`: `hooks: { points: { 'approvals.decided': { id: 'recordDecision', phase: 'observe', run } } }`. Point names are dotted under the declaring plugin's namespace; two plugins declaring one point, or a point named after a slot, is `RC1113`.
+
+### Hooks config
+
+The application settles conflicts in config, under `hooks`:
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `order` | `Record<"slot/phase", string[]>` | The exact order of one phase of one slot, by hook id (`pluginId/id`). Hooks it does not name run after the named ones, in plugin list order. Not for `perAttempt`, which has no phases. |
+| `disable` | `string[]` | Hooks switched off, by id. Slots only; a position is never disabled. |
+
+A name in `order` or `disable` that matches no installed hook is `RC1112`.
+
+## Steps
+
+Each entry of a plugin's `steps` becomes a builder method of that name. The entry takes the method's arguments and returns a step built with `step<In, Out>()`.
+
+| API | Meaning |
+| --- | --- |
+| `step<In, Out>((exchange, ctx) => body)` | A step that replaces the body with what the function returns. The method exists only on a route whose body is assignable to `In`, and leaves the route at `Out`. |
+| `step<In, Out>(rawStep)` | Wraps a step written against `Step` directly, for one that drops, branches or defers rather than continuing. |
+| `Body` | A placeholder for the body at the call site. `step<Body, Body>` with `(fn: (body: Body) => ...)` in the factory's arguments gives a body-preserving method whose callback is typed at the route's current body. |
+| `StepMethods<S, This>` | An interface a plugin merges its method types into, under its namespace, for a method generic at the call site. The `steps` entry of the same name still provides the runtime. `BuilderState`, `Retyped` and `SetBody` are exported for writing these. |
+| `FacetTypes<S>` | An interface a plugin merges its facet type into, under its namespace, when the facet's type depends on the route's state. |
+
+A route that uses a plugin's step refuses to start unless the plugin is installed (`RC1111`). Two plugins declaring one step, or a step named after a builder method, is `RC1116`. So is a step named `then` or `toJSON`, which the language reads off every object.
+
+### Structural steps
+
+A raw step that runs steps of its own (a branch, a fan-out, a plugin's own sub-pipeline) reports them through the `NESTED_STEPS` protocol, so the walks of a route's step tree see inside it: which plugins the route uses (`RC1111` at start), which positions it needs, the continuation digest, and where a `.defer()` may land. A step that runs nested steps without reporting them hides them from every one of those, and a park inside it is `RC5051`.
+
+```ts skip="fragment: steps is the branch to run"
+const branch: Step<Adapter> & NestingStep = {
+  operation: OperationType.PROCESS,
+  adapter: { adapterId: "acme.branch", steps },
+  async execute(exchange) {
+    return { kind: "branch", exchange, steps };
+  },
+  [NESTED_STEPS]: () => [{ steps, rejoins: true }],
+};
+```
+
+`rejoins` says whether the branch flows back into the main pipeline (a `.choice()` branch does; a `.multicast()` path does not), which decides whether a `.defer()` inside it has a continuation. A step-scope wrapper forwards the protocol to the step it wraps.
+
+### Authenticating steps
+
+A step that establishes the exchange's principal carries the `AUTHENTICATES` mark, as `.authenticate()` does. The builder refuses a route-scope `.cache()` on a route that reaches a marked step (`RC5003`), because a cache hit would answer before the step ran with a key that never saw the identity. Both marks are registered symbols, so a step built against another build of the package is seen the same way.
+
+## Facets
+
+A plugin's `facet` is readable as `ex.<namespace>` in route callables, typed in routes built with the project's `craft()`. It is computed from the exchange on every read and never stored. A facet named after an exchange field (`id`, `headers`, `body`, `logger`, `context`) or method is `RC1114`. Reading a facet in an application that does not install its plugin is `RC1111`.
+
+| Facet | Plugin | Library equivalent |
+| --- | --- | --- |
+| `ex.auth.principal` | `routecraft.auth` | `principalOf(exchange)` |
+| `ex.deferral` | `routecraft.deferral` | `deferralOf(exchange)` |
+
+Code that holds a plain `Exchange` rather than a route's typed one (an adapter, a hook, a helper) uses the library function.
 
 ---
 
@@ -133,9 +334,11 @@ Ignore both and the hook behaves as it always did, which is correct for any plug
 
 <QuickLinks>
 
+<QuickLink title="Plugins guide" icon="plugins" href="/docs/advanced/plugins" description="Write a plugin: ports, hooks, steps and facets with worked examples." />
+
 <QuickLink title="Configuration" icon="installation" href="/docs/reference/configuration" description="Every craft.config.ts field, including the first-class keys that stand in for plugins." />
 
-<QuickLink title="Plugins" icon="presets" href="/docs/advanced/plugins" description="Write a plugin: lifecycle hooks, adapter defaults, external services and registering capabilities." />
+<QuickLink title="Errors" icon="presets" href="/docs/reference/errors" description="RC1101 to RC1117 and RC5068, the plugin faults." />
 
 <QuickLink title="Agents and skills" icon="theming" href="/docs/introduction/agents-and-skills" description="Give a project a model, define an agent, and grant it capabilities as tools." />
 

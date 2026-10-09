@@ -10,19 +10,16 @@
  * licence to move logic into it.
  */
 
-import { CraftClient } from "../../client";
-import { isInternalEndpoint } from "../../capabilities";
-import type { CraftContext } from "../../context";
 import { isRemoteAbsence } from "../remotes/channel";
 import { HeadersKeys } from "../../exchange";
 import type { ExchangeHeaders } from "../../exchange";
 import { rcCodeOf } from "../../brand";
-import type { Principal } from "../../auth/types";
+import type { Principal } from "../../principal";
 import type { Capability } from "../../capabilities";
-import type { RouteDefinition } from "../../route";
+import type { RouteDefinitionView } from "../../kernel/plugin.ts";
 import { getAdapterLabel } from "../../types";
 import type { Adapter } from "../../types";
-import { isDeferred } from "../../deferral/deferred";
+import { isDeferred } from "../../kernel/continuation/deferred";
 import {
   renderJsonSchemaArm,
   standardExtensionOf,
@@ -30,8 +27,13 @@ import {
 import { decodeCursor, takePage } from "./pagination";
 import { safeStringify } from "../../shared/safe-json.ts";
 import { compareCodeUnits } from "../../shared/compare";
-import { OPS_RESOURCES } from "./store";
-import { REMOTE_ROUTES, type RemoteRoute } from "../remotes/store";
+import type {
+  Execution,
+  PluginContext,
+  PluginRoutes,
+  RouteView,
+} from "../../kernel/plugin.ts";
+import type { RemoteRoute } from "../remotes/store";
 import type {
   OpsDispatchOutcome,
   OpsEventTailItem,
@@ -135,15 +137,29 @@ function frameBytes(item: OpsEventTailItem): number {
 }
 
 /**
- * Build the management handlers over a live context.
+ * What the management handlers read and drive: the ops plugin's own reach
+ * (routes, execution, events) plus what other plugins contributed to it.
+ */
+export interface ManagementHost {
+  readonly routes: Pick<PluginRoutes, "list" | "get" | "hooksOf">;
+  readonly execution: Pick<Execution, "capabilities" | "deliver">;
+  observe: PluginContext["observe"];
+  /** Whether an endpoint declared itself internal (`direct({ internal: true })`). */
+  isInternalEndpoint(endpoint: string): boolean;
+  /** Routes imported from other instances, by local endpoint. */
+  remoteRoutes(): ReadonlyMap<string, RemoteRoute>;
+  /** A contributed resource by name. */
+  resource(name: string): OpsResource | undefined;
+}
+
+/**
+ * Build the management handlers over a running application.
  *
  * Routes and capabilities are read per call rather than captured, because
  * both change as routes start and stop and a snapshot taken at mount time
  * would describe the instance as it was at boot.
  */
-export function createManagementApi(ctx: CraftContext): ManagementApi {
-  const client = new CraftClient(ctx);
-
+export function createManagementApi(host: ManagementHost): ManagementApi {
   /**
    * The dispatchable set, keyed by raw route id.
    *
@@ -154,7 +170,9 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
    * which is what makes this listing useful to a human.
    */
   const capabilityIndex = (): Map<string, Capability> =>
-    new Map(ctx.capabilities().map((entry) => [entry.endpoint, entry]));
+    new Map(
+      host.execution.capabilities().map((entry) => [entry.endpoint, entry]),
+    );
 
   /**
    * Routes imported from other instances, keyed by local endpoint.
@@ -164,10 +182,10 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
    * remote route, and the capability registry is what says so: `direct()`
    * writes a local capability when the route subscribes, and the remotes
    * plugin writes the remote's back when that route stops. A stopped
-   * route stays in `getRoutes()`, so the id alone cannot decide.
+   * route stays in the route list, so the id alone cannot decide.
    */
-  const remoteIndex = (): Map<string, RemoteRoute> =>
-    ctx.getStore(REMOTE_ROUTES) ?? new Map<string, RemoteRoute>();
+  const remoteIndex = (): ReadonlyMap<string, RemoteRoute> =>
+    host.remoteRoutes();
 
   const remoteAnswers = (
     id: string,
@@ -175,12 +193,19 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
   ): boolean =>
     remoteIndex().has(id) && capabilities.get(id)?.remote !== undefined;
 
+  /** The local route answering an id, unless an imported one does. */
+  const localRoute = (
+    id: string,
+    capabilities: Map<string, Capability>,
+  ): RouteView | undefined =>
+    remoteAnswers(id, capabilities) ? undefined : host.routes.get(id);
+
   const summaries = (): OpsRouteSummary[] => {
     const capabilities = capabilityIndex();
-    const local = ctx
-      .getRoutes()
-      .filter((route) => !remoteAnswers(route.definition.id, capabilities))
-      .map((route) => summarise(ctx, route.definition, capabilities));
+    const local = host.routes
+      .list()
+      .filter((route) => !remoteAnswers(route.id, capabilities))
+      .map((route) => summarise(route, capabilities));
     const localIds = new Set(local.map((route) => route.id));
     const imported = [...remoteIndex().values()]
       .filter((route) => !localIds.has(route.endpoint))
@@ -236,7 +261,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
       // bus this is already reading, so it needs no second channel: the
       // event is delivered, and then the tail closes behind it.
       let stopping = false;
-      const unsubscribe = ctx.on("*", (payload) => {
+      const unsubscribe = host.observe("*", (payload) => {
         const item: OpsEventTailItem = {
           kind: "event",
           name: payload._event,
@@ -306,15 +331,13 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
     },
 
     resource(name: string): OpsResource | undefined {
-      return ctx.getStore(OPS_RESOURCES)?.get(name);
+      return host.resource(name);
     },
 
     describeRoute(id: string): OpsRouteDetail | undefined {
       const capabilities = capabilityIndex();
-      const route = remoteAnswers(id, capabilities)
-        ? undefined
-        : ctx.getRoutes().find((candidate) => candidate.definition.id === id);
-      if (route) return detail(ctx, route.definition, capabilities);
+      const route = localRoute(id, capabilities);
+      if (route) return detail(route, capabilities, host.routes.hooksOf);
       const imported = remoteIndex().get(id);
       return imported === undefined ? undefined : detailRemote(imported);
     },
@@ -325,9 +348,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
       principal: Principal | undefined,
     ): Promise<OpsDispatchOutcome | OpsDispatchRefusal> {
       const capabilities = capabilityIndex();
-      const route = remoteAnswers(id, capabilities)
-        ? undefined
-        : ctx.getRoutes().find((candidate) => candidate.definition.id === id);
+      const route = localRoute(id, capabilities);
       // An imported route has no definition here and needs none: its
       // capability is its door, and the channel behind it carries the
       // exchange to the instance that defines it. Re-exposing it through
@@ -340,7 +361,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
         return {
           outcome: "refused",
           reason: "not-dispatchable",
-          message: notDispatchable(ctx, id, route.definition),
+          message: notDispatchable(host, route),
         };
       }
 
@@ -355,7 +376,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
           : ({ [HeadersKeys.AUTH_PRINCIPAL]: principal } as ExchangeHeaders);
 
       try {
-        const result = await client.sendDirect(id, body, headers);
+        const result = await host.execution.deliver(id, body, headers);
         if (isDeferred(result)) {
           return { outcome: "deferred", deferral: result };
         }
@@ -391,17 +412,14 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
  * disabled, since the capability lives exactly as long as the subscription.
  * Only the rest genuinely lack the door.
  */
-function notDispatchable(
-  ctx: CraftContext,
-  id: string,
-  definition: RouteDefinition,
-): string {
-  if (isInternalEndpoint(ctx, id)) {
+function notDispatchable(host: ManagementHost, route: RouteView): string {
+  const { id } = route;
+  if (host.isInternalEndpoint(id)) {
     return `Route "${id}" is declared internal (direct({ internal: true })) and not dispatchable. It is only composable from another route; dispatch to a boundary route that fronts it instead.`;
   }
-  const kinds = sourceKinds(definition);
+  const kinds = sourceKinds(route.definition);
   if (kinds.includes("direct")) {
-    return ctx.isRouteEnabled(id)
+    return route.enabled
       ? `Route "${id}" has a direct() door but is not running, so nothing answers it. Start the route on that instance before dispatching to it.`
       : `Route "${id}" has a direct() door and is disabled by its .enabled() predicate, so nothing answers it. Enable it before dispatching to it.`;
   }
@@ -445,17 +463,17 @@ function detailRemote(route: RemoteRoute): OpsRouteDetail {
 }
 
 /** Source kinds a route declares, in declaration order. */
-function sourceKinds(definition: RouteDefinition): string[] {
+function sourceKinds(definition: RouteDefinitionView): string[] {
   return definition.sources.map(
     (source) => getAdapterLabel(source as Adapter) ?? "inline",
   );
 }
 
 function summarise(
-  ctx: CraftContext,
-  definition: RouteDefinition,
+  route: RouteView,
   capabilities: Map<string, Capability>,
 ): OpsRouteSummary {
+  const { definition } = route;
   const capability = capabilities.get(definition.id);
   const discovery = definition.discovery;
   const title = capability?.title ?? discovery?.title;
@@ -464,7 +482,7 @@ function summarise(
   return {
     id: definition.id,
     dispatchable: capabilities.has(definition.id),
-    enabled: ctx.isRouteEnabled(definition.id),
+    enabled: route.enabled,
     sources: sourceKinds(definition),
     requiresPrincipal: definition.requiresPrincipal === true,
     ...(title !== undefined ? { title } : {}),
@@ -474,10 +492,11 @@ function summarise(
 }
 
 function detail(
-  ctx: CraftContext,
-  definition: RouteDefinition,
+  route: RouteView,
   capabilities: Map<string, Capability>,
+  hooksOf: PluginRoutes["hooksOf"],
 ): OpsRouteDetail {
+  const { definition } = route;
   const capability = capabilities.get(definition.id);
   const discovery = definition.discovery;
   const input = renderSchemas(capability?.input ?? discovery?.input, "input");
@@ -486,9 +505,10 @@ function detail(
     "output",
   );
   return {
-    ...summarise(ctx, definition, capabilities),
+    ...summarise(route, capabilities),
     ...(input !== undefined ? { input } : {}),
     ...(output !== undefined ? { output } : {}),
+    hooks: [...hooksOf(definition.id)],
   };
 }
 

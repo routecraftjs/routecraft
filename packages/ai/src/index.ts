@@ -30,11 +30,13 @@ export {
   hasSurface,
   surface,
   SurfaceDisconnected,
+  SURFACES,
 } from "./surface/index.ts";
 export type {
   AgentSurfaceConnection,
   AgentSurfaceKind,
   AgentSurfaceRef,
+  SurfaceState,
   SurfaceMethod,
   SurfaceRequest,
   SurfaceRequestParams,
@@ -57,6 +59,8 @@ export {
   llm,
   LlmEnricherAdapter,
   llmPlugin,
+  LLM,
+  type LlmService,
 } from "./llm/index.ts";
 export type {
   CustomLanguageModel,
@@ -122,9 +126,12 @@ export {
   mcpPlugin,
   McpServer,
   McpToolRegistry,
-  MCP_LOCAL_TOOL_REGISTRY,
+  MCP,
   validateWithSchema,
+  type McpClientConfig,
   type McpLocalToolEntry,
+  type McpService,
+  type McpToolRequest,
   type McpOptions,
   type McpPluginOptions,
   type McpProxyToolConfig,
@@ -165,6 +172,7 @@ export type {
 // For by-name use, register agents via `agentPlugin({ agents: { name: {...} } })`.
 export {
   agent,
+  AGENTS,
   AgentCancellationCause,
   AgentEnricherAdapter,
   agentPlugin,
@@ -176,12 +184,15 @@ export {
   // shipped backends, and the contract for a backend of your own.
   DEFAULT_SESSION_DB_PATH,
   MemorySessionStore,
+  SESSION_STORE,
   SESSION_STORE_ENV,
   SqliteSessionStore,
   sessionsPlugin,
 } from "./agent/index.ts";
 export type {
+  AgentContribution,
   AgentDefaultOptions,
+  AgentRegistry,
   AgentByNameOverrides,
   AgentDelta,
   AgentInboxMessage,
@@ -200,6 +211,7 @@ export type {
   AgentInterruptSource,
   AgentSessionSource,
   AgentSessionSummary,
+  ResolvedSessionStore,
   SessionCasResult,
   SessionStore,
   SessionStoreConfig,
@@ -279,6 +291,8 @@ export {
   EmbeddingEnricherAdapter,
   embeddingPlugin,
   disposeEmbeddingPipelineCache,
+  EMBEDDING,
+  type EmbeddingService,
 } from "./embedding/index.ts";
 export type {
   EmbeddingModelConfig,

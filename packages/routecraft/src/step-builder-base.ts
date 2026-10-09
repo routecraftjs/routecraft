@@ -2,7 +2,6 @@ import type { Duration } from "./shared/duration.ts";
 import { ENRICH_MERGE_TYPE } from "./brand.ts";
 import type { Adapter, Step } from "./types.ts";
 import type { Exchange, HeaderValue, HeaderLiteral } from "./exchange.ts";
-import type { DeferralAffordance } from "./deferral/exchange-state.ts";
 import {
   type Destination,
   type SendContext,
@@ -63,18 +62,24 @@ import {
   type CallableValidator,
   ValidateStep,
 } from "./operations/validate.ts";
-import {
-  type CallableAuthenticator,
-  AuthenticateStep,
-} from "./operations/authenticate.ts";
-import {
-  type CallableDelegator,
-  DelegateStep,
-  type DelegateStepOptions,
-} from "./operations/delegate.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { mapper } from "./operations/transform.ts";
+import { schema } from "./operations/validate.ts";
+import { log, debug, type LogOptions } from "./adapters/log/index.ts";
 import { HeaderStep } from "./operations/header.ts";
 import type { ErrorHandler } from "./route.ts";
-import { PUSH_STEP } from "./dsl-symbol.ts";
+import {
+  BUILDER_KIND,
+  BUILDER_STATE,
+  CATALOGUE,
+  PUSH_STEP,
+  STEP_PLUGIN,
+  STEP_ARGS,
+} from "./dsl-symbol.ts";
+import { rcError } from "./error.ts";
+import type { StepCatalogue } from "./kernel/steps.ts";
+
+const EMPTY_CATALOGUE: StepCatalogue = new Map();
 
 /**
  * Builder hook that wraps a single step in a "dual-mode wrapper"
@@ -93,6 +98,8 @@ export type StepWrapperFactory = <T extends Adapter>(inner: Step<T>) => Step<T>;
 // StepBuilderBase, not the other way around.
 import type { RouteBuilder } from "./builder.ts";
 import type { PathBuilder } from "./operations/choice.ts";
+import type { FacetsOf, PluginMethods } from "./kernel/steps.ts";
+import type { ShippedPlugins } from "./kernel/steps.ts";
 
 /**
  * The type-state bag threaded through the builder chain.
@@ -123,6 +130,12 @@ export interface BuilderState {
    * the two do not interconvert (the builders are invariant in this bag).
    */
   deferral?: unknown;
+  /**
+   * The plugins installed where this route runs, as a union of their
+   * descriptor types. Their `steps` become methods on the builder and their
+   * facets become `ex.<namespace>` in the route's callables. Type-only.
+   */
+  plugins?: unknown;
 }
 
 /**
@@ -143,34 +156,46 @@ export type SetBody<S extends BuilderState, B> = {
  * field. The `.defer()` counterpart of {@link SetBody}: it advances the
  * type of `ex.deferral.result` for the rest of the chain.
  *
- * `Omit` plus an intersection rather than a mapped type, because a mapped
- * type preserves optionality: mapping the OPTIONAL `deferral` key would
- * type the result as `R | undefined` and force a needless narrowing on
- * every read after a defer. After a `.defer()` the field is known.
+ * A homomorphic mapping like {@link SetBody}, with `-?` so that after a
+ * `.defer()` the field is known rather than `R | undefined`. Framework bags
+ * always carry the key, so mapping over `S` reaches it. Not `Omit` plus an
+ * intersection: each `.defer()` would nest another anonymous intersection,
+ * which the compiler cannot recognise as the same type and expands without
+ * end once the builder's plugin methods reference it.
  *
  * @template S - The incoming state bag
  * @template R - The expected-result type declared by `.defer({ schema })`
  */
-export type SetDeferral<S extends BuilderState, R> = Omit<S, "deferral"> & {
-  deferral: R;
+export type SetDeferral<S extends BuilderState, R> = {
+  [K in keyof S]-?: K extends "deferral" ? R : S[K];
 };
 
 /**
  * The exchange type a callable sees at this point in the chain: the body
- * type from the bag, plus `ex.deferral.result` narrowed to whatever the
- * last `.defer({ schema })` declared.
- *
- * An intersection rather than a rewritten `Exchange`, so the narrowing is
- * additive: `Exchange<T>` already carries `deferral`, and
- * `DeferralAffordance<unknown> & DeferralAffordance<R>` reads `result`
- * as `R`. Before any defer the bag's field is `unknown` and the
- * intersection is a no-op.
+ * type from the bag, plus `ex.<namespace>` for every installed plugin that
+ * declares a facet. A facet of a plugin the route's project does not install
+ * is not there, so reading it is a compile error.
  *
  * @template S - The state bag at this chain position
  */
-export type ExchangeOf<S extends BuilderState> = Exchange<S["body"]> & {
-  readonly deferral: DeferralAffordance<S["deferral"]>;
-};
+export type ExchangeOf<S extends BuilderState> = Exchange<S["body"]> &
+  FacetsOf<S>;
+
+/**
+ * The body a builder carries into its next step.
+ *
+ * @template B - A route or branch builder
+ * @example
+ * ```ts
+ * const route = craft().from(simple({ id: 0 })).schema(nameSchema);
+ * type Named = BodyOf<typeof route>; // { name: string }
+ * ```
+ */
+export type BodyOf<B> = B extends {
+  readonly [BUILDER_STATE]?: infer S extends BuilderState;
+}
+  ? S["body"]
+  : never;
 
 /**
  * A path's state bag: a fresh chain over body `T`.
@@ -182,7 +207,11 @@ export type ExchangeOf<S extends BuilderState> = Exchange<S["body"]> & {
  *
  * @template T - Body type entering the path
  */
-export type PathState<T> = { body: T; deferral: unknown };
+export type PathState<T, P = ShippedPlugins> = {
+  body: T;
+  deferral: unknown;
+  plugins: P;
+};
 
 /**
  * Body type after a bare pull-in step (`.enrich(x)` with no aggregator, or a
@@ -224,17 +253,17 @@ export type FetchedBody<Current, R> = R extends void
  * @template This - The polymorphic `this` type inside a method on StepBuilderBase
  * @template S2 - The new state bag to re-type the subclass at
  */
-// The `infer` holes below are match-only: the builder classes are invariant
-// in their state bag, so a structural `extends RouteBuilder<BuilderState>`
-// check fails for concrete instantiations; inferential matching does not.
-/* eslint-disable @typescript-eslint/no-unused-vars */
-export type Retyped<This, S2 extends BuilderState> =
-  This extends RouteBuilder<infer _RS extends BuilderState>
-    ? RouteBuilder<S2>
-    : This extends PathBuilder<infer _BS extends BuilderState>
-      ? PathBuilder<S2>
-      : never;
-/* eslint-enable @typescript-eslint/no-unused-vars */
+// Matched on the kind brand rather than by inferring the state: `This` is
+// usually the builder intersected with its plugin methods, which are typed
+// through `Retyped` themselves, and inferring a state across them sends the
+// compiler around that loop until it gives up with `any`.
+export type Retyped<This, S2 extends BuilderState> = This extends {
+  readonly [BUILDER_KIND]: "route";
+}
+  ? RouteBuilder<S2> & PluginMethods<S2, RouteBuilder<S2>>
+  : This extends { readonly [BUILDER_KIND]: "path" }
+    ? PathBuilder<S2> & PluginMethods<S2, PathBuilder<S2>>
+    : never;
 
 /**
  * Shared abstract base for builders that accumulate pipeline steps.
@@ -253,14 +282,73 @@ export type Retyped<This, S2 extends BuilderState> =
  *
  * The class value is framework-internal and must not be subclassed outside
  * the framework (the {@link Retyped} conditional is closed-world and external
- * subclasses would silently resolve to `never`). The TYPE, however, is the
- * documented augmentation point for DSL sugar: `registerDsl` adds the runtime
- * method here, and ecosystem packages declare its type by merging into
- * `interface StepBuilderBase<S extends BuilderState>` (see `registerDsl`).
+ * subclasses would silently resolve to `never`). Plugins add methods
+ * through their `steps`, installed per instance, never by subclassing or
+ * patching this class.
  *
  * @template S - The {@link BuilderState} bag for the chain position
  */
 export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
+  /**
+   * The plugin steps this builder has as methods.
+   *
+   * @internal
+   */
+  readonly [CATALOGUE]: StepCatalogue;
+
+  /** The state, for {@link BodyOf}. Type-only. */
+  declare readonly [BUILDER_STATE]?: S;
+
+  /**
+   * @param catalogue - The plugin steps to install as methods on this
+   *   instance. Per instance rather than on the prototype, so two projects
+   *   with different plugins never see each other's methods.
+   */
+  constructor(catalogue: StepCatalogue = EMPTY_CATALOGUE) {
+    this[CATALOGUE] = catalogue;
+  }
+
+  /**
+   * Install the catalogue's steps as methods. Every concrete builder calls
+   * it at the end of its constructor, once its own fields exist, so a step
+   * named like a field is refused here rather than breaking the field.
+   *
+   * The step a factory returns is labelled and tagged in place, so a
+   * factory builds a new step per call. One handing back a step it already
+   * returned is refused rather than having that step claimed twice.
+   *
+   * @throws RC1116 when a step would shadow a builder method or field, or
+   *   a factory returns a step it already returned
+   */
+  protected installSteps(): void {
+    for (const [name, { plugin, factory }] of this[CATALOGUE]) {
+      if (name in this) {
+        throw rcError("RC1116", undefined, {
+          message: `Plugin "${plugin}" declares a step named "${name}", which is already a builder method. Rename the step.`,
+        });
+      }
+      Object.defineProperty(this, name, {
+        enumerable: false,
+        value: (...args: never[]) => {
+          const built = factory(...args) as Step<Adapter> & {
+            [STEP_PLUGIN]?: string;
+            [STEP_ARGS]?: readonly unknown[];
+          };
+          if (built[STEP_PLUGIN] !== undefined || Object.isFrozen(built)) {
+            throw rcError("RC1116", undefined, {
+              message: `Step "${name}" of plugin "${plugin}" returned a step object it had already returned, or a frozen one. A step factory builds a new step on every call.`,
+            });
+          }
+          built.label ??= name;
+          built[STEP_PLUGIN] = plugin;
+          built[STEP_ARGS] = args;
+          this.pushStep(built);
+          return this;
+        },
+      });
+    }
+  }
+
   /**
    * Stack of step-scope wrapper factories declared since the last
    * pushed step, in declaration order. Folded around the next pushed
@@ -288,6 +376,18 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
       wrapped = factory(wrapped);
     }
     this.pendingStepWrappers = [];
+    // The route's start check finds a plugin step by this tag, wrapped or
+    // not, and the fingerprint reads its arguments the same way.
+    const tagged = step as {
+      [STEP_PLUGIN]?: string;
+      [STEP_ARGS]?: readonly unknown[];
+    };
+    if (tagged[STEP_PLUGIN] !== undefined) {
+      (wrapped as typeof tagged)[STEP_PLUGIN] = tagged[STEP_PLUGIN];
+      if (tagged[STEP_ARGS] !== undefined) {
+        (wrapped as typeof tagged)[STEP_ARGS] = tagged[STEP_ARGS];
+      }
+    }
     return wrapped as unknown as Step<T>;
   }
 
@@ -606,8 +706,14 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   to<R = void>(
     fn: (exchange: ExchangeOf<S>, ctx?: SendContext) => Promise<R> | R,
   ): Retyped<this, SetBody<S, R extends void ? S["body"] : R>>;
-  to(target: ToTarget<S["body"], unknown>): unknown {
-    this.pushStep(new ToStep<S["body"], unknown>(target));
+  to(
+    target:
+      | ToTarget<S["body"], unknown>
+      | ((exchange: ExchangeOf<S>, ctx?: SendContext) => unknown),
+  ): unknown {
+    this.pushStep(
+      new ToStep<S["body"], unknown>(target as ToTarget<S["body"], unknown>),
+    );
     return this.retype<unknown>();
   }
 
@@ -625,7 +731,13 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
       | Transformer<S["body"], Return>
       | CallableTransformer<S["body"], Return, ExchangeOf<S>>,
   ): Retyped<this, SetBody<S, Return>> {
-    this.pushStep(new TransformStep<S["body"], Return>(transformer));
+    this.pushStep(
+      new TransformStep<S["body"], Return>(
+        transformer as
+          | Transformer<S["body"], Return>
+          | CallableTransformer<S["body"], Return>,
+      ),
+    );
     return this.retype<Return>();
   }
 
@@ -674,7 +786,12 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
       Enricher<S["body"], R> | CallableEnricher<S["body"], R, ExchangeOf<S>>,
     aggregator?: EnrichAggregatorOption<S["body"], R>,
   ): unknown {
-    this.pushStep(new EnrichStep<S["body"], R>(enricher, aggregator));
+    this.pushStep(
+      new EnrichStep<S["body"], R>(
+        enricher as Enricher<S["body"], R> | CallableEnricher<S["body"], R>,
+        aggregator,
+      ),
+    );
     return this.retype<unknown>();
   }
 
@@ -692,7 +809,12 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
       | Processor<S["body"], Return>
       | CallableProcessor<S["body"], Return, ExchangeOf<S>>,
   ): Retyped<this, SetBody<S, Return>> {
-    this.pushStep(new ProcessStep<S["body"], Return>(processor));
+    this.pushStep(
+      new ProcessStep<S["body"], Return>(
+        processor as
+          Processor<S["body"], Return> | CallableProcessor<S["body"], Return>,
+      ),
+    );
     return this.retype<Return>();
   }
 
@@ -710,93 +832,106 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
       | HeaderLiteral
       | ((exchange: ExchangeOf<S>) => HeaderValue | Promise<HeaderValue>),
   ): this {
-    this.pushStep(new HeaderStep<S["body"]>(key, valueOrFn));
+    this.pushStep(
+      new HeaderStep<S["body"]>(
+        key,
+        valueOrFn as ConstructorParameters<typeof HeaderStep<S["body"]>>[1],
+      ),
+    );
     return this;
   }
 
   /**
-   * Establish the authenticated principal for the exchange. The resolver
-   * returns identity claims you have verified yourself (an e-mail sender, a
-   * Slack signature, a webhook HMAC); they are minted into a branded
-   * principal and attached to the exchange. Return `undefined` to leave the
-   * caller anonymous. Body type is unchanged.
+   * Log the current exchange at info level. Body unchanged.
    *
-   * This is the explicit, greppable way to mint identity. `authorize()`
-   * trusts only principals established this way (or by a source verifier);
-   * a plain object written via `.header("routecraft.auth.principal", ...)`
-   * is rejected. Sugar over the `authenticate()` helper.
+   * @param formatter - Formats what is logged; the exchange when omitted
+   * @param options - Log options; the level defaults to "info"
+   */
+  log(
+    formatter?: (exchange: ExchangeOf<S>) => unknown,
+    options?: LogOptions,
+  ): this {
+    this.pushLabelled(
+      new TapStep(
+        log(formatter as (exchange: Exchange<unknown>) => unknown, options),
+      ),
+      "log",
+    );
+    return this;
+  }
+
+  /**
+   * Log the current exchange at debug level. Body unchanged.
    *
-   * @param resolver - Returns the caller's claims, or `undefined` to skip
-   * @returns This builder (same subclass, same body type)
+   * @param formatter - Formats what is logged; the exchange when omitted
+   * @param options - Log options; the level is always "debug"
+   */
+  debug(
+    formatter?: (exchange: ExchangeOf<S>) => unknown,
+    options?: Omit<LogOptions, "level">,
+  ): this {
+    this.pushLabelled(
+      new TapStep(
+        debug(formatter as (exchange: Exchange<unknown>) => unknown, options),
+      ),
+      "debug",
+    );
+    return this;
+  }
+
+  /**
+   * Map fields from the current body into a new object. Sugar for
+   * `.transform(mapper({...}))`.
    *
+   * @template Return - The body after mapping
+   * @param fieldMappings - Output field names to extractor functions
+   * @example
+   * ```ts
+   * .map<DbUser>({
+   *   id: (apiUser) => apiUser.userId,
+   *   name: (apiUser) => apiUser.fullName,
+   * })
+   * ```
+   */
+  map<Return>(fieldMappings: {
+    [K in keyof Return]: (src: S["body"]) => Return[K];
+  }): Retyped<this, SetBody<S, Return>> {
+    this.pushLabelled(
+      new TransformStep(
+        mapper(
+          fieldMappings as unknown as Record<string, (src: unknown) => unknown>,
+        ),
+      ),
+      "map",
+    );
+    return this.retype<Return>();
+  }
+
+  /**
+   * Validate the body against a Standard Schema and continue with its
+   * output. Sugar for `.validate(schema(standardSchema))`; a failure
+   * throws RC5002.
+   *
+   * @param standardSchema - Any Standard Schema v1 (Zod, Valibot, ArkType)
    * @example
    * ```ts
    * craft()
-   *   .from(mail("INBOX"))
-   *   .filter(verifiedSenders)
-   *   .authenticate((ex) => {
-   *     // The mail source attaches the computed sender to a header.
-   *     const sender = ex.headers["routecraft.mail.sender"];
-   *     return {
-   *       scheme: "email",
-   *       subject: sender.address,
-   *       roles: sender.address.endsWith("@acme.com") ? ["internal"] : [],
-   *     };
-   *   })
-   *   .authorize({ roles: ["internal"] })
+   *   .from(source)
+   *   .schema(z.object({ name: z.string() }))
    *   .to(dest)
    * ```
    */
-  authenticate(resolver: CallableAuthenticator<S["body"]>): this {
-    this.pushStep(new AuthenticateStep<S["body"]>(resolver));
-    return this;
+  schema<Schema extends StandardSchemaV1>(
+    standardSchema: Schema,
+  ): Retyped<this, SetBody<S, StandardSchemaV1.InferOutput<Schema>>> {
+    this.pushLabelled(new ValidateStep(schema(standardSchema)), "schema");
+    return this.retype<StandardSchemaV1.InferOutput<Schema>>();
   }
 
-  /**
-   * Mark the exchange's principal as being exercised by an actor (an agent,
-   * a service) on the subject's behalf. The resolver returns the actor's
-   * identity claims plus the consent-derived scope ceiling; they are minted
-   * into a delegated principal (subject unchanged, actor set, scopes
-   * intersected) and attached to the exchange. Body type is unchanged.
-   *
-   * A resolver that returns `undefined` (no consent record) fails closed by
-   * default: the subject's direct principal is STRIPPED so the continuation
-   * runs anonymous and downstream `authorize()` refuses with RC5012. An
-   * actor downstream must never inherit a caller's full direct authority
-   * precisely because consent is absent. The strip skips anonymous
-   * exchanges, already-delegated principals, and autonomous agent subjects
-   * (`subjectProfile: "ai_agent"`). Pass `{ otherwise: "keep" }` when the
-   * continuation serves the caller directly and an ungranted caller should
-   * keep acting as themselves.
-   *
-   * Sugar over the `delegate()` helper; see it for the full semantics
-   * (scope intersection, role pass-through, chain nesting, mayAct
-   * enforcement). Requires an authentic principal on the exchange when a
-   * directive is returned.
-   *
-   * @param resolver - Returns the delegation directive, or `undefined`
-   * @param options - No-consent behavior; default `{ otherwise: "drop" }`
-   * @returns This builder (same subclass, same body type)
-   *
-   * @example
-   * ```ts
-   * craft()
-   *   .from(mail("INBOX"))
-   *   .authenticate(mailPrincipal)
-   *   .delegate((ex) => {
-   *     const grant = grants.find(ex.principal?.subject, "agent:zoe")
-   *     if (!grant) return undefined // no consent: principal is dropped
-   *     return { actor: zoeIdentity, scopes: grant.scopes, grantId: grant.id }
-   *   })
-   *   .to(agent("zoe"))
-   * ```
-   */
-  delegate(
-    resolver: CallableDelegator<S["body"]>,
-    options?: DelegateStepOptions,
-  ): this {
-    this.pushStep(new DelegateStep<S["body"]>(resolver, options));
-    return this;
+  /** Push a step shown under a sugar method's name rather than its operation. */
+  private pushLabelled(step: Step<Adapter>, label: string): void {
+    step.label = label;
+    this.pushStep(step);
   }
 
   /**
@@ -812,7 +947,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * @returns This builder (same subclass, same body type)
    */
   tap(target: TapTarget<S["body"], ExchangeOf<S>>): this {
-    this.pushStep(new TapStep<S["body"]>(target));
+    this.pushStep(new TapStep<S["body"]>(target as TapTarget<S["body"]>));
     return this;
   }
 
@@ -827,7 +962,11 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   filter(
     filter: Filter<S["body"]> | CallableFilter<S["body"], ExchangeOf<S>>,
   ): this {
-    this.pushStep(new FilterStep<S["body"]>(filter));
+    this.pushStep(
+      new FilterStep<S["body"]>(
+        filter as Filter<S["body"]> | CallableFilter<S["body"]>,
+      ),
+    );
     return this;
   }
 
@@ -878,15 +1017,17 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
     validator:
       Validator<S["body"], R> | CallableValidator<S["body"], R, ExchangeOf<S>>,
   ): Retyped<this, SetBody<S, R>> {
-    this.pushStep(new ValidateStep<S["body"], R>(validator));
+    this.pushStep(
+      new ValidateStep<S["body"], R>(
+        validator as Validator<S["body"], R> | CallableValidator<S["body"], R>,
+      ),
+    );
     return this.retype<R>();
   }
 
   /**
-   * Symbol-keyed append used by `registerDsl` to add sugar methods
-   * without exposing `pushStep` as public API. Lives on the base so
-   * both `RouteBuilder` and `PathBuilder` inherit it and registered
-   * sugar works on both.
+   * Symbol-keyed append, so code outside the builder can push a step
+   * without `pushStep` becoming public API.
    *
    * @internal
    */

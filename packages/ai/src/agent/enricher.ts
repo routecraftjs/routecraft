@@ -1,4 +1,6 @@
 import {
+  authorityOf,
+  deferralOf,
   getExchangeContext,
   getExchangeRoute,
   markDeferCapable,
@@ -25,12 +27,8 @@ import {
 } from "./run.ts";
 import { applyOverrides, type AdvertisingAgent } from "./advertised.ts";
 import { rehydrateSession } from "./deferral-state.ts";
-import {
-  ADAPTER_AGENT_DEFAULT_OPTIONS,
-  ADAPTER_AGENT_REGISTRY,
-  ADAPTER_AGENT_TOOL_POLICIES,
-  AGENT_DEFAULT_OPTION_KEYS,
-} from "./store.ts";
+import { AGENTS } from "./port.ts";
+import { AGENT_DEFAULT_OPTION_KEYS } from "./store.ts";
 import { isGovernableToolKind, policiesAdmit } from "./tools/policy.ts";
 import type {
   AgentToolDescriptor,
@@ -61,9 +59,6 @@ import {
   type AgentTurnExecutor,
 } from "./session/index.ts";
 import type { ThreadMessage } from "./deferral-state.ts";
-
-const AGENT_REGISTRY_STORE_DESCRIPTION =
-  ADAPTER_AGENT_REGISTRY.description ?? "routecraft.adapter.agent.registry";
 
 /** The shape a session id must have; see `AgentOptions.session`. */
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -165,8 +160,8 @@ export type AgentBinding<T = unknown> =
  * the aggregator in `.enrich(x, agg)`, and is discarded by `.tap()`.
  *
  * Resolution: when constructed inline, uses options directly. When
- * constructed by name, resolves the registered agent from the context
- * store (`ADAPTER_AGENT_REGISTRY`) at dispatch time, throwing a clear
+ * constructed by name, resolves the registered agent from the agent
+ * registry (the `AGENTS` port) at dispatch time, throwing a clear
  * error if the name is unknown.
  */
 export class AgentEnricherAdapter<T = unknown> implements Enricher<
@@ -228,12 +223,12 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     const deferral: AgentRunDeferral | undefined =
       dispatchIdentity && agentIdentity !== undefined && merged.stream !== true
         ? {
-            id: exchange.deferral.id,
+            id: deferralOf(exchange).id,
             // Lazy: minting reads the context's signer and throws RC5052
             // without a deferral runtime; a handler that never builds a
             // resume link should not pay for or fail on it.
             mintToken: (callBinding: string) =>
-              exchange.deferral.tokenFor(callBinding),
+              deferralOf(exchange).tokenFor(callBinding),
             agentId: agentIdentity,
           }
         : undefined;
@@ -252,7 +247,11 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       : undefined;
     const resume: AgentRunResume | undefined =
       resumeRaw !== undefined && revivedDeferral === undefined
-        ? rehydrateSession(resumeRaw, agentIdentity, exchange.deferral.result)
+        ? rehydrateSession(
+            resumeRaw,
+            agentIdentity,
+            deferralOf(exchange).result,
+          )
         : undefined;
 
     const userTools = resolveAgentTools(
@@ -286,10 +285,11 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // Caller identity is appended last (after blocks) so the author's own
     // prompt and any block content frame the model first, with the
     // request-scoped "who am I serving" footer closest to the user turn.
+    const caller = authorityOf(exchange).read(exchange);
     const system = appendPrincipalToSystem(
       withBlocks,
       merged.principal,
-      exchange.principal,
+      caller,
       exchange,
     );
 
@@ -412,7 +412,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         key: sessionKey,
         agent: agentIdentity,
         exchange,
-        by: exchange.principal?.subject ?? null,
+        by: caller?.subject ?? null,
         ...(revivedDeferral === undefined ? { message: user } : {}),
         ...(defer !== undefined ? { defer } : {}),
         ...(revivedDeferral !== undefined
@@ -566,10 +566,10 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         message:
           `Agent "${this.binding.name}" requires a context to resolve. ` +
           `Ensure the exchange has context (e.g. from a route) so the ` +
-          `"${AGENT_REGISTRY_STORE_DESCRIPTION}" store can be read.`,
+          `agent registry can be read.`,
       });
     }
-    const registry = context.getStore(ADAPTER_AGENT_REGISTRY);
+    const registry = context.lookup(AGENTS)?.agents;
     if (!registry) {
       throw rcError("RC5004", undefined, {
         message:
@@ -694,7 +694,7 @@ function mergeWithDefaults<T>(
   base: AgentOptions<T> | AgentRegisteredOptions<T>,
   context: CraftContext | undefined,
 ): AgentOptions<T> | AgentRegisteredOptions<T> {
-  const defaults = context?.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
+  const defaults = context?.lookup(AGENTS)?.defaults;
   if (!defaults) return base;
   const out = { ...base };
   for (const key of AGENT_DEFAULT_OPTION_KEYS) {
@@ -840,7 +840,7 @@ function applyToolPolicy(
   agentId: string | undefined,
   dispatchIdentity: AgentDispatchIdentity | undefined,
 ): ResolvedTool[] {
-  const policies = context.getStore(ADAPTER_AGENT_TOOL_POLICIES);
+  const policies = context.lookup(AGENTS)?.toolPolicies;
   if (!policies || policies.length === 0) return resolved;
   const policyContext: AgentToolPolicyContext = { agentId };
   const admitted: ResolvedTool[] = [];

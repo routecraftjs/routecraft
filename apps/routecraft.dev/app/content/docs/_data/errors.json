@@ -264,6 +264,18 @@
     "retryable": false
   },
   {
+    "code": "RC5067",
+    "category": "Runtime",
+    "message": "Deferral notification failed",
+    "retryable": false
+  },
+  {
+    "code": "RC5068",
+    "category": "Runtime",
+    "message": "Refused by a validate hook",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",
@@ -279,6 +291,114 @@
     "code": "RC1004",
     "category": "Definition",
     "message": "Context already stopped",
+    "retryable": false
+  },
+  {
+    "code": "RC1101",
+    "category": "Definition",
+    "message": "Two plugins share an id",
+    "retryable": false
+  },
+  {
+    "code": "RC1102",
+    "category": "Definition",
+    "message": "Two plugins share a namespace",
+    "retryable": false
+  },
+  {
+    "code": "RC1103",
+    "category": "Definition",
+    "message": "Port name invalid, or two keys under one port name",
+    "retryable": false
+  },
+  {
+    "code": "RC1104",
+    "category": "Definition",
+    "message": "Required port has no provider",
+    "retryable": false
+  },
+  {
+    "code": "RC1105",
+    "category": "Definition",
+    "message": "Two providers of one port",
+    "retryable": false
+  },
+  {
+    "code": "RC1106",
+    "category": "Definition",
+    "message": "Invalid port replacement",
+    "retryable": false
+  },
+  {
+    "code": "RC1107",
+    "category": "Definition",
+    "message": "Plugin dependency cycle",
+    "retryable": false
+  },
+  {
+    "code": "RC1108",
+    "category": "Definition",
+    "message": "Port required without being declared",
+    "retryable": false
+  },
+  {
+    "code": "RC1109",
+    "category": "Definition",
+    "message": "Port provision does not match the declaration",
+    "retryable": false
+  },
+  {
+    "code": "RC1110",
+    "category": "Definition",
+    "message": "Contribution after the application froze",
+    "retryable": false
+  },
+  {
+    "code": "RC1111",
+    "category": "Definition",
+    "message": "Route needs a port nobody provides",
+    "retryable": false
+  },
+  {
+    "code": "RC1112",
+    "category": "Definition",
+    "message": "Hook target does not exist",
+    "retryable": false
+  },
+  {
+    "code": "RC1113",
+    "category": "Definition",
+    "message": "Two plugins declare one point",
+    "retryable": false
+  },
+  {
+    "code": "RC1114",
+    "category": "Definition",
+    "message": "Facet name not allowed",
+    "retryable": false
+  },
+  {
+    "code": "RC1115",
+    "category": "Definition",
+    "message": "Hook broke its phase",
+    "retryable": false
+  },
+  {
+    "code": "RC1116",
+    "category": "Definition",
+    "message": "Two plugins declare one step",
+    "retryable": false
+  },
+  {
+    "code": "RC1117",
+    "category": "Definition",
+    "message": "Invalid plugin descriptor",
+    "retryable": false
+  },
+  {
+    "code": "RC1118",
+    "category": "Definition",
+    "message": "Lifecycle hook awaits the start it is part of",
     "retryable": false
   },
   {

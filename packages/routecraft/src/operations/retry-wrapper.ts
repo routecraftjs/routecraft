@@ -1,12 +1,13 @@
 import type { Exchange } from "../exchange.ts";
-import { wrapperEventScope } from "./event-scope.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
-import { WrapperStep } from "./wrapper.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
+import { runStepPosition } from "./position-run.ts";
+import { RESILIENCE, type Position } from "../kernel/positions.ts";
 
 /**
  * Options for the `.retry()` wrapper (step scope and route scope).
@@ -272,6 +273,7 @@ export class RetryWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedRetryOptions;
+  readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, options: RetryOptions = {}) {
     super(inner);
@@ -282,59 +284,22 @@ export class RetryWrapperStep<
     return this.#options;
   }
 
-  protected override async runInner(
+  override get requiredPosition(): RequiredPosition {
+    return { port: RESILIENCE, method: "retry" };
+  }
+
+  protected override runInner(
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const { route, context, routeId, stepLabel, correlationId } =
-      wrapperEventScope(exchange, this);
-    const shouldEmit = route && context && routeId;
-    const scoped = {
-      routeId: routeId as string,
-      exchangeId: exchange.id,
-      correlationId,
-      stepLabel,
-      scope: "step" as const,
-    };
-
-    return await executeWithRetry(
-      () => this.inner.execute(exchange, ctx),
-      this.#options,
-      {
-        // Intake: a backoff cut short at the start of shutdown surfaces the
-        // last error as a terminal outcome, where waiting it out ends in an
-        // abandonment that reports nothing.
-        ...(route ? { signal: route.intakeSignal } : {}),
-        onStarted: () => {
-          if (shouldEmit) {
-            context.emit("route:retry:started", {
-              ...scoped,
-              maxAttempts: this.#options.maxAttempts,
-            });
-          }
-        },
-        onAttempt: (attemptNumber, waitMs, lastError) => {
-          if (shouldEmit) {
-            context.emit("route:retry:attempt", {
-              ...scoped,
-              attemptNumber,
-              maxAttempts: this.#options.maxAttempts,
-              backoffMs: waitMs,
-              lastError,
-            });
-          }
-        },
-        onStopped: (attemptNumber, success, error) => {
-          if (shouldEmit) {
-            context.emit("route:retry:stopped", {
-              ...scoped,
-              attemptNumber,
-              success,
-              ...(error !== undefined ? { error } : {}),
-            });
-          }
-        },
-      },
+    return runStepPosition(
+      this,
+      this.inner,
+      this.#positions,
+      "retry",
+      (provider) => provider.retry(this.#options),
+      exchange,
+      ctx,
     );
   }
 }

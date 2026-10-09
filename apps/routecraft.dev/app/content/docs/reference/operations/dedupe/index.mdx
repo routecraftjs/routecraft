@@ -115,10 +115,10 @@ In each case `dedupe` throws a `RoutecraftError` ([`RC5033`](/docs/reference/err
 .dedupe({
   key: (ex) =>
     JSON.stringify([
-      ex.principal?.issuer,
-      ex.principal?.subject,
-      ex.principal?.actor?.issuer,
-      ex.principal?.actor?.subject,
+      principalOf(ex)?.issuer,
+      principalOf(ex)?.subject,
+      principalOf(ex)?.actor?.issuer,
+      principalOf(ex)?.actor?.subject,
       (ex.body as { orderId: string }).orderId,
     ]),
 })

@@ -49,7 +49,7 @@ match.
 - `@routecraft/routecraft/require-named-route`: Enforce `.id(<non-empty string>)` before `.from()` in a `craft()` chain
 - `@routecraft/routecraft/batch-before-from`: Enforce `batch()` is used as a route-level operation before `.from()`
 - `@routecraft/routecraft/single-to-per-route`: Warn when a route uses more than one `.to()`
-- `@routecraft/routecraft/restrict-principal-minting`: Principal minting (`.authenticate()`, `authenticate()`, `markAuthentic()`) must be an explicitly sanctioned, per-site exception
+- `@routecraft/routecraft/restrict-principal-minting`: Principal minting (`.authenticate()`, `authenticate()`, an authority's `mint()` / `brand()`) must be an explicitly sanctioned, per-site exception
 - `@routecraft/routecraft/require-untrusted-shell-args`: Warn when an exchange-derived value is passed to `shell()` (from `@routecraft/os`) without `untrusted()`, so it cannot pose as an option to the program
 - `@routecraft/routecraft/capability-boundaries` (opt-in): Enforce capability module boundaries (Spring Modulith style)
 
@@ -81,7 +81,7 @@ craft()
 
 ### restrict-principal-minting
 
-`.authenticate()` (and the `authenticate()` / `markAuthentic()` helpers) produce an
+`.authenticate()` (and the `authenticate()` helper, and an authority's `mint()` / `brand()`, `defaultAuthority` included) produce an
 authenticity-branded principal that every downstream `authorize()` trusts and that
 propagates across `direct()` calls, so an unreviewed mint anywhere in a codebase is a
 privilege-escalation vector. Minting is legitimate at channel boundaries (a mail route
@@ -106,8 +106,10 @@ const principal = authenticate({ subject: 'admin' })
 Detection is precise over exhaustive (lint is advisory, not a sandbox): flagged are
 `.authenticate(...)` on chains originating from `craft()` (bare, aliased, or via a
 routecraft namespace import, with dotted or computed string-literal member access),
-and calls to `authenticate` / `markAuthentic` reached through a routecraft import
-(named, aliased, namespace member, or computed member with a string literal). Bindings
+and calls to `authenticate` reached through a routecraft import
+(named, aliased, namespace member, or computed member with a string literal), and
+`mint()` / `brand()` on an authority: `authorityOf(...)`, `require(AUTHORITY)`,
+`lookup(AUTHORITY)`, the exported `defaultAuthority`, or a `const` holding one of them. Bindings
 are resolved through scope, so a same-named function from another module or a
 shadowing local is not flagged. Knowingly uncovered laundering forms, all of which
 require code that is itself review-visible: re-exporting the helpers from a local

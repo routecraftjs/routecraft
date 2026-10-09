@@ -46,6 +46,24 @@ export interface ErrorCodeRegistry {
   RC1002: RCMeta;
   RC1003: RCMeta;
   RC1004: RCMeta;
+  RC1101: RCMeta;
+  RC1102: RCMeta;
+  RC1103: RCMeta;
+  RC1104: RCMeta;
+  RC1105: RCMeta;
+  RC1106: RCMeta;
+  RC1107: RCMeta;
+  RC1108: RCMeta;
+  RC1109: RCMeta;
+  RC1110: RCMeta;
+  RC1111: RCMeta;
+  RC1112: RCMeta;
+  RC1113: RCMeta;
+  RC1114: RCMeta;
+  RC1115: RCMeta;
+  RC1116: RCMeta;
+  RC1117: RCMeta;
+  RC1118: RCMeta;
   RC2001: RCMeta;
   RC2002: RCMeta;
   RC3001: RCMeta;
@@ -110,6 +128,8 @@ export interface ErrorCodeRegistry {
   RC5064: RCMeta;
   RC5065: RCMeta;
   RC5066: RCMeta;
+  RC5067: RCMeta;
+  RC5068: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -154,6 +174,150 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A CraftContext is single-use: once stopped, its routes and controllers are gone for good. Build a fresh context from your config instead of restarting a stopped one.",
     docs: `${DOCS_BASE}#rc-1004`,
+    retryable: false,
+  },
+  RC1101: {
+    category: "Definition",
+    message: "Two plugins share an id",
+    suggestion:
+      "Every plugin id is installed once. A config key and an explicit plugin for the same feature count as two installations of one id: keep one. The message names both positions.",
+    docs: `${DOCS_BASE}#rc-1101`,
+    retryable: false,
+  },
+  RC1102: {
+    category: "Definition",
+    message: "Two plugins share a namespace",
+    suggestion:
+      "A namespace is the prefix a plugin's facet, options and events live under, by default the last segment of its id. Give one of the two plugins an explicit namespace.",
+    docs: `${DOCS_BASE}#rc-1102`,
+    retryable: false,
+  },
+  RC1103: {
+    category: "Definition",
+    message: "Port name invalid, or two keys under one port name",
+    suggestion:
+      "A port is named owner.capability@version and declared with port(), whose token's key is the registered symbol for the name, so two copies of the declaring module resolve as one port. A token carrying that name under another key was built by hand; declare the port with port() and share the exported token.",
+    docs: `${DOCS_BASE}#rc-1103`,
+    retryable: false,
+  },
+  RC1104: {
+    category: "Definition",
+    message: "Required port has no provider",
+    suggestion:
+      "Something required a port that no installed plugin provides. Install a plugin that provides it, or, for a plugin you wrote, declare the port optional and use lookup().",
+    docs: `${DOCS_BASE}#rc-1104`,
+    retryable: false,
+  },
+  RC1105: {
+    category: "Definition",
+    message: "Two providers of one port",
+    suggestion:
+      "Two installed plugins provide the same port and neither declares replaces for it. Remove one, or declare replaces: [port] on the provider that should be selected.",
+    docs: `${DOCS_BASE}#rc-1105`,
+    retryable: false,
+  },
+  RC1106: {
+    category: "Definition",
+    message: "Invalid port replacement",
+    suggestion:
+      "A plugin may replace a port only when it also provides it, and only one plugin may replace a given port. The message names the plugins involved.",
+    docs: `${DOCS_BASE}#rc-1106`,
+    retryable: false,
+  },
+  RC1107: {
+    category: "Definition",
+    message: "Plugin dependency cycle",
+    suggestion:
+      "The plugins require each other in a cycle, so no order can bind them. The message lists the edges; break one by making a requirement optional or by moving the shared part into its own port.",
+    docs: `${DOCS_BASE}#rc-1107`,
+    retryable: false,
+  },
+  RC1108: {
+    category: "Definition",
+    message: "Port required without being declared",
+    suggestion:
+      "A plugin called require() or lookup() for a port it did not list in requires or optional. Declare it, so the kernel can order the plugin after its provider.",
+    docs: `${DOCS_BASE}#rc-1108`,
+    retryable: false,
+  },
+  RC1109: {
+    category: "Definition",
+    message: "Port provision does not match the declaration",
+    suggestion:
+      "A plugin provided a port it did not declare in provides, or its bind returned without providing one it did declare. Declarations and provisions must match, so consumers can rely on what resolution promised.",
+    docs: `${DOCS_BASE}#rc-1109`,
+    retryable: false,
+  },
+  RC1110: {
+    category: "Definition",
+    message: "Contribution after the application froze",
+    suggestion:
+      "Ports, routes and hooks are accepted only while plugins bind. Move the contribution into bind(c).",
+    docs: `${DOCS_BASE}#rc-1110`,
+    retryable: false,
+  },
+  RC1111: {
+    category: "Definition",
+    message: "Route needs a port nobody provides",
+    suggestion:
+      "A route uses something only a plugin can provide (a position, a step) and no installed plugin provides it. Install the plugin the message names.",
+    docs: `${DOCS_BASE}#rc-1111`,
+    retryable: false,
+  },
+  RC1112: {
+    category: "Definition",
+    message: "Hook target does not exist",
+    suggestion:
+      "A hook names a slot or point that does not exist, or hooks.order or hooks.disable names a hook no installed plugin declares. Check the spelling against the chain's slots and the installed plugins.",
+    docs: `${DOCS_BASE}#rc-1112`,
+    retryable: false,
+  },
+  RC1113: {
+    category: "Definition",
+    message: "Two plugins declare one point",
+    suggestion:
+      "A point name is declared by one plugin. Rename one of the two, under its own namespace.",
+    docs: `${DOCS_BASE}#rc-1113`,
+    retryable: false,
+  },
+  RC1114: {
+    category: "Definition",
+    message: "Facet name not allowed",
+    suggestion:
+      "A plugin's facet is named by its namespace, and may not shadow an exchange field (id, headers, body, logger).",
+    docs: `${DOCS_BASE}#rc-1114`,
+    retryable: false,
+  },
+  RC1115: {
+    category: "Definition",
+    message: "Hook broke its phase",
+    suggestion:
+      "An observe hook returned something, a validate hook changed the exchange, or a hook declared a phase its slot does not have. Return nothing from observe, decide only in validate, and change the exchange only in mutate.",
+    docs: `${DOCS_BASE}#rc-1115`,
+    retryable: false,
+  },
+  RC1116: {
+    category: "Definition",
+    message: "Two plugins declare one step",
+    suggestion:
+      "A builder method name is declared once. Two plugins declared the same step, or a step shadows a method the builder already has.",
+    docs: `${DOCS_BASE}#rc-1116`,
+    retryable: false,
+  },
+  RC1117: {
+    category: "Definition",
+    message: "Invalid plugin descriptor",
+    suggestion:
+      "A plugin is a descriptor built with definePlugin({ id, ... }). The message names the field that is wrong: a missing plugin or hook id, the pre-0.8 apply() shape, a port list holding something other than ports, or a repeatable plugin declaring what only one install may.",
+    docs: `${DOCS_BASE}#rc-1117`,
+    retryable: false,
+  },
+  RC1118: {
+    category: "Definition",
+    message: "Lifecycle hook awaits the start it is part of",
+    suggestion:
+      "A bind or start hook awaited c.execution.whenStarted(), which resolves only once every hook returned, so the hook would wait on itself. Return from the hook and await whenStarted() from the work it schedules (a timer, a task), or let the kernel start the plugin first and begin the work in start().",
+    docs: `${DOCS_BASE}#rc-1118`,
     retryable: false,
   },
   RC2001: {
@@ -523,7 +687,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Deferral result rejected",
     suggestion:
-      "The payload handed to `.resume()` failed the `schema` declared on the deferring `.defer()`. The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed payload is a per-request input error, not a change the deferred route has to re-ask about. Handle it with an `.error()` on the ingress route if the caller deserves a reply.",
+      "The payload handed to `.resume()` failed the `schema` declared at the deferring site: the `.defer()` step, or the route-scope `.error(handler, { schema })` or error hook `schema` that parked it. The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed payload is a per-request input error, not a change the deferred route has to re-ask about. Handle it with an `.error()` on the ingress route if the caller deserves a reply.",
     docs: `${DOCS_BASE}#rc-5049`,
     retryable: false,
   },
@@ -661,6 +825,22 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A surface asked the deferral store for something the store this context was given does not implement. The two shipped backends (sqlite and memory) implement the whole `DeferralStore` contract; a store supplied through `deferral: { store }` is the caller's own, and one written against an earlier version of the contract can be missing a member added since. The message names the member. Implement it, or drop back to a shipped backend. The surface refuses rather than answering empty, because an empty listing and a listing the store cannot produce look identical to whoever is reading it.",
     docs: `${DOCS_BASE}#rc-5066`,
+    retryable: false,
+  },
+  RC5067: {
+    category: "Runtime",
+    message: "Deferral notification failed",
+    suggestion:
+      "An error handler answered with `recovery.defer({ notify })`, the exchange parked, and then the `notify` hook threw or did not settle before the deferring route's abort signal fired. Nobody was successfully told the work is waiting, so the deferral was denied claim-first and its resume link is dead: a token that did go out reads RC5050 rather than reviving work whose caller was told it failed. The hook's own failure is the cause. Notify by forwarding to a route the application owns rather than calling a mailer inline, so the send is a route like any other: retryable, observable, and testable without the handler. A hook that legitimately takes longer than the route allows needs the route's `.timeout()` widened, not the bound removed.",
+    docs: `${DOCS_BASE}#rc-5067`,
+    retryable: false,
+  },
+  RC5068: {
+    category: "Runtime",
+    message: "Refused by a validate hook",
+    suggestion:
+      "A plugin's validate hook refused this exchange; the message names the hook and its reason. A refusal reaches the error slot like any failure, so a route can answer it. If the refusal is wrong for this route, the application can disable the hook by id with hooks.disable.",
+    docs: `${DOCS_BASE}#rc-5068`,
     retryable: false,
   },
   RC9901: {

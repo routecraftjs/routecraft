@@ -9,9 +9,9 @@ Two layers per exchange.
 | Layer | What it holds | Examples | Persistence |
 |---|---|---|---|
 | **State (stored fields)** | `body: T`, `headers: ExchangeHeaders` | the payload, every piece of metadata about the exchange (id, route, correlation, split hierarchy, source-emitted facts, cross-cutting concerns like principal/span/tenant) | serialized verbatim; rehydrated verbatim |
-| **Derivations (getters / methods on `DefaultExchange`)** | `id`, `principal`, `logger`, `deferral` | `get id()` reads `headers["routecraft.id"]`; `get principal()` reads `headers["routecraft.auth.principal"]`; `get logger()` builds a child logger from the framework's base logger and the exchange's id; `get deferral()` reads the `routecraft.deferral.*` keys and returns the affordance; reading `.token` off it is what mints a resume token from the context's signer, and that read throws RC5052 when the context has no deferral runtime | not serialized; reconstructed by instantiating `DefaultExchange` around the rehydrated state |
+| **Derivations (getters on `DefaultExchange`, and plugin facets)** | `id`, `logger`, and `ex.<namespace>` for each installed plugin that declares a facet (`ex.auth`, `ex.deferral`) | `get id()` reads `headers["routecraft.id"]`; `get logger()` builds a child logger from the framework's base logger and the exchange's id; a facet is the plugin's `facet(exchange)` run on every read: `ex.auth.principal` reads `headers["routecraft.auth.principal"]`, and `ex.deferral` reads the `routecraft.deferral.*` keys and returns the affordance, where reading `.token` mints a resume token from the signer `CONTINUATIONS` provides. Library code that holds a plain `Exchange` reads the same through `principalOf(ex)` and `deferralOf(ex)` | not serialized; reconstructed by instantiating `DefaultExchange` around the rehydrated state |
 
-Application-wide singletons (adapter clients, plugin state, schedulers) live in `context.store`, which is orthogonal: it outlives any individual exchange.
+Application-wide singletons are orthogonal to the exchange and outlive it. What a plugin offers other plugins or adapters is a port (`context.require(PORT)`); an adapter's own per-context state (clients, schedulers) lives in `context.store`.
 
 ## The rules
 
@@ -19,14 +19,14 @@ Application-wide singletons (adapter clients, plugin state, schedulers) live in 
 >
 > **Derivations (must NOT be stored, must be reconstructible):** anything that's a view over state (id, principal lookup, future span lookup) or depends on runtime services (logger). Exposed as getters so call sites read like properties.
 >
-> **Singletons (out-of-band):** application-wide things go in `context.store`.
+> **Singletons (out-of-band):** application-wide things a plugin offers go behind a port; an adapter's own state goes in `context.store`.
 
 A contributor adding new state asks:
 
 1. Is it the payload the route is operating on? --> `body`.
-2. Does the same instance need to outlive the exchange and be shared across routes? --> `context.store` (typed via `StoreRegistry`).
+2. Does the same instance need to outlive the exchange and be shared across routes? --> a port, when a plugin offers it to others; `context.store` (typed via `StoreRegistry`) when it is one adapter's own state.
 3. Anything else per-exchange that must survive the exchange? --> `headers` (typed via `RoutecraftHeaders` declaration merging).
-4. Want ergonomic dotted access (`ex.foo`) for a known core concern? --> add a getter on `DefaultExchange` that reads from `headers`. Plugin-defined concerns export an external helper (`getTenant(ex)`) instead of patching the prototype.
+4. Want ergonomic dotted access (`ex.foo`)? --> for a core concern, a getter on `DefaultExchange` that reads from `headers`; for a plugin's concern, a declared `facet`, which the kernel installs as `ex.<namespace>` and checks for collisions (`RC1114`). Library code reads the same through an exported helper (`principalOf(ex)`, `deferralOf(ex)`).
 
 That's it. No primitive/structured split. No second per-exchange bag. No stored-field "special cases" for cross-cutting concerns. One Principal --> one header key + one getter. One Span (future) --> one header key (and external helper if warranted).
 
@@ -51,7 +51,7 @@ Persisting an exchange = serializing `{ body, headers }`. Resuming an exchange =
 
 Durable defer and resume is the first live consumer of this contract: `.defer()` persists exactly these two slots, and `.resume()` rebuilds a `DefaultExchange` around them on whichever process holds the answer. The deferral's own state follows the same rule rather than earning a bag of its own: the deferral counter, the validated result, and the resume receipt are `routecraft.deferral.*` headers, and `ex.deferral` is the derivation over them.
 
-The getters (`id`, `principal`, `logger`, `deferral`) work immediately because they derive lazily. The `EXCHANGE_INTERNALS` WeakMap (route binding, parse hook, validation hook, startedAt, dropped flag, resume step state) is NOT serialized -- it's runtime context, rehydrated by re-attaching the route via `headers["routecraft.route"]` on the new context.
+The getters and facets (`id`, `logger`, `ex.auth`, `ex.deferral`) work immediately because they derive lazily. The `EXCHANGE_INTERNALS` WeakMap (route binding, parse hook, validation hook, startedAt, dropped flag, resume step state) is NOT serialized -- it's runtime context, rehydrated by re-attaching the route via `headers["routecraft.route"]` on the new context.
 
 One documented exception to "the serialized exchange is the complete continuation": a defer-capable step (the agent step is the shipped case) IS closure state mid-execution -- a messages thread and an outstanding tool-call id that live nowhere on the exchange. That state rides the deferral record's opaque `stepState` slot, not `body` or `headers`: it is step-owned, not exchange state, and it must never be re-serialized into a second deferral. On revival it is handed back through internals (`setResumeStepState` / `peekResumeStepState`): the step reads without consuming, and the executor clears the slot when the step settles with any committed outcome (success, drop, or a fresh deferral, which mints its own new `stepState`). A thrown attempt leaves it in place, and the route-scope retry segment re-seeds it per attempt, so a retried resume still re-enters with the deferred thread while a later defer-capable step in the same continuation starts clean.
 
@@ -62,7 +62,7 @@ The serialization surface is exactly two slots (`body`, `headers`), by construct
 The codebase distinguishes three views of an exchange. They are intentionally separate.
 
 1. **External `Exchange<T>` type** (`packages/routecraft/src/exchange.ts`) -- the public API surface. Type-level only, no implementation. What user code (route steps, plugin authors) sees. Stable.
-2. **Internal `DefaultExchange<T>` class** (`packages/routecraft/src/exchange.ts`) -- the implementation. Stored fields are `body` and `headers`. Getters expose `id`/`principal`/`logger`. Internal-only state (route binding, parse hook, dropped flag, startedAt) lives in the `EXCHANGE_INTERNALS` WeakMap, hidden from the external type by design.
+2. **Internal `DefaultExchange<T>` class** (`packages/routecraft/src/exchange.ts`) -- the implementation. Stored fields are `body` and `headers`. Getters expose `id`/`logger` and the installed plugins' facets. Internal-only state (route binding, parse hook, dropped flag, startedAt) lives in the `EXCHANGE_INTERNALS` WeakMap, hidden from the external type by design.
 3. **Logger projection via `childBindings(ex)`** (`packages/routecraft/src/logger.ts`) -- a flat record (`{ contextId, route, correlationId, exchangeId, auth.subject, auth.issuer }`) built for pino bindings. Different shape from the exchange itself; a deliberately denormalized view for log output.
 
 Halt/continue serializes only the implementation class's stored fields. The log projection is rebuilt on demand on the resuming process.
@@ -90,7 +90,7 @@ export function getSpan(ex: Exchange): TraceSpan | undefined {
 }
 ```
 
-The plugin does NOT add a getter on `DefaultExchange` (that would require prototype patching, which arms-races between plugins). Plugin-defined concerns expose ergonomic helpers as named exports.
+To make it readable as `ex.tracing.span` in route callables, the plugin declares a facet: `facet: (ex) => ({ span: getSpan(ex) })`. The kernel defines the getter, named by the plugin's namespace, and computes it on every read, so the facet is a derivation and never stored; a facet named after a field every exchange has is `RC1114`. The helper stays exported for library code that holds a plain `Exchange`.
 
 ### Adding a tenancy plugin
 
@@ -222,8 +222,8 @@ The rule only kicks in when an adapter *does* carry envelope-around-payload.
 - **No PII enforcement at the framework type level.** PII is a logging-policy concern, not a framework-type concern. log4j doesn't ban strings to prevent PII leaks; the log statement and the aggregator filter handle that.
 - **No second bag for "structured" data.** No surveyed framework splits on primitive-vs-structured; frameworks that split (Camel, Koa, Hono) split on wire-vs-app. Routecraft has no wire-mapped bag and won't grow one (wire concerns translate at adapter boundaries).
 - **No ambient-context API yet.** AsyncLocalStorage breaks across queue / split / aggregate / retry boundaries; the source of truth must be on the exchange. A `currentExchange()` helper inside a single operation is a possible future ergonomic on top, not a replacement.
-- **Plugins do not extend `DefaultExchange`'s prototype.** Adding a getter for plugin-defined concerns would lead to arms races and conflicts. Plugins export external helpers (`getTenant(ex)`).
-- **No deep-clone of structured header values in tap snapshots.** Headers are shallow-frozen (and the constructor shallow-freezes structured values like `Principal`). Mutating nested fields of any structured header value (`ex.principal.claims.foo = ...`) is an anti-pattern the framework does not prevent and does not isolate against. Tap is for observation, not mutation.
+- **Plugins never patch `DefaultExchange`'s prototype themselves.** The facet socket is the only way on: the kernel installs `ex.<namespace>` for a declared `facet`, one namespace per plugin, refusing a name the exchange already has (`RC1114`). Ad-hoc getters would race and collide.
+- **No deep-clone of structured header values in tap snapshots.** Headers are shallow-frozen (and the constructor shallow-freezes structured values like `Principal`). Mutating nested fields of any structured header value (`ex.auth.principal.claims.foo = ...`) is an anti-pattern the framework does not prevent and does not isolate against. Tap is for observation, not mutation.
 
 ## Why one bag named `headers`
 
@@ -238,6 +238,6 @@ The "HTTP headers go on the wire" connotation is real but mild and addressable v
 ## Implementation references
 
 - `packages/routecraft/src/exchange.ts` -- `RoutecraftHeaders`, `HeadersKeys`, `ExchangeHeaders`, `DefaultExchange`, `DefaultExchange.rewrap`
-- `packages/routecraft/src/auth/types.ts` -- module augmentation for `routecraft.auth.principal`
+- `packages/routecraft/src/principal.ts` -- module augmentation for `routecraft.auth.principal`
 - `packages/routecraft/src/logger.ts` -- `childBindings` (the third / log-projection form)
 - `packages/routecraft/test/exchange-state-model.bun.test.ts` -- end-to-end smoke test for the halt/continue contract

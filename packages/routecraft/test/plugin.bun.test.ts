@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
+  port,
   craft,
   simple,
   noop,
-  type CraftContext,
-  type CraftPlugin,
+  type Plugin,
+  type PluginContext,
 } from "@routecraft/routecraft";
+import { defaultPluginsFor } from "../src/kernel/defaults.ts";
 
 describe("Plugin System", () => {
   let t: TestContext;
@@ -18,21 +20,23 @@ describe("Plugin System", () => {
   });
 
   /**
-   * @case Verifies that plugins receive the context
-   * @preconditions A plugin is registered in the config
-   * @expectedResult Plugin is called with the context
+   * @case Verifies that a plugin's bind receives a plugin context bound to the application
+   * @preconditions A plugin with an id is registered in the config
+   * @expectedResult bind is called once with a plugin context carrying the plugin's id, and the context never exposes the CraftContext
    */
   test("Plugin receives context", async () => {
-    const applyMock = mock<(ctx: CraftContext) => void>();
+    const bindMock = mock<(c: PluginContext) => void>();
 
     t = await testContext()
       .with({
-        plugins: [{ apply: applyMock }],
+        plugins: [{ id: "test.receiver", bind: bindMock }],
       })
       .build();
 
-    expect(applyMock).toHaveBeenCalledWith(t.ctx);
-    expect(applyMock).toHaveBeenCalledTimes(1);
+    expect(bindMock).toHaveBeenCalledTimes(1);
+    const received = bindMock.mock.calls[0][0];
+    expect(received.id).toBe("test.receiver");
+    expect("context" in received).toBe(false);
   });
 
   /**
@@ -42,18 +46,21 @@ describe("Plugin System", () => {
    */
   test("Multiple plugins run in order", async () => {
     const callOrder: string[] = [];
-    const plugin1: CraftPlugin = {
-      apply: () => {
+    const plugin1: Plugin = {
+      id: "test.plugin1",
+      bind: () => {
         callOrder.push("plugin1");
       },
     };
-    const plugin2: CraftPlugin = {
-      apply: () => {
+    const plugin2: Plugin = {
+      id: "test.plugin2",
+      bind: () => {
         callOrder.push("plugin2");
       },
     };
-    const plugin3: CraftPlugin = {
-      apply: () => {
+    const plugin3: Plugin = {
+      id: "test.plugin3",
+      bind: () => {
         callOrder.push("plugin3");
       },
     };
@@ -75,9 +82,10 @@ describe("Plugin System", () => {
   test("Plugin can subscribe to context events", async () => {
     const eventMock = mock();
 
-    const plugin: CraftPlugin = {
-      apply(ctx: CraftContext) {
-        ctx.on("context:started", eventMock);
+    const plugin: Plugin = {
+      id: "test.plugin",
+      bind(c) {
+        c.observe("context:started", eventMock);
       },
     };
 
@@ -100,14 +108,17 @@ describe("Plugin System", () => {
   });
 
   /**
-   * @case Verifies that plugins can set up stores
-   * @preconditions A plugin sets a value in the context store
-   * @expectedResult Store value is accessible after plugin runs
+   * @case Verifies that a plugin shares state through a port it provides
+   * @preconditions A plugin declares and provides a port in bind
+   * @expectedResult The application resolves the port to the provided value
    */
-  test("Plugin can set up stores", async () => {
-    const plugin: CraftPlugin = {
-      apply(ctx: CraftContext) {
-        ctx.setStore("test-plugin-key" as any, { data: "test" });
+  test("Plugin can provide a port", async () => {
+    const SHARED = port<{ data: string }>("test.shared@1");
+    const plugin: Plugin = {
+      id: "test.plugin",
+      provides: [SHARED],
+      bind(c) {
+        c.provide(SHARED, { data: "test" });
       },
     };
 
@@ -117,19 +128,19 @@ describe("Plugin System", () => {
       })
       .build();
 
-    const stored = t.ctx.getStore("test-plugin-key" as any);
-    expect(stored).toEqual({ data: "test" });
+    expect(t.ctx.lookup(SHARED)).toEqual({ data: "test" });
   });
 
   /**
    * @case Verifies that plugins can dynamically register routes
-   * @preconditions A plugin calls ctx.registerRoutes() during initialization
+   * @preconditions A plugin calls c.routes.register() during bind
    * @expectedResult Routes registered by plugin are available
    */
   test("Plugin can dynamically register routes before routes are registered", async () => {
-    const plugin: CraftPlugin = {
-      apply(ctx: CraftContext) {
-        ctx.registerRoutes(
+    const plugin: Plugin = {
+      id: "test.plugin",
+      bind(c) {
+        c.routes.register(
           craft()
             .id("plugin-added-route")
             .from(simple("from-plugin"))
@@ -159,15 +170,16 @@ describe("Plugin System", () => {
 
   /**
    * @case Verifies that plugins run before routes are registered and see zero routes during initialization
-   * @preconditions A plugin reads ctx.getRoutes().length during its run
+   * @preconditions A plugin reads c.routes.list().length during bind
    * @expectedResult Plugin sees 0 routes during init; after build, context has 2 routes
    */
   test("Plugin runs before routes are registered and can access context", async () => {
     let routeCountInPlugin = 0;
 
-    const plugin: CraftPlugin = {
-      apply(ctx: CraftContext) {
-        routeCountInPlugin = ctx.getRoutes().length;
+    const plugin: Plugin = {
+      id: "test.plugin",
+      bind(c) {
+        routeCountInPlugin = c.routes.list().length;
       },
     };
 
@@ -193,18 +205,21 @@ describe("Plugin System", () => {
    * @expectedResult All plugins run
    */
   test("Plugins from config execute", async () => {
-    const apply1 = mock<(ctx: CraftContext) => void>();
-    const apply2 = mock<(ctx: CraftContext) => void>();
+    const bind1 = mock<(c: PluginContext) => void>();
+    const bind2 = mock<(c: PluginContext) => void>();
 
     t = await testContext()
       .routes(craft().id("test").from(simple("hello")).to(noop()))
       .with({
-        plugins: [{ apply: apply1 }, { apply: apply2 }],
+        plugins: [
+          { id: "test.first", bind: bind1 },
+          { id: "test.second", bind: bind2 },
+        ],
       })
       .build();
 
-    expect(apply1).toHaveBeenCalled();
-    expect(apply2).toHaveBeenCalled();
+    expect(bind1).toHaveBeenCalled();
+    expect(bind2).toHaveBeenCalled();
   });
 
   /**
@@ -214,13 +229,15 @@ describe("Plugin System", () => {
    */
   test("Plugins accumulate from multiple builder calls", async () => {
     const calls: string[] = [];
-    const plugin1: CraftPlugin = {
-      apply: () => {
+    const plugin1: Plugin = {
+      id: "test.plugin1",
+      bind: () => {
         calls.push("plugin1");
       },
     };
-    const plugin2: CraftPlugin = {
-      apply: () => {
+    const plugin2: Plugin = {
+      id: "test.plugin2",
+      bind: () => {
         calls.push("plugin2");
       },
     };
@@ -239,21 +256,19 @@ describe("Plugin System", () => {
   });
 
   /**
-   * @case Verifies that plugin lifecycle events are emitted during teardown
-   * @preconditions A plugin is registered with a teardown method
+   * @case Verifies that plugin lifecycle events are emitted during stop
+   * @preconditions A plugin is registered with a stop method
    * @expectedResult stopping and stopped lifecycle events are emitted when context stops
    */
   test("Plugin lifecycle events are emitted", async () => {
     let stoppingCalled = false;
     let stoppedCalled = false;
-    let teardownCalled = false;
+    let stopCalled = false;
 
-    const plugin: CraftPlugin = {
-      apply() {
-        // Plugin initialization
-      },
-      teardown() {
-        teardownCalled = true;
+    const plugin: Plugin = {
+      id: "test.lifecycle",
+      stop() {
+        stopCalled = true;
       },
     };
 
@@ -263,7 +278,6 @@ describe("Plugin System", () => {
       })
       .build();
 
-    // Subscribe to plugin lifecycle events (plugin ID is "plugin-0" for plain object at index 0)
     t.ctx.on("plugin:stopping", () => {
       stoppingCalled = true;
     });
@@ -272,33 +286,25 @@ describe("Plugin System", () => {
       stoppedCalled = true;
     });
 
-    // Stop to trigger teardown events
     await t.ctx.stop();
 
-    // Verify teardown was called and events were emitted
-    expect(teardownCalled).toBe(true);
+    expect(stopCalled).toBe(true);
     expect(stoppingCalled).toBe(true);
     expect(stoppedCalled).toBe(true);
   });
 
   /**
    * @case Verifies plugin lifecycle events include correct metadata
-   * @preconditions A named plugin is registered
-   * @expectedResult Events contain pluginId and pluginIndex
+   * @preconditions A plugin with id "test.metadata" is registered
+   * @expectedResult plugin:stopping and plugin:stopped carry the plugin's id as pluginId and its position in dependency order, after the default plugins installed ahead of it, as pluginIndex
    */
   test("Plugin lifecycle events include metadata", async () => {
     const capturedEvents: Array<{ pluginId: string; pluginIndex: number }> = [];
 
-    class MyTestPlugin implements CraftPlugin {
-      apply() {
-        // Plugin initialization
-      }
-      teardown() {
-        // Plugin cleanup
-      }
-    }
-
-    const plugin = new MyTestPlugin();
+    const plugin: Plugin = {
+      id: "test.metadata",
+      stop() {},
+    };
 
     t = await testContext()
       .with({
@@ -306,8 +312,6 @@ describe("Plugin System", () => {
       })
       .build();
 
-    // Subscribe to plugin teardown lifecycle events (fixed names;
-    // pluginId in payload)
     for (const name of ["plugin:stopping", "plugin:stopped"] as const) {
       t.ctx.on(name, (payload) => {
         const details = payload.details as {
@@ -321,62 +325,108 @@ describe("Plugin System", () => {
       });
     }
 
-    // Stop to trigger teardown events (which we can capture)
     await t.ctx.stop();
 
-    // Should have captured stopping and stopped events
     expect(capturedEvents.length).toBe(2);
-    expect(capturedEvents[0].pluginId).toBe("MyTestPlugin");
-    expect(capturedEvents[0].pluginIndex).toBe(0);
-    expect(capturedEvents[1].pluginId).toBe("MyTestPlugin");
-    expect(capturedEvents[1].pluginIndex).toBe(0);
+    const installedAt = defaultPluginsFor([plugin]).length;
+    expect(capturedEvents[0].pluginId).toBe("test.metadata");
+    expect(capturedEvents[0].pluginIndex).toBe(installedAt);
+    expect(capturedEvents[1].pluginId).toBe("test.metadata");
+    expect(capturedEvents[1].pluginIndex).toBe(installedAt);
   });
 
   /**
-   * @case Plugin `name` field takes precedence over the constructor name
-   *       as the pluginId on lifecycle event payloads
-   * @preconditions Plain-object plugin with name: "my-plugin" registered;
-   *                context built (initPlugins runs)
-   * @expectedResult plugin:applying and plugin:applied carry pluginId "my-plugin"
+   * @case The plugin's id is the pluginId on bind lifecycle event payloads
+   * @preconditions Plugin with id "test.my-plugin" registered; context built
+   *                (initPlugins runs)
+   * @expectedResult plugin:binding and plugin:bound carry pluginId "test.my-plugin"
    */
-  test("plugin name is used as pluginId on lifecycle events", async () => {
+  test("plugin id is used as pluginId on lifecycle events", async () => {
     const seen: { event: string; pluginId: string }[] = [];
-    const plugin: CraftPlugin = {
-      name: "my-plugin",
-      apply: () => {},
+    const plugin: Plugin = {
+      id: "test.my-plugin",
+      bind: () => {},
     };
 
     t = await testContext()
-      .on("plugin:applying", ({ details }) => {
-        seen.push({ event: "applying", pluginId: details.pluginId });
+      .on("plugin:binding", ({ details }) => {
+        seen.push({ event: "binding", pluginId: details.pluginId });
       })
-      .on("plugin:applied", ({ details }) => {
-        seen.push({ event: "applied", pluginId: details.pluginId });
+      .on("plugin:bound", ({ details }) => {
+        seen.push({ event: "bound", pluginId: details.pluginId });
       })
       .with({ plugins: [plugin] })
       .build();
 
-    expect(seen).toEqual([
-      { event: "applying", pluginId: "my-plugin" },
-      { event: "applied", pluginId: "my-plugin" },
+    expect(seen.filter((e) => e.pluginId === "test.my-plugin")).toEqual([
+      { event: "binding", pluginId: "test.my-plugin" },
+      { event: "bound", pluginId: "test.my-plugin" },
     ]);
   });
 
   /**
-   * @case registerTeardown callbacks unwind in reverse registration order
-   * @preconditions One plugin registers two teardown callbacks during apply()
-   * @expectedResult On stop the second callback runs before the first (LIFO)
+   * @case The framework's positions are filled by default plugins, and an application's plugin with the same id takes a default's place
+   * @preconditions One context with no plugins; one context installing a plugin with the id "routecraft.cache"
+   * @expectedResult The first binds routecraft.resilience, routecraft.cache and routecraft.auth; the second binds its own routecraft.cache once and no default one
    */
-  test("registerTeardown callbacks run LIFO", async () => {
+  test("default plugins install unless the application installs the same id", async () => {
+    const bound: string[] = [];
+    t = await testContext()
+      .on("plugin:bound", ({ details }) => {
+        bound.push(details.pluginId);
+      })
+      .build();
+    expect(bound).toEqual(
+      expect.arrayContaining([
+        "routecraft.resilience",
+        "routecraft.cache",
+        "routecraft.auth",
+      ]),
+    );
+    await t.stop();
+
+    const overridden: string[] = [];
+    let ownBound = false;
+    t = await testContext()
+      .on("plugin:bound", ({ details }) => {
+        overridden.push(details.pluginId);
+      })
+      .with({
+        plugins: [
+          {
+            id: "routecraft.cache",
+            bind: () => {
+              ownBound = true;
+            },
+          },
+        ],
+      })
+      .build();
+    expect(ownBound).toBe(true);
+    expect(overridden.filter((id) => id === "routecraft.cache")).toHaveLength(
+      1,
+    );
+  });
+
+  /**
+   * @case onDispose callbacks unwind in reverse registration order, after the plugin's own stop
+   * @preconditions One plugin with a stop hook registers two disposers during bind()
+   * @expectedResult On stop the plugin's stop runs first, then the second disposer before the first (LIFO)
+   */
+  test("onDispose callbacks run LIFO after stop", async () => {
     const order: string[] = [];
-    const plugin: CraftPlugin = {
-      apply(ctx) {
-        ctx.registerTeardown(() => {
+    const plugin: Plugin = {
+      id: "test.disposer",
+      bind(c) {
+        c.onDispose(() => {
           order.push("first-registered");
         });
-        ctx.registerTeardown(() => {
+        c.onDispose(() => {
           order.push("second-registered");
         });
+      },
+      stop() {
+        order.push("stop");
       },
     };
 
@@ -386,6 +436,6 @@ describe("Plugin System", () => {
 
     await t.ctx.stop();
 
-    expect(order).toEqual(["second-registered", "first-registered"]);
+    expect(order).toEqual(["stop", "second-registered", "first-registered"]);
   });
 });

@@ -1,26 +1,34 @@
 import { existsSync } from "node:fs";
 import {
+  CONTINUATIONS,
   claimDatabasePath,
   rcError,
   releaseClaimant,
   resolveDatabasePath,
   resolveSqliteDriver,
   type CraftContext,
-  type CraftPlugin,
+  type Plugin,
+  type PluginLogger,
   type SqliteDriverLoaders,
 } from "@routecraft/routecraft";
-import {
-  ADAPTER_AGENT_SESSION_STORE,
-  ADAPTER_AGENT_SESSIONS,
-} from "../store.ts";
+import { ADAPTER_AGENT_SESSION_STORE } from "../store.ts";
 import { MemorySessionStore } from "./memory-store.ts";
 import type { AgentSessionKey } from "./types.ts";
-import type { SessionCasResult, SessionStore, StoredSession } from "./port.ts";
+import {
+  SESSION_STORE,
+  type ResolvedSessionStore,
+  type SessionCasResult,
+  type SessionStore,
+  type SessionWriter,
+  type StoredSession,
+} from "./port.ts";
 import {
   DEFAULT_SESSION_DB_PATH,
   SESSION_SQLITE_CONSUMER,
   SqliteSessionStore,
 } from "./sqlite-store.ts";
+
+export type { ResolvedSessionStore } from "./port.ts";
 
 /**
  * Environment variable naming where session records are persisted: a file
@@ -65,39 +73,24 @@ export interface SessionStoreTestSeams {
 }
 
 /**
- * The store a context resolved, with what it resolved to for the log line
- * and whether this context owns its lifecycle.
+ * What resolving a session store needs from whoever resolves it.
+ *
+ * The host object is also the scope its path claim is recorded in, and no
+ * other store claims in it: the deferral store claims in its own plugin
+ * context, which no other plugin can reach. A shared file with the
+ * continuations store is therefore caught by comparing against
+ * `continuationsPath`, the path that store reports through `CONTINUATIONS`.
  *
  * @internal
  */
-export interface ResolvedSessionStore {
-  readonly store: SessionStore;
-  /**
-   * `custom` is a store the caller supplied; reporting it as `sqlite` would
-   * mislead exactly the operator who configured a backend deliberately.
-   * `unresolved` is the lazy form before anything touched it, which is the
-   * one state where the answer is not yet known.
-   */
-  readonly backend: "sqlite" | "memory" | "custom" | "unresolved";
-  /** Which sqlite driver opened it, where one did. */
-  readonly driver?: string;
-  /**
-   * False when the caller supplied the store, in which case they own its
-   * lifecycle and teardown must not close it.
-   */
-  readonly ownsStore: boolean;
-  /**
-   * Whether a `sessions` block chose this store. An unconfigured default an
-   * `agentPlugin()` opened first is replaced by the block's choice, whichever
-   * plugin applied first.
-   */
-  readonly configured: boolean;
-  /** Close the store if this context owns it. Idempotent. */
-  close(): Promise<void>;
+export interface SessionStoreHost {
+  readonly logger: PluginLogger;
+  /** The database file the continuations store opened, if it opened one. */
+  readonly continuationsPath?: string;
 }
 
 /**
- * Resolve the session store for a context.
+ * Resolve the session store for an application.
  *
  * Loud in the degraded case, as the deferral store is: an explicitly
  * named path that cannot be opened fails, because silently keeping a
@@ -111,7 +104,7 @@ export interface ResolvedSessionStore {
  * @internal
  */
 export async function createSessionStore(
-  context: CraftContext,
+  host: SessionStoreHost,
   config: AgentSessionsConfig & SessionStoreTestSeams = {},
   configured = true,
 ): Promise<ResolvedSessionStore> {
@@ -124,51 +117,45 @@ export async function createSessionStore(
 
   if (chosen !== undefined && typeof chosen === "object") {
     if (isSessionStore(chosen)) {
-      releaseClaimant({ scope: context, claimant: SESSION_CLAIMANT });
-      return announce(context, resolved(chosen, "custom", false, configured));
+      releaseClaimant({ scope: host, claimant: SESSION_CLAIMANT });
+      return announce(host, resolved(chosen, "custom", false, configured));
     }
     const path = pathOf(chosen);
-    claimSessionPath(context, path);
-    return announce(
-      context,
-      await openSqlite(path, config.loaders, configured),
-    );
+    claimSessionPath(host, path);
+    return announce(host, await openSqlite(path, config.loaders, configured));
   }
   if (chosen === "memory") {
-    releaseClaimant({ scope: context, claimant: SESSION_CLAIMANT });
+    releaseClaimant({ scope: host, claimant: SESSION_CLAIMANT });
     return announce(
-      context,
+      host,
       resolved(new MemorySessionStore(), "memory", true, configured),
     );
   }
   if (chosen !== undefined) {
     const path = pathOf(chosen);
-    claimSessionPath(context, path);
-    return announce(
-      context,
-      await openSqlite(path, config.loaders, configured),
-    );
+    claimSessionPath(host, path);
+    return announce(host, await openSqlite(path, config.loaders, configured));
   }
 
   try {
     await resolveSqliteDriver(SESSION_SQLITE_CONSUMER, config.loaders);
   } catch (err) {
-    context.logger.warn(
+    host.logger.warn(
       { err, path: DEFAULT_SESSION_DB_PATH },
       "No durable agent session store available; conversations will NOT survive a restart. Install better-sqlite3 (Node) or configure sessions: { store } to keep them durable.",
     );
-    releaseClaimant({ scope: context, claimant: SESSION_CLAIMANT });
+    releaseClaimant({ scope: host, claimant: SESSION_CLAIMANT });
     return announce(
-      context,
+      host,
       resolved(new MemorySessionStore(), "memory", true, configured),
     );
   }
   // Claimed here rather than when the file is first written: the conflict
   // is in the configuration, so it is reported while a person is still
   // reading boot output, not on whichever conversation happens to be first.
-  claimSessionPath(context, DEFAULT_SESSION_DB_PATH);
+  claimSessionPath(host, DEFAULT_SESSION_DB_PATH);
   return announce(
-    context,
+    host,
     resolved(
       new LazySqliteSessionStore(DEFAULT_SESSION_DB_PATH, config.loaders),
       "sqlite",
@@ -179,19 +166,30 @@ export async function createSessionStore(
 }
 
 /**
- * Reserve the file this context's session store will open, so a path
- * shared with another store is one error at boot naming both settings
- * rather than two stores disagreeing about a version later.
+ * Reserve the file this store will open, so a path shared with another
+ * store is one error at boot naming both settings rather than two stores
+ * disagreeing about a version later.
  */
-function claimSessionPath(context: CraftContext, path: string): void {
+function claimSessionPath(host: SessionStoreHost, path: string): void {
+  const continuations = host.continuationsPath;
+  if (
+    continuations !== undefined &&
+    path !== ":memory:" &&
+    resolveDatabasePath(continuations) === resolveDatabasePath(path)
+  ) {
+    throw sharedPath("deferral: { store }", path);
+  }
   claimDatabasePath({
-    scope: context,
+    scope: host,
     path,
     claimant: SESSION_CLAIMANT,
-    onConflict: (conflict) =>
-      rcError("AI1012", undefined, {
-        message: `sessions: { store } and ${conflict.held} both point at "${conflict.path}". Each store versions its own file, so they cannot share one; give them separate paths.`,
-      }),
+    onConflict: (conflict) => sharedPath(conflict.held, conflict.path),
+  });
+}
+
+function sharedPath(held: string, path: string): Error {
+  return rcError("AI1012", undefined, {
+    message: `sessions: { store } and ${held} both point at "${path}". Each store versions its own file, so they cannot share one; give them separate paths.`,
   });
 }
 
@@ -244,10 +242,10 @@ async function openSqlite(
 
 /** One startup line per resolution, so the memory fallback shows in the log. */
 function announce(
-  context: CraftContext,
+  host: SessionStoreHost,
   choice: ResolvedSessionStore,
 ): ResolvedSessionStore {
-  context.logger.debug(
+  host.logger.debug(
     { backend: choice.backend, driver: choice.driver },
     "Agent session store resolved",
   );
@@ -255,67 +253,88 @@ function announce(
 }
 
 /**
- * The context's session store, resolving the default when no plugin has:
- * the inline `agent({ session })` form needs no `agentPlugin()`, and a
- * store must exist by the time its first turn runs. The resolution is the
- * same one the plugins run ({@link createSessionStore} with no block: the
- * environment variable, the driver probe, the memory fallback), deferred to
- * the first use because this is called synchronously, and closed once the
- * context has stopped since no plugin owns it.
+ * The application's session store: the one the sessions plugin provides,
+ * or, for the inline `agent({ session })` form in an application with no
+ * sessions plugin, a default resolved on first use. The fallback is the
+ * same resolution the plugin runs ({@link createSessionStore} with no
+ * block: the environment variable, the driver probe, the memory fallback),
+ * deferred to the first use because this is called synchronously, and
+ * closed once the context has stopped since no plugin owns it.
  *
  * @internal
  */
-export function sessionStoreOf(context: CraftContext): SessionStore {
+export function sessionStoreOf(context: CraftContext): ResolvedSessionStore {
+  const provided = context.lookup(SESSION_STORE);
+  if (provided) return provided;
   const existing = context.getStore(ADAPTER_AGENT_SESSION_STORE);
-  if (existing) return existing.store;
-  const fallback = new LazyResolvedSessionStore(() =>
-    createSessionStore(context, {}, false),
-  );
+  if (existing) return existing;
+  const fallback = new LazyResolvedSessionStore(() => {
+    // The same path check the sessions plugin makes: a store resolved from
+    // the environment must not open the file the continuations store holds.
+    const continuationsPath = context.lookup(CONTINUATIONS)?.path;
+    return createSessionStore(
+      {
+        logger: context.logger,
+        ...(continuationsPath !== undefined ? { continuationsPath } : {}),
+      },
+      {},
+      false,
+    );
+  });
   context.setStore(ADAPTER_AGENT_SESSION_STORE, fallback);
   context.on("context:stopped", () => {
     void fallback.close();
   });
-  return fallback.store;
+  return fallback;
 }
 
 /**
- * Plugin form of {@link createSessionStore}, wired to the `sessions` config
- * key. Resolves the store during `initPlugins()` so a path that cannot be
- * opened fails at startup, and closes it at teardown after the session
- * runtime has stopped, so no revival in flight writes to a closed store.
+ * The sessions plugin, wired to the `sessions` config key. Resolves the
+ * store during bind so a path that cannot be opened fails at startup, and
+ * closes it at stop after every session runtime retained on it has stopped,
+ * so no revival in flight writes to a closed store.
+ *
+ * Without a `sessions` block the agent runtime brings along the default
+ * form of this plugin, and a block in config takes its place.
  */
-export function sessionsPlugin(config: AgentSessionsConfig = {}): CraftPlugin {
-  return {
-    name: "agent-sessions",
-    async apply(ctx: CraftContext) {
-      const existing = ctx.getStore(ADAPTER_AGENT_SESSION_STORE);
-      if (existing?.configured) {
-        throw rcError("RC5003", undefined, {
-          message:
-            "sessions: { store } is configured twice in this context. One `sessions` block chooses where every agent session lives.",
-        });
-      }
-      await existing?.close();
-      ctx.setStore(
-        ADAPTER_AGENT_SESSION_STORE,
-        await createSessionStore(ctx, config),
-      );
-    },
-    teardown: stopSessions,
-  };
+export function sessionsPlugin(config: AgentSessionsConfig = {}): Plugin {
+  return sessionsPluginFor(config, true);
 }
 
 /**
- * Stop the session runtime, then release the store it writes to. The order
- * is the contract: a revival still in flight must not write to a closed
- * store, and a context that installed `agentPlugin()` waits for its boot
- * walk before either.
+ * The unconfigured default the agent runtime brings along.
  *
  * @internal
  */
-export async function stopSessions(ctx: CraftContext): Promise<void> {
-  await ctx.getStore(ADAPTER_AGENT_SESSIONS)?.stop();
-  await ctx.getStore(ADAPTER_AGENT_SESSION_STORE)?.close();
+export function defaultSessionsPlugin(): Plugin {
+  return (defaultSessions ??= sessionsPluginFor({}, false));
+}
+
+// One descriptor per process, so every runtime brings the same one.
+let defaultSessions: Plugin | undefined;
+
+function sessionsPluginFor(
+  config: AgentSessionsConfig,
+  configured: boolean,
+): Plugin {
+  return {
+    id: "routecraft.ai.sessions",
+    provides: [SESSION_STORE],
+    optional: [CONTINUATIONS],
+    async bind(c) {
+      const continuationsPath = c.lookup(CONTINUATIONS)?.path;
+      const store = await createSessionStore(
+        {
+          logger: c.logger,
+          ...(continuationsPath !== undefined ? { continuationsPath } : {}),
+        },
+        config,
+        configured,
+      );
+      c.onDispose(() => store.close());
+      c.provide(SESSION_STORE, store);
+    },
+  };
 }
 
 function resolved(
@@ -325,6 +344,7 @@ function resolved(
   configured: boolean,
   driver?: string,
 ): ResolvedSessionStore {
+  const writers: SessionWriter[] = [];
   let closed = false;
   return {
     store,
@@ -332,10 +352,14 @@ function resolved(
     ownsStore,
     configured,
     ...(driver !== undefined ? { driver } : {}),
+    retain(writer) {
+      writers.push(writer);
+    },
     async close() {
-      if (closed || !ownsStore) return;
+      if (closed) return;
       closed = true;
-      await store.close();
+      await Promise.allSettled(writers.map((writer) => writer.stop()));
+      if (ownsStore) await store.close();
     },
   };
 }
@@ -348,6 +372,7 @@ function resolved(
 class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
   #inner: Promise<ResolvedSessionStore> | undefined;
   #closed = false;
+  readonly #writers: SessionWriter[] = [];
 
   constructor(private readonly open: () => Promise<ResolvedSessionStore>) {}
 
@@ -369,6 +394,10 @@ class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
 
   /** The resolution once it settled; undefined while it has not run or is still running. */
   #chosen: ResolvedSessionStore | undefined;
+
+  retain(writer: SessionWriter): void {
+    this.#writers.push(writer);
+  }
 
   async get(key: AgentSessionKey): Promise<StoredSession | undefined> {
     return (await this.resolve()).store.get(key);
@@ -400,6 +429,7 @@ class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
+    await Promise.allSettled(this.#writers.map((writer) => writer.stop()));
     if (this.#inner) await (await this.#inner).close();
   }
 

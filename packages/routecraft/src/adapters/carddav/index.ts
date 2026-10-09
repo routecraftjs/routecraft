@@ -108,7 +108,7 @@ export { CarddavAdapter } from "./adapter.ts";
 export { CarddavClientManager } from "./client-manager.ts";
 export type { ResolvedCarddavConnection } from "./client-manager.ts";
 export {
-  CARDDAV_CLIENT_MANAGER,
+  CARDDAV,
   DEFAULT_CARDDAV_SERVER_URL,
   CarddavHeaders,
 } from "./shared.ts";

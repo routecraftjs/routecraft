@@ -6,7 +6,7 @@ import type {
   McpClientAuthOptions,
   McpClientHttpConfig,
 } from "../../types.ts";
-import { ADAPTER_MCP_CLIENT_SERVERS } from "../../types.ts";
+import { MCP } from "../../port.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
 import { callRemoteTool, dispatchMcpCall } from "../../dispatch.ts";
 
@@ -21,7 +21,7 @@ function assertHttpUrl(url: string): void {
 }
 
 /**
- * Look up the registered server config from the context store.
+ * Look up the registered server config from the MCP plugin.
  * Returns undefined when no context or no matching serverId.
  * Backward-compat: store value may be a plain string (url only).
  */
@@ -30,7 +30,7 @@ function resolveServerConfig(
   context: ReturnType<typeof getExchangeContext>,
 ): McpClientHttpConfig | string | undefined {
   if (!options.serverId || !context) return undefined;
-  const servers = context.getStore(ADAPTER_MCP_CLIENT_SERVERS);
+  const servers = context.lookup(MCP)?.clients;
   const cfg = servers?.get(options.serverId);
   if (cfg && typeof cfg === "object" && "transport" in cfg) {
     // stdio configs surface through dispatchMcpCall; resolveConnection only
@@ -54,14 +54,14 @@ function resolveConnection(
   }
   if (options.serverId && !context) {
     throw new Error(
-      `MCP client: serverId "${options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so store "${String(ADAPTER_MCP_CLIENT_SERVERS)}" can be read.`,
+      `MCP client: serverId "${options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so the MCP plugin's clients can be read.`,
     );
   }
   if (options.serverId && context) {
     const config = resolveServerConfig(options, context);
     if (!config) {
       throw new Error(
-        `MCP client: serverId "${options.serverId}" not found in context store. Register it with context store key "${String(ADAPTER_MCP_CLIENT_SERVERS)}".`,
+        `MCP client: serverId "${options.serverId}" is not a registered MCP client. Register it via mcpPlugin({ clients }).`,
       );
     }
     const url = typeof config === "string" ? config : config.url;
@@ -147,7 +147,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
       }
       const transport = resolveServerTransport(context, this.options.serverId);
       const result = await dispatchMcpCall(
-        context,
+        context.lookup(MCP),
         this.options.serverId,
         toolName,
         args,
@@ -204,7 +204,7 @@ function resolveServerTransport(
   context: NonNullable<ReturnType<typeof getExchangeContext>>,
   serverId: string,
 ): "stdio" | "http" {
-  const servers = context.getStore(ADAPTER_MCP_CLIENT_SERVERS);
+  const servers = context.lookup(MCP)?.clients;
   const cfg = servers?.get(serverId);
   if (
     cfg &&

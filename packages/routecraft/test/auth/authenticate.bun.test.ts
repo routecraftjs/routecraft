@@ -4,11 +4,11 @@ import {
   authenticate,
   authorize,
   craft,
-  isAuthentic,
-  markAuthentic,
+  defaultAuthority,
   simple,
   type EventName,
   type Principal,
+  principalOf,
 } from "../../src/index.ts";
 
 type FailedEventDetails = { details: { error: unknown } };
@@ -17,12 +17,12 @@ describe("authenticate() helper and the authenticity brand", () => {
   /**
    * @case authenticate() mints a principal that is branded authentic and frozen
    * @preconditions Call authenticate() with a subject and roles
-   * @expectedResult isAuthentic() is true, the object is frozen, defaults applied
+   * @expectedResult defaultAuthority.isAuthentic() is true, the object is frozen, defaults applied
    */
   test("mints an authentic, frozen principal with defaults", () => {
     const p = authenticate({ subject: "user-1", roles: ["internal"] });
 
-    expect(isAuthentic(p)).toBe(true);
+    expect(defaultAuthority.isAuthentic(p)).toBe(true);
     expect(Object.isFrozen(p)).toBe(true);
     expect(p.kind).toBe("custom");
     expect(p.scheme).toBe("custom");
@@ -67,38 +67,40 @@ describe("authenticate() helper and the authenticity brand", () => {
   });
 
   /**
-   * @case markAuthentic() does not mutate or freeze the caller's object
-   * @preconditions Pass a plain unfrozen principal to markAuthentic()
+   * @case defaultAuthority.brand() does not mutate or freeze the caller's object
+   * @preconditions Pass a plain unfrozen principal to defaultAuthority.brand()
    * @expectedResult A distinct frozen authentic object is returned; the input
    *                 is left untouched and unfrozen
    */
-  test("markAuthentic() returns a copy and leaves the input untouched", () => {
+  test("defaultAuthority.brand() returns a copy and leaves the input untouched", () => {
     const input: Principal = { kind: "custom", scheme: "bearer", subject: "x" };
-    const out = markAuthentic(input);
+    const out = defaultAuthority.brand(input);
 
     expect(out).not.toBe(input);
-    expect(isAuthentic(input)).toBe(false);
+    expect(defaultAuthority.isAuthentic(input)).toBe(false);
     expect(Object.isFrozen(input)).toBe(false);
-    expect(isAuthentic(out)).toBe(true);
+    expect(defaultAuthority.isAuthentic(out)).toBe(true);
     expect(Object.isFrozen(out)).toBe(true);
   });
 
   /**
-   * @case isAuthentic() is false for self-asserted plain objects and non-objects
+   * @case defaultAuthority.isAuthentic() is false for self-asserted plain objects and non-objects
    * @preconditions Pass a plain principal-shaped object, null, and undefined
-   * @expectedResult All return false; only markAuthentic() output is trusted
+   * @expectedResult All return false; only defaultAuthority.brand() output is trusted
    */
-  test("isAuthentic() rejects plain objects and non-objects", () => {
+  test("defaultAuthority.isAuthentic() rejects plain objects and non-objects", () => {
     const plain: Principal = {
       kind: "custom",
       scheme: "bearer",
       subject: "x",
       roles: ["admin"],
     };
-    expect(isAuthentic(plain)).toBe(false);
-    expect(isAuthentic(null)).toBe(false);
-    expect(isAuthentic(undefined)).toBe(false);
-    expect(isAuthentic(markAuthentic(plain))).toBe(true);
+    expect(defaultAuthority.isAuthentic(plain)).toBe(false);
+    expect(defaultAuthority.isAuthentic(null)).toBe(false);
+    expect(defaultAuthority.isAuthentic(undefined)).toBe(false);
+    expect(defaultAuthority.isAuthentic(defaultAuthority.brand(plain))).toBe(
+      true,
+    );
   });
 
   /**
@@ -111,22 +113,22 @@ describe("authenticate() helper and the authenticity brand", () => {
     const real = authenticate({ subject: "user-1", roles: ["user"] });
     const forged = { ...real, roles: ["admin"] };
 
-    expect(isAuthentic(real)).toBe(true);
-    expect(isAuthentic(forged)).toBe(false);
+    expect(defaultAuthority.isAuthentic(real)).toBe(true);
+    expect(defaultAuthority.isAuthentic(forged)).toBe(false);
   });
 
   /**
-   * @case markAuthentic() is idempotent
+   * @case defaultAuthority.brand() is idempotent
    * @preconditions Brand a principal twice
    * @expectedResult The second call returns the same already-branded reference
    */
-  test("markAuthentic() is idempotent", () => {
-    const once = markAuthentic({
+  test("defaultAuthority.brand() is idempotent", () => {
+    const once = defaultAuthority.brand({
       kind: "custom",
       scheme: "bearer",
       subject: "x",
     });
-    const twice = markAuthentic(once);
+    const twice = defaultAuthority.brand(once);
     expect(twice).toBe(once);
   });
 });
@@ -159,8 +161,10 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal?.subject).toBe("user-1");
-    expect(isAuthentic(s.lastReceived().principal)).toBe(true);
+    expect(principalOf(s.lastReceived())?.subject).toBe("user-1");
+    expect(defaultAuthority.isAuthentic(principalOf(s.lastReceived()))).toBe(
+      true,
+    );
   });
 
   /**
@@ -263,7 +267,7 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
             headers: {
               ...ex.headers,
               "routecraft.auth.principal": {
-                ...(ex.principal as Principal),
+                ...(ex.auth.principal as Principal),
                 roles: ["admin"],
               },
             },
@@ -306,7 +310,7 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
           .from(simple("hello"))
           .authenticate(() => ({ subject: "user-1", roles: ["user"] }))
           .process((ex) => {
-            const real = ex.principal as object;
+            const real = ex.auth.principal as object;
             const forged: Record<string | symbol, unknown> = {
               kind: "custom",
               scheme: "x",

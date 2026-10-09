@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, type ThrottleOptions } from "@routecraft/routecraft";
+import {
+  craft,
+  direct,
+  noop,
+  simple,
+  type ThrottleOptions,
+} from "@routecraft/routecraft";
 import { resolveThrottleOptions } from "../src/operations/throttle-wrapper.ts";
 
 /** Poll until `predicate` returns true or `timeoutMs` elapses. */
@@ -175,6 +181,35 @@ describe("Throttle wrapper (.throttle())", () => {
     expect(t.errors).toHaveLength(0);
     expect(s.received).toHaveLength(2);
     expect(delayed).toHaveLength(1);
+  });
+
+  /**
+   * @case A wrapped step shared by two routes in one application reports each route's own id on its throttle events
+   * @preconditions One built definition registered twice under different ids, so both routes run the same step-scope ThrottleWrapperStep instance; one exchange sent to each
+   * @expectedResult route:throttle:passed carries the id of the route the exchange ran on for both, rather than the first route's id baked into a gate shared by the second
+   */
+  test("a step-scope gate shared by two routes scopes its events per route", async () => {
+    const routeIds: string[] = [];
+    const [shared] = craft()
+      .id("shared-a")
+      .from(direct())
+      .throttle({ rate: 100 })
+      .transform((body) => body)
+      .to(noop())
+      .build();
+
+    t = await testContext()
+      .on("route:throttle:passed", (p) => {
+        routeIds.push((p.details as { routeId: string }).routeId);
+      })
+      .routes([shared!, { ...shared!, id: "shared-b" }])
+      .build();
+    await t.startAndWaitReady();
+
+    await t.client.sendDirect("shared-a", 1);
+    await t.client.sendDirect("shared-b", 2);
+
+    expect(routeIds).toEqual(["shared-a", "shared-b"]);
   });
 
   /**

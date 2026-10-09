@@ -3,7 +3,6 @@ import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
-  DEFERRAL_RUNTIME,
   craft,
   direct,
   noop,
@@ -13,7 +12,7 @@ import {
   type DeferralCasResult,
   type DeferralStore,
 } from "../src/index.ts";
-import { DeferralSweeper } from "../src/deferral/sweeper.ts";
+import { ContinuationSweeper } from "../src/kernel/continuation/sweep.ts";
 import { asDeferred, storeWith } from "./helpers/deferral.ts";
 
 const Approval = z.object({ approved: z.boolean() });
@@ -143,7 +142,7 @@ describe("the deferral sweeper", () => {
     // due while the resume, running on the real clock, sees it as live. Both
     // transitions are therefore in flight against one record, which is the
     // race a deadline reached mid-answer produces in production.
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     const [swept, resumed] = await Promise.allSettled([
       sweeper.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000)),
       t.client.sendDirect("answers", {
@@ -238,7 +237,7 @@ describe("the deferral sweeper", () => {
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     const sweeping = sweeper.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000));
     await reachedTransition;
 
@@ -288,7 +287,7 @@ describe("the deferral sweeper", () => {
       await store.create(overdue(`def-${index}`));
     }
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(150);
 
     expect(reasked).toHaveLength(150);
@@ -334,7 +333,7 @@ describe("the deferral sweeper", () => {
       await store.create(overdue(id));
     }
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(3);
 
     for (const id of ["def-a", "def-b", "def-c"]) {
@@ -377,7 +376,7 @@ describe("the deferral sweeper", () => {
       await store.create(overdue(id));
     }
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(2);
 
     expect((await store.get("def-a"))?.outcome?.kind).toBe("expired");
@@ -412,7 +411,7 @@ describe("the deferral sweeper", () => {
 
     await store.create(overdue("def-ghost", { routeId: "retired-route" }));
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(0);
 
     expect((await store.get("def-ghost"))?.state).toBe("waiting");
@@ -460,7 +459,7 @@ describe("the deferral sweeper", () => {
     // Raced against a timer rather than left to the runner's timeout: the
     // failure mode is a sweep that never returns, and a test that hangs
     // stalls the suite instead of reporting which assertion broke.
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     const outcome = await Promise.race([
       sweeper.sweep(),
       sleep(5_000).then(() => "did not terminate" as const),
@@ -637,7 +636,7 @@ describe("the deferral sweeper", () => {
   /**
    * @case Shutdown arriving while a sweep is mid-batch
    * @preconditions A store whose close() records when it ran, and a sweep held open inside markExpired until after teardown has begun
-   * @expectedResult The store closes only after the sweep finishes. A sweep outliving teardown meets a closed handle, and a retirement that already won its transition re-enters a drained route: the record settles expired with its approver never told, and nothing revisits it
+   * @expectedResult stop() resolves only after the sweep finishes, so a store the plugin opened closes after it. A sweep outliving teardown meets a closed handle, and a retirement that already won its transition re-enters a drained route: the record settles expired with its approver never told, and nothing revisits it
    */
   test("teardown waits for a sweep already in flight", async () => {
     const backing = new MemoryDeferralStore();
@@ -677,19 +676,18 @@ describe("the deferral sweeper", () => {
       .build());
     await context.startAndWaitReady();
 
-    // The store is supplied, so the plugin does not own it and would not
-    // close it. Owning it is what makes the ordering observable, and it is
-    // the shape a real deployment has.
-    const runtime = context.ctx.getStore(DEFERRAL_RUNTIME);
-    (runtime as { ownsStore: boolean }).ownsStore = true;
-
+    // The store is supplied, so the plugin leaves closing it to the test:
+    // stop() resolving is where the awaited sweep becomes observable, and
+    // the plugin closes a store it opened only after that same await.
     await store.create(overdue("def-mid-sweep"));
     await reachedTransition;
     const stopping = context.stop();
     releaseSweep();
     await stopping;
+    order.push("stop resolved");
+    await store.close();
 
-    expect(order).toEqual(["sweep finished", "store closed"]);
+    expect(order).toEqual(["sweep finished", "stop resolved", "store closed"]);
   });
 
   /**
@@ -791,7 +789,7 @@ describe("the deferral sweeper", () => {
       new Date(Date.now() - 2 * 60 * 60 * 1000),
     );
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(1);
 
     expect((await store.get("def-crashed"))?.outcome?.kind).toBe("expired");
@@ -822,7 +820,7 @@ describe("the deferral sweeper", () => {
     await store.create(overdue("def-claimed"));
     await store.claimExpiry("def-claimed", new Date());
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(0);
 
     const claimed = await store.get("def-claimed");

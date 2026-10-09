@@ -1,10 +1,13 @@
+import type { Authority } from "../../kernel/authority.ts";
 import {
   requestValidationFailure,
   resolveAllowedHostnames,
   resolveRequestValidation,
   type ResolvedRequestValidation,
 } from "./request-validation.ts";
-import type { CraftContext } from "../../context.ts";
+import { port, type PortLookup } from "../../kernel/port.ts";
+import type { PluginLogger } from "../../kernel/plugin.ts";
+import type { EventDetailsMap, EventName } from "../../types.ts";
 import { rcError } from "../../error.ts";
 import type { HttpServerRuntime } from "../http/server/index.ts";
 import type { HttpAuth, HttpMethod } from "../../adapters/http/types.ts";
@@ -15,7 +18,7 @@ import type {
   PathClaim,
   WebIngress,
 } from "./types.ts";
-import type { ValidatorAuthOptions } from "../../auth/types.ts";
+import type { ValidatorAuthOptions } from "../../principal.ts";
 import {
   createAuthMiddleware,
   type AuthResult,
@@ -26,14 +29,27 @@ import {
   PROTECTED_RESOURCE_METADATA_PATH,
 } from "./protected-resource.ts";
 
-export const WEB_INGRESSES: unique symbol = Symbol.for(
-  "routecraft.plugin.server.web-ingresses",
+/**
+ * The application's named servers, by name: where a surface (http, ops,
+ * MCP, ACP) mounts. Provided by the servers plugin.
+ */
+export const WEB_INGRESS = port<ReadonlyMap<string, WebIngress>>(
+  "routecraft.servers@1",
 );
 
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [WEB_INGRESSES]: ReadonlyMap<string, WebIngress>;
-  }
+/**
+ * What a mount registry reports through: its logger, and the event bus for
+ * `server:request:rejected` and the shared ingress's auth events. A
+ * `PluginContext` is one; so is a `CraftContext`.
+ */
+export interface IngressHost {
+  readonly logger: PluginLogger;
+  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
+  /**
+   * Brands the identities a mount verifies, so they are authentic to the
+   * same authority the gates check.
+   */
+  readonly authority: Authority;
 }
 
 const ALL_METHODS: readonly HttpMethod[] = [
@@ -179,7 +195,7 @@ export class HttpMountRegistry implements WebIngress {
   >();
   private readonly allowedHostnames: ReadonlySet<string>;
   private readonly serverAuth: ValidatorAuthOptions | undefined;
-  private readonly context: CraftContext;
+  private readonly host: IngressHost;
   private readonly authByMount = new Map<
     string,
     HttpAuthMiddleware | undefined
@@ -201,14 +217,14 @@ export class HttpMountRegistry implements WebIngress {
 
   constructor(
     serverName: string,
-    context: CraftContext,
+    host: IngressHost,
     serverAuth?: ValidatorAuthOptions,
     maxStreamingRequests = DEFAULT_MAX_STREAMING_REQUESTS,
     allowedHostnames?: readonly string[],
   ) {
     this.allowedHostnames = resolveAllowedHostnames(allowedHostnames);
     this.serverName = serverName;
-    this.context = context;
+    this.host = host;
     this.serverAuth = serverAuth;
     this.maxStreamingRequests = maxStreamingRequests;
   }
@@ -250,7 +266,7 @@ export class HttpMountRegistry implements WebIngress {
     // (see hasMount below for why registration order does not matter to it)
     if (this.validated) {
       throw rcError("RC5003", undefined, {
-        message: `servers.${this.serverName}: mount "${mount.id}" registered after the server validated its mounts. Register mounts during plugin apply(), before context start().`,
+        message: `servers.${this.serverName}: mount "${mount.id}" registered after the server validated its mounts. Register mounts during plugin bind(c), before context start().`,
       });
     }
     if (this.mounts.has(mount.id)) {
@@ -309,14 +325,17 @@ export class HttpMountRegistry implements WebIngress {
       const inherited =
         facts.walled && !facts.own && mount.enforcesWall !== false;
       const auth = this.effectiveAuthOf(mount);
-      this.authByMount.set(mount.id, createAuthMiddleware(auth));
+      this.authByMount.set(
+        mount.id,
+        createAuthMiddleware(auth, this.host.authority),
+      );
       const issuer = issuerOf(auth);
       this.authPolicyByMount.set(
         mount.id,
         issuer !== undefined ? { issuer } : undefined,
       );
       if (inherited) {
-        this.context.logger.info(
+        this.host.logger.info(
           { server: this.serverName, mount: mount.id },
           "Server mount inherited authentication",
         );
@@ -480,8 +499,8 @@ export class HttpMountRegistry implements WebIngress {
     );
     if (reason === undefined) return undefined;
     const detail = { server: this.serverName, mount: mount.id, reason };
-    this.context.logger.debug(detail, "Protocol ingress request refused");
-    this.context.emit("server:request:rejected", detail);
+    this.host.logger.debug(detail, "Protocol ingress request refused");
+    this.host.emit("server:request:rejected", detail);
     return Response.json(
       { error: "Forbidden" },
       {
@@ -542,13 +561,13 @@ export class HttpMountRegistry implements WebIngress {
         if (!authMiddleware) return undefined;
         const auth = await authMiddleware(request);
         if (auth.kind === "admit") {
-          this.context.emit("auth:success", {
+          this.host.emit("auth:success", {
             subject: auth.principal.subject,
             scheme: auth.principal.scheme,
             source: mount.id,
           });
         } else if (auth.kind === "reject") {
-          this.context.emit("auth:rejected", {
+          this.host.emit("auth:rejected", {
             reason: auth.reason,
             scheme: auth.scheme,
             source: mount.id,
@@ -571,11 +590,20 @@ export class HttpMountRegistry implements WebIngress {
   }
 }
 
+/**
+ * One named server, or a refusal that lists the servers that exist.
+ *
+ * @param from - The {@link WEB_INGRESS} value, or anything that can look the
+ *   port up (a plugin context that declared it, or a `CraftContext`)
+ * @param serverName - The server to mount on
+ * @throws RC5003 when no server by that name is defined
+ */
 export function requireWebIngress(
-  ctx: CraftContext,
+  from: ReadonlyMap<string, WebIngress> | PortLookup | undefined,
   serverName = "default",
 ): WebIngress {
-  const ingresses = ctx.getStore(WEB_INGRESSES);
+  const ingresses =
+    from !== undefined && "lookup" in from ? from.lookup(WEB_INGRESS) : from;
   const ingress = ingresses?.get(serverName);
   if (ingress) return ingress;
   const names = ingresses ? [...ingresses.keys()] : [];

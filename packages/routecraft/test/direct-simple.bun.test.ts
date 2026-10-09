@@ -392,7 +392,7 @@ describe("Direct adapter", () => {
           .id("callee-reads-principal")
           .from(direct())
           .tap((ex) => {
-            capturedPrincipal = ex.principal;
+            capturedPrincipal = ex.auth.principal;
           })
           .to(() => "pong"),
       ])

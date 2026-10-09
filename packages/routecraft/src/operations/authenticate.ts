@@ -5,7 +5,9 @@ import {
   DefaultExchange,
   HeadersKeys,
 } from "../exchange.ts";
-import { authenticate, type PrincipalClaims } from "../auth/authenticate.ts";
+import type { PrincipalClaims } from "../auth/authenticate.ts";
+import { authorityOf } from "../kernel/authority.ts";
+import { AUTHENTICATES } from "../dsl-symbol.ts";
 
 /**
  * Resolve identity claims for the current exchange. Return claims to mint and
@@ -20,8 +22,10 @@ export type CallableAuthenticator<T = unknown> = (
 
 /**
  * Step that establishes the authenticated principal for the exchange. Mints a
- * branded principal from the resolver's claims (via `authenticate()`) and
- * writes it onto `headers["routecraft.auth.principal"]`. Body is unchanged.
+ * branded principal from the resolver's claims through the application's
+ * authority (`authorityOf(exchange).mint`, which is `authenticate()` unless
+ * a plugin replaced `AUTHORITY`) and writes it onto
+ * `headers["routecraft.auth.principal"]`. Body is unchanged.
  *
  * When the resolver returns `undefined` the exchange passes through untouched,
  * so a source that cannot identify a given caller simply leaves it anonymous.
@@ -29,6 +33,7 @@ export type CallableAuthenticator<T = unknown> = (
 export class AuthenticateStep<T = unknown> implements Step<Adapter> {
   operation: OperationType = OperationType.HEADER;
   adapter: Adapter = {};
+  readonly [AUTHENTICATES] = true;
 
   constructor(private readonly resolve: CallableAuthenticator<T>) {}
 
@@ -40,7 +45,7 @@ export class AuthenticateStep<T = unknown> implements Step<Adapter> {
         : DefaultExchange.rewrap<T>(exchange, {
             headers: {
               ...exchange.headers,
-              [HeadersKeys.AUTH_PRINCIPAL]: authenticate(claims),
+              [HeadersKeys.AUTH_PRINCIPAL]: authorityOf(exchange).mint(claims),
             },
           });
     return { kind: "continue", exchange: next };

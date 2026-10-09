@@ -1,31 +1,44 @@
 import {
-  type CraftContext,
-  type CraftPlugin,
+  AUTHORITY,
+  type Plugin,
+  type PluginContext,
   type EventName,
   parseDuration,
   rejectStaleOptions,
+  WEB_INGRESS,
 } from "@routecraft/routecraft";
 import { McpServer } from "./server.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
-import { createConnectionCache } from "./http-client-cache.ts";
 import {
-  ADAPTER_MCP_CLIENT_SERVERS,
-  MCP_PLUGIN_REGISTERED,
-  MCP_STDIO_MANAGERS,
-  MCP_TOOL_REGISTRY,
-} from "./types.ts";
+  createConnectionCache,
+  type ConnectionCache,
+} from "./http-client-cache.ts";
+import {
+  MCP,
+  createMcpService,
+  type McpClientConfig,
+  type McpService,
+} from "./port.ts";
 import type {
   McpClientHttpConfig,
   McpClientStdioConfig,
   McpPluginOptions,
-  McpStdioToolCaller,
   McpTool,
 } from "./types.ts";
 import { validateMcpPluginOptions } from "./validate-options.ts";
-import { StdioClientManager } from "./stdio-client-manager.ts";
-import { McpToolRegistry } from "./tool-registry.ts";
+import {
+  StdioClientManager,
+  type StdioClientManagerOptions,
+} from "./stdio-client-manager.ts";
+import type { McpToolRegistry } from "./tool-registry.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
+
+interface HttpClient {
+  listTools(): Promise<{ tools: McpTool[] }>;
+  /** Close the client AND its transport; closing the client alone leaks the socket. */
+  dispose(): Promise<void>;
+}
 
 function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
   return "transport" in config && config.transport === "stdio";
@@ -33,174 +46,161 @@ function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
 
 /**
  * MCP plugin: one plugin per adapter. Exposes mcp() routes to external MCP clients.
- * apply() validates options, registers clients, and mounts the HTTP transport on its named server, so misconfiguration fails context build; the server itself starts in the start() hook, after routes are up, and a failure there fails context.start().
+ * bind() validates options, registers clients, and mounts the HTTP transport on its named server, so misconfiguration fails context build; the server itself starts in the start() hook, after routes are up, and a failure there fails context.start().
  * Optional clients: register named remote MCP servers so routes can use .to(mcp("name:tool")) without passing url.
  * Stdio clients are spawned as subprocesses with auto-restart; HTTP clients are used for ephemeral tool calls.
  * All discovered external tools (stdio, HTTP) are stored in a unified McpToolRegistry for agent adapter discovery.
  * Required when any route uses .from(mcp(...)); the route will fail at start if this plugin is not applied.
+ *
+ * Everything bind acquires (subprocesses, HTTP clients, refresh timers, the
+ * server) belongs to the application that bound it and is released through
+ * `c.onDispose` as soon as it exists, so a bind that throws partway releases
+ * it too, and two applications built from one descriptor never share it.
  */
-export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
+export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
   rejectStaleOptions(options, "mcpPlugin");
   validateMcpPluginOptions(options);
 
-  let server: McpServer | null = null;
-  const stdioManagers = new Map<string, StdioClientManager>();
-  const httpClients = createConnectionCache<{
-    listTools(): Promise<{ tools: McpTool[] }>;
-    /** Close the client AND its transport; closing the client alone leaks the socket. */
-    dispose(): Promise<void>;
-  }>();
-  const httpRefreshTimers: ReturnType<typeof setInterval>[] = [];
-  let toolRegistry: McpToolRegistry | null = null;
+  const servers = new WeakMap<PluginContext, McpServer>();
 
   return {
-    async apply(ctx: CraftContext) {
-      ctx.setStore(MCP_PLUGIN_REGISTERED, true);
+    id: "routecraft.ai.mcp",
+    provides: [MCP],
+    requires: [AUTHORITY],
+    optional: [WEB_INGRESS],
+    async bind(c: PluginContext) {
+      const stdio = new Map<string, StdioClientManager>();
+      const clients = new Map<string, McpClientConfig>();
+      // Shared, so the disposer that removes a manager removes what dispatch sees.
+      const service: McpService = createMcpService({ stdio, clients });
+      c.provide(MCP, service);
 
-      // Create and store tool registry
-      toolRegistry = new McpToolRegistry();
-      ctx.setStore(MCP_TOOL_REGISTRY, toolRegistry);
-
-      // Store stdio managers map so destination adapter can call tools on stdio clients
-      ctx.setStore(
-        MCP_STDIO_MANAGERS,
-        stdioManagers as Map<string, McpStdioToolCaller>,
+      // Registered ahead of every refresh timer: disposers run in reverse, so
+      // no refresh can reopen a client once the cache has been emptied.
+      const httpClients = createConnectionCache<HttpClient>();
+      c.onDispose(() =>
+        httpClients.disposeAll((error, serverId) => {
+          c.logger.error(
+            { err: error, serverId, operation: "close" },
+            "Failed to close HTTP client",
+          );
+        }),
       );
 
-      if (options.clients && Object.keys(options.clients).length > 0) {
-        const clientEntries = Object.entries(options.clients);
-        const map = new Map<
-          string,
-          McpClientHttpConfig | McpClientStdioConfig | string
-        >();
-        for (const [k, v] of clientEntries) {
-          map.set(k, v);
-        }
-        ctx.setStore(ADAPTER_MCP_CLIENT_SERVERS, map);
-
-        // Start stdio clients and list HTTP client tools
-        for (const [serverId, config] of clientEntries) {
-          if (isStdioConfig(config)) {
-            await startStdioClient(ctx, serverId, config, toolRegistry);
-          } else {
-            // HTTP client: list tools immediately and optionally refresh periodically
-            const httpConfig = config as McpClientHttpConfig;
-            await listHttpClientTools(
-              ctx,
-              serverId,
-              httpConfig.url,
-              toolRegistry,
-              httpConfig.auth,
-            );
-            setupHttpToolRefresh(
-              ctx,
-              serverId,
-              httpConfig.url,
-              toolRegistry,
-              httpConfig.auth,
-            );
-          }
-
-          const transport = isStdioConfig(config) ? "stdio" : "http";
-          ctx.emit(
-            `plugin:mcp:client:${serverId}:registered` as EventName,
-            { serverId, transport } as Record<string, unknown>,
+      for (const [serverId, config] of Object.entries(options.clients ?? {})) {
+        clients.set(serverId, config);
+        if (isStdioConfig(config)) {
+          await startStdioClient(c, stdio, serverId, config, service.tools);
+        } else {
+          await listHttpClientTools(
+            c,
+            httpClients,
+            serverId,
+            config.url,
+            service.tools,
+            config.auth,
+          );
+          setupHttpToolRefresh(
+            c,
+            httpClients,
+            serverId,
+            config.url,
+            service.tools,
+            config.auth,
           );
         }
-      }
 
-      server = new McpServer(ctx, options);
-      await server.prepare();
-    },
-    async start() {
-      await server?.start();
-    },
-    async teardown(ctx: CraftContext) {
-      // Clear HTTP refresh timers
-      for (const timer of httpRefreshTimers) {
-        clearInterval(timer);
-      }
-      httpRefreshTimers.length = 0;
-
-      // Close persistent HTTP clients
-      await httpClients.disposeAll((error, serverId) => {
-        ctx.logger.error(
-          { err: error, serverId, operation: "close" },
-          "Failed to close HTTP client",
+        const transport = isStdioConfig(config) ? "stdio" : "http";
+        c.emit(
+          `plugin:mcp:client:${serverId}:registered` as EventName,
+          { serverId, transport } as Record<string, unknown>,
         );
-      });
-
-      // Stop all stdio client managers
-      for (const [serverId, manager] of stdioManagers) {
-        try {
-          await manager.stop();
-        } catch (error) {
-          ctx.logger.error(
-            { err: error, serverId, operation: "stop" },
-            "Failed to stop stdio client",
-          );
-        }
       }
-      stdioManagers.clear();
 
-      if (server) {
+      const server = new McpServer(
+        {
+          logger: c.logger,
+          emit: (event, details) => c.emit(event, details),
+          observe: (event, handler) => c.observe(event, handler),
+          service,
+          ingress: c,
+          authority: c.require(AUTHORITY),
+        },
+        options,
+      );
+      servers.set(c, server);
+      c.onDispose(async () => {
+        servers.delete(c);
         try {
           await server.stop();
         } catch (error) {
-          ctx.logger.error(
+          c.logger.error(
             { err: error, operation: "stop" },
             "Failed to stop MCP server plugin",
           );
         }
-        server = null;
-      }
-
-      toolRegistry = null;
+      });
+      await server.prepare();
+    },
+    async start(c: PluginContext) {
+      await servers.get(c)?.start();
     },
   };
 
   async function startStdioClient(
-    ctx: CraftContext,
+    c: PluginContext,
+    managers: Map<string, StdioClientManager>,
     serverId: string,
     config: McpClientStdioConfig,
     registry: McpToolRegistry,
   ): Promise<void> {
-    const managerOpts: import("./stdio-client-manager.ts").StdioClientManagerOptions =
-      {
-        serverId,
-        command: config.command,
-        args: config.args ?? [],
-        maxRestarts: options.maxRestarts ?? 5,
-        restartDelayMs:
-          options.restartDelay === undefined
-            ? 1000
-            : parseDuration(options.restartDelay, "mcpPlugin.restartDelay"),
-        restartBackoffMultiplier: options.restartBackoffMultiplier ?? 2,
-      };
+    const managerOpts: StdioClientManagerOptions = {
+      serverId,
+      command: config.command,
+      args: config.args ?? [],
+      maxRestarts: options.maxRestarts ?? 5,
+      restartDelayMs:
+        options.restartDelay === undefined
+          ? 1000
+          : parseDuration(options.restartDelay, "mcpPlugin.restartDelay"),
+      restartBackoffMultiplier: options.restartBackoffMultiplier ?? 2,
+    };
     if (config.env !== undefined) managerOpts.env = config.env;
     if (config.cwd !== undefined) managerOpts.cwd = config.cwd;
 
     const manager = new StdioClientManager(
       managerOpts,
-      ctx.logger,
+      c.logger,
       (event, details) => {
-        ctx.emit(event as EventName, details as Record<string, unknown>);
+        c.emit(event as EventName, details as Record<string, unknown>);
       },
       (_serverId, tools) => {
         registry.setToolsForSource(_serverId, "stdio", tools);
       },
     );
 
-    stdioManagers.set(serverId, manager);
+    managers.set(serverId, manager);
+    // Before start: a start that fails can still have armed a restart timer.
+    c.onDispose(async () => {
+      managers.delete(serverId);
+      try {
+        await manager.stop();
+      } catch (error) {
+        c.logger.error(
+          { err: error, serverId, operation: "stop" },
+          "Failed to stop stdio client",
+        );
+      }
+    });
 
     try {
       await manager.start();
     } catch (error) {
-      ctx.logger.error(
+      c.logger.error(
         { err: error, serverId, operation: "start" },
         "Failed to start stdio client",
       );
-      ctx.emit(
+      c.emit(
         `plugin:mcp:client:${serverId}:error` as EventName,
         {
           serverId,
@@ -211,13 +211,11 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   }
 
   function getOrCreateHttpClient(
+    httpClients: ConnectionCache<HttpClient>,
     serverId: string,
     url: string,
     auth?: McpClientHttpConfig["auth"],
-  ): Promise<{
-    listTools(): Promise<{ tools: McpTool[] }>;
-    dispose(): Promise<void>;
-  }> {
+  ): Promise<HttpClient> {
     return httpClients.getOrCreate(serverId, async () => {
       const { client: rawClient, transport } = await connectMcpHttpClient(
         new URL(url),
@@ -250,22 +248,23 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   }
 
   async function listHttpClientTools(
-    ctx: CraftContext,
+    c: PluginContext,
+    httpClients: ConnectionCache<HttpClient>,
     serverId: string,
     url: string,
     registry: McpToolRegistry,
     auth?: McpClientHttpConfig["auth"],
   ): Promise<void> {
-    let pending: ReturnType<typeof getOrCreateHttpClient> | undefined;
+    let pending: Promise<HttpClient> | undefined;
     try {
-      pending = getOrCreateHttpClient(serverId, url, auth);
+      pending = getOrCreateHttpClient(httpClients, serverId, url, auth);
       const client = await pending;
 
       const result = await client.listTools();
       const tools = result.tools ?? [];
       registry.setToolsForSource(serverId, "http", tools);
 
-      ctx.emit(
+      c.emit(
         `plugin:mcp:client:${serverId}:tools:listed` as EventName,
         {
           serverId,
@@ -281,7 +280,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
       // still in flight) and evicting by key alone would let a failing run
       // dispose the healthy client a concurrent run had just cached.
       if (pending) await httpClients.evict(serverId, pending);
-      ctx.logger.warn(
+      c.logger.warn(
         { err: error, serverId, url, operation: "listTools" },
         "Failed to list tools from HTTP client",
       );
@@ -289,7 +288,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   }
 
   function setupHttpToolRefresh(
-    ctx: CraftContext,
+    c: PluginContext,
+    httpClients: ConnectionCache<HttpClient>,
     serverId: string,
     url: string,
     registry: McpToolRegistry,
@@ -306,8 +306,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     if (interval <= 0) return;
 
     const timer = setInterval(() => {
-      void listHttpClientTools(ctx, serverId, url, registry, auth);
+      void listHttpClientTools(c, httpClients, serverId, url, registry, auth);
     }, interval);
-    httpRefreshTimers.push(timer);
+    c.onDispose(() => clearInterval(timer));
   }
 }

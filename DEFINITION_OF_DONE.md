@@ -114,16 +114,23 @@ The checklists below apply to **packages that ship code**: anything under `packa
 ## When you add or modify a plugin
 
 > Reference docs are at `apps/routecraft.dev/app/content/docs/reference/plugins/index.mdx`.
-> Conceptual docs are at `apps/routecraft.dev/app/content/docs/introduction/plugins/index.mdx`.
+> Conceptual docs are at `apps/routecraft.dev/app/content/docs/advanced/plugins/index.mdx`, and how the kernel fits together at `apps/routecraft.dev/app/content/docs/advanced/architecture/index.mdx`.
 
 - [ ] Add to the reference page with interface, options, and example
 - [ ] Update the conceptual guide if it introduces new plugin patterns
+- [ ] `requires` and `optional` cover every port `bind`, `start` or `stop` reads with `c.require()` / `c.lookup()`, and `provides` matches what `bind` calls `c.provide()` for (`RC1108` / `RC1109` fire otherwise); a plugin that replaces `AUTHORITY` or `ENFORCEMENT` is named at boot
+- [ ] Every hook declares an `id` and the `runs` kinds it applies to; a validate hook's refusal picks the kind the caller can act on
+- [ ] A new kernel fault has an `RC11xx` row in `error.ts`, `errors.json` and the errors page
+- [ ] `test/type-budget.bun.test.ts` still passes with the plugin's steps and facet
 
 ## When you touch authentication, authorization, or token handling
 
 > Auth contract lives in `.standards/security.md`. Code in
 > `packages/routecraft/src/auth/` (`jwt.ts`, `jwks.ts`, `authorize.ts`,
-> `jwt-utils.ts`, `types.ts`) and the OAuth surface in
+> `authenticate.ts`, `delegate.ts`, `jwt-utils.ts`, `authentic.ts`,
+> `restored.ts`), the principal type in
+> `packages/routecraft/src/principal.ts`, the authority port in
+> `packages/routecraft/src/kernel/authority.ts`, and the OAuth surface in
 > `packages/ai/src/mcp/` (`oauth.ts`, `userinfo.ts`).
 
 - [ ] Changes are reviewed against `.standards/security.md`. Any relaxation (algorithm allowlist, `iss` / `aud` requirement, `exp` requirement, `sub` invariant, HTTPS-in-production guard, fail-closed posture) includes the rationale, a bounding test, and a docs update -- see § 9 of the standard

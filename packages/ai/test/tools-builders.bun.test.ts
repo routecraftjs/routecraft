@@ -4,15 +4,14 @@ import {
   craft,
   direct,
   HeadersKeys,
-  isAuthentic,
   isRoutecraftError,
-  markAuthentic,
+  defaultAuthority,
   log,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, directTool, tools, type FnEntry } from "../src/index.ts";
-import { isLazyFn } from "../src/agent/tools/types.ts";
-import { ADAPTER_FN_REGISTRY } from "../src/fn/store.ts";
+import { isLazyFn, toolHostOf } from "../src/agent/tools/types.ts";
+import { AGENTS } from "../src/agent/port.ts";
 
 /** Deferral is not under test in this file; the required slot just refuses. */
 const refuseDefer = (): never => {
@@ -78,13 +77,13 @@ describe("tool builders - directTool", () => {
       .build();
     await t.startAndWaitReady();
 
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("fetchOrder") as
+    const entry = t.ctx.lookup(AGENTS)?.functions?.get("fetchOrder") as
       FnEntry | undefined;
     expect(entry).toBeDefined();
     expect(isLazyFn(entry!)).toBe(true);
 
     if (!isLazyFn(entry!)) throw new Error("expected deferred entry");
-    const resolved = entry.resolve(t.ctx, "fetchOrder");
+    const resolved = entry.resolve(toolHostOf(t.ctx), "fetchOrder");
     expect(resolved.description).toBe(
       "Fetch an order by id from the orders DB.",
     );
@@ -125,9 +124,9 @@ describe("tool builders - directTool", () => {
       .build();
     await t.startAndWaitReady();
 
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("custom");
+    const entry = t.ctx.lookup(AGENTS)?.functions?.get("custom");
     if (!entry || !isLazyFn(entry)) throw new Error("expected deferred");
-    const resolved = entry.resolve(t.ctx, "custom");
+    const resolved = entry.resolve(toolHostOf(t.ctx), "custom");
     expect(resolved.description).toBe("OVERRIDE description.");
     expect(resolved.input).toBe(overrideSchema);
     // Tags flow through from the underlying route unchanged (no override field).
@@ -250,7 +249,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const desc = directTool("orders/fetch");
-    const fn = desc.resolve(t.ctx, "ordersFetch");
+    const fn = desc.resolve(toolHostOf(t.ctx), "ordersFetch");
     const result = await fn.handler(
       { orderId: "abc" },
       {
@@ -266,7 +265,7 @@ describe("tool builders - directTool dispatch", () => {
 
   /**
    * @case directTool forwards FnHandlerContext.principal to the downstream direct route's exchange
-   * @preconditions Handler invoked with a principal in its ctx; downstream route captures `ex.principal`
+   * @preconditions Handler invoked with a principal in its ctx; downstream route captures `ex.auth.principal`
    * @expectedResult Captured principal on the inner route equals the one from the calling tool ctx
    */
   test("dispatchDirect forwards the calling principal to the downstream exchange", async () => {
@@ -280,7 +279,7 @@ describe("tool builders - directTool dispatch", () => {
           .input(inputSchema)
           .from(direct())
           .process((ex) => {
-            downstreamPrincipal = ex.principal;
+            downstreamPrincipal = ex.auth.principal;
             return {
               ...ex,
               body: { ok: true },
@@ -298,7 +297,7 @@ describe("tool builders - directTool dispatch", () => {
       scopes: ["orders.read"],
     };
     const desc = directTool("orders/fetch-with-auth");
-    const fn = desc.resolve(t.ctx, "ordersFetchWithAuth");
+    const fn = desc.resolve(toolHostOf(t.ctx), "ordersFetchWithAuth");
     await fn.handler(
       { orderId: "abc" },
       {
@@ -337,7 +336,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const fn = directTool("orders/fetch-correlated").resolve(
-      t.ctx,
+      toolHostOf(t.ctx),
       "ordersFetchCorrelated",
     );
     await fn.handler(
@@ -356,7 +355,7 @@ describe("tool builders - directTool dispatch", () => {
 
   /**
    * @case directTool forwards authenticity only when the calling principal is authentic
-   * @preconditions Downstream route records isAuthentic(ex.principal); handler invoked once with an authentic principal and once with a self-asserted plain object carrying the same fields
+   * @preconditions Downstream route records defaultAuthority.isAuthentic(ex.auth.principal); handler invoked once with an authentic principal and once with a self-asserted plain object carrying the same fields
    * @expectedResult Authentic in -> authentic downstream; self-asserted in -> non-authentic downstream (no laundering across the agent -> tool boundary)
    */
   test("dispatchDirect forwards authenticity only for authentic principals", async () => {
@@ -369,7 +368,9 @@ describe("tool builders - directTool dispatch", () => {
           .input(z.object({}))
           .from(direct())
           .process((ex) => {
-            downstreamAuthentic = isAuthentic(ex.principal);
+            downstreamAuthentic = defaultAuthority.isAuthentic(
+              ex.auth.principal,
+            );
             return { ...ex, body: { ok: true } };
           })
           .to(log()),
@@ -378,7 +379,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const desc = directTool("guarded/echo");
-    const fn = desc.resolve(t.ctx, "guardedEcho");
+    const fn = desc.resolve(toolHostOf(t.ctx), "guardedEcho");
     const base = {
       logger: undefined as unknown as Parameters<
         typeof fn.handler
@@ -391,7 +392,7 @@ describe("tool builders - directTool dispatch", () => {
       {},
       {
         ...base,
-        principal: markAuthentic({
+        principal: defaultAuthority.brand({
           kind: "jwt" as const,
           scheme: "bearer" as const,
           subject: "verified",
@@ -440,7 +441,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const desc = directTool("guarded-admin");
-    const fn = desc.resolve(t.ctx, "guardedAdmin");
+    const fn = desc.resolve(toolHostOf(t.ctx), "guardedAdmin");
     const base = {
       logger: undefined as unknown as Parameters<
         typeof fn.handler
@@ -453,7 +454,7 @@ describe("tool builders - directTool dispatch", () => {
       {},
       {
         ...base,
-        principal: markAuthentic({
+        principal: defaultAuthority.brand({
           kind: "jwt" as const,
           scheme: "bearer" as const,
           subject: "verified-admin",

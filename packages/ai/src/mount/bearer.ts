@@ -12,7 +12,7 @@
  */
 
 import type {
-  CraftContext,
+  PluginContext,
   HttpMountAuth,
   HttpMountContext,
 } from "@routecraft/routecraft";
@@ -25,7 +25,8 @@ export type ResolvedAuth = Awaited<
 export interface BearerRefusalSite {
   /** Which mount, for the log line and the event. */
   readonly source: "acp" | "mcp";
-  readonly context: CraftContext;
+  /** Where the refusal is logged and announced: the mount's plugin context. */
+  readonly context: Pick<PluginContext, "logger" | "emit">;
   /** Headers every answer carries, so a refused browser can still read it. */
   readonly corsHeaders: Record<string, string>;
   /** The RFC 6750 challenge for this mount, given the params of the refusal. */

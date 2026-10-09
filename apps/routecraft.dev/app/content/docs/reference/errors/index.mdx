@@ -75,6 +75,168 @@ Context already stopped
 **Suggestion**  
 Build a fresh context from your config instead of restarting a stopped one. The process is the real restart unit; `craft run` already behaves this way.
 
+## RC1101
+Two plugins share an id
+
+**Why it happens**  
+Two installed plugins carry the same `id`. A single (non-repeatable) plugin id is installed once per application; repeatable descriptors under one id each install and are numbered. A config key and an explicit plugin for the same feature count as two installations of one id: `deferral: {}` together with `plugins: [deferralPlugin()]` is the common case. The message names both positions. Two bundles that each bring their own single (non-repeatable) descriptor under one id the application does not list raise it too, naming both bundles: which one would serve the id is a guess the kernel does not make.
+
+**Suggestion**  
+Keep one of the two. To replace a [default plugin](/docs/reference/plugins#default-plugins), list a plugin with its id: an application plugin with the same id takes the default's place without a fault. For two bundles bringing one id, list the plugin you want in `plugins`, or have both bundles bring one shared descriptor.
+
+## RC1102
+Two plugins share a namespace
+
+**Why it happens**  
+Two installed plugins resolve to the same namespace. A namespace is the prefix a plugin's facet, route options and events live under; it defaults to the last segment of the id, so `acme.audit` and `other.audit` collide on `audit`.
+
+**Suggestion**  
+Give one of the two plugins an explicit `namespace`.
+
+## RC1103
+Port name invalid, or two keys under one port name
+
+**Why it happens**  
+A port name is not of the form `owner.capability@version`, or two tokens carry one port name under different keys: declared by installed plugins, or presented at a lookup when the application holds that name under another key. A `port()` token's key is the registered symbol for its name, so two copies of the module that declares the port (the ESM and CJS builds of one package, a global CLI beside a project's install) resolve as one port; only a token built by hand with a key of its own misses.
+
+**Suggestion**  
+Name the port `owner.capability@1` and declare it with `port()` at module scope; export that token and share it, instead of building one by hand. Ship a shape change under a new version segment.
+
+## RC1104
+Required port has no provider
+
+**Why it happens**  
+A plugin lists a port in `requires`, or something called `require()` for a port, and no installed plugin provides it.
+
+**Suggestion**  
+Install a plugin that provides the port the message names. For a plugin you wrote that can run without it, move the port to `optional` and read it with `lookup()`.
+
+## RC1105
+Two providers of one port
+
+**Why it happens**  
+Two installed plugins list the same port in `provides`, and neither declares `replaces` for it, so the kernel cannot pick one. The message names both.
+
+**Suggestion**  
+Remove one, or add `replaces: [port]` to the provider that should be selected. The displaced provider still binds; its value is simply not the one consumers receive.
+
+## RC1106
+Invalid port replacement
+
+**Why it happens**  
+A plugin lists a port in `replaces` without also listing it in `provides`, or two plugins replace the same port.
+
+**Suggestion**  
+A plugin may replace a port only when it provides it too, and only one plugin may replace a given port. The message names the plugins involved.
+
+## RC1107
+Plugin dependency cycle
+
+**Why it happens**  
+The plugins require each other in a cycle through their `requires` and `optional` ports, so no order can bind them. The message lists the edges. The edges are declared ones: the order a repeatable plugin takes ahead of the readers of its ports never closes a cycle.
+
+**Suggestion**  
+Break one edge: make a requirement optional, or move the part both plugins need into a port of its own.
+
+## RC1108
+Port required without being declared
+
+**Why it happens**  
+A plugin called `c.require(port)` or `c.lookup(port)` for a port it did not list in `requires` or `optional`. The kernel orders plugins by those declarations, so an undeclared port could be read before its provider bound.
+
+**Suggestion**  
+Add the port to `requires` or `optional` on the plugin.
+
+## RC1109
+Port provision does not match the declaration
+
+**Why it happens**  
+A plugin called `c.provide(port, value)` for a port it did not list in `provides`, or its `bind` returned without providing a port it did list.
+
+**Suggestion**  
+Make the declaration and the provision match: list every port the plugin provides, and call `c.provide()` for each in `bind`.
+
+## RC1110
+Contribution after the application froze
+
+**Why it happens**  
+A plugin provided a port or registered a route after the last `bind` returned, or contributed through another plugin's port (an agent registered into `AGENTS`) after it. The application freezes before it compiles routes, so a later contribution would miss compilation, and whatever read the contributions during `bind` has already used them.
+
+**Suggestion**  
+Move the contribution into `bind(c)`. Work that needs running routes belongs in `start(c)`, but it cannot add ports or routes there.
+
+## RC1111
+Route needs a port nobody provides
+
+**Why it happens**  
+A route uses something only a plugin can provide and no installed plugin provides it: a chain position such as `.retry()` or `.authorize()` whose provider was removed, a step such as `.defer()` or a third-party plugin's method on a route started in an application that does not install that plugin, or a read of that plugin's facet (`ex.deferral`) in such a route. A step or position fails the start; a facet fails at the read; a resilience method or `.cache()` wrapping one step after `.from()` fails when the exchange reaches it.
+
+**Suggestion**  
+Install the plugin the message names, in the same application that runs the route. A route built with a project's `craft()` must run in a context started from that project's config.
+
+## RC1112
+Hook target does not exist
+
+**Why it happens**  
+A plugin declares a hook in a slot or point that does not exist, two hooks of one plugin share an id in one slot, or `hooks.order` or `hooks.disable` names a hook no installed plugin declares. An `order` key must be `slot/phase`.
+
+**Suggestion**  
+Check the spelling against the [slots](/docs/reference/plugins#slots) and the installed plugins. Hooks are addressed as `pluginId/hookId`; give a hook an explicit `id` when its function has no name.
+
+## RC1113
+Two plugins declare one point
+
+**Why it happens**  
+Two plugins declare a point with the same name, or a plugin declares a point named after a slot of the chain.
+
+**Suggestion**  
+A point name belongs to one plugin. Rename one under its own namespace, for example `approvals.decided`.
+
+## RC1114
+Facet name not allowed
+
+**Why it happens**  
+A plugin's facet would be read as `ex.<namespace>`, and its namespace names something every exchange already has: one of its fields (`id`, `headers`, `body`, `logger`, `context`) or a method.
+
+**Suggestion**  
+Give the plugin a different `namespace`.
+
+## RC1115
+Hook broke its phase
+
+**Why it happens**  
+An `observe` hook returned a value, a `validate` hook returned something other than nothing or `refuse(reason)`, a hook declared a phase its slot does not have (`exit` and `error` have no `validate`), or a `perAttempt` hook is not a wrapper.
+
+**Suggestion**  
+Return nothing from `observe`, change the exchange only in `mutate`, and decide only in `validate`. A `perAttempt` hook is `{ wrap(proceed, exchange, info) }` and calls `proceed()` exactly once; calling it twice is this error too.
+
+## RC1116
+Two plugins declare one step
+
+**Why it happens**  
+Two installed plugins declare a step with the same name, or a plugin declares a step named after a method or field the builder already has (`to`, `transform`, `filter`, ...). A route method can mean one thing. The same code refuses a step factory that returns a step object it already returned, or a frozen one: the method labels and tags what the factory returns, so one shared object would be claimed by every route that used it.
+
+**Suggestion**  
+Remove one of the plugins, or rename the step. Build a new step on every call of a step factory.
+
+## RC1117
+Invalid plugin descriptor
+
+**Why it happens**  
+Something installed as a plugin is not a valid descriptor: it has no dotted `id`, it still has the pre-0.8 `apply(ctx)` shape, a `requires`, `optional`, `provides` or `replaces` list holds something other than ports, a hook or lifecycle field is not a function, a hook has no `id`, or a `repeatable` plugin declares what only one install may (a port it provides or replaces, hooks, points, steps or a facet). Raised before any plugin binds.
+
+**Suggestion**  
+Build the plugin with `definePlugin({ id, ... })`. The message names the plugin's position, or the plugin that brought it, and the field at fault. Every hook names itself with `id`, because `hooks.order` and `hooks.disable` address it as `pluginId/id` and a name that followed the function or its position would move under that config. A pre-0.8 plugin moves `apply` into `bind(c)` and `teardown` into `stop(c, info)`; see the [0.7 to 0.8 migration guide](/docs/migrating/0.7-to-0.8).
+
+## RC1118
+Lifecycle hook awaits the start it is part of
+
+**Why it happens**  
+A plugin's `bind` or `start` hook awaited `c.execution.whenStarted()`. The application reports started only once every `bind` and `start` hook has returned, so the hook was waiting on itself and the boot would never end. Raised at the call, so the hook fails instead of hanging.
+
+**Suggestion**  
+Return from the hook and await `whenStarted()` from the work it schedules (a timer, a task, a subscription), or begin that work in `start()`, which the kernel runs once every route has signalled readiness. A hook that needs another plugin started lists that plugin's port in `requires` or `optional`, which orders the starts.
+
 ## RC2001
 Invalid operation type
 
@@ -342,14 +504,14 @@ This check applies only to URL and OIDC-discovery `userinfo` modes; the function
 Authorization failed: principal is not authentic
 
 **Why it happens**  
-`authorize()` found a principal on the exchange, but it was not established by a trusted origin. Authenticity is conferred only by a source-side verifier (`jwt()` / `jwks()` / `oauth()`) or by an explicit mint (`.authenticate()` / the `authenticate()` helper), which register the principal in a private set. A plain object written directly onto `headers["routecraft.auth.principal"]` (for example via `.process()` or `.header()`), or a copy made from an existing principal (`{ ...ex.principal, roles: ['admin'] }`, which is a different object and so not in the set), is treated as self-asserted and rejected. This makes establishing identity an explicit, greppable act and prevents a route from silently forging or escalating identity.
+`authorize()` found a principal on the exchange, but it was not established by a trusted origin. Authenticity is conferred only by a source-side verifier (`jwt()` / `jwks()` / `oauth()`) or by an explicit mint (`.authenticate()` / the `authenticate()` helper), which register the principal in a private set. A plain object written directly onto `headers["routecraft.auth.principal"]` (for example via `.process()` or `.header()`), or a copy made from an existing principal (`{ ...ex.auth.principal, roles: ['admin'] }`, which is a different object and so not in the set), is treated as self-asserted and rejected. This makes establishing identity an explicit, greppable act and prevents a route from silently forging or escalating identity.
 
 The check is distinct from `RC5012` (no principal at all), `RC5015` (an authentic principal that lacks a required role or fails a predicate), and `RC5038` (an authentic principal that lacks a required scope), so you can tell "forged / self-asserted" apart from "missing a role" and "missing a grantable scope."
 
 **Suggestion**  
 - Mint the identity with the `.authenticate()` operation (or the `authenticate()` helper for mid-pipeline / custom-source use), which brands and freezes the principal.
 - Let a source verifier attach it: `mcp({ auth: jwt(...) })` / `jwks(...)` / `oauth(...)`.
-- In a custom source adapter that verifies identity itself, brand the resolved principal with `markAuthentic` before attaching it.
+- In a custom source adapter that verifies identity itself, brand the resolved principal through the application's authority, `authorityOf(context).brand(principal)`, before attaching it.
 - Do not assign a plain object to the principal header and do not spread an existing principal to change its roles; both produce a non-authentic principal.
 
 ## RC5024
@@ -367,7 +529,7 @@ Both are distinct from `RC5023`, which fires later at `authorize()` when a princ
 
 **Suggestion**  
 - Pass a non-empty `subject`: `authenticate({ subject: sender.address, roles: [...] })`.
-- To delegate, mint first and then delegate: `delegate(authenticate(claims), actorClaims, { scopes, grantId })`.
+- To delegate, mint first and then delegate: `delegate(authenticate(claims), actorClaims, { scopes, grantId }, authorityOf(exchange))`.
 - If the source cannot identify the caller, return `undefined` from the `.authenticate()` resolver to leave the exchange anonymous instead of minting an empty identity.
 
 ## RC5025
@@ -417,15 +579,15 @@ Supply an explicit `key` function that returns a stable string identifier. A cus
   key: (e) =>
     JSON.stringify([
       e.headers[HeadersKeys.ROUTE_ID],
-      e.principal?.issuer,
-      e.principal?.subject,
+      principalOf(e)?.issuer,
+      principalOf(e)?.subject,
       e.headers['routecraft.http.params'],
       e.headers['routecraft.http.query'],
     ]),
 })
 ```
 
-Drop the principal only when every caller sees the same answer. On a route that admits delegation, add the current actor (`e.principal?.actor?.issuer`, `e.principal?.actor?.subject`) as well. See [cache key](/docs/reference/operations/cache#cache-key).
+Drop the principal only when every caller sees the same answer. On a route that admits delegation, add the current actor (`principalOf(e)?.actor?.issuer`, `principalOf(e)?.actor?.subject`) as well. See [cache key](/docs/reference/operations/cache#cache-key).
 
 This error is not retryable: the same exchange fails key derivation the same way every time.
 
@@ -469,14 +631,14 @@ Supply an explicit `key` function that returns a stable string identifier. A cus
 .dedupe({
   key: (e) =>
     JSON.stringify([
-      e.principal?.issuer,
-      e.principal?.subject,
+      principalOf(e)?.issuer,
+      principalOf(e)?.subject,
       (e.body as { id: unknown }).id,
     ]),
 })
 ```
 
-On a route that admits delegation, add the current actor (`e.principal?.actor?.issuer`, `e.principal?.actor?.subject`) as well. See [dedupe](/docs/reference/operations/dedupe).
+On a route that admits delegation, add the current actor (`principalOf(e)?.actor?.issuer`, `principalOf(e)?.actor?.subject`) as well. See [dedupe](/docs/reference/operations/dedupe).
 
 This error is not retryable: the same exchange fails key derivation the same way every time.
 
@@ -644,10 +806,12 @@ Catch it in the deferred route's route-scope `.error()` and re-ask. Note the has
 Deferral result rejected
 
 **Why it happens**  
-The payload handed to `.resume()` failed the `schema` declared on the deferring `.defer()`.
+The payload handed to `.resume()` failed the `schema` declared at the deferring site: the `.defer()` step, or the route-scope `.error(handler, { schema })` or error hook `schema` that parked it.
 
 **Suggestion**  
 The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema.
+
+A door that dispatched the ingress route answers the submitter the way it answers the route's own `.input()` refusal: the `http()` source and the ops dispatch door answer 400 with the schema's issues in the shape given under [RC5065](#rc-5065), the MCP server a tool error carrying them, the ACP mount `-32602`. A plugin resuming through `c.execution.resume()` has no caller waiting, so there the code alone is raised.
 
 ## RC5050
 Deferral denied
@@ -689,7 +853,7 @@ A [contributed resource](/docs/reference/plugins/opsplugin#contributed-resources
 **Suggestion**  
 For a bound route, check the id against the route's `.id(...)`; the binding is by id, not by variable name. For a duplicate, rename one indicator: names are the keys of the health report, so a duplicate would shadow one dependency with another. For a hand-rolled handle, declare it with `defineIndicator({ name })`: an object of the same shape has no ledger to report into, so every push through it would be silently dropped, and a dependency nobody is watching looks healthy. For the explicit gate with nothing to gate on, set `ops.auth` (or `servers.<name>.auth`), or say what you mean with `health.details: 'always'` or `'never'`. For `ops.auth: false`, remove it; if the intent was serving details to every caller, that is `health.details: 'always'`.
 
-For a resource name, pick one that matches `^[a-z][a-z0-9-]*$` and is neither `routes` nor `events`; for a duplicate, one contributor owns a name, so a second plugin that wants the same collection reads the first's registration off the context (`OPS_RESOURCES`) rather than registering again.
+For a resource name, pick one that matches `^[a-z][a-z0-9-]*$` and is neither `routes` nor `events`; for a duplicate, one contributor owns a name, so a second plugin that wants the same collection checks `c.lookup(OPS)?.hasResource(name)` rather than registering again.
 
 Pushing through a handle that is merely unregistered is not this error. It is deliberately inert, so health instrumentation can never kill the code it instruments.
 
@@ -850,6 +1014,30 @@ A surface asked the deferral store for something the store this context was give
 
 **Suggestion**  
 Implement the member the message names, or drop back to a shipped backend (`sqlite`, or `memory` for tests). The surface refuses rather than answering an empty listing, because an empty listing and a listing the store cannot produce look identical to whoever is reading them, and one of them is a lie about what the instance is holding.
+
+## RC5067
+Deferral notification failed
+
+**Why it happens**  
+An error handler answered with [`recovery.defer({ notify })`](/docs/reference/operations/error#recovery-defer-request), the exchange parked, and then the `notify` hook threw or did not settle before the deferring route's abort signal fired.
+
+Nobody was successfully told the work is waiting, so the deferral was denied claim-first and its resume link is dead: a token that did reach a recipient reads [RC5050](#rc-5050) rather than reviving work whose caller was told the run failed. The hook's own failure is carried as the cause.
+
+The hook is bounded by the deferring route's abort signal, widened by an enclosing `.timeout()`, because it is awaited inside the executor: an unsettled hook holds the step, which holds `drain()`, and its latency sits in front of the caller's acknowledgment.
+
+**Suggestion**  
+Notify by forwarding to a route your application owns rather than calling a mailer inline. The send is then a route like any other: retryable, observable, and testable without the handler, and it runs under the parked exchange's principal because `forward` carries identity by reference. A hook that legitimately takes longer than the route allows needs the route's `.timeout()` widened, not the bound removed.
+
+## RC5068
+Refused by a validate hook
+
+**Why it happens**  
+A plugin's `validate` hook returned `refuse(reason, { kind })` for this exchange. The message names the hook (`pluginId/hookId`), the slot it ran in, the kind and the reason. The refusal reaches the route's `.error()` and the `error` slot like any other failure.
+
+A door that dispatched the route answers the caller with the kind and the reason, never the hook: the `http()` source and the ops dispatch door map the kind to a status (`invalid` 400, `unauthenticated` 401, `forbidden` 403, `not_found` 404, `conflict` 409, `gone` 410, `rate_limited` 429, `unavailable` 503) and answer `{ "error": "<status text>", "code": "RC5068", "reason": "<the hook's reason>" }`; the MCP server answers a tool error naming the kind and the reason; the ACP mount answers `-32602` for `invalid` and `-32001` for every other kind, with `{ code, kind, reason }` in the error's data. An `unauthenticated` refusal on a door that reads no credential is answered as `forbidden`. The same code raised by a nested `direct()` call stays the instance's and answers as any other failure.
+
+**Suggestion**  
+Read the reason in the message: it is usually a property of the request (a missing header, a principal outside a tenant). A route can answer the refusal in its own `.error()`. If the hook is wrong for this application, switch it off by id with `hooks.disable`, or scope it with the hook's `routes` or `tags`. Writing a hook, pick the kind the caller can act on and write the reason for the caller: both cross the wire.
 
 ## RC9901
 Unknown error

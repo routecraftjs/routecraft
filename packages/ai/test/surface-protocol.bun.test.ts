@@ -18,6 +18,8 @@ import {
   SURFACE_CONNECTION,
   SURFACED,
   scriptedSurface,
+  surfacesOf,
+  surfacing,
 } from "./helpers/surface-stub.ts";
 
 /** The options a permission request offers, and the one that allows. */
@@ -68,10 +70,15 @@ describe("the surface checks what the editor answers", () => {
   test("a malformed permission answer does not approve", async () => {
     const decisions: boolean[] = [];
     t = await testContext()
+      .with(surfacing())
       .routes([permissionRoute(decisions)])
       .build();
     await t.startAndWaitReady();
-    registerSurface(t.ctx, SURFACE_CONNECTION, answering({ approved: true }));
+    registerSurface(
+      surfacesOf(t),
+      SURFACE_CONNECTION,
+      answering({ approved: true }),
+    );
 
     const seen = await t.client.sendDirect("ask-permission", {}, SURFACED);
 
@@ -91,11 +98,12 @@ describe("the surface checks what the editor answers", () => {
   test("a selection of an option that was never offered does not approve", async () => {
     const decisions: boolean[] = [];
     t = await testContext()
+      .with(surfacing())
       .routes([permissionRoute(decisions)])
       .build();
     await t.startAndWaitReady();
     registerSurface(
-      t.ctx,
+      surfacesOf(t),
       SURFACE_CONNECTION,
       answering({ outcome: { outcome: "selected", optionId: "invented" } }),
     );
@@ -114,11 +122,12 @@ describe("the surface checks what the editor answers", () => {
   test("a genuine selection is passed through", async () => {
     const decisions: boolean[] = [];
     t = await testContext()
+      .with(surfacing())
       .routes([permissionRoute(decisions)])
       .build();
     await t.startAndWaitReady();
     registerSurface(
-      t.ctx,
+      surfacesOf(t),
       SURFACE_CONNECTION,
       answering({
         outcome: { outcome: "selected", optionId: "allow" },
@@ -139,6 +148,7 @@ describe("the surface checks what the editor answers", () => {
   test("a malformed file read is AI1018, caught by .error()", async () => {
     const caught: Array<{ rc?: string; cause?: unknown }> = [];
     t = await testContext()
+      .with(surfacing())
       .routes([
         craft()
           .id("read-file")
@@ -152,7 +162,11 @@ describe("the surface checks what the editor answers", () => {
       ])
       .build();
     await t.startAndWaitReady();
-    registerSurface(t.ctx, SURFACE_CONNECTION, answering({ content: 42 }));
+    registerSurface(
+      surfacesOf(t),
+      SURFACE_CONNECTION,
+      answering({ content: 42 }),
+    );
 
     await expect(
       t.client.sendDirect("read-file", {}, SURFACED),
@@ -171,6 +185,7 @@ describe("the surface checks what the editor answers", () => {
   test("a malformed update is AI1019 and never sent", async () => {
     const sent: unknown[] = [];
     t = await testContext()
+      .with(surfacing())
       .routes([
         craft()
           .id("notify")
@@ -184,7 +199,7 @@ describe("the surface checks what the editor answers", () => {
       .build();
     await t.startAndWaitReady();
     registerSurface(
-      t.ctx,
+      surfacesOf(t),
       SURFACE_CONNECTION,
       scriptedSurface({
         request: () => Promise.resolve({}),
@@ -219,6 +234,7 @@ describe("the surface checks what the editor answers", () => {
     };
     const sent: unknown[] = [];
     t = await testContext()
+      .with(surfacing())
       .routes([
         craft()
           .id("notify")
@@ -228,7 +244,7 @@ describe("the surface checks what the editor answers", () => {
       .build();
     await t.startAndWaitReady();
     registerSurface(
-      t.ctx,
+      surfacesOf(t),
       SURFACE_CONNECTION,
       scriptedSurface({
         request: () => Promise.resolve({}),

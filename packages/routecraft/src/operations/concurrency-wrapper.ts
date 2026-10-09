@@ -3,13 +3,14 @@ import type { Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
-import type { Route } from "../route.ts";
-import { WrapperStep } from "./wrapper.ts";
-import { wrapperEventScope } from "./event-scope.ts";
+import type { RouteKey } from "../kernel/positions.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import { SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 import { Semaphore } from "./semaphore.ts";
+import { runStepPosition } from "./position-run.ts";
+import { RESILIENCE, type Position } from "../kernel/positions.ts";
 
 /**
  * Options for the `.concurrency()` wrapper (step scope and route scope).
@@ -73,10 +74,8 @@ export interface ConcurrencyOptions {
 }
 
 /**
- * {@link ConcurrencyOptions} with every behavioural field populated. Shared
- * by the step-scope wrapper and the route-scope segment.
- *
- * @internal
+ * {@link ConcurrencyOptions} with every behavioural field populated: what a
+ * `RESILIENCE` provider receives, at route scope and at step scope alike.
  */
 export interface ResolvedConcurrencyOptions {
   max: number;
@@ -211,8 +210,15 @@ export class ConcurrencyLimiter {
  * @internal
  */
 export interface ConcurrencyHooks {
-  /** Route abort signal; cancels the queue wait on shutdown. */
+  /** Cancels the queue wait: route shutdown, or an outer position abandoning the attempt. */
   signal?: AbortSignal;
+  /**
+   * Fires only when an outer position abandoned the attempt (an elapsed
+   * `.timeout()`). A wait cut short by it is refused, never admitted: the
+   * abandoning position has already discarded the result, so running the
+   * work would only exceed `max` for nothing.
+   */
+  abandon?: AbortSignal;
   /** All slots were busy; the exchange joins the wait queue at `queueDepth`. */
   onQueued(queueDepth: number, key?: string): void;
   /**
@@ -223,12 +229,16 @@ export interface ConcurrencyHooks {
   /** The held slot was released; `heldMs` is how long the work held it. */
   onReleased(heldMs: number, key?: string): void;
   /**
-   * The exchange was failed fast (`RC5026`): `reason` is `"busy"` (reject
-   * mode, all slots busy) or `"queue-full"` (queue mode, wait line at
-   * `maxQueue`).
+   * The exchange was refused a slot: `reason` is `"busy"` (reject mode, all
+   * slots busy, `RC5026`), `"queue-full"` (queue mode, wait line at
+   * `maxQueue`, `RC5026`) or `"abandoned"` (queued, then abandoned by an
+   * outer position before a slot freed; the abandon reason is thrown).
    */
-  onRejected(reason: "busy" | "queue-full", key?: string): void;
+  onRejected(reason: ConcurrencyRejection, key?: string): void;
 }
+
+/** Why a slot was refused; the `reason` on `route:concurrency:rejected`. */
+export type ConcurrencyRejection = "busy" | "queue-full" | "abandoned";
 
 /** Event-scope bindings shared by the `route:concurrency:*` payloads. */
 export interface ConcurrencyEventScope {
@@ -251,7 +261,7 @@ export interface ConcurrencyEventScope {
  * @internal
  */
 export function concurrencyEmitHooks(
-  context: CraftContext | undefined,
+  context: Pick<CraftContext, "emit"> | undefined,
   scoped: ConcurrencyEventScope,
   emit: boolean,
 ): Pick<
@@ -366,7 +376,7 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
    */
   async acquire(
     exchange: Exchange,
-    route: Route | undefined,
+    route: RouteKey | undefined,
     hooks: ConcurrencyHooks,
     opts: { mustWait?: boolean } = {},
   ): Promise<{ release: () => void; key?: string }> {
@@ -421,6 +431,12 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
    * `released` pair still fires so the `queued` event has a matching
    * terminal; suppressing them would leave an orphaned `queued` and
    * unbalance queue-depth accounting at teardown.
+   *
+   * An outer position abandoning the attempt while queued is the opposite
+   * case: the result is already discarded, so the exchange is refused with
+   * the abandon reason (`rejected`, reason `"abandoned"`) and the work never
+   * runs. Admitting it would run the step past `max` after a deadline the
+   * caller has already seen fail.
    */
   async #joinWaitLine(
     semaphore: Semaphore,
@@ -434,6 +450,10 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       return { release, ...(key !== undefined ? { key } : {}) };
     } catch (err) {
       if (!(err instanceof SleepAbortedError)) throw err;
+      if (hooks.abandon?.aborted) {
+        hooks.onRejected("abandoned", key);
+        throw hooks.abandon.reason;
+      }
       hooks.onAcquired(true, semaphore.inUse, key);
       return { release: () => {}, ...(key !== undefined ? { key } : {}) };
     }
@@ -453,7 +473,7 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
 export async function executeWithConcurrency(
   controller: ConcurrencyController,
   exchange: Exchange,
-  route: Route | undefined,
+  route: RouteKey | undefined,
   hooks: ConcurrencyHooks,
   run: () => Promise<StepOutcome>,
   opts: { mustWait?: boolean } = {},
@@ -491,49 +511,33 @@ export class ConcurrencyWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedConcurrencyOptions;
-  readonly #controller: ConcurrencyController;
+  readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, options: ConcurrencyOptions) {
     super(inner);
     this.#options = resolveConcurrencyOptions(options);
-    this.#controller = new ConcurrencyController(this.#options);
   }
 
   protected override describeOptions(): unknown {
     return this.#options;
   }
 
-  protected override async runInner(
+  override get requiredPosition(): RequiredPosition {
+    return { port: RESILIENCE, method: "concurrency" };
+  }
+
+  protected override runInner(
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const { route, context, routeId, stepLabel, correlationId } =
-      wrapperEventScope(exchange, this);
-    const shouldEmit = Boolean(route && context && routeId);
-    const scoped: ConcurrencyEventScope = {
-      routeId: routeId as string,
-      exchangeId: exchange.id,
-      correlationId,
-      stepLabel,
-      scope: "step",
-      ...(this.#controller.label !== undefined
-        ? { label: this.#controller.label }
-        : {}),
-    };
-
-    return executeWithConcurrency(
-      this.#controller,
+    return runStepPosition(
+      this,
+      this.inner,
+      this.#positions,
+      "concurrency",
+      (provider) => provider.concurrency(this.#options),
       exchange,
-      route,
-      {
-        // Intake: a queued exchange is released as soon as shutdown begins
-        // and admitted with a no-op release (see `#joinWaitLine`), so the
-        // drain runs it instead of leaving it deferred behind a slot that will
-        // never free.
-        ...(route ? { signal: route.intakeSignal } : {}),
-        ...concurrencyEmitHooks(context, scoped, shouldEmit),
-      },
-      () => this.inner.execute(exchange, ctx),
+      ctx,
     );
   }
 }

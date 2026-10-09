@@ -5,11 +5,12 @@ import {
   craft,
   direct,
   noop,
+  OPS,
   opsPlugin,
   parsePageQuery,
   rcError,
   registerOpsResource,
-  type CraftPlugin,
+  type Plugin,
   type HttpAuth,
   type OpsResource,
   type Principal,
@@ -56,11 +57,14 @@ function widgets(items: Array<{ id: string; colour: string }>): OpsResource {
   };
 }
 
-function contributing(resource: OpsResource): CraftPlugin {
+let contributors = 0;
+
+function contributing(resource: OpsResource): Plugin {
   return {
-    name: "widgets",
-    apply(ctx) {
-      registerOpsResource(ctx, resource);
+    id: `test.widgets-${++contributors}`,
+    optional: [OPS],
+    bind(c) {
+      registerOpsResource(c, resource);
     },
   };
 }
@@ -92,7 +96,7 @@ describe("contributed management resources", () => {
   async function start(options: {
     introspection?: boolean | string;
     auth?: HttpAuth;
-    plugins?: CraftPlugin[];
+    plugins?: Plugin[];
     /** Apply the contributor after the ops plugin, to prove order does not matter. */
     after?: boolean;
   }): Promise<number> {
@@ -309,7 +313,7 @@ describe("contributed management resources", () => {
    * @expectedResult Each build fails with RC5053 naming the problem, before any server binds
    */
   test("refuses reserved, malformed and duplicate names", async () => {
-    const build = (plugins: CraftPlugin[]) =>
+    const build = (plugins: Plugin[]) =>
       testContext()
         .with({
           servers: { default: { port: 0, host: "127.0.0.1" } },

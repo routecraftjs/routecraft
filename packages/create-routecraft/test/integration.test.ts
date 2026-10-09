@@ -1,8 +1,8 @@
-import { describe, test, expect } from "vitest";
+import { afterAll, describe, test, expect } from "vitest";
 import { mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import {
   exec,
   execSync,
@@ -117,6 +117,32 @@ async function runInstall(projectDir: string): Promise<void> {
       `Install failed once, retrying: ${(firstError as Error).message.split("\n")[0]}`,
     );
     await run(pm.install, { cwd: projectDir });
+  }
+  await keepOneCore(projectDir);
+}
+
+/**
+ * Leave the scaffold with one core, as a published install has.
+ *
+ * The siblings' peer range names the version the next release publishes
+ * (`.standards/ci-cd.md` section 5), which the workspace core does not carry
+ * until the release bumps it, so the package manager nests a second core
+ * under each sibling. Two cores are two sets of port tokens, which the
+ * kernel refuses with RC1103. A published install hoists one core, and that
+ * is what this smoke stands for.
+ */
+async function keepOneCore(projectDir: string): Promise<void> {
+  const scope = join(projectDir, "node_modules", "@routecraft");
+  if (!existsSync(scope)) return;
+  for (const sibling of await readdir(scope)) {
+    if (sibling === "routecraft") continue;
+    await rm(
+      join(scope, sibling, "node_modules", "@routecraft", "routecraft"),
+      {
+        recursive: true,
+        force: true,
+      },
+    );
   }
 }
 
@@ -375,15 +401,57 @@ if (packagesBuilt) {
   });
 }
 
+const LOCAL_PACKAGES = [
+  "routecraft",
+  "cli",
+  "ai",
+  "testing",
+  "eslint-plugin-routecraft",
+] as const;
+
 /**
- * Patch the scaffolded package.json to use local file: references
+ * Pack the packages a scaffold installs, once per run, as `name -> tarball`.
+ *
+ * A `file:` reference to a package DIRECTORY resolves into the monorepo at
+ * run time, where the root tsconfig maps `@routecraft/*` to `src/`, so a
+ * sibling such as `@routecraft/testing` loads core's source while the
+ * project's own files load `dist/`: two copies of core, which the kernel
+ * refuses with RC1103. A tarball is what a published install unpacks, and it
+ * holds `dist` alone.
+ */
+function packLocalPackages(): {
+  directory: string;
+  tarballs: Record<string, string>;
+} {
+  const directory = mkdtempSync(join(tmpdir(), "rc-integ-packs-"));
+  const tarballs: Record<string, string> = {};
+  for (const pkg of LOCAL_PACKAGES) {
+    const tarball = join(directory, `${pkg}.tgz`);
+    execSync(`bun pm pack --quiet --filename ${tarball}`, {
+      cwd: join(MONOREPO_ROOT, "packages", pkg),
+      stdio: "pipe",
+    });
+    tarballs[`@routecraft/${pkg}`] = tarball;
+  }
+  return { directory, tarballs };
+}
+
+const packed = packagesBuilt ? packLocalPackages() : undefined;
+const localTarballs = packed?.tarballs ?? {};
+
+afterAll(async () => {
+  if (packed) await rm(packed.directory, { recursive: true, force: true });
+});
+
+/**
+ * Patch the scaffolded package.json to install the packed local packages,
  * so integration tests don't depend on published npm versions.
  */
 async function patchDepsToLocal(projectDir: string): Promise<void> {
   const pkgPath = join(projectDir, "package.json");
   const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
 
-  const local = (pkg: string) => `file:${join(MONOREPO_ROOT, "packages", pkg)}`;
+  const local = (pkg: string) => `file:${localTarballs[`@routecraft/${pkg}`]}`;
   const localPackages: Record<string, string> = {
     "@routecraft/routecraft": local("routecraft"),
     "@routecraft/cli": local("cli"),

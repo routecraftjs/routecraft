@@ -284,11 +284,9 @@ craft()
 
 #### Route Registry
 
-Each direct route registers in `ADAPTER_DIRECT_REGISTRY` so in-process agents can discover and document the routes available in the current context:
+Each direct route registers its capability in the application's direct registry, the `DIRECT` port the default `routecraft.direct` plugin provides, so in-process agents can discover and document the routes available in the current context:
 
 ```ts skip="fragment: not a complete statement on its own"
-import { ADAPTER_DIRECT_REGISTRY } from '@routecraft/routecraft'
-
 craft()
   .id('fetch-content')
   .title('Fetch content')
@@ -302,9 +300,10 @@ craft()
 const ctx = await new ContextBuilder().routes(...).build()
 await ctx.start()
 
-const registry = ctx.getStore(ADAPTER_DIRECT_REGISTRY)
-const routes = registry ? Array.from(registry.values()) : []
-// [{ endpoint, title?, description?, input?, output? }]
+const routes = ctx.capabilities()
+// [{ endpoint, title?, description?, input?, output?, tags? }]
 ```
 
-The direct registry stores only the direct adapter's own metadata. Other adapters that expose routes externally (such as [`mcp()`](/docs/reference/adapters/mcp) or a future inbound `http()`) maintain their own parallel registries; they are never written to or read from the direct registry.
+A plugin reads the same list with `c.execution.capabilities()`; an adapter that needs the registry itself reads `context.require(DIRECT)`.
+
+The direct registry holds what is reachable in process: the direct adapter's own metadata, and the capabilities the [remotes plugin](/docs/reference/plugins/remotesplugin) imports from other instances, which it registers here so they are called and discovered like local routes. Adapters that expose routes externally (such as [`mcp()`](/docs/reference/adapters/mcp) or a future inbound `http()`) maintain their own parallel registries; they are never written to or read from the direct registry.

@@ -1,4 +1,4 @@
-import type { Route } from "../route.ts";
+import type { RouteKey } from "../kernel/positions.ts";
 
 /**
  * Base for a stateful operation that holds one piece of state PER ROUTE.
@@ -17,7 +17,7 @@ import type { Route } from "../route.ts";
  * @internal
  */
 export abstract class RouteScopedController<S> {
-  readonly #byRoute = new WeakMap<Route, S>();
+  readonly #byRoute = new WeakMap<RouteKey, S>();
   #routeless?: S;
 
   /**
@@ -30,7 +30,7 @@ export abstract class RouteScopedController<S> {
    * Resolve the state for `route`, creating it on first use; or the shared
    * route-less instance when no Route is attached.
    */
-  stateFor(route: Route | undefined): S {
+  stateFor(route: RouteKey | undefined): S {
     if (!route) return (this.#routeless ??= this.createState());
     let state = this.#byRoute.get(route);
     if (state === undefined) {

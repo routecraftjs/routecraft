@@ -1,3 +1,4 @@
+import { port } from "../../kernel/port.ts";
 import type { OpsRouteDetail } from "../ops/types";
 
 /**
@@ -20,22 +21,15 @@ export interface RemoteRoute {
   detail: OpsRouteDetail;
 }
 
-/**
- * Symbol key the remotes plugin publishes imported routes under, keyed by
- * local endpoint. Read by the ops management API so an imported route is
- * listed, described and dispatched through the local door like any other.
- *
- * `Symbol.for` so the key is shared across duplicate package copies in a
- * workspace, matching every other plugin's convention.
- *
- * @internal
- */
-export const REMOTE_ROUTES: unique symbol = Symbol.for(
-  "routecraft.plugin.remotes.routes",
-);
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [REMOTE_ROUTES]: Map<string, RemoteRoute>;
-  }
+/** What the remotes plugin offers: the routes it imported. */
+export interface Remotes {
+  /** Every imported route that currently holds its endpoint, by local endpoint. */
+  routes(): ReadonlyMap<string, RemoteRoute>;
 }
+
+/**
+ * The routes imported from other instances. The remotes plugin also hands
+ * the same view to the ops plugin through `OPS`, so the local listing
+ * describes and dispatches an imported route like any other.
+ */
+export const REMOTES = port<Remotes>("routecraft.remotes@1");

@@ -2,8 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
+  callerRefusalOf,
   MemoryDeferralStore,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   authorize,
   craft,
   direct,
@@ -16,6 +17,7 @@ import {
   type CraftConfig,
   type EventName,
   type Exchange,
+  deferralOf,
 } from "../src/index.ts";
 import { asDeferred, storeWith, deferring } from "./helpers/deferral.ts";
 
@@ -247,7 +249,7 @@ describe("defer and resume", () => {
   /**
    * @case An answer that does not satisfy the deferring step's expect schema
    * @preconditions A deferred payout; the resume presents { approved: "yes" }
-   * @expectedResult RC5049 in the ingress route ONLY (the deferred route's own .error() never sees it), nothing after the defer runs, and the deferral stays resumable so a corrected answer completes normally
+   * @expectedResult RC5049 in the ingress route ONLY (the deferred route's own .error() never sees it), classified as the submitter's input error for the ingress route and nobody else's, nothing after the defer runs, and the deferral stays resumable so a corrected answer completes normally
    */
   test("an answer that fails expect is refused with RC5049 and leaves the deferral resumable", async () => {
     const ran: unknown[] = [];
@@ -283,12 +285,22 @@ describe("defer and resume", () => {
       }),
     );
 
-    await expect(
-      t.client.sendDirect("answers", {
+    const rejected: unknown = await t.client
+      .sendDirect("answers", {
         token: deferred.token,
         result: { approved: "yes" },
-      }),
-    ).rejects.toMatchObject({ rc: "RC5049" });
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(rejected).toMatchObject({ rc: "RC5049" });
+    expect(
+      callerRefusalOf(rejected, { routeId: "answers", principal: undefined }),
+    ).toMatchObject({ kind: "input", in: "body" });
+    expect(
+      callerRefusalOf(rejected, { routeId: "payout", principal: undefined }),
+    ).toBeUndefined();
     expect(ran).toHaveLength(0);
     expect(caught).toHaveLength(0);
 
@@ -379,7 +391,7 @@ describe("defer and resume", () => {
       }),
     ).rejects.toMatchObject({ rc: "RC5041" });
 
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME);
+    const runtime = t.ctx.require(CONTINUATIONS);
     const orphan = runtime!.signer.mint("no-such-deferral~0");
     await expect(
       t.client.sendDirect("answers", {
@@ -1166,7 +1178,7 @@ describe("defer and resume", () => {
           .id("typed")
           .from(direct())
           .tap((ex: Exchange<unknown>) => {
-            const before: unknown = ex.deferral.result;
+            const before: unknown = deferralOf(ex).result;
             seen.push(typeof before);
           })
           .defer({ schema: Approval })
@@ -1250,7 +1262,7 @@ describe("defer and resume", () => {
 
     expect(continued).toHaveLength(0);
     expect(caught).toHaveLength(1);
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME);
+    const runtime = t.ctx.require(CONTINUATIONS);
     const record = await runtime?.store.get(deferred.deferralId);
     expect(record?.outcome?.kind).toBe("resumed");
     expect(record?.continuation?.status).toBe("failed");
@@ -1307,6 +1319,71 @@ describe("defer and resume", () => {
   });
 });
 
+describe("a claimed continuation at a step-scope bulkhead", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case Two claimed continuations contend for a rejecting step bulkhead
+   * @preconditions A route parking at .defer() ahead of .concurrency({ max: 1, mode: "reject" }) around its work; two exchanges parked; the first resumed and held inside the work while the second is resumed
+   * @expectedResult Both continuations complete and the work ran twice: the second queued for the slot instead of being refused, since a refusal below the claim would spend an approval, as the route-scope bulkhead already does
+   */
+  test("queues the second continuation instead of refusing it", async () => {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const queued = Promise.withResolvers<void>();
+    let calls = 0;
+    t = await testContext()
+      .on("route:concurrency:queued", () => queued.resolve())
+      .with(deferring())
+      .routes([
+        craft()
+          .id("limited")
+          .from(direct())
+          .defer()
+          .concurrency({ max: 1, mode: "reject" })
+          .transform(async (body) => {
+            if (++calls === 1) {
+              entered.resolve();
+              await release.promise;
+            }
+            return body;
+          }),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+    const first = asDeferred(await t.client.sendDirect("limited", { n: 1 }));
+    const second = asDeferred(await t.client.sendDirect("limited", { n: 2 }));
+    const resumeFirst = t.client.sendDirect("answers", {
+      token: first.token,
+      result: null,
+    });
+    await entered.promise;
+    const resumeSecond = t.client.sendDirect("answers", {
+      token: second.token,
+      result: null,
+    });
+    // The second continuation is at the bulkhead, waiting, before the first
+    // is released: what the test is about.
+    await queued.promise;
+    release.resolve();
+    const answers = (await Promise.all([resumeFirst, resumeSecond])) as Array<{
+      status: string;
+      continuation: { status: string };
+    }>;
+    expect(answers.map((a) => a.continuation.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    expect(calls).toBe(2);
+  });
+});
+
 describe("the deferral sequence guard", () => {
   let t: TestContext | undefined;
 
@@ -1324,7 +1401,7 @@ describe("the deferral sequence guard", () => {
    */
   test("a missing header reads as zero", async () => {
     const { readSequence, deferralIdOf } =
-      await import("../src/deferral/exchange-state.ts");
+      await import("../src/kernel/continuation/exchange-state.ts");
     expect(readSequence({})).toBe(0);
     expect(deferralIdOf({}, "ex-1")).toBe("ex-1~0");
   });
@@ -1338,7 +1415,8 @@ describe("the deferral sequence guard", () => {
    *   used, and resume tokens sign the id
    */
   test("a malformed header refuses with RC5057", async () => {
-    const { readSequence } = await import("../src/deferral/exchange-state.ts");
+    const { readSequence } =
+      await import("../src/kernel/continuation/exchange-state.ts");
     const key = "routecraft.deferral.sequence";
     for (const bad of ["3", -1, 1.5, Number.MAX_SAFE_INTEGER + 2]) {
       try {
@@ -1360,7 +1438,8 @@ describe("the deferral sequence guard", () => {
    *   the next read instead of resetting
    */
   test("the exhaustion bound refuses distinguishably from tampering", async () => {
-    const { readSequence } = await import("../src/deferral/exchange-state.ts");
+    const { readSequence } =
+      await import("../src/kernel/continuation/exchange-state.ts");
     const key = "routecraft.deferral.sequence";
     const bound = Number.MAX_SAFE_INTEGER - 1;
     try {
@@ -1399,7 +1478,7 @@ describe("the deferral sequence guard", () => {
       t.client.sendDirect("payout", { amountCents: 1_000, payee: "acme" }),
     ).rejects.toMatchObject({ rc: "RC5057" });
 
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS)!;
     expect((await runtime.store.pending()).count).toBe(0);
   });
 });

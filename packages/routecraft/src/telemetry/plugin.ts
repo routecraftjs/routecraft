@@ -5,7 +5,7 @@ import {
   type Span,
   SpanStatusCode,
 } from "@opentelemetry/api";
-import type { CraftContext, CraftPlugin } from "../context.ts";
+import type { Plugin, PluginContext } from "../kernel/plugin.ts";
 import { safeStringify } from "../shared/safe-json.ts";
 import type { EventName, EventHandler } from "../types.ts";
 import type { TelemetryOptions, TelemetryEvent } from "./types.ts";
@@ -60,7 +60,8 @@ const DEFAULT_MAX_EVENTS = 100_000;
  */
 const DEFAULT_MAX_SNAPSHOT_BYTES = 65_536;
 
-class TelemetryPlugin implements CraftPlugin {
+class TelemetryPlugin implements Plugin {
+  readonly id = "routecraft.telemetry";
   private readonly options: TelemetryOptions;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
@@ -99,7 +100,7 @@ class TelemetryPlugin implements CraftPlugin {
     );
   }
 
-  async apply(ctx: CraftContext): Promise<void> {
+  async bind(ctx: PluginContext): Promise<void> {
     // -- SQLite path --
     if (!this.options.disableSqlite) {
       const sqlite = this.options.sqlite ?? {};
@@ -147,7 +148,7 @@ class TelemetryPlugin implements CraftPlugin {
     this.subscribeExchangeLifecycle(ctx);
   }
 
-  async teardown(): Promise<void> {
+  async stop(): Promise<void> {
     for (const unsub of this.unsubscribers) {
       unsub();
     }
@@ -178,9 +179,9 @@ class TelemetryPlugin implements CraftPlugin {
 
   // -- Raw event log (events table) --
 
-  private subscribeAll(ctx: CraftContext): void {
+  private subscribeAll(ctx: PluginContext): void {
     this.unsubscribers.push(
-      ctx.on("*", ((payload: {
+      ctx.observe("*", ((payload: {
         ts: string;
         contextId: string;
         details: unknown;
@@ -219,10 +220,10 @@ class TelemetryPlugin implements CraftPlugin {
 
   // -- Route lifecycle (spans) --
 
-  private subscribeRouteLifecycle(ctx: CraftContext): void {
+  private subscribeRouteLifecycle(ctx: PluginContext): void {
     // Route registered
     this.unsubscribers.push(
-      ctx.on("route:registered", ((payload: {
+      ctx.observe("route:registered", ((payload: {
         ts: string;
         contextId: string;
         details: { route: { definition: { id: string } } };
@@ -249,7 +250,7 @@ class TelemetryPlugin implements CraftPlugin {
 
     // Route started
     this.unsubscribers.push(
-      ctx.on("route:started", ((payload: {
+      ctx.observe("route:started", ((payload: {
         ts: string;
         contextId: string;
         details: { route: { definition: { id: string } } };
@@ -272,7 +273,7 @@ class TelemetryPlugin implements CraftPlugin {
 
     // Route stopped
     this.unsubscribers.push(
-      ctx.on("route:stopped", ((payload: {
+      ctx.observe("route:stopped", ((payload: {
         ts: string;
         contextId: string;
         details: { route: { definition: { id: string } } };
@@ -327,10 +328,10 @@ class TelemetryPlugin implements CraftPlugin {
 
   // -- Exchange lifecycle (spans) --
 
-  private subscribeExchangeLifecycle(ctx: CraftContext): void {
+  private subscribeExchangeLifecycle(ctx: PluginContext): void {
     // Exchange started
     this.unsubscribers.push(
-      ctx.on("route:exchange:started", ((payload: {
+      ctx.observe("route:exchange:started", ((payload: {
         ts: string;
         contextId: string;
         details: {
@@ -369,7 +370,7 @@ class TelemetryPlugin implements CraftPlugin {
 
     // Exchange completed
     this.unsubscribers.push(
-      ctx.on("route:exchange:completed", ((payload: {
+      ctx.observe("route:exchange:completed", ((payload: {
         ts: string;
         contextId: string;
         details: {
@@ -410,7 +411,7 @@ class TelemetryPlugin implements CraftPlugin {
 
     // Exchange failed
     this.unsubscribers.push(
-      ctx.on("route:exchange:failed", ((payload: {
+      ctx.observe("route:exchange:failed", ((payload: {
         ts: string;
         contextId: string;
         details: {
@@ -459,7 +460,7 @@ class TelemetryPlugin implements CraftPlugin {
 
     // Exchange dropped
     this.unsubscribers.push(
-      ctx.on("route:exchange:dropped", ((payload: {
+      ctx.observe("route:exchange:dropped", ((payload: {
         ts: string;
         contextId: string;
         details: {
@@ -510,7 +511,7 @@ class TelemetryPlugin implements CraftPlugin {
  * events are persisted to a local SQLite database for the TUI to read.
  *
  * @param options - TracerProvider, SQLite path, and buffer configuration
- * @returns A CraftPlugin instance
+ * @returns The telemetry plugin
  *
  * @example
  * ```typescript
@@ -526,7 +527,7 @@ class TelemetryPlugin implements CraftPlugin {
  * telemetry({ tracerProvider, disableSqlite: true })
  * ```
  */
-export function telemetry(options?: TelemetryOptions): CraftPlugin {
+export function telemetry(options?: TelemetryOptions): Plugin {
   return new TelemetryPlugin(options);
 }
 

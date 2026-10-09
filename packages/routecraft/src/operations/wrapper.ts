@@ -8,13 +8,14 @@ import {
   OperationType,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import type { AnyPort } from "../kernel/port.ts";
 import { NESTED_STEPS, DEFER_HOST } from "../dsl-symbol.ts";
 import {
   type NestedSteps,
   type DeferCapableStep,
   nestedStepsOf,
   deferHostOf,
-} from "../deferral/sites.ts";
+} from "../kernel/continuation/sites.ts";
 
 /**
  * Operation kinds that resilience wrappers cannot safely wrap. Validated
@@ -54,6 +55,18 @@ const NON_WRAPPABLE_OPERATIONS: ReadonlySet<OperationType> = new Set([
   OperationType.DEBOUNCE,
   OperationType.DEFER,
 ]);
+
+/**
+ * The position a step-scope wrapper fills at run time: the port it resolves
+ * the provider from, and the builder method that placed it, for the
+ * diagnostic when nobody provides the port.
+ */
+export interface RequiredPosition {
+  readonly port: AnyPort;
+  readonly method: string;
+  /** The provider member the position is built from, when not `method`. */
+  readonly member?: string;
+}
 
 /**
  * Abstract base for "dual-mode wrapper" operations: a single concept
@@ -167,6 +180,24 @@ export abstract class WrapperStep<
   }
 
   /**
+   * The port this wrapper resolves a provider from when an exchange reaches
+   * it, or `undefined` for a wrapper that runs on its own (`.error()`,
+   * `.delay()`).
+   *
+   * The route checks it at start, so an application whose plugins provide
+   * no `RESILIENCE` or `CACHE` refuses to start with a step-scope `.retry()`
+   * or `.cache()` the way it already does with the route-scope twin,
+   * instead of reporting ready and failing the first exchange. The position
+   * itself is still built on first use: its state is per application, and a
+   * definition shared across applications keeps one per application.
+   *
+   * @internal
+   */
+  get requiredPosition(): RequiredPosition | undefined {
+    return undefined;
+  }
+
+  /**
    * Report the options that define this wrapper, so a `.cache()` whose
    * cached computation includes it (a step-scope cache stacked above it,
    * or a route-scope cache over the pipeline) can fold them into its
@@ -181,7 +212,7 @@ export abstract class WrapperStep<
    * controller, bucket or other live object (those hash as `[opaque]` and
    * add nothing). Return `null` when the wrapper takes no options. The
    * value goes through the same projection as an adapter's options in
-   * `deferral/hash.ts`, so the same carriers and depth bound apply.
+   * `kernel/continuation/hash.ts`, so the same carriers and depth bound apply.
    *
    * Abstract so a new wrapper cannot silently opt out of the cache key.
    */

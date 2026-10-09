@@ -49,7 +49,7 @@ describe("MCP on an opted-out mount over a secured server", () => {
           .description("Capture the principal, if any")
           .from(mcp())
           .tap((ex) => {
-            captured = ex.principal;
+            captured = ex.auth.principal;
           })
           .to(noop()),
       ])

@@ -21,8 +21,14 @@ import {
   invokeSendOverride,
 } from "../testing-hooks.ts";
 import { DEFER_HOST } from "../dsl-symbol.ts";
-import type { DeferCapableStep, DeferSite } from "../deferral/sites.ts";
-import { convertDeferSignal, isDeferSignal } from "../deferral/signal.ts";
+import type {
+  DeferCapableStep,
+  DeferSite,
+} from "../kernel/continuation/sites.ts";
+import {
+  convertDeferSignal,
+  isDeferSignal,
+} from "../kernel/continuation/signal.ts";
 
 /**
  * Function form of an enricher: receives the exchange and produces a value

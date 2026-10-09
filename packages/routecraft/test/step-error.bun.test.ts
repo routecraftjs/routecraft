@@ -335,6 +335,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),
       captureDownstream: () => async () => ({ failed: false, dropped: false }),
+      invoke: async (_point, exchange) => exchange,
     };
 
     // Build N synthetic exchanges, identifiable by body.
@@ -741,5 +742,76 @@ describe(".error() step scope: dual-mode wrapper", () => {
 
     expect(sink.received).toHaveLength(0);
     expect(t.errors.some((e) => e.rc === "RC5032")).toBe(true);
+  });
+});
+
+describe("an outcome the engine cannot schedule", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case A raw step returns an outcome kind this engine does not know
+   * @preconditions A step whose execute resolves { kind: "future-outcome" } (a plugin built against a later release, or a misspelling), followed by a tap
+   * @expectedResult The dispatch fails with RC5032 naming the step and the kind; the tap never runs
+   */
+  test("fails the exchange with RC5032 rather than skipping the tail", async () => {
+    let tail = 0;
+    const foreign: Step<Adapter> = {
+      operation: "process" as Step<Adapter>["operation"],
+      label: "foreign",
+      adapter: { adapterId: "test.foreign" },
+      async execute(exchange) {
+        return { kind: "future-outcome", exchange } as unknown as StepOutcome;
+      },
+    };
+    const definitions = craft()
+      .id("foreign")
+      .from(direct())
+      .transform((b) => b)
+      .tap(() => {
+        tail++;
+      })
+      .build();
+    definitions[0]!.steps[0] = foreign;
+    t = await testContext().routes(definitions).build();
+    await t.startAndWaitReady();
+    const error = await t.client.sendDirect("foreign", { input: true }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).toMatchObject({ rc: "RC5032" });
+    expect((error as Error).message).toContain('"foreign"');
+    expect((error as Error).message).toContain('"future-outcome"');
+    expect(tail).toBe(0);
+  });
+
+  /**
+   * @case A raw step resolves nothing at all
+   * @preconditions A step whose execute resolves undefined
+   * @expectedResult RC5032, not a TypeError from reading the kind of nothing
+   */
+  test("treats a missing outcome as unsupported", async () => {
+    const silent: Step<Adapter> = {
+      operation: "process" as Step<Adapter>["operation"],
+      label: "silent",
+      adapter: { adapterId: "test.silent" },
+      async execute() {
+        return undefined as unknown as StepOutcome;
+      },
+    };
+    const definitions = craft().id("silent").from(direct()).build();
+    definitions[0]!.steps.push(silent);
+    t = await testContext().routes(definitions).build();
+    await t.startAndWaitReady();
+    const error = await t.client.sendDirect("silent", {}).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).toMatchObject({ rc: "RC5032" });
+    expect((error as Error).message).toContain('"undefined"');
   });
 });

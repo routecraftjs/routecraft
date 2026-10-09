@@ -1,30 +1,6 @@
-import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
-import type { AgentToolPolicy } from "./tools/policy.ts";
+import type { AgentDefaultOptions } from "./types.ts";
 import type { AgentSessionRuntime } from "./session/runtime.ts";
-import type { ResolvedSessionStore } from "./session/config.ts";
-
-/**
- * Store key for the registry of agents installed by `agentPlugin`. Resolved
- * at destination dispatch time when an agent is referenced by name via
- * `agent("name")`.
- * @internal
- */
-export const ADAPTER_AGENT_REGISTRY = Symbol.for(
-  "routecraft.adapter.agent.registry",
-);
-
-/**
- * Store key for the context-level agent defaults installed via
- * `agentPlugin({ defaultOptions: {...} })`. Agents that omit a field
- * inherit it from here at dispatch time.
- *
- * Mirrors the `llmPlugin({ defaultOptions })` pattern so the same merge
- * model carries across.
- * @internal
- */
-export const ADAPTER_AGENT_DEFAULT_OPTIONS = Symbol.for(
-  "routecraft.adapter.agent.default-options",
-);
+import type { ResolvedSessionStore } from "./session/port.ts";
 
 /**
  * Every single-valued key of {@link AgentDefaultOptions}, exhaustive by
@@ -34,9 +10,10 @@ export const ADAPTER_AGENT_DEFAULT_OPTIONS = Symbol.for(
  * being taken whole.
  *
  * Both places that fold defaults into an agent walk this list: the merge
- * across two `agentPlugin` installs, and the merge of the stored defaults into
- * an agent's own options at dispatch. Enumerating the keys by hand in either
- * is how a default that installs correctly never reaches the model call.
+ * across two `agentPlugin` installs, and the merge of the registered defaults
+ * into an agent's own options at dispatch. Enumerating the keys by hand in
+ * either is how a default that installs correctly never reaches the model
+ * call.
  *
  * @internal
  */
@@ -58,24 +35,11 @@ export const AGENT_DEFAULT_OPTION_KEYS = Object.keys({
 >) as Array<Exclude<keyof AgentDefaultOptions, "blocks">>;
 
 /**
- * Store key for the tool policies installed via
- * `agentPlugin({ toolPolicy })`.
+ * Store key for the session runtime of an application with no agent
+ * runtime installed, created on the first inline `agent({ session })`
+ * dispatch. With the agent runtime installed its registry holds the
+ * runtime instead. Written and read only by the session runtime.
  *
- * An array rather than a single value, because multiple `agentPlugin`
- * installs compose with AND: each contributes a policy and a tool must
- * satisfy all of them. Kept out of `ADAPTER_AGENT_DEFAULT_OPTIONS` on
- * purpose, since defaults are per-agent overridable and a policy must
- * not be.
- * @internal
- */
-export const ADAPTER_AGENT_TOOL_POLICIES = Symbol.for(
-  "routecraft.adapter.agent.tool-policies",
-);
-
-/**
- * Store key for the per-context session runtime, created on the first
- * dispatch that carries `session` and shared by every agent after that so
- * the one-turn-at-a-time bound holds across routes.
  * @internal
  */
 export const ADAPTER_AGENT_SESSIONS = Symbol.for(
@@ -83,18 +47,8 @@ export const ADAPTER_AGENT_SESSIONS = Symbol.for(
 );
 
 /**
- * Set once the boot drive of leftover sessions has begun on a context, so
- * a second `agentPlugin()` install does not drive them twice.
- *
- * @internal
- */
-export const ADAPTER_AGENT_SESSIONS_BOOT = Symbol.for(
-  "routecraft.adapter.agent.sessions.boot",
-);
-
-/**
- * Store key for the session store a context resolved: from its `sessions`
- * block, or the default the first `agentPlugin()` opened.
+ * Store key for the session store resolved on first use when no sessions
+ * plugin provides one. Written and read only by the session store module.
  *
  * @internal
  */
@@ -105,10 +59,6 @@ export const ADAPTER_AGENT_SESSION_STORE = Symbol.for(
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [ADAPTER_AGENT_SESSIONS]: AgentSessionRuntime;
-    [ADAPTER_AGENT_SESSIONS_BOOT]: boolean;
     [ADAPTER_AGENT_SESSION_STORE]: ResolvedSessionStore;
-    [ADAPTER_AGENT_REGISTRY]: Map<string, AgentRegisteredOptions>;
-    [ADAPTER_AGENT_DEFAULT_OPTIONS]: AgentDefaultOptions;
-    [ADAPTER_AGENT_TOOL_POLICIES]: AgentToolPolicy[];
   }
 }

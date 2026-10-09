@@ -25,7 +25,7 @@ Each arrival is held (not passed downstream) and resets a `wait` quiet timer; a 
 ## Options
 
 - **`wait`** (required) -- the quiet window. An exchange is released only after `wait` elapses with no newer arrival in its group.
-- **`key`** -- a selector that debounces independently per group, e.g. one window per file path: `key: (ex) => ex.body.filePath`. When omitted, the whole route shares a single window, across every caller: on a route several callers reach, one caller's exchange can supersede another's, so key by the caller (`key: (ex) => ex.principal?.subject ?? 'anonymous'`) when each must keep its own trailing exchange.
+- **`key`** -- a selector that debounces independently per group, e.g. one window per file path: `key: (ex) => ex.body.filePath`. When omitted, the whole route shares a single window, across every caller: on a route several callers reach, one caller's exchange can supersede another's, so key by the caller when each must keep its own trailing exchange. A subject is only unique within its issuer, so key on both (`key: (ex) => { const p = principalOf(ex); return p ? p.issuer + '/' + p.subject : 'anonymous' }`), and on a route that admits delegation add the actor's issuer and subject as well, or every delegate acting for one subject shares that subject's window.
 - **`maxWait`** -- an upper bound on how long an exchange may be held, measured from the START of its burst and never reset. It guarantees eventual release under continuous activity (otherwise a steady stream of arrivals could reset `wait` forever and starve the trailing edge). Must be `>= wait`.
 
 ```ts skip="fragment: not a complete statement on its own"

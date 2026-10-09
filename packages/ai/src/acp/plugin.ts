@@ -12,12 +12,15 @@ import {
   craft,
   direct,
   rcError,
-  type CraftContext,
-  type CraftPlugin,
+  WEB_INGRESS,
+  type Plugin,
+  type PluginContext,
   type RouteDefinition,
 } from "@routecraft/routecraft";
 import { agent } from "../agent/agent.ts";
-import { ADAPTER_AGENT_REGISTRY } from "../agent/store.ts";
+import { agentRuntimePlugin } from "../agent/plugin.ts";
+import { AGENTS } from "../agent/port.ts";
+import { SURFACES, surfacesPlugin } from "../surface/index.ts";
 import "../errors.ts";
 import { AcpRuntime, ACP_ROUTE_PREFIX, promptBodyOf } from "./runtime.ts";
 import { AcpServer, normalizeAcpPath } from "./server.ts";
@@ -45,7 +48,7 @@ import type { AcpPluginOptions } from "./types.ts";
  * security here, hands are, and each one authorizes the caller on every
  * call under the principal of the person who typed the prompt.
  */
-export function acpPlugin(options: AcpPluginOptions = {}): CraftPlugin {
+export function acpPlugin(options: AcpPluginOptions = {}): Plugin {
   // Validated at construction, so a bad path fails where it was written
   // rather than at the first request.
   if (options.path !== undefined) normalizeAcpPath(options.path);
@@ -53,32 +56,48 @@ export function acpPlugin(options: AcpPluginOptions = {}): CraftPlugin {
     throw new TypeError("acpPlugin: server name must not be empty");
   }
 
-  let runtime: AcpRuntime | undefined;
-  let server: AcpServer | undefined;
+  // Keyed by the plugin context: one descriptor can serve two applications
+  // in one process (a config reused across tests).
+  const mounts = new WeakMap<
+    PluginContext,
+    { runtime: AcpRuntime; server?: AcpServer }
+  >();
 
   return {
-    async apply(context: CraftContext) {
-      const agents = context.getStore(ADAPTER_AGENT_REGISTRY);
-      if (agents === undefined || agents.size === 0) {
+    id: "routecraft.ai.acp",
+    requires: [AGENTS, SURFACES],
+    // Brings the agent runtime so an application with no agents gets the
+    // refusal below, which names the fix, rather than a bare missing port.
+    installs: [surfacesPlugin(), agentRuntimePlugin()],
+    optional: [WEB_INGRESS],
+    async bind(c: PluginContext) {
+      const registry = c.require(AGENTS);
+      const agents = registry.agents;
+      if (agents.size === 0) {
         throw rcError("RC5003", undefined, {
           message:
-            "ACP serves the agents this context has registered, and none were registered when it applied. " +
-            "Write the agents under `agent:` (or let `craft start` discover them), or list acpPlugin() after the agentPlugin() that registers them in `plugins`.",
+            "ACP serves the agents this context registers, and it registers none. " +
+            "Write the agents under `agent:`, list an agentPlugin() in `plugins`, or let `craft start` discover them.",
         });
       }
-      runtime = new AcpRuntime(context, options);
+      const runtime = new AcpRuntime(c, registry, c.require(SURFACES), options);
+      const mount: { runtime: AcpRuntime; server?: AcpServer } = { runtime };
+      mounts.set(c, mount);
       runtime.subscribe();
-      context.registerRoutes(...turnRoutes(runtime, [...agents.keys()]));
-      server = new AcpServer(context, runtime, options);
+      c.routes.register(...turnRoutes(runtime, [...agents.keys()]));
+      const server = new AcpServer(c, runtime, options);
+      mount.server = server;
       await server.prepare();
-      context.logger.info(
+      c.logger.info(
         { path: options.path ?? "/acp", agents: agents.size },
         "ACP mount registered",
       );
     },
-    async teardown() {
-      runtime?.unsubscribe();
-      await server?.stop();
+    async stop(c: PluginContext) {
+      const mount = mounts.get(c);
+      mounts.delete(c);
+      mount?.runtime.unsubscribe();
+      await mount?.server?.stop();
     },
   };
 }

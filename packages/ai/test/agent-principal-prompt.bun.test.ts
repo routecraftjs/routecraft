@@ -1,23 +1,42 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { z } from "zod";
 import {
+  AUTHORITY,
   craft,
+  defaultAuthority,
+  definePlugin,
   HeadersKeys,
   simple,
+  type Authority,
   type Principal,
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
-import { agent, llmPlugin } from "../src/index.ts";
+import {
+  agent,
+  agentPlugin,
+  llmPlugin,
+  tools,
+  type FnHandlerContext,
+} from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 // Capture the system prompt the LLM provider received so each test can
-// assert how the `## Caller` section is (or is not) appended.
+// assert how the `## Caller` section is (or is not) appended, and the tool
+// map so a test can run a tool under the handler context the dispatch built.
 let capturedSystem: string | undefined;
+let capturedTools: Record<string, unknown> | undefined;
 
 mock.module("../src/llm/providers/index.ts", () => ({
-  callLlm: mock(async (params: { system: string }): Promise<LlmResult> => {
-    capturedSystem = params.system;
-    return { text: "ok", finishReason: "stop", stepsCount: 1 };
-  }),
+  callLlm: mock(
+    async (params: {
+      system: string;
+      tools?: Record<string, unknown>;
+    }): Promise<LlmResult> => {
+      capturedSystem = params.system;
+      capturedTools = params.tools;
+      return { text: "ok", finishReason: "stop", stepsCount: 1 };
+    },
+  ),
   streamLlm: mock(async (): Promise<LlmResult> => {
     throw new Error("unused in this test");
   }),
@@ -424,5 +443,74 @@ describe("agent principal: ## Caller injection at dispatch", () => {
     // `undefined` after the reset above, and TS does not track the mocked
     // provider's assignment inside the awaited route run.
     expect<string | undefined>(capturedSystem).toBe("You are an analyst.");
+  });
+
+  /**
+   * @case The dispatch reads the caller through the application's authority, not the principal header
+   * @preconditions A plugin replaces AUTHORITY with one whose read() resolves the caller from a custom header; the exchange carries that header and no principal header; the agent opts into principal: true and holds a tool that reports ctx.principal
+   * @expectedResult The ## Caller section names the subject the replacement resolved, and the tool's handler context carries the same principal
+   */
+  test("a replacement authority's read decides the caller for the prompt and the tools", async () => {
+    const ranAs: Array<string | null> = [];
+    const byHeader: Authority = {
+      ...defaultAuthority,
+      read(exchange) {
+        const subject = exchange.headers["x-test-subject"];
+        return typeof subject === "string"
+          ? defaultAuthority.mint({ scheme: "test", subject })
+          : undefined;
+      },
+    };
+    const replacement = definePlugin({
+      id: "test.authority",
+      provides: [AUTHORITY],
+      replaces: [AUTHORITY],
+      bind(c) {
+        c.provide(AUTHORITY, byHeader);
+      },
+    });
+    t = await testContext()
+      .with({
+        plugins: [
+          replacement,
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+          agentPlugin({
+            functions: {
+              whoami: {
+                description: "Who is calling",
+                input: z.object({}),
+                handler: (_input: unknown, ctx: FnHandlerContext) => {
+                  ranAs.push(ctx.principal?.subject ?? null);
+                  return Promise.resolve("ok");
+                },
+              },
+            },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("authority-caller")
+          .from(simple("hi"))
+          .header("x-test-subject", () => "ada")
+          .to(
+            agent({
+              system: "You are an analyst.",
+              model: "anthropic:claude-opus-4-7",
+              principal: true,
+              tools: tools(["whoami"]),
+            }),
+          )
+          .to(spy()),
+      )
+      .build();
+    await t.test();
+
+    expect(capturedSystem).toContain("- Subject: ada");
+    const whoami = capturedTools?.["whoami"] as {
+      execute: (input: unknown) => Promise<unknown>;
+    };
+    await whoami.execute({});
+    expect(ranAs).toEqual(["ada"]);
   });
 });

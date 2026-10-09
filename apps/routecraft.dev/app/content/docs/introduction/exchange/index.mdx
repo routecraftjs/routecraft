@@ -76,7 +76,7 @@ Routecraft sets a number of `routecraft.*` headers automatically on every exchan
 | `routecraft.route` | ID of the capability processing this exchange |
 | `routecraft.correlation_id` | Shared ID across split/tap branches for tracing |
 | `routecraft.split_hierarchy` | Hierarchy of split groups this exchange belongs to (set by `.split()`) |
-| `routecraft.auth.principal` | The authenticated `Principal`, when a source verified identity (the `exchange.principal` getter reads this key) |
+| `routecraft.auth.principal` | The authenticated `Principal`, once an identity has been resolved: by a source that verified a credential, by `.authenticate()`, or by `.delegate()` re-minting it as a delegated one (`ex.auth.principal` in a route, and `principalOf(exchange)` elsewhere, read this key) |
 
 These are useful for logging, debugging, and correlating exchanges across capability chains.
 

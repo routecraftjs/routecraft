@@ -236,19 +236,18 @@ Rules the adapter enforces:
 
 #### Tool Registry
 
-Each `.from(mcp(...))` route registers in `MCP_LOCAL_TOOL_REGISTRY` so the MCP server can list and invoke it via the MCP protocol:
+Each `.from(mcp(...))` route registers in the `local` registry of the `MCP` port that `mcpPlugin` provides, so the MCP server can list and invoke it via the MCP protocol:
 
 ```ts skip="fragment: not a complete statement on its own"
-import { MCP_LOCAL_TOOL_REGISTRY } from '@routecraft/ai'
+import { MCP } from '@routecraft/ai'
 
 const ctx = await new ContextBuilder().routes(...).build()
 await ctx.start()
 
-const registry = ctx.getStore(MCP_LOCAL_TOOL_REGISTRY)
-const tools = registry ? Array.from(registry.values()) : []
+const tools = Array.from(ctx.lookup(MCP)?.local.values() ?? [])
 // [{ endpoint, title?, description, input?, output?, annotations?, icons?, ui?, handler }]
 ```
 
-`mcp()` and `direct()` maintain separate, fully isolated registries. An MCP route with `.id('foo').from(mcp())` and a direct route with `.id('bar').from(direct())` both register by their own ids in their own stores; direct routes never appear in the MCP `tools/list` response.
+`mcp()` and `direct()` maintain separate, fully isolated registries. An MCP route with `.id('foo').from(mcp())` and a direct route with `.id('bar').from(direct())` both register by their own ids in their own registries; direct routes never appear in the MCP `tools/list` response.
 
 See [Expose to an agent](/docs/introduction/expose-to-an-agent), [Calling an MCP](/docs/advanced/call-an-mcp), and the [MCP example](/docs/examples/mcp).

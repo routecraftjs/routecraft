@@ -6,17 +6,20 @@ import {
   apiKey,
   authorize,
   craft,
+  definePlugin,
   jwt,
   cron,
   direct,
   noop,
   opsPlugin,
   rcError,
+  refuse,
   type HttpAuth,
   type OpsPage,
   type OpsRouteDetail,
   type OpsRouteSummary,
   type OpsTiers,
+  type Plugin,
   type Principal,
 } from "../src/index.ts";
 
@@ -107,6 +110,7 @@ describe("the ops management API", () => {
     auth?: HttpAuth | false;
     routes?: Routes;
     deferral?: boolean;
+    plugins?: Plugin[];
   }): Promise<number> {
     const builder = testContext()
       .with({
@@ -124,6 +128,7 @@ describe("the ops management API", () => {
             ...(options.tiers !== undefined ? { tiers: options.tiers } : {}),
             ...(options.auth !== undefined ? { auth: options.auth } : {}),
           }),
+          ...(options.plugins ?? []),
         ],
       })
       .routes(
@@ -379,6 +384,61 @@ describe("the ops management API", () => {
   });
 
   /**
+   * @case A validate hook refuses a dispatched route
+   * @preconditions An open dispatch tier; a plugin whose admitted validate hook refuses "lookup" with kind "not_found" and route "guarded" with the default kind
+   * @expectedResult 404 and 403 carrying the fixed error word, the RC5068 code and the hook's reason, and never the hook's name
+   */
+  test("answers a hook refusal with the status its kind maps to", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft().id("lookup").from(direct()).to(noop()),
+        craft().id("guarded").from(direct()).to(noop()),
+      ],
+      plugins: [
+        definePlugin({
+          id: "test.guard",
+          hooks: {
+            admitted: {
+              id: "exists",
+              phase: "validate",
+              run: (_exchange, info) =>
+                info.routeId === "lookup"
+                  ? refuse("no such record", { kind: "not_found" })
+                  : refuse("not yours"),
+            },
+          },
+        }),
+      ],
+    });
+
+    const missing = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/lookup/exchanges",
+      { method: "POST", body: {} },
+    );
+    expect(missing.status).toBe(404);
+    expect(missing.body).toEqual({
+      error: "not found",
+      code: "RC5068",
+      reason: "no such record",
+    });
+
+    const refused = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/guarded/exchanges",
+      { method: "POST", body: {} },
+    );
+    expect(refused.status).toBe(403);
+    expect(refused.body).toEqual({
+      error: "forbidden",
+      code: "RC5068",
+      reason: "not yours",
+    });
+    expect(JSON.stringify(refused.body)).not.toMatch(/test\.guard/);
+  });
+
+  /**
    * @case Dispatchability is observed, and reported per route
    * @preconditions One direct()-sourced route and one cron()-sourced route
    * @expectedResult The direct route reports dispatchable true and the cron route false, each carrying its source kind. A cron route has no door for an exchange to arrive through, and saying so on the representation is what lets one collection serve both clients
@@ -610,6 +670,88 @@ describe("the ops management API", () => {
     expect(body.description).toBe("Says hello");
     expect(body.dispatchable).toBe(true);
     expect(body.input?.body).toBeDefined();
+  });
+
+  /**
+   * @case One route is described with the plugin hooks that run on it
+   * @preconditions Two plugins: one with a beforeAuth mutate hook on every route, an exit observe hook scoped to the tag "audited" and a perAttempt wrapper; one declaring a point with a hook at it from the other. Route "greet" carries the tag; route "plain" does not
+   * @expectedResult "greet" lists the hooks in run order, slot by slot then the point, each naming its plugin, id and phase (none for the wrapper); "plain" omits the tag-scoped hook. Nothing in a route's own code shows these, so the detail is where an operator finds which hook ran
+   */
+  test("describes one route with the hooks that apply to it", async () => {
+    const port = await start({
+      tiers: { introspection: true },
+      routes: [
+        craft().id("greet").tag("audited").from(direct()).to(noop()),
+        craft().id("plain").from(direct()).to(noop()),
+      ],
+      plugins: [
+        definePlugin({
+          id: "test.tenancy",
+          points: [{ name: "tenancy.resolved" }],
+          hooks: {
+            beforeAuth: { id: "tenant", phase: "mutate", run: () => undefined },
+            exit: {
+              id: "audit",
+              phase: "observe",
+              tags: ["audited"],
+              run: () => undefined,
+            },
+            perAttempt: { id: "time", wrap: (proceed) => proceed() },
+          },
+        }),
+        definePlugin({
+          id: "test.audit",
+          hooks: {
+            points: {
+              "tenancy.resolved": {
+                id: "record",
+                phase: "observe",
+                run: () => undefined,
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    const greet = await call<OpsRouteDetail>(port, "/ops/routes/greet");
+    expect(greet.status).toBe(200);
+    expect(greet.body.hooks).toEqual([
+      {
+        slot: "beforeAuth",
+        point: false,
+        phase: "mutate",
+        plugin: "test.tenancy",
+        id: "test.tenancy/tenant",
+      },
+      {
+        slot: "perAttempt",
+        point: false,
+        plugin: "test.tenancy",
+        id: "test.tenancy/time",
+      },
+      {
+        slot: "exit",
+        point: false,
+        phase: "observe",
+        plugin: "test.tenancy",
+        id: "test.tenancy/audit",
+      },
+      {
+        slot: "tenancy.resolved",
+        point: true,
+        phase: "observe",
+        plugin: "test.audit",
+        id: "test.audit/record",
+      },
+    ]);
+
+    const plain = await call<OpsRouteDetail>(port, "/ops/routes/plain");
+    expect(plain.body.hooks?.map((hook) => hook.id)).toEqual([
+      "test.tenancy/tenant",
+      "test.tenancy/time",
+      "test.audit/record",
+    ]);
   });
 
   /**

@@ -5,10 +5,14 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   callerRefusalOf,
   craft,
+  definePlugin,
+  direct,
+  insufficientAuthorityOf,
   isInputValidationFailure,
-  markAuthentic,
+  defaultAuthority,
   noop,
   rcError,
+  refuse,
   simple,
   wireIssues,
   type Principal,
@@ -41,7 +45,7 @@ describe("callerRefusalOf()", () => {
     t = undefined;
   });
 
-  const principal = markAuthentic<Principal>({
+  const principal = defaultAuthority.brand<Principal>({
     kind: "custom",
     scheme: "bearer",
     subject: "user-1",
@@ -51,7 +55,7 @@ describe("callerRefusalOf()", () => {
   /**
    * @case An .input() refusal on the dispatched route
    * @preconditions Route "typed" whose .input() rejects the body it receives
-   * @expectedResult An input refusal with the part and each issue's path and message for "typed"; undefined for any other route id
+   * @expectedResult An input refusal with the part and each issue's path and message for "typed"; undefined for any other route id; the detail is frozen, and a new RC5065 replaying it as its cause is the instance's
    */
   test("classifies an input refusal by the route that raised it", async () => {
     t = await testContext()
@@ -75,6 +79,48 @@ describe("callerRefusalOf()", () => {
     expect(
       callerRefusalOf(error, { routeId: "other", principal: undefined }),
     ).toBeUndefined();
+    const cause = (error as Error).cause as { invalid: unknown };
+    expect(Object.isFrozen(cause.invalid)).toBe(true);
+    expect(
+      callerRefusalOf(rcError("RC5065", cause), {
+        routeId: "typed",
+        principal: undefined,
+      }),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case An .input() refusal with more issues than a door sends
+   * @preconditions Route "many" whose body schema returns 25 issues
+   * @expectedResult The refusal carries the first 20 issues and omitted 5, counted from the snapshot the validator bound rather than from the public cause
+   */
+  test("caps the snapshot at the wire limit and keeps the count left out", async () => {
+    const issues = Array.from({ length: 25 }, (_, i) => ({
+      message: `bad ${i}`,
+      path: [i],
+    }));
+    const schema: StandardSchemaV1<unknown> = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({ issues }),
+      },
+    };
+    t = await testContext()
+      .routes(
+        craft().id("many").input({ body: schema }).from(simple({})).to(noop()),
+      )
+      .build();
+    await t.test();
+    const error = t.errors[0];
+
+    const refusal = callerRefusalOf(error, {
+      routeId: "many",
+      principal: undefined,
+    });
+    expect(refusal).toMatchObject({ kind: "input", in: "body", omitted: 5 });
+    expect(refusal).toHaveProperty(["issues", "length"], 20);
+    expect(refusal).toHaveProperty(["issues", 19, "path"], "19");
   });
 
   /**
@@ -185,6 +231,37 @@ describe("callerRefusalOf()", () => {
   });
 
   /**
+   * @case A handler widens or replaces a genuine scope refusal's cause before rethrowing
+   * @preconditions A genuine RC5038 from .authorize({ scopes }); its cause.missing.scopes is pushed to and then the whole cause replaced
+   * @expectedResult The scopes the door sends and insufficientAuthorityOf() reads stay the ones the gate raised
+   */
+  test("a widened or replaced scope detail cannot change a genuine refusal", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("writer")
+          .authorize({ scopes: ["orders:write"] })
+          .from(principalSource("hello", principal))
+          .to(noop()),
+      )
+      .build();
+    await t.test();
+    const error = t.errors.find((e) => e.rc === "RC5038") as Error & {
+      cause: { missing: { scopes: string[] } };
+    };
+    const origin = { routeId: "writer", principal };
+    const raised = callerRefusalOf(error, origin);
+
+    error.cause.missing.scopes.push("orders:admin");
+    expect(callerRefusalOf(error, origin)).toEqual(raised);
+    expect(insufficientAuthorityOf(error)?.scopes).toEqual(["orders:write"]);
+
+    error.cause = { missing: { scopes: [] } };
+    expect(callerRefusalOf(error, origin)).toEqual(raised);
+    expect(insufficientAuthorityOf(error)?.scopes).toEqual(["orders:write"]);
+  });
+
+  /**
    * @case A step throws an authorization code itself
    * @preconditions rcError("RC5015") not raised by authorize()
    * @expectedResult undefined, as an adapter's upstream login refusal must stay the instance's
@@ -193,6 +270,256 @@ describe("callerRefusalOf()", () => {
     expect(
       callerRefusalOf(rcError("RC5015"), { routeId: "r", principal }),
     ).toBeUndefined();
+  });
+
+  /**
+   * @case A validate hook refuses the dispatched route
+   * @preconditions A plugin whose admitted validate hook refuses route "guarded" with kind "invalid" and a reason
+   * @expectedResult A refused classification carrying the kind and the reason for "guarded"; undefined for any other route id, since a refusal raised by a nested route is that route's caller's doing; the detail is frozen, and a new RC5068 replaying it as its cause is the instance's
+   */
+  test("classifies a hook refusal by the route it was raised on", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.guard",
+            hooks: {
+              admitted: {
+                id: "shape",
+                phase: "validate",
+                run: () => refuse("tenant header missing", { kind: "invalid" }),
+              },
+            },
+          }),
+        ],
+      })
+      .routes(craft().id("guarded").from(direct()).to(noop()))
+      .build();
+    await t.startAndWaitReady();
+    const error = await t.client.sendDirect("guarded", {}).catch((e) => e);
+
+    expect(
+      callerRefusalOf(error, { routeId: "guarded", principal: undefined }),
+    ).toEqual({
+      kind: "refused",
+      as: "invalid",
+      reason: "tenant header missing",
+    });
+    expect(
+      callerRefusalOf(error, { routeId: "outer", principal: undefined }),
+    ).toBeUndefined();
+    const cause = (error as Error).cause as { refused: unknown };
+    expect(Object.isFrozen(cause.refused)).toBe(true);
+    expect(
+      callerRefusalOf(rcError("RC5068", cause), {
+        routeId: "guarded",
+        principal: undefined,
+      }),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case A hook refuses as unauthenticated on a door that reads no credential
+   * @preconditions The same hook refusing with kind "unauthenticated"; one origin where a credential could help and one where it could not
+   * @expectedResult The kind stands where a credential could help, and is answered as forbidden where the door never reads one
+   */
+  test("downgrades an unauthenticated refusal where no credential is read", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.guard",
+            hooks: {
+              admitted: {
+                id: "who",
+                phase: "validate",
+                run: () => refuse("sign in first", { kind: "unauthenticated" }),
+              },
+            },
+          }),
+        ],
+      })
+      .routes(craft().id("guarded").from(direct()).to(noop()))
+      .build();
+    await t.startAndWaitReady();
+    const error = await t.client.sendDirect("guarded", {}).catch((e) => e);
+
+    expect(
+      callerRefusalOf(error, {
+        routeId: "guarded",
+        principal: undefined,
+        credentialCouldHelp: true,
+      }),
+    ).toMatchObject({ kind: "refused", as: "unauthenticated" });
+    expect(
+      callerRefusalOf(error, { routeId: "guarded", principal: undefined }),
+    ).toMatchObject({ kind: "refused", as: "forbidden" });
+  });
+
+  /**
+   * @case An RC5068 without the hook detail
+   * @preconditions rcError("RC5068") thrown by hand, with no cause
+   * @expectedResult Undefined: only a refusal the kernel raised for a hook on the dispatched route is the caller's
+   */
+  test("leaves a bare RC5068 the instance's", () => {
+    expect(
+      callerRefusalOf(rcError("RC5068"), {
+        routeId: "guarded",
+        principal: undefined,
+      }),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case An RC5068 whose cause carries a well-formed hook detail built by hand
+   * @preconditions rcError("RC5068", cause) where cause names the dispatched route, a hook, a slot, a kind and a reason, but was never raised by the kernel
+   * @expectedResult Undefined: the detail's shape is public, and only a detail the kernel raised for a validate hook is the caller's
+   */
+  test("leaves a forged RC5068 the instance's", () => {
+    const forged = Object.assign(new Error("tenant header missing"), {
+      refused: {
+        hook: "acme.tenancy/check",
+        slot: "validate",
+        routeId: "guarded",
+        kind: "invalid",
+        reason: "tenant header missing",
+      },
+    });
+    expect(
+      callerRefusalOf(rcError("RC5068", forged), {
+        routeId: "guarded",
+        principal: undefined,
+      }),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case An RC5065 and an RC5049 whose cause carries a well-formed input detail built by hand
+   * @preconditions rcError(code, cause) where cause names the dispatched route, a part and issues, but was raised by neither .input() nor the resume door
+   * @expectedResult Undefined for both: a step cannot have its own failure answered as the caller's bad input by giving it the validator's shape
+   */
+  test("leaves a forged input failure the instance's", () => {
+    const forge = () =>
+      Object.assign(new Error("bad"), {
+        invalid: {
+          in: "body",
+          issues: [{ message: "bad", path: ["id"] }],
+          routeId: "typed",
+        },
+      });
+    const origin = { routeId: "typed", principal: undefined };
+    expect(callerRefusalOf(rcError("RC5065", forge()), origin)).toBeUndefined();
+    expect(callerRefusalOf(rcError("RC5049", forge()), origin)).toBeUndefined();
+  });
+
+  /**
+   * @case A genuine hook refusal whose public detail a handler replaced before rethrowing it
+   * @preconditions A validate hook refusing route "inner"; the caught RC5068 first has cause.refused replaced by a copy naming "outer", then its whole cause replaced by a hand-built detail naming "outer"
+   * @expectedResult Undefined for "outer" after each replacement, and the unchanged error still maps for "inner" with the hook's own reason: attribution reads the snapshot bound at the throw, never the public detail
+   */
+  test("a replaced hook detail cannot move a genuine refusal to another route", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.guard",
+            hooks: {
+              admitted: {
+                id: "deny",
+                phase: "validate",
+                routes: ["inner"],
+                run: () => refuse("internal policy", { kind: "forbidden" }),
+              },
+            },
+          }),
+        ],
+      })
+      .routes(craft().id("inner").from(direct()).to(noop()))
+      .build();
+    await t.startAndWaitReady();
+    const error = (await t.client
+      .sendDirect("inner", {})
+      .catch((e: unknown) => e)) as Error & { cause: unknown };
+    const outer = { routeId: "outer", principal: undefined };
+    const inner = { routeId: "inner", principal: undefined };
+    const cause = error.cause as { refused: Record<string, unknown> };
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+
+    cause.refused = { ...cause.refused, routeId: "outer", reason: "moved" };
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+
+    error.cause = Object.assign(new Error("moved"), {
+      refused: {
+        hook: "test.guard/deny",
+        slot: "admitted",
+        routeId: "outer",
+        kind: "invalid",
+        reason: "moved",
+      },
+    });
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+    expect(callerRefusalOf(error, inner)).toEqual({
+      kind: "refused",
+      as: "forbidden",
+      reason: "internal policy",
+    });
+  });
+
+  /**
+   * @case A genuine input refusal whose public detail a handler replaced, and whose schema issue it mutated, before rethrowing it
+   * @preconditions Route "inner" whose body schema returns one issue with a path segment object; the caught RC5065 has cause.invalid replaced by a copy naming "outer", the schema's own issue object has its message and path key rewritten, then the whole cause is replaced by a hand-built detail naming "outer"
+   * @expectedResult Undefined for "outer" throughout; the public detail shows the rewritten issue while the wire output for "inner" keeps the original message and path, because the door reads the snapshot taken at the throw
+   */
+  test("a replaced or mutated input detail cannot change a genuine refusal", async () => {
+    const issue = { message: "internal schema", path: [{ key: "id" }] };
+    const schema = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({ issues: [issue] }),
+      },
+    } as unknown as StandardSchemaV1;
+    t = await testContext()
+      .routes(
+        craft().id("inner").input({ body: schema }).from(direct()).to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+    const error = (await t.client
+      .sendDirect("inner", {})
+      .catch((e: unknown) => e)) as Error & { cause: unknown };
+    const outer = { routeId: "outer", principal: undefined };
+    const inner = { routeId: "inner", principal: undefined };
+    const cause = error.cause as {
+      invalid: { issues: readonly { message: string }[] } & Record<
+        string,
+        unknown
+      >;
+    };
+    const original = cause.invalid;
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+
+    cause.invalid = { ...cause.invalid, routeId: "outer" };
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+
+    issue.message = "rewritten";
+    issue.path[0]!.key = "other";
+    expect(original.issues[0]!.message).toBe("rewritten");
+
+    error.cause = Object.assign(new Error("moved"), {
+      invalid: {
+        in: "body",
+        issues: [{ message: "moved" }],
+        routeId: "outer",
+      },
+    });
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+    expect(callerRefusalOf(error, inner)).toEqual({
+      kind: "input",
+      in: "body",
+      issues: [{ path: "id", message: "internal schema" }],
+      omitted: 0,
+    });
   });
 });
 

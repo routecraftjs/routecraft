@@ -232,7 +232,7 @@ auth: {
 }
 ```
 
-The returned `Principal` is a flat object tagged with `kind` (`"jwt"`, `"jwks"`, `"oauth"`, or `"custom"`). It rides on the exchange as a structured `routecraft.auth.principal` header and is exposed ergonomically via the `ex.principal` getter.
+The returned `Principal` is a flat object tagged with `kind` (`"jwt"`, `"jwks"`, `"oauth"`, or `"custom"`). It rides on the exchange as a structured `routecraft.auth.principal` header, read with `ex.auth.principal` in a route and `principalOf(exchange)` in adapter or plugin code.
 
 ## OAuth resource server (`oauth()`)
 
@@ -288,7 +288,7 @@ auth: oauth({
 
 `expiresAt` is required on a principal returned through `oauth()`: a principal without a finite numeric expiry has no bounded validity window, so it is refused rather than admitted indefinitely. A principal whose expiry has already passed is refused at the gate whichever auth mode produced it. The boundary is inclusive and compared in whole seconds, so a principal whose `expiresAt` equals the current second is already expired, matching RFC 7519 section 4.1.4.
 
-The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
+The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is read with `ex.auth.principal` in a route, e.g. `ex.auth.principal?.subject`, `ex.auth.principal?.scopes`, `ex.auth.principal?.claims`, and with `principalOf(exchange)` in adapter or plugin code.
 
 ## Principal enrichment via `userinfo`
 

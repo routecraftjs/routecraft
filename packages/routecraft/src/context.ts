@@ -1,3 +1,5 @@
+import { AUTHORITY } from "./kernel/authority.ts";
+import { ENFORCEMENT } from "./kernel/positions.ts";
 import { type Duration, parseDuration } from "./shared/duration.ts";
 import { rejectStaleOptions } from "./shared/stale-options.ts";
 import {
@@ -8,20 +10,50 @@ import {
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
-import {
-  CAPABILITY_REGISTRY,
-  snapshotCapability,
-  type Capability,
-} from "./capabilities.ts";
+import { snapshotCapability, type Capability } from "./capabilities.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
-import { getConfigAppliers } from "./config-applier.ts";
-import { DEFERRAL_RUNTIME } from "./deferral/runtime-key.ts";
+import { configuredPlugins, getConfigAppliers } from "./config-applier.ts";
+import { DIRECT } from "./kernel/direct.ts";
+import {
+  CONTINUATIONS,
+  CONTINUATIONS_REMEDY,
+} from "./kernel/continuation/port.ts";
+import { ContinuationSweeper } from "./kernel/continuation/sweep.ts";
+import { applyResolvedSites } from "./kernel/continuation/sites.ts";
+import {
+  reviveDeferral,
+  type ResumeRequest,
+} from "./kernel/continuation/resume.ts";
 import { EventBus } from "./event-bus.ts";
+import { CraftClient } from "./client.ts";
+import {
+  PluginHost,
+  type HostEnvironment,
+  type InstalledPlugin,
+} from "./kernel/host.ts";
+import { applicationPlugins } from "./kernel/defaults.ts";
+import { installFacet } from "./kernel/facets.ts";
+import type { Exchange } from "./exchange.ts";
+import type { Plugin, RouteView } from "./kernel/plugin.ts";
+import { readonlyView } from "./kernel/readonly.ts";
+import {
+  HookTable,
+  routeTags,
+  type HooksConfig,
+  type InstalledHook,
+} from "./kernel/hooks.ts";
+import type { AnyPort, Port } from "./kernel/port.ts";
+import { kernelCopies } from "./kernel/copies.ts";
 
-import type { EventHandler, EventName, EventPayload } from "./types.ts";
+import type {
+  EventDetailsMap,
+  EventHandler,
+  EventName,
+  EventPayload,
+} from "./types.ts";
 
 /**
  * Store key for runner-provided argv tokens.
@@ -70,97 +102,6 @@ export type MergedOptions<T> = {
 };
 
 /**
- * A plugin configures the context and may own work for as long as it runs.
- *
- * Three phases, each answering a different question:
- *
- * - `apply(ctx)` wires the context, before routes are registered
- *   (`initPlugins()`). Nothing is running yet.
- * - `start(ctx)` begins work, after every route has started. Optional.
- * - `teardown(ctx)` releases whatever the other two acquired, when the
- *   context stops and routes have drained. Optional.
- *
- * The split matters for anything with a lifetime. A plugin that opens a
- * handle does it in `apply()`; a plugin that starts a timer or drives routes
- * does it in `start()`, because at `apply()` time there are no routes to
- * drive. Either way `teardown()` is what releases it.
- *
- * Plugins needing neither can omit both; use `ctx.registerTeardown()` from
- * `apply()` for one-off cleanup callbacks.
- */
-export interface CraftPlugin {
-  /**
-   * Stable identifier for the plugin, surfaced as `pluginId` on
-   * `plugin:*` event payloads and in logs. Falls back to the plugin's
-   * constructor name (or `plugin-<index>`) when omitted.
-   */
-  name?: string;
-  /**
-   * RESERVED. Names of plugins this plugin depends on. Not enforced yet:
-   * declaring it today has no effect, but the key is reserved so a
-   * future dependency-ordered initialisation can use it without a
-   * breaking change.
-   */
-  dependsOn?: string[];
-  /** Keep the context running after all routes complete until `stop()` is called. */
-  keepsAlive?: boolean;
-  apply(ctx: CraftContext): void | Promise<void>;
-  /**
-   * Called once per context start, after every route has been started, in
-   * plugin registration order. Awaited. Optional.
-   *
-   * This is where a plugin owning a background task belongs, because
-   * `apply()` runs at build time when no route is running yet. A plugin
-   * that starts something here MUST stop it in {@link CraftPlugin.teardown}:
-   * a live interval keeps the process alive with no visible cause.
-   *
-   * A throw fails `context.start()`. The context then shuts down (routes
-   * aborted and drained, every plugin torn down in reverse order) and the
-   * original error is rethrown unchanged, so a plugin that fails to start
-   * cannot leave a half-running context behind.
-   */
-  start?(ctx: CraftContext): void | Promise<void>;
-  /**
-   * Called when the context stops, after routes have drained, and when a
-   * build or a start failed partway. Optional.
-   *
-   * The second argument says which of those happened, so a plugin never has
-   * to infer it from its own state. Ignore it and the hook behaves exactly
-   * as it did when teardown only ran on a fully started context; read it
-   * when releasing depends on how far the context got.
-   */
-  teardown?(ctx: CraftContext, info: TeardownInfo): void | Promise<void>;
-}
-
-/**
- * What the context managed to do before this teardown, handed to every
- * {@link CraftPlugin.teardown}.
- *
- * The distinction exists because teardown now runs on three different
- * shapes of context: one that started and is stopping, one whose build
- * failed with only some plugins applied, and one whose start failed with
- * only some plugins started. A plugin that closes what `apply()` opened
- * needs none of this; a plugin that stops what `start()` began must not be
- * told to stop something it never began.
- */
-export interface TeardownInfo {
-  /**
-   * This is not a fully started context. Either it never started (a build
-   * that failed partway, or an embedder that built and then stopped without
-   * ever calling `start()`) or a `start()` hook threw. Routes may not be
-   * registered and later plugins may never have applied, so state a plugin
-   * would expect a running context to hold may be missing.
-   */
-  partial: boolean;
-  /**
-   * THIS plugin's own `start()` hook ran to completion. Always false for a
-   * plugin with no `start()` hook, and false during a build-failure unwind,
-   * where nothing started.
-   */
-  started: boolean;
-}
-
-/**
  * How long `start()` waits for routes to signal readiness before starting
  * plugins anyway. Generous, because it is a backstop against a source that
  * never signals rather than a deadline anything healthy approaches.
@@ -187,6 +128,22 @@ type RouteBootOutcome = "started" | "failed" | "waiting" | "disabled";
  *   generic RC5003 surface, because RC5058 carries the polarity warning an
  *   operator needs and the docs page is written against that code.
  */
+let kernelCopiesWarned = false;
+
+/**
+ * Say once per copy when more than one copy of the kernel is loaded: ports
+ * resolve across copies, the refusal bindings a door trusts do not.
+ */
+function warnAboutKernelCopies(log: CraftContext["logger"]): void {
+  const copies = kernelCopies();
+  if (copies < 2 || kernelCopiesWarned) return;
+  kernelCopiesWarned = true;
+  log.warn(
+    { copies },
+    "More than one copy of @routecraft/routecraft is loaded in this process (the ESM and CJS builds of one install, or two installs). Ports resolve across copies, but a refusal raised by one copy is answered by a door of the other as a plain failure. Load one build of one install.",
+  );
+}
+
 function resolveShutdownTimeout(timeout: Duration | undefined): number {
   if (timeout === undefined) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
   try {
@@ -234,6 +191,7 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "once",
   "plugins",
   "shutdown",
+  "hooks",
 ]);
 
 /**
@@ -271,10 +229,26 @@ export interface CraftConfig {
   once?: Partial<
     Record<EventName, EventHandler<EventName> | EventHandler<EventName>[]>
   >;
-  /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
-  plugins?: CraftPlugin[];
+  /**
+   * Plugins to install. Bound in dependency order after the plugins config
+   * keys install, which bind in their registration order.
+   */
+  plugins?: readonly Plugin[];
   /** How long a graceful shutdown may drain before it is forced. */
   shutdown?: ShutdownConfig;
+  /**
+   * The application's say over plugin hooks: the exact order of one phase of
+   * one slot, and hooks switched off by id (`pluginId/name`).
+   *
+   * @example
+   * ```typescript
+   * hooks: {
+   *   order: { "beforeAuth/mutate": ["acme.legacy/tenant", "acme.tenancy/tenant"] },
+   *   disable: ["acme.legacy/setTenantFromPath"],
+   * }
+   * ```
+   */
+  hooks?: HooksConfig;
 }
 
 /**
@@ -409,33 +383,32 @@ export class CraftContext {
   /** Event bus backing on/once/emit (see event-bus.ts) */
   private readonly events: EventBus;
 
-  /** Plugins from config, run by initPlugins() before routes are registered */
-  private readonly plugins: CraftPlugin[] = [];
+  /** Plugin descriptors in install order, handed to the host by initPlugins(). */
+  private readonly pluginList: unknown[] = [];
+
+  /** The kernel host, built by initPlugins() once every descriptor is known. */
+  private host: PluginHost | undefined;
+
+  /** Every plugin hook, placed when the application froze. */
+  private hookTable: HookTable | undefined;
+  private readonly facets = new Map<string, (exchange: Exchange) => unknown>();
+
+  /** The application's hook order and disables, from config. */
+  private readonly hooksConfig: HooksConfig;
 
   /** Guards initPlugins() so start() can call it idempotently */
   private pluginsInitialized = false;
 
-  /**
-   * Indices of plugins whose `apply()` returned. Teardown walks this rather
-   * than the whole plugin list: a build that failed at plugin 3 must not
-   * tear down plugin 4, which never ran.
-   */
-  private readonly appliedPlugins = new Set<number>();
-
-  /** Indices of plugins whose `start()` hook returned. */
-  private readonly startedPlugins = new Set<number>();
-
-  /** Latched once `start()` has fully completed, for {@link TeardownInfo.partial}. */
+  /** Latched once `start()` has fully completed, for {@link StopInfo.partial}. */
   private startCompleted = false;
 
   /** How long stage one of shutdown may drain; see {@link ShutdownConfig}. */
   private readonly shutdownTimeoutMs: number;
 
-  /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
-  private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
-
   /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
   private shutdownPromise: Promise<ShutdownOutcome> | null = null;
+  /** The one plugin teardown walk, once something has started it. */
+  private teardownWalk: Promise<void> | null = null;
 
   /** Backing gate for {@link CraftContext.whenStarted}. */
   private startedGate: PromiseWithResolvers<void> | undefined;
@@ -447,11 +420,13 @@ export class CraftContext {
    * The plugin lifecycle hook currently awaiting, so a `stop()` that lands
    * mid-boot can let it finish before teardown runs.
    *
-   * Scoped to `apply()` and `start()` alone, never `run()`: for an
-   * indefinite route `run()` resolves only once the context stops, so
+   * Scoped to `bind()` and `start()` alone, never the context's own run:
+   * for an indefinite route that resolves only once the context stops, so
    * waiting on it would deadlock the shutdown this ordering exists to serve.
    */
   private pluginHookInFlight: Promise<void> | undefined;
+  /** How many `bind` or `start` hooks are on the stack or awaiting. */
+  private lifecycleHooksRunning = 0;
 
   /** Latched by `stop()`. A stopped context refuses to start again. */
   private hasStopped = false;
@@ -466,8 +441,10 @@ export class CraftContext {
     if (config !== undefined) rejectStaleConfig(config);
     if (config?.name !== undefined) this.name = config.name;
     this.shutdownTimeoutMs = resolveShutdownTimeout(config?.shutdown?.timeout);
+    this.hooksConfig = config?.hooks ?? {};
     this.logger = logger.child(childBindings(this));
     this.events = new EventBus(this.contextId, this.logger);
+    warnAboutKernelCopies(this.logger);
     if (config) {
       // Initialize store from config
       if (config.store) {
@@ -497,43 +474,15 @@ export class CraftContext {
           }
         }
       }
-      // Walk registered config appliers. ALL first-class config keys go
-      // through this registry: core keys (`http`, `cron`, `direct`, `mail`,
-      // `telemetry`) are registered by side-effect imports in index.ts, and
-      // ecosystem packages (e.g. @routecraft/ai promotes `llm`, `mcp`,
-      // `embedding`, `agent`) extend it the same way. The core context has
-      // no knowledge of any adapter or plugin internals.
-      //
-      // The push order into `this.plugins` drives both apply() order
-      // (forward) and teardown() order (reverse):
-      //   1. registered appliers, in registration order (core keys first,
-      //      since index.ts imports run before ecosystem modules load)
-      //   2. user config.plugins
-      //
-      // Reverse-iteration in performShutdown() therefore tears down user
-      // plugins first, then appliers in reverse registration order.
-      //
-      // The applier guard is strictly `value !== undefined`, not a truthy
-      // check. The applier registry is an open extension point: ecosystem
-      // packages can register appliers for any value shape, including
-      // primitives where `false`, `0`, or `""` are valid. "Not set" must
-      // mean only `undefined` so applier authors can rely on a stable
-      // contract regardless of value type.
+      // Every first-class config key goes through the applier registry, so
+      // the context knows no adapter or plugin by name.
       const configRecord = config as unknown as Record<string, unknown>;
-      const applierKeys = new Set<string>();
-      for (const [key, factory] of getConfigAppliers()) {
-        applierKeys.add(key);
-        const value = configRecord[key];
-        if (value !== undefined) {
-          this.plugins.push(factory(value));
-        }
-      }
+      const applierKeys = new Set(getConfigAppliers().keys());
+      this.pluginList.push(...configuredPlugins(config));
 
       // A set config key that is neither a base key nor a registered applier
-      // is dead weight: a typo (`htttp`), or an applier whose registering
-      // module never loaded (the config-applier bundle regression shipped
-      // exactly this way, with `mail: {...}` silently ignored). Warn instead
-      // of throwing because appliers are an open registry and a false
+      // is a typo, or an applier whose registering module never loaded. A
+      // warning, not a throw: appliers are an open registry, and a false
       // positive must not take down an otherwise valid context.
       for (const key of Object.keys(configRecord)) {
         if (configRecord[key] === undefined) continue;
@@ -544,93 +493,257 @@ export class CraftContext {
             `Check the spelling, and ensure the package that provides the key is imported before the context is created.`,
         );
       }
-
-      if (config.plugins?.length) {
-        this.plugins.push(...config.plugins);
-      }
     }
   }
 
   /**
-   * Generate a plugin identifier from the plugin's constructor name or index.
-   * @param plugin The plugin instance
-   * @param index The plugin's index in the plugins array
-   * @returns A string identifier for the plugin
-   */
-  private getPluginId(plugin: CraftPlugin, index: number): string {
-    if (typeof plugin.name === "string" && plugin.name) return plugin.name;
-    const constructorName =
-      plugin.constructor?.name !== "Object" ? plugin.constructor?.name : null;
-    return constructorName ?? `plugin-${index}`;
-  }
-
-  /**
-   * Run plugins from config. Called by the builder's `build()` (and by
-   * `start()` as an idempotent fallback) before routes are registered so
-   * plugins can set up state or dynamically add routes.
+   * Install and bind every plugin. Called by the builder's `build()` (and
+   * by `start()` as an idempotent fallback) before routes are registered.
    *
-   * Fails fast: on first plugin error, logs, emits `error`, and rethrows.
+   * The host checks identity, resolves every port to one provider and
+   * orders the plugins by what they require before anything binds, so a
+   * fault naming the plugin responsible surfaces before any resource is
+   * acquired. Then each plugin's `bind` runs in that order, and the
+   * application freezes.
    *
-   * @throws Rethrows if any plugin's `apply(ctx)` throws
+   * Fails fast: on the first error, logs, emits `context:error`, and
+   * rethrows. Whatever bound is released by the unwind.
+   *
+   * @throws The host's fault, or whatever a plugin's `bind` threw
    * @internal Public for the builder and tests; not part of the supported
    *   embedding surface. The context initialises plugins itself.
    */
   async initPlugins(): Promise<void> {
     if (this.pluginsInitialized) return;
     this.pluginsInitialized = true;
-    for (const [pluginIndex, plugin] of this.plugins.entries()) {
-      // Same guard as startPlugins(), for the same reason: once teardown has
-      // walked the applied set, a plugin applied after it acquires resources
-      // nothing will ever release.
+    try {
+      this.host = new PluginHost(applicationPlugins(this.pluginList));
+      this.reportReplacements(this.host);
+    } catch (err) {
+      this.logger.error({ err }, "Plugins could not be installed.");
+      this.emit("context:error", { error: err });
+      throw err;
+    }
+    const host = this.host;
+    for (const entry of host.ordered) {
+      // Once teardown has walked the bound set, a plugin bound after it
+      // acquires resources nothing will ever release.
       if (this.hasStopped) return;
+      const pluginId = entry.id;
+      const pluginIndex = entry.index;
       try {
-        if (
-          !plugin ||
-          typeof plugin !== "object" ||
-          typeof (plugin as CraftPlugin).apply !== "function"
-        ) {
-          const err = rcError("RC9901", undefined, {
-            message: `Invalid plugin at index ${pluginIndex}: expected object with apply(ctx)`,
-          });
-          this.logger.error(
-            { pluginIndex, err },
-            "Invalid plugin: expected object with apply(ctx) method.",
-          );
-          this.emit("context:error", { error: err });
-          throw err;
-        }
-
-        // Generate plugin ID from constructor name or index
-        const pluginId = this.getPluginId(plugin as CraftPlugin, pluginIndex);
-
-        // Plugins are "registered" at construction; a separate
-        // plugin:registered event fired at the same moment with the same
-        // payload carried no extra information and was removed.
-        this.emit("plugin:applying", {
-          pluginId,
-          pluginIndex,
-        });
-
-        // Re-checked after the emit, not only at the loop head: handlers run
-        // synchronously, so a subscriber calling stop() lands between the two
-        // and the hook would otherwise start into a shutdown already waiting
-        // for it.
+        this.emit("plugin:binding", { pluginId, pluginIndex });
+        // A synchronous subscriber can stop the context inside the emit.
         if (this.hasStopped) return;
-
+        const context = host.contextFor(entry, this.hostEnvironment());
         await this.runLifecycleHook(async () => {
-          await (plugin as CraftPlugin).apply(this);
-          this.appliedPlugins.add(pluginIndex);
-          this.emit("plugin:applied", { pluginId, pluginIndex });
+          await entry.plugin.bind?.(context);
+          // Only a bind that RETURNED is stopped: a build that failed at
+          // plugin 3 must not ask plugin 4, or plugin 3 itself, to release
+          // what it never finished acquiring.
+          entry.bound = true;
+          host.assertProvided(entry);
+          this.emit("plugin:bound", { pluginId, pluginIndex });
         });
       } catch (err) {
         this.logger.error(
-          { pluginIndex, err },
-          "Plugin threw during initPlugins. Check stack and plugin implementation.",
+          { pluginId, pluginIndex, err },
+          "Plugin threw during bind. Check stack and plugin implementation.",
         );
         this.emit("context:error", { error: err });
         throw err;
       }
     }
+    host.freeze();
+    try {
+      this.hookTable = new HookTable(
+        host.listed.map((entry) => entry.plugin),
+        this.hooksConfig,
+        this.logger,
+      );
+      for (const entry of host.ordered) {
+        if (!entry.plugin.facet) continue;
+        installFacet(entry.namespace);
+        this.facets.set(entry.namespace, entry.plugin.facet);
+      }
+    } catch (err) {
+      this.logger.error({ err }, "Plugin hooks could not be placed.");
+      this.emit("context:error", { error: err });
+      throw err;
+    }
+  }
+
+  /**
+   * Name every replaced port once at boot. A replacement may arrive through
+   * a dependency's `installs` rather than the application's own config, and
+   * replacing who mints or enforces identity is a trust decision an operator
+   * has to be able to see, so those two log at warn.
+   */
+  private reportReplacements(host: PluginHost): void {
+    for (const { port, by, displaced } of host.replacements) {
+      const trust = port.key === AUTHORITY.key || port.key === ENFORCEMENT.key;
+      this.logger[trust ? "warn" : "info"](
+        { port: port.name, plugin: by, displaced },
+        `Plugin "${by}" replaces the provider of "${port.name}".`,
+      );
+    }
+  }
+
+  private continuationSweeper: ContinuationSweeper | undefined;
+
+  /**
+   * One pass of the kernel's sweep, against the store `CONTINUATIONS`
+   * provides. The sweeper is the application's, built on first use and
+   * stopped when shutdown begins.
+   */
+  private async sweepContinuations(
+    options: { readonly boot?: boolean } = {},
+  ): Promise<number> {
+    const runtime = this.lookup(CONTINUATIONS);
+    if (!runtime) return 0;
+    this.continuationSweeper ??= new ContinuationSweeper(this, runtime.store, {
+      leaseMs: runtime.expiryLeaseMs,
+      ...(runtime.retentionMs !== undefined
+        ? { retentionMs: runtime.retentionMs }
+        : {}),
+    });
+    return options.boot
+      ? this.continuationSweeper.scanOnStart()
+      : this.continuationSweeper.sweep();
+  }
+
+  /**
+   * What `ex.<namespace>` reads on this application's exchanges, when an
+   * installed plugin declares that facet.
+   *
+   * @internal
+   */
+  facetOf(namespace: string): ((exchange: Exchange) => unknown) | undefined {
+    return this.facets.get(namespace);
+  }
+
+  /**
+   * Whether a plugin with this id is installed.
+   *
+   * @internal
+   */
+  hasPlugin(id: string): boolean {
+    return this.host?.ordered.some((entry) => entry.plugin.id === id) ?? false;
+  }
+
+  /**
+   * The placed plugin hooks, for the executor.
+   *
+   * @internal
+   */
+  get hooks(): HookTable | undefined {
+    return this.hookTable;
+  }
+
+  /**
+   * What the kernel host needs from this context to build plugin contexts.
+   * Built per call: it is read once per plugin.
+   */
+  private hostEnv?: HostEnvironment;
+
+  /** What the host hands every plugin of this application, built once. */
+  private hostEnvironment(): HostEnvironment {
+    if (this.hostEnv) return this.hostEnv;
+    const view = (route: Route): RouteView => {
+      const reason = this.enablement.disabled().get(route.definition.id);
+      return {
+        id: route.definition.id,
+        definition: readonlyView(
+          route.definition,
+          `Route "${route.definition.id}"`,
+        ),
+        enabled: reason === undefined,
+        ...(reason !== undefined ? { disabledReason: reason } : {}),
+      };
+    };
+    const client = new CraftClient(this);
+    this.hostEnv = {
+      logger: this.logger,
+      observe: <K extends EventName>(
+        event: K | "*",
+        handler: EventHandler<K>,
+      ) => this.on(event as EventName, handler as EventHandler<EventName>),
+      emit: <K extends EventName>(event: K, details: EventDetailsMap[K]) =>
+        this.emit(event, details),
+      routes: {
+        register: (...definitions: RouteDefinition[]) =>
+          this.registerRoutes(...definitions),
+        list: () => this.routes.map(view),
+        get: (id: string) => {
+          const route = this.getRouteById(id);
+          return route ? view(route) : undefined;
+        },
+        hooksOf: (id: string) => {
+          const route = this.getRouteById(id);
+          if (!route || !this.hooks) return [];
+          return this.hooks.describeRoute(id, routeTags(route.definition));
+        },
+      },
+      execution: {
+        deliver: (
+          endpoint: string,
+          body: unknown,
+          headers?: Parameters<CraftClient["sendDirect"]>[2],
+        ) => client.sendDirect(endpoint, body, headers),
+        resume: (request: ResumeRequest) => reviveDeferral(this, request),
+        sweep: (options?: { readonly boot?: boolean }) =>
+          this.sweepContinuations(options),
+        capabilities: () => this.capabilities(),
+        whenStarted: () =>
+          this.lifecycleHooksRunning === 0
+            ? this.whenStarted()
+            : Promise.reject(
+                rcError("RC1118", undefined, {
+                  message: `A plugin's lifecycle hook awaited c.execution.whenStarted(). The application is started only once every bind and start returned, so the wait would never end. Return from the hook, and await whenStarted() from the work it schedules.`,
+                }),
+              ),
+        requestStop: () => {
+          void this.stop().catch(() => undefined);
+        },
+      },
+    };
+    return this.hostEnv;
+  }
+
+  /**
+   * The provider of a port, for adapters and the kernel at runtime.
+   *
+   * Adapters reach what a plugin offers through this, never through a store
+   * key another package set.
+   *
+   * @param port - The port
+   * @returns The selected provider's value
+   * @throws RC1104 when no installed plugin provides it, or plugins have not
+   *   bound yet
+   */
+  require<T>(port: Port<T>): T {
+    if (!this.host) {
+      throw rcError("RC1104", undefined, {
+        message: `"${port.name}" was required before the context installed its plugins.`,
+      });
+    }
+    return this.host.require(port);
+  }
+
+  /**
+   * Like {@link CraftContext.require}, but `undefined` when nobody provides
+   * the port.
+   *
+   * @param port - The port
+   * @returns The provider's value, or `undefined`
+   */
+  lookup<T>(port: Port<T>): T | undefined {
+    return this.host?.lookup(port);
+  }
+
+  /** The id of the plugin whose provision of a port is selected. */
+  providerOf(port: AnyPort): string | undefined {
+    return this.host?.providerOf(port);
   }
 
   /**
@@ -718,10 +831,8 @@ export class CraftContext {
           : ("waiting" as const),
       ]),
     );
-    // A disabled route is settled before the gate is armed rather than left
-    // to time out: it is never going to emit `route:started`, and making
-    // every boot with one dormant capability wait out the readiness bound
-    // would turn a deliberate configuration state into a slow start.
+    // A disabled route never emits `route:started`, so it is settled before
+    // the gate is armed rather than left to time out.
     const waits = this.routes
       .filter((route) => !disabled.has(route.definition.id))
       .map(
@@ -754,13 +865,8 @@ export class CraftContext {
           if (timer) clearTimeout(timer);
         },
       ),
-      // A route that failed or completed counts as settled, not started, so
-      // the gate stops waiting on it while the summary still reports what
-      // actually happened to it. A FAILURE is the final word: a source that
-      // signalled readiness and then rejected (an async callable that fails
-      // on its first await, which is what a bad credential or a refused
-      // connect looks like) did not come up, and the summary must not report
-      // it as started just because `route:started` had already fired.
+      // A failure is the final word: a source that signalled readiness and
+      // then rejected did not come up, whatever `route:started` said.
       settle: (routeId: string, outcome: RouteBootOutcome) => {
         if (outcomes.get(routeId) === "disabled") return;
         if (outcome === "failed" || outcomes.get(routeId) !== "started") {
@@ -817,7 +923,7 @@ export class CraftContext {
    * Run every plugin's optional `start()`, in registration order.
    *
    * Separate from {@link CraftContext.initPlugins} because the two phases
-   * answer different questions. `apply()` wires the context and runs at
+   * answer different questions. `bind()` wires the application and runs at
    * build time; `start()` begins work and needs the routes running. The
    * deferral sweeper is the first consumer: it re-enters a route's error
    * channel when a deferred exchange expires, which is not something that can
@@ -831,23 +937,21 @@ export class CraftContext {
    * so which phase failed does not change where cleanup lives.
    */
   private async startPlugins(): Promise<void> {
-    for (const [pluginIndex, plugin] of this.plugins.entries()) {
-      // Re-checked per hook, not only on entry: a stop() arriving while an
-      // earlier hook is mid-await has already torn the plugins down, and a
-      // hook launched after that begins work nothing will ever stop.
+    for (const entry of this.host?.ordered ?? []) {
+      // A stop() that landed mid-await has already torn the plugins down.
       if (this.hasStopped) return;
-      if (typeof plugin.start !== "function") continue;
-      const startHook = plugin.start.bind(plugin);
-      const pluginId = this.getPluginId(plugin, pluginIndex);
+      const start = entry.plugin.start;
+      if (typeof start !== "function") continue;
+      const pluginId = entry.id;
+      const pluginIndex = entry.index;
       try {
         this.emit("plugin:starting", { pluginId, pluginIndex });
-        // See initPlugins(): a synchronous subscriber can stop the context
-        // between the loop guard and this call.
+        // A synchronous subscriber can stop the context inside the emit.
         if (this.hasStopped) return;
 
         await this.runLifecycleHook(async () => {
-          await startHook(this);
-          this.startedPlugins.add(pluginIndex);
+          await start.call(entry.plugin, entry.context!);
+          entry.started = true;
           this.emit("plugin:started", { pluginId, pluginIndex });
         });
       } catch (err) {
@@ -872,14 +976,21 @@ export class CraftContext {
    * @param hook The hook call together with the state it updates on success
    */
   private async runLifecycleHook(hook: () => Promise<void>): Promise<void> {
-    const inFlight = hook();
-    this.pluginHookInFlight = inFlight;
+    // Counted before the hook is entered: a hook that awaits whenStarted()
+    // on its first line is already inside when the check runs.
+    this.lifecycleHooksRunning += 1;
     try {
-      await inFlight;
-    } finally {
-      if (this.pluginHookInFlight === inFlight) {
-        this.pluginHookInFlight = undefined;
+      const inFlight = hook();
+      this.pluginHookInFlight = inFlight;
+      try {
+        await inFlight;
+      } finally {
+        if (this.pluginHookInFlight === inFlight) {
+          this.pluginHookInFlight = undefined;
+        }
       }
+    } finally {
+      this.lifecycleHooksRunning -= 1;
     }
   }
 
@@ -919,7 +1030,16 @@ export class CraftContext {
    * @throws RC5052 when a deferrable route has no deferral runtime
    */
   private assertDeferralConfigured(): void {
-    if (this.getStore(DEFERRAL_RUNTIME)) return;
+    if (this.lookup(CONTINUATIONS)) return;
+    // A registered handler that may answer `recovery.defer()` can park ANY
+    // route in the context, including one that declares no defer site of its
+    // own, so it is checked before the per-route markers and reported without
+    // naming a route: no route is the offender.
+    if (this.hasDeferringErrorHook()) {
+      this.refuseWithoutDeferralRuntime(
+        `An error slot hook declared with { mayDefer: true } can park any exchange in this application, but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
+      );
+    }
     const deferring = this.routes.find(
       (route) => (route.definition.deferSteps?.length ?? 0) > 0,
     );
@@ -930,9 +1050,21 @@ export class CraftContext {
     const offender = deferring ?? resuming;
     if (!offender) return;
     const reached = deferring ? ".defer()" : ".resume()";
-    const err = rcError("RC5052", undefined, {
-      message: `Route "${offender.definition.id}" can reach a ${reached}, but this context has no deferral runtime. Add deferral: {} to defineConfig (or deferral: { store, secret } to be explicit).`,
-    });
+    this.refuseWithoutDeferralRuntime(
+      `Route "${offender.definition.id}" can reach a ${reached}, but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
+    );
+  }
+
+  /**
+   * Report a missing deferral runtime and throw.
+   *
+   * Shared by the three things that need one, so they cannot drift into
+   * logging or emitting differently for the same missing config line.
+   *
+   * @throws RC5052 always
+   */
+  private refuseWithoutDeferralRuntime(message: string): never {
+    const err = rcError("RC5052", undefined, { message });
     // Emitted as well as thrown, matching the plugin-init failure path: a
     // caller that never awaits `start()` (every long-running source holds
     // it open until shutdown) would otherwise only see this as an
@@ -943,16 +1075,34 @@ export class CraftContext {
   }
 
   /**
-   * Register a teardown callback to run when the context stops. Plugins use this
-   * to release resources (e.g. caches, native handles) after routes have drained.
-   * Callbacks run in REVERSE registration order (LIFO, mirroring plugin
-   * teardown) before `context:stopped` is emitted, so resources unwind in
-   * the opposite order they were acquired.
+   * The `error` slot hooks that apply to one route: the `observe` ones,
+   * which hear the failure, and the `mutate` ones, which may decide it, each
+   * in effective order.
    *
-   * @param fn - Callback (sync or async) to run during stop()
+   * @internal
    */
-  registerTeardown(fn: () => void | Promise<void>): void {
-    this.teardownCallbacks.push(fn);
+  errorHooks(route: Route): {
+    observe: readonly InstalledHook[];
+    decide: readonly InstalledHook[];
+  } {
+    return (
+      this.hookTable?.errorHooks(
+        route.definition.id,
+        routeTags(route.definition),
+      ) ?? { observe: [], decide: [] }
+    );
+  }
+
+  /**
+   * Whether any `error` slot hook declared it may park an exchange.
+   *
+   * Read by the startup runtime check and by `routeCanDefer`, because such a
+   * hook can defer ANY route it applies to: a transport that advertises
+   * deferability per route would otherwise under-advertise every route that
+   * declares no defer site of its own.
+   */
+  hasDeferringErrorHook(): boolean {
+    return this.hookTable?.mayDefer() ?? false;
   }
 
   /**
@@ -1096,6 +1246,17 @@ export class CraftContext {
         });
       }
 
+      // Where a park could land, for a definition that did not come from
+      // `craft().build()`. A hand-written `RouteDefinition` is a supported
+      // shape (this method takes definitions, not builders), and without
+      // this a context handler could not park those routes at all: the
+      // executor would find no site and refuse with RC5051, contradicting
+      // the whole reason the sites are resolved for every route rather than
+      // only for one that declares a `.defer()`.
+      if (definition.errorPathSites === undefined) {
+        applyResolvedSites(definition);
+      }
+
       // Binder injection removed
 
       const controller = new AbortController();
@@ -1128,7 +1289,7 @@ export class CraftContext {
    *   the registry.
    */
   capabilities(): Capability[] {
-    const registry = this.getStore(CAPABILITY_REGISTRY);
+    const registry = this.lookup(DIRECT);
     if (!registry) return [];
     // Filtered by enablement, which is what makes "the agent cannot use
     // this until I supply credentials" true by construction: the tool
@@ -1141,7 +1302,7 @@ export class CraftContext {
     // a local route only while it holds the endpoint the local route gave
     // up, and filtering it on the local predicate would hide the one that
     // answers.
-    return [...registry.values()]
+    return [...registry.capabilities()]
       .filter(
         (capability) =>
           capability.remote !== undefined ||
@@ -1249,6 +1410,43 @@ export class CraftContext {
     return this.startInFlight;
   }
 
+  /**
+   * Stop a context whose start failed. The unwind's own failure is logged
+   * and never replaces the start error: the operator needs the cause of the
+   * failed start, not what the cleanup hit on the way out.
+   */
+  private async stopAfterFailedStart(): Promise<void> {
+    try {
+      await this.stop();
+    } catch (stopErr) {
+      this.logger.error(
+        { err: stopErr },
+        "Shutdown after a failed start also failed; reporting the start error.",
+      );
+    }
+  }
+
+  /**
+   * The boot, from the plugins' bind to the routes listening and the
+   * plugins' start.
+   *
+   * Every await is a turn a concurrent `stop()` can land on, so the boot
+   * re-checks `hasStopped` after each one and returns quietly when a stop
+   * already tore the plugins down: starting routes then would announce boot
+   * progress for an application that is gone, and a `start()` hook would
+   * begin work nothing will ever stop. Waiting for that shutdown before
+   * returning keeps `start()` from resolving while teardown runs.
+   *
+   * Enablement predicates are evaluated as one batch before any route
+   * starts, so a disabled route never subscribes even briefly (a mail source
+   * with no credentials would connect and fail); one slow predicate delays
+   * the decision only. A context whose routes declare no predicate skips
+   * the batch and reaches the start loop without an await.
+   *
+   * Plugins start once the routes are listening, and the enablement cadence
+   * is armed once the boot has settled: a cadence firing into a context that
+   * is still starting could transition a route the boot gate is waiting on.
+   */
   private async run(): Promise<void> {
     const started = this.ensureStartedGate();
     try {
@@ -1258,21 +1456,24 @@ export class CraftContext {
       if (!this.pluginsInitialized) {
         await this.initPlugins();
       }
-      this.assertDeferralConfigured();
+      // A stop during bind left the plugins half-bound and the host
+      // unfrozen; compiling now would report a missing provider for what
+      // was a clean shutdown.
+      if (!this.hasStopped) {
+        this.assertDeferralConfigured();
+        for (const route of this.routes) route.compile();
+      }
     } catch (err) {
       // Every exit settles the deferred: a readiness probe waiting on a
       // context that refused its config must see the refusal.
       started.reject(err);
+      // Plugins bound at build hold their resources until something stops
+      // them, and the caller of a failed start has no reason to.
+      await this.stopAfterFailedStart();
       throw err;
     }
 
-    // A stop() that landed while the plugins were applying has already torn
-    // them down. Starting routes now announces boot progress for a context
-    // that is gone: route:starting fires after context:stopped, every route
-    // refuses with RC3001 against its aborted controller, and the boot
-    // summary reports a failed boot for what was a clean shutdown. Waiting
-    // for that shutdown before returning also keeps start() from resolving
-    // while teardown is still running.
+    // stop() during bind already tore the plugins down; do not announce boot.
     if (this.hasStopped) {
       // The shutdown's own failure belongs to whoever called stop().
       await this.shutdownPromise?.catch(() => undefined);
@@ -1285,27 +1486,13 @@ export class CraftContext {
     );
     this.emit("context:starting", {});
 
-    // Every predicate is evaluated here, as one batch, BEFORE any route
-    // starts. A disabled route must never subscribe even briefly: a mail
-    // source with no credentials would connect and fail, which is the
-    // failure this feature exists to prevent. Batched rather than folded
-    // into each route's start so one slow predicate delays the decision
-    // only, never an unrelated route coming up.
-    //
-    // Guarded rather than awaited unconditionally: every await here is a
-    // turn a concurrent `stop()` can land on, so a context whose routes
-    // declare no predicate must reach the start loop exactly as directly
-    // as it did before this feature existed.
     let disabled: ReadonlySet<string> = EMPTY_ROUTE_IDS;
     const declaring = this.routes.filter(
       (route) => route.definition.enablement,
     );
     if (declaring.length > 0) {
       disabled = await this.enablement.evaluateForBoot(declaring);
-      // Same re-check the post-readiness path makes: a stop() that landed
-      // while the predicates were running has already torn the plugins
-      // down, and starting routes now would announce boot progress for a
-      // context that is gone.
+      // Same re-check as above.
       if (this.hasStopped) {
         await this.shutdownPromise?.catch(() => undefined);
         return;
@@ -1366,30 +1553,13 @@ export class CraftContext {
     try {
       await routes.ready;
       this.logBootSummary(routes.outcomes);
-      // Re-checked after the wait: a stop() arriving while routes were
-      // still coming up has already torn the plugins down, and a start()
-      // hook run now would begin work on a stopped context with nothing
-      // left to ever tear it down.
+      // Same re-check as above.
       if (!this.hasStopped) await this.startPlugins();
-      // Armed only once the boot has settled: a cadence firing into a
-      // context that is still starting could transition a route the boot
-      // gate is still waiting on. Awaited, so a cadence that cannot be
-      // armed fails the boot instead of leaving the route silently without
-      // the refresh it declared.
+      // Awaited: a cadence that cannot be armed fails the boot.
       if (!this.hasStopped) await this.enablement.startRefreshing(this.routes);
     } catch (err) {
       started.reject(err);
-      try {
-        await this.stop();
-      } catch (stopErr) {
-        // The unwind's own failure must not replace the boot error: the
-        // operator needs the cause of the failed start, not what the
-        // cleanup hit on the way out.
-        this.logger.error(
-          { err: stopErr },
-          "Shutdown after a failed start also failed; reporting the start error.",
-        );
-      }
+      await this.stopAfterFailedStart();
       await running;
       throw err;
     }
@@ -1416,15 +1586,9 @@ export class CraftContext {
 
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
-        // A disabled route has not COMPLETED, it never ran, so it must not
-        // be counted as work that finished. But suppressing the auto-stop
-        // for EVERY disabled route strands the context: a route disabled
-        // under the default MANUAL cadence has no in-process path back to
-        // enabled, so nothing would ever re-evaluate it and the wait buys
-        // nothing while costing the whole shutdown (no plugin teardown, no
-        // `context:stopped`). Suppress only for a cadence that re-evaluates
-        // on its own; its timer is ref'd for the same reason, so the two
-        // decisions cannot disagree.
+        // A disabled route never ran, so it is not finished work; the
+        // auto-stop waits only for a cadence that will re-evaluate it, since
+        // under the manual cadence nothing ever would.
         const awaitingCadence = [...this.enablement.disabled().keys()].some(
           (routeId) =>
             isLiveCadence(
@@ -1434,7 +1598,7 @@ export class CraftContext {
         if (
           allFulfilled &&
           !awaitingCadence &&
-          !this.plugins.some((plugin) => plugin.keepsAlive)
+          !this.host?.ordered.some((entry) => entry.plugin.keepsAlive)
         ) {
           this.logger.debug({}, "All routes have completed. Stopping context.");
           await this.stop();
@@ -1505,64 +1669,79 @@ export class CraftContext {
         message: "The context was stopped before it finished starting.",
       }),
     );
-    this.shutdownPromise = this.performShutdown();
-    return this.shutdownPromise;
+    // Published before the walk starts: a `context:stopping` observer that
+    // calls stop() from inside the emit joins this shutdown instead of
+    // starting a second one.
+    const shutdown = Promise.withResolvers<ShutdownOutcome>();
+    this.shutdownPromise = shutdown.promise;
+    this.performShutdown().then(shutdown.resolve, shutdown.reject);
+    return shutdown.promise;
   }
 
   /**
-   * Tear down every plugin that applied, in reverse application order, then
-   * the registered teardown callbacks.
+   * Stop every plugin that bound, in reverse dependency order, each followed
+   * by the disposers it registered.
    *
    * One walk serves all three exits: an ordinary shutdown, a start that
    * failed partway, and a build that failed partway. They differ only in
-   * what {@link TeardownInfo} reports, which is why they are not three
+   * what {@link StopInfo} reports, which is why they are not three
    * mechanisms.
    *
-   * Only APPLIED plugins are torn down. A build that failed at plugin 3
-   * leaves plugin 4 never having run, and calling its teardown would ask it
-   * to release something it never acquired.
+   * Only BOUND plugins are stopped. A build that failed at plugin 3 leaves
+   * plugin 4 never having run, and stopping it would ask it to release
+   * something it never acquired.
    *
-   * Failure-tolerant throughout: a throwing teardown is logged and the
-   * remaining teardowns still run, because the caller's original error is
-   * what the operator needs and one plugin's cleanup must not strand
-   * another's.
+   * Failure-tolerant throughout: a throwing stop or disposer is logged and
+   * the rest still run, because the caller's original error is what the
+   * operator needs and one plugin's cleanup must not strand another's.
    *
-   * @param partial - The context never finished starting.
+   * One walk per context: a second caller (a build that failed while a
+   * plugin's `requestStop()` is already shutting down, a stop requested
+   * from inside the walk) joins the walk in progress, so a plugin's `stop`
+   * and its disposers run once however many exits reach them.
    */
-  private async teardownPlugins(partial: boolean): Promise<void> {
-    for (let i = this.plugins.length - 1; i >= 0; i--) {
-      if (!this.appliedPlugins.has(i)) continue;
-      const plugin = this.plugins[i] as CraftPlugin | undefined;
-      if (!plugin?.teardown) continue;
-      const pluginId = this.getPluginId(plugin, i);
+  private teardownPlugins(): Promise<void> {
+    return (this.teardownWalk ??= this.walkPluginTeardown(
+      !this.startCompleted,
+    ));
+  }
 
-      this.emit("plugin:stopping", { pluginId, pluginIndex: i });
-
-      try {
-        await Promise.resolve(
-          plugin.teardown(this, {
+  /** @param partial - The context never finished starting. */
+  private async walkPluginTeardown(partial: boolean): Promise<void> {
+    const ordered = this.host?.ordered ?? [];
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      const entry: InstalledPlugin = ordered[i]!;
+      // A bind that threw still released nothing it registered with
+      // onDispose or observe; only its stop is skipped.
+      if (!entry.context) continue;
+      const pluginId = entry.id;
+      const pluginIndex = entry.index;
+      if (entry.bound && entry.plugin.stop) {
+        this.emit("plugin:stopping", { pluginId, pluginIndex });
+        try {
+          await entry.plugin.stop(entry.context!, {
             partial,
-            started: this.startedPlugins.has(i),
-          }),
-        );
-        this.emit("plugin:stopped", { pluginId, pluginIndex: i });
-      } catch (err) {
-        this.logger.warn(
-          { err, pluginIndex: i },
-          "Plugin teardown threw; continuing with remaining teardowns.",
-        );
+            started: entry.started,
+          });
+          this.emit("plugin:stopped", { pluginId, pluginIndex });
+        } catch (err) {
+          this.logger.warn(
+            { err, pluginId },
+            "Plugin stop threw; continuing with the remaining plugins.",
+          );
+        }
       }
-    }
-    // LIFO: unwind registered teardowns in the opposite order they were
-    // acquired, mirroring the reverse plugin teardown above.
-    for (let i = this.teardownCallbacks.length - 1; i >= 0; i--) {
-      try {
-        await Promise.resolve(this.teardownCallbacks[i]());
-      } catch (err) {
-        this.logger.warn(
-          { err },
-          "Plugin teardown threw; continuing with remaining teardowns.",
-        );
+      // LIFO: release in the opposite order the plugin acquired.
+      while (entry.disposers.length > 0) {
+        const dispose = entry.disposers.pop()!;
+        try {
+          await dispose();
+        } catch (err) {
+          this.logger.warn(
+            { err, pluginId },
+            "A plugin disposer threw; continuing with the remaining disposers.",
+          );
+        }
       }
     }
   }
@@ -1572,42 +1751,43 @@ export class CraftContext {
    * rethrow the original error.
    *
    * `build()` never returns a context when it fails, so the caller has no
-   * handle to run teardown against: whatever an `apply()` opened (a database
+   * handle to run teardown against: whatever a `bind()` opened (a database
    * handle, a socket, an interval) is unreachable and stays open. Under a
    * supervisor that retries boot, one handle leaks per attempt, and with
    * SQLite the held handle also keeps the file locked, so a transient boot
    * failure becomes a permanent one whose error names lock contention rather
    * than the real cause.
    *
+   * A bind that requested a stop before it threw already has a shutdown in
+   * flight, whose walk this joins; its outcome belongs to that caller.
+   *
    * @internal Called by `ContextBuilder.build()` on the failure path.
    */
   async unwindFailedBuild(): Promise<void> {
     this.hasStopped = true;
-    await this.teardownPlugins(true);
+    if (this.shutdownPromise) {
+      await this.shutdownPromise.catch(() => undefined);
+      return;
+    }
+    await this.teardownPlugins();
   }
 
   private async performShutdown(): Promise<ShutdownOutcome> {
     this.logger.info({}, "Stopping Routecraft context");
-    // Before anything is torn down: a refresh firing mid-shutdown would
-    // start a route the shutdown has already walked past, leaving an
-    // ingress open behind the drain.
+    // First: a refresh firing mid-shutdown would start a route the walk
+    // already passed.
     this.enablement.stop();
     this.emit("context:stopping", { reason: undefined });
 
-    // STAGE ONE. Close intake: sources stop producing, no new exchange is
-    // admitted. Deliberately not the execution signal, so an exchange
-    // already in the pipeline (an agent mid-tool-call, a deferral
-    // continuation) runs to its natural end. Dedicated force signals and the
-    // shutdown deadline are what abandon work that does not finish in time.
+    // Stage one closes intake, never the execution signal: an exchange
+    // already in the pipeline runs to its end or to the shutdown deadline.
     for (const route of this.routes) {
       this.logger.info({ route: route.definition.id }, "Stopping route");
       const controller = this.controllers.get(route.definition.id);
       controller?.abort("context.stop()");
     }
 
-    // Drain, bounded. Past the deadline the work is abandoned rather than
-    // waited out: an unbounded stage one hands the outcome to the platform's
-    // kill timer, which is what this bound exists to take back.
+    // Bounded: past the deadline the work is abandoned, not waited out.
     const drain = Promise.all(this.routes.map((r) => r.drain()));
     let drainError: unknown;
     let forced = false;
@@ -1633,15 +1813,15 @@ export class CraftContext {
     }
 
     // A stop() racing boot lets the hook already awaiting finish first, so
-    // a plugin is never torn down while its own apply() or start() is still
+    // a plugin is never torn down while its own bind() or start() is still
     // acquiring. Outside that race this settles immediately.
     await this.settlePluginHook();
 
     // Plugin teardown (plugins with teardown in reverse order, then
-    // registerTeardown callbacks). Unbounded on purpose: teardown releases
+    // disposers). Unbounded on purpose: teardown releases
     // resources, and a plugin that wedges there is a different defect from
     // the one this deadline addresses.
-    await this.teardownPlugins(!this.startCompleted);
+    await this.teardownPlugins();
 
     this.logger.info({}, "Routecraft context stopped");
     this.emit("context:stopped", { forced, pending });

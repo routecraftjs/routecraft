@@ -1,6 +1,6 @@
 import type { Exchange } from "../exchange.ts";
-import type { Principal } from "../auth/types.ts";
-import { isAuthentic } from "../auth/authentic.ts";
+import type { Principal } from "../principal.ts";
+import { authorityOf } from "../kernel/authority.ts";
 import type { FieldTransform } from "./transform.ts";
 import { deletePath, hasPath, pickPaths } from "./field-paths.ts";
 
@@ -119,8 +119,9 @@ export function keep<T>(
     // Trust only an authentic principal (one established by a source verifier
     // or authenticate()). A self-asserted principal header is treated as
     // missing, so role and predicate grants fail closed, matching authorize().
-    const raw = exchange?.principal;
-    const principal = isAuthentic(raw) ? raw : undefined;
+    const authority = authorityOf(exchange);
+    const raw = exchange ? authority.read(exchange) : undefined;
+    const principal = authority.isAuthentic(raw) ? raw : undefined;
     if (Array.isArray(body)) {
       return body.map((item) =>
         item !== null && typeof item === "object" && !Array.isArray(item)

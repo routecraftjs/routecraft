@@ -8,6 +8,7 @@ export { jwks } from "./auth/jwks.ts";
 export type { JwksOptions } from "./auth/jwks.ts";
 export {
   authorize,
+  insufficientAuthorityOf,
   type AuthorizeOptions,
   type ActorSpec,
   type InsufficientAuthority,
@@ -15,8 +16,8 @@ export {
   type SubjectMatcher,
 } from "./auth/authorize.ts";
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
+export { refusal as authorizationRefusal } from "./authorization-refusal.ts";
 export { delegate, type DelegateOptions } from "./auth/delegate.ts";
-export { isAuthentic, markAuthentic } from "./auth/authentic.ts";
 export { isDevelopmentRuntime } from "./shared/runtime-env.ts";
 export {
   classifyRejectionReason,
@@ -25,7 +26,6 @@ export {
   type AuthRejectionReason,
 } from "./auth/error-classification.ts";
 export { isPrincipalExpired } from "./auth/expiry.ts";
-export { isRestored, markRestored } from "./auth/restored.ts";
 export { timingSafeStringEqual } from "./auth/timing-safe.ts";
 export type {
   ActorMatcher,
@@ -38,12 +38,13 @@ export type {
   PrincipalProfile,
   TokenVerifier,
   ValidatorAuthOptions,
-} from "./auth/types.ts";
+} from "./principal.ts";
 
 export {
   DefaultExchange,
   type Exchange,
   type ExchangeHeaders,
+  deferralOf,
   getExchangeContext,
   getExchangeRoute,
   HeadersKeys,
@@ -52,6 +53,7 @@ export {
   isDropped,
   OperationType,
   peekResumeStepState,
+  principalOf,
   wasOutputValidated,
   type RoutecraftHeaders,
 } from "./exchange.ts";
@@ -63,11 +65,77 @@ export {
   RUNNER_ARGV,
   DEFAULT_SHUTDOWN_TIMEOUT_MS,
   type CraftConfig,
-  type CraftPlugin,
   type ShutdownConfig,
   type ShutdownOutcome,
-  type TeardownInfo,
 } from "./context.ts";
+export {
+  definePlugin,
+  type Execution,
+  type Plugin,
+  type PluginContext,
+  type PluginLogger,
+  type PluginRoutes,
+  type RouteView,
+  type RouteDefinitionView,
+  type StopInfo,
+} from "./kernel/plugin.ts";
+export {
+  port,
+  type AnyPort,
+  type Port,
+  type PortLookup,
+} from "./kernel/port.ts";
+export {
+  CACHE,
+  ENFORCEMENT,
+  RESILIENCE,
+  type CachePositions,
+  type CacheRun,
+  type CacheStep,
+  type EnforcementPositions,
+  type Position,
+  type PositionRun,
+  type PositionScope,
+  type ResiliencePositions,
+  type RouteKey,
+} from "./kernel/positions.ts";
+export {
+  resiliencePlugin,
+  resilienceProvider,
+} from "./plugins/resilience/index.ts";
+export { cachePlugin, cacheProvider } from "./plugins/cache/index.ts";
+export { authPlugin, enforcementProvider } from "./plugins/auth/index.ts";
+export { AUTHORITY, authorityOf, type Authority } from "./kernel/authority.ts";
+export {
+  defaultAuthority,
+  principalsPlugin,
+} from "./plugins/principals/index.ts";
+export { directPlugin } from "./plugins/direct/index.ts";
+export {
+  isHookRefusal,
+  refuse,
+  REFUSAL_KINDS,
+  SLOTS,
+  type ErrorHook,
+  type ErrorHookInfo,
+  type ExchangeHook,
+  type ExchangePatch,
+  type HookInfo,
+  type HookRefusal,
+  type Hooks,
+  type HooksConfig,
+  type MutateHook,
+  type ObserveHook,
+  type Phase,
+  type PointDeclaration,
+  type Refusal,
+  type RefusalKind,
+  type RouteHookView,
+  type RunKind,
+  type Slot,
+  type ValidateHook,
+  type WrapperHook,
+} from "./kernel/hooks.ts";
 export {
   type Capability,
   isInternalEndpoint,
@@ -101,11 +169,16 @@ import "./adapters/direct/config.ts";
 import "./adapters/mail/config.ts";
 import "./adapters/carddav/config.ts";
 import "./telemetry/config.ts";
-import "./deferral/config.ts";
+import "./plugins/deferral/index.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { serversPlugin } from "./plugins/server/plugin.ts";
-export { requireWebIngress } from "./plugins/server/registry.ts";
+export {
+  requireWebIngress,
+  WEB_INGRESS,
+  type IngressHost,
+} from "./plugins/server/registry.ts";
+export { HTTP, type HttpMounts } from "./plugins/http/registry.ts";
 export { normalizeStaticPathPrefix } from "./plugins/server/mount-path.ts";
 export type {
   HttpMount,
@@ -138,9 +211,11 @@ export {
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";
 export {
-  OPS_HEALTH_STATE,
-  OPS_RESOURCES,
+  OPS,
+  contributeOpsIndicator,
   registerOpsResource,
+  type IndicatorContribution,
+  type OpsService,
 } from "./plugins/ops/store.ts";
 // Paging for contributed resources, so a contributor's collection carries the
 // same cursor contract as the route listing rather than a second one.
@@ -183,6 +258,7 @@ export type {
   OpsPluginOptions,
   OpsResource,
   OpsRouteDetail,
+  OpsRouteHook,
   OpsRouteFilter,
   OpsRouteQuery,
   OpsRouteSchemas,
@@ -215,6 +291,11 @@ export {
   type RuntimeVersion,
 } from "./shared/runtime-version.ts";
 export { remotesPlugin } from "./plugins/remotes/plugin.ts";
+export {
+  REMOTES,
+  type RemoteRoute,
+  type Remotes,
+} from "./plugins/remotes/store.ts";
 export type {
   RemoteDefinition,
   RemotesConfig,
@@ -226,8 +307,10 @@ export { type DirectConfig } from "./adapters/direct/types.ts";
 export {
   recovery,
   type Recovery,
+  type RecoveryDefer,
   type RecoveryDrop,
   type RecoveryRethrow,
+  type ErrorPathDeferRequest,
   isRecovery,
 } from "./recovery.ts";
 
@@ -235,7 +318,9 @@ export {
   DefaultRoute,
   type Route,
   type RouteDefinition,
+  type ErrorContext,
   type ErrorHandler,
+  type RouteErrorOptions,
   type ForwardFn,
   type RouteDiscovery,
   type RouteSchemas,
@@ -320,6 +405,7 @@ export {
   PathBuilder,
   when,
   otherwise,
+  type BranchBuilder,
   type ChoicePredicate,
   type Path,
   type WhenDescriptor,
@@ -340,8 +426,11 @@ export {
 
 export { type HeaderSetter } from "./operations/header.ts";
 
-export { type DeferOptions } from "./operations/defer.ts";
-export { type ResumeMapper, type ResumeOptions } from "./operations/resume.ts";
+export { type DeferOptions } from "./plugins/deferral/defer-step.ts";
+export {
+  type ResumeMapper,
+  type ResumeOptions,
+} from "./plugins/deferral/resume-step.ts";
 
 export { type CallableAuthenticator } from "./operations/authenticate.ts";
 
@@ -364,6 +453,9 @@ export { ErrorWrapperStep } from "./operations/error-wrapper.ts";
 export {
   CacheWrapperStep,
   type CacheOptions,
+  type ResolvedCacheOptions,
+  type BoundCacheOptions,
+  bindCacheProvider,
 } from "./operations/cache-wrapper.ts";
 export {
   type CacheProvider,
@@ -395,6 +487,7 @@ export {
 export {
   ConcurrencyWrapperStep,
   type ConcurrencyOptions,
+  type ResolvedConcurrencyOptions,
 } from "./operations/concurrency-wrapper.ts";
 
 export {
@@ -410,15 +503,12 @@ export {
 
 /**
  * Type-only re-exports of the shared builder base and its type-state
- * machinery. Exposed so that `registerDsl` can augment a single interface
- * (`StepBuilderBase<S extends BuilderState>`) and have both `RouteBuilder`
- * and `PathBuilder` inherit the augmentation via class-interface
- * inheritance; `SetBody`, `SetDeferral` and `Retyped` are the helpers
- * type-changing sugar uses to advance the bag. `ExchangeOf` and `PathState`
- * are published for the same reason: both appear in signatures a user can
- * see (`ExchangeOf` in every callable-taking builder method, `PathState` in
- * the exported `Path` / `when()` / `otherwise()` types), so naming them has
- * to be possible without re-declaring them. The class value is deliberately
+ * machinery. `SetBody`, `SetDeferral` and `Retyped` are what a plugin's
+ * `StepMethods` declaration types a call-site-generic method with.
+ * `ExchangeOf` and `PathState` appear in signatures a user can see
+ * (`ExchangeOf` in every callable-taking builder method, `PathState` in the
+ * exported `Path` / `when()` / `otherwise()` types), so naming them has to
+ * be possible without re-declaring them. The class value is deliberately
  * not re-exported: the base is not a public extension point and the
  * closed-world `Retyped` helper falls through to `never` for any subclass
  * outside the framework-owned set.
@@ -430,6 +520,7 @@ export type {
   PathState,
   SetBody,
   SetDeferral,
+  BodyOf,
   FetchedBody,
   Retyped,
 } from "./step-builder-base.ts";
@@ -437,12 +528,30 @@ export type {
 export { CraftClient } from "./client.ts";
 
 export {
-  registerDsl,
-  type PrimitiveKind,
-  type DslRegistration,
-} from "./dsl.ts";
-// Side-effect import: triggers built-in sugar registrations (.log, .debug, .map, .schema)
-import "./dsl.ts";
+  step,
+  type Body,
+  type FacetsOf,
+  type FacetTypes,
+  type DerivedStepMethods,
+  type PluginMethods,
+  type StepFactory,
+  type StepMethods,
+  type TypedStep,
+} from "./kernel/steps.ts";
+export type {
+  ConfigKeyPlugins,
+  DefaultPlugins,
+  DefaultPluginTypes,
+  ShippedPlugins,
+  ShippedPluginTypes,
+} from "./kernel/steps.ts";
+export type { AuthFacet, AuthPlugin } from "./plugins/auth/index.ts";
+export type { DeferralPlugin } from "./plugins/deferral/index.ts";
+export { defineProject, type Project } from "./project.ts";
+export type { NextRouteState, RootState } from "./builder.ts";
+export type { DeferralStepMethods } from "./plugins/deferral/steps.ts";
+// The deferral plugin's method and facet types are declared there.
+import "./plugins/deferral/steps.ts";
 
 export {
   RoutecraftError,
@@ -489,6 +598,7 @@ export type { Duration, DurationUnit } from "./shared/duration.ts";
 export {
   isCraftContext,
   isRoute,
+  isProject,
   isRouteBuilder,
   isRouteDefinition,
   isRoutecraftError,
@@ -533,10 +643,12 @@ export {
   type Consumer,
   type ConsumerDeps,
   type ConsumerType,
+  type ErrorHandlerScope,
   type EventDetailsMap,
   type EventName,
   type EventHandler,
   type EventPayload,
+  type ExchangeScoped,
   forRoute,
   type Message,
   type ProcessingQueue,
@@ -601,6 +713,8 @@ export {
   type HttpWebhookSignatureScheme,
 } from "./adapters/http/index.ts";
 export {
+  DIRECT,
+  type DirectRegistry,
   type DirectBaseOptions,
   type DirectChannel,
   type DirectChannelType,
@@ -724,16 +838,16 @@ export {
   type SqlitePathConflict,
 } from "./shared/sqlite/claims.ts";
 
-// The deferral engine (hashing, serialization, token minting, runtime
-// resolution) stays behind `./deferral/index.ts`, which is where the
-// executor imports it from. Only the surface a user touches is published:
+// The continuation protocol (hashing, serialization, park and resume) is the
+// kernel's, and the deferral plugin provides storage and token minting over
+// it. Only the surface a user touches is published:
 // configuration, the store contract for anyone writing a backend, the two
 // shipped backends, and the environment-variable names.
 export {
   DEFAULT_DEFERRAL_DB_PATH,
   MemoryDeferralStore,
   DEFERRED_JSON_SCHEMA,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   DEFERRAL_SECRET_ENV,
   DEFERRAL_STORE_ENV,
   SqliteDeferralStore,
@@ -751,7 +865,7 @@ export {
   stepStateFingerprint,
   deferredSchema,
   deferralPlugin,
-} from "./deferral/index.ts";
+} from "./plugins/deferral/public.ts";
 export type {
   ExpiredScanCursor,
   NewDeferral,
@@ -762,6 +876,7 @@ export type {
   ResumeAcknowledgment,
   ResumeAuthorizer,
   ResumeAuthorizerInput,
+  ResumeElevator,
   ResumeRequest,
   Deferred,
   DeferralRecordView,
@@ -769,6 +884,7 @@ export type {
   SerializedExchange,
   SerializedOutcome,
   Deferral,
+  ErrorPathRecord,
   DeferralCasResult,
   DeferralConfig,
   DeferralListCursor,
@@ -782,8 +898,12 @@ export type {
   DeferralWaitingFor,
   DeferralStore,
   DeferralStoreConfig,
-} from "./deferral/index.ts";
-export { claimed, resumable, summariseDeferral } from "./deferral/index.ts";
+} from "./plugins/deferral/public.ts";
+export {
+  claimed,
+  resumable,
+  summariseDeferral,
+} from "./plugins/deferral/public.ts";
 export {
   type MailAuth,
   type MailReconnectOptions,
@@ -822,7 +942,7 @@ export {
 export {
   CarddavAdapter,
   CarddavClientManager,
-  CARDDAV_CLIENT_MANAGER,
+  CARDDAV,
   DEFAULT_CARDDAV_SERVER_URL,
   CarddavHeaders,
   VCard,
@@ -848,3 +968,5 @@ export {
   type VCardPropertyOptions,
   type VCardParam,
 } from "./adapters/carddav/index.ts";
+export { NESTED_STEPS, AUTHENTICATES } from "./dsl-symbol.ts";
+export type { NestedSteps, NestingStep } from "./kernel/continuation/sites.ts";

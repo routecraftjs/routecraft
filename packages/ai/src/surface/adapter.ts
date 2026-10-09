@@ -27,7 +27,6 @@ import {
   factoryArgs,
   type Destination,
   type Enricher,
-  type CraftContext,
   type Exchange,
   type StepSignalContext,
 } from "@routecraft/routecraft";
@@ -49,6 +48,7 @@ import {
   type ProtocolIssue,
 } from "./protocol.ts";
 import { surfaceFor, turnSurfaceOf } from "./registry.ts";
+import { surfacesOf, type SurfaceState } from "./state.ts";
 import { SurfaceDisconnected } from "./errors.ts";
 import {
   withSession,
@@ -156,7 +156,7 @@ export function surface<M extends SurfaceMethod, T = unknown>(
         ctx?: StepSignalContext,
       ): Promise<SurfaceRequestResponses[M]> => {
         const {
-          context,
+          state,
           connection,
           ref,
           turn: turnId,
@@ -164,7 +164,7 @@ export function surface<M extends SurfaceMethod, T = unknown>(
         assertSupported(connection, ref, method);
         // Nothing new goes to the editor once the person has said stop.
         // What must reach them after that is registered beforehand.
-        const turn = turnSignalOf(context, ref.session, turnId);
+        const turn = turnSignalOf(state, ref.session, turnId);
         if (turn.aborted) throw cancelledBefore(method, ref.kind);
         const sent = withSession(resolve(params, exchange), ref);
         // The check is loaded before the call goes out, so a schema that
@@ -260,7 +260,7 @@ surface.notify = function notify<T = unknown>(
       getMetadata: () => ({ method: "session/update" }),
       send: async (exchange: Exchange<T>): Promise<void> => {
         const {
-          context,
+          state,
           connection,
           ref,
           turn: turnId,
@@ -269,7 +269,7 @@ surface.notify = function notify<T = unknown>(
         // route that keeps running after a stop has nothing to handle, and
         // the rule is the one `surface()` enforces. Nothing new reaches a
         // person who said stop.
-        const turn = turnSignalOf(context, ref.session, turnId);
+        const turn = turnSignalOf(state, ref.session, turnId);
         if (turn.aborted) return;
         const built = resolve(update, exchange);
         const issues = await (await updateCheck())(built);
@@ -372,10 +372,10 @@ function optional(
  * from a schedule: `AI1013` is what a route gets for not asking.
  */
 export function hasSurface(exchange: Exchange<unknown>): boolean {
-  const context = getExchangeContext(exchange);
-  if (context === undefined) return false;
-  const ref = refFor(context, exchange);
-  return ref !== undefined && surfaceFor(context, ref) !== undefined;
+  const state = surfacesOf(exchange);
+  if (state === undefined) return false;
+  const ref = refFor(state, exchange);
+  return ref !== undefined && surfaceFor(state, ref) !== undefined;
 }
 
 /**
@@ -401,14 +401,14 @@ export function hasSurface(exchange: Exchange<unknown>): boolean {
  * exactly the case worth resolving conservatively.
  */
 function refFor(
-  context: CraftContext,
+  state: SurfaceState,
   exchange: Exchange<unknown>,
 ): AgentSurfaceRef | undefined {
-  const pinned = pinnedSurfaceOf(context, exchange.id);
+  const pinned = pinnedSurfaceOf(state, exchange.id);
   if (pinned !== undefined) return pinned;
   const correlation = exchange.headers[HeadersKeys.CORRELATION_ID];
   const fromTurn = turnSurfaceOf(
-    context,
+    state,
     typeof correlation === "string" ? correlation : undefined,
   );
   return fromTurn ?? surfaceRefOf(exchange.headers);
@@ -420,34 +420,35 @@ function refFor(
  * later call on it resolves the same one.
  *
  * @param call - The call being made, as the refusal names it
- * @throws AI1013 when the turn never had a surface
+ * @throws AI1013 when the turn never had a surface, which includes an
+ *   application with no surface backend installed
  * @throws AI1014 when it had one and the connection is gone
  */
 function resolveSurface(
   exchange: Exchange<unknown>,
   call: string,
 ): {
-  context: CraftContext;
+  state: SurfaceState;
   connection: AgentSurfaceConnection;
   ref: AgentSurfaceRef;
   /** The turn this exchange belongs to, fixed at its first resolution. */
   turn: string;
 } {
-  const context = getExchangeContext(exchange);
-  const ref = context === undefined ? undefined : refFor(context, exchange);
-  if (ref === undefined || context === undefined) {
+  const state = surfacesOf(exchange);
+  const ref = state === undefined ? undefined : refFor(state, exchange);
+  if (ref === undefined || state === undefined) {
     throw rcError("AI1013", undefined, {
       message: `${call} reaches the client running this turn, and this exchange has none. Guard the call with hasSurface(exchange), or dispatch this route from a turn that carries one.`,
     });
   }
-  const connection = surfaceFor(context, ref);
+  const connection = surfaceFor(state, ref);
   if (connection === undefined) {
     throw rcError("AI1014", undefined, {
       message: `The ${ref.kind} client running this turn disconnected before ${call} could reach it. There is nothing to retry against on this exchange.`,
     });
   }
   const turn =
-    pinnedTurnOf(context, exchange.id) ?? turnIdOf(exchange, ref.session);
-  pinSurface(context, exchange.id, ref, turn);
-  return { context, connection, ref, turn };
+    pinnedTurnOf(state, exchange.id) ?? turnIdOf(exchange, ref.session);
+  pinSurface(state, exchange.id, ref, turn);
+  return { state, connection, ref, turn };
 }

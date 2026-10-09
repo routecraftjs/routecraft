@@ -5,6 +5,8 @@ import {
   DefaultExchange,
   isDropped,
   markDropped,
+  principalOf,
+  HeadersKeys,
 } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
@@ -13,16 +15,16 @@ import { hashExchangeBody } from "./hash-body.ts";
 import { principalIdentity } from "./principal-identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
-import { WrapperStep } from "./wrapper.ts";
-import { nestedStepsOf } from "../deferral/sites.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import { nestedStepsOf } from "../kernel/continuation/sites.ts";
 import {
   definitionFingerprint,
   stepDefinitionFingerprint,
-} from "../deferral/hash.ts";
-import {
-  type CacheProvider,
-  defaultMemoryCacheProvider,
-} from "./cache-provider.ts";
+} from "../kernel/continuation/hash.ts";
+import { type CacheProvider } from "./cache-provider.ts";
+import { positionFor } from "./position-run.ts";
+import { CACHE } from "../kernel/positions.ts";
+import type { CacheStep } from "../kernel/positions.ts";
 
 /**
  * Options for `.cache()`, at route scope (before `.from()`) and step scope
@@ -57,11 +59,11 @@ export interface CacheOptions<Current = unknown> {
    * A custom `key` is used VERBATIM: nothing is added to it. Every route
    * and step on the same provider shares entries for equal keys, and so
    * does every caller, so put the route (`ex.headers[HeadersKeys.ROUTE_ID]`)
-   * and the caller's identity (`ex.principal?.issuer` and `subject`) in
-   * the key, and drop the principal only when every caller sees the same
+   * and the caller's identity (`principalOf(ex)?.issuer` and `subject`)
+   * in the key, and drop the principal only when every caller sees the same
    * answer. On a route that admits delegation, add the current actor
-   * (`ex.principal?.actor?.issuer` and `subject`) as well, or two delegates
-   * acting for the same subject share entries.
+   * (`principalOf(ex)?.actor?.issuer` and `subject`) as well, or two
+   * delegates acting for the same subject share entries.
    *
    * Performance: the default hashes a JSON serialisation of the body on
    * every exchange. For hot paths or large bodies (file contents, large
@@ -77,7 +79,9 @@ export interface CacheOptions<Current = unknown> {
    */
   ttl?: Duration;
   /**
-   * Cache backend. Defaults to a process-wide in-memory provider. Pass
+   * Cache backend. Defaults to the application's own in-memory provider,
+   * one per context kept by the default `CACHE` plugin, so two applications
+   * in one process never share entries by accident. Pass
    * a custom provider (Redis, multi-tier, file-backed, etc.) by
    * constructing an implementation of {@link CacheProvider} and
    * handing it in here.
@@ -128,25 +132,50 @@ export type CacheKeyScope =
   | { readonly kind: "step"; readonly routeId: string; readonly site: string };
 
 /**
- * Internal resolved shape of {@link CacheOptions}: every field is
- * populated, with defaults filled in. Shared between the step-scope
- * wrapper and the route-scope filter steps.
- *
- * @internal
+ * {@link CacheOptions} with every field populated, defaults filled in: what
+ * a `CACHE` provider receives, at route scope and at step scope alike.
  */
 export interface ResolvedCacheOptions<Current = unknown> {
   key: (exchange: Exchange<Current>, scope: CacheKeyScope) => string;
   /** No custom `key` was supplied, so `key` is {@link defaultCacheKey}. */
   usesDefaultKey: boolean;
   ttl: number | undefined;
+  /**
+   * The provider the call site supplied, or `undefined` when it supplied
+   * none: the `CACHE` provider then uses its own, which the default plugin
+   * keeps per application.
+   */
+  provider: CacheProvider | undefined;
+}
+
+/**
+ * {@link ResolvedCacheOptions} with the provider settled: what a cache
+ * position runs with.
+ */
+export interface BoundCacheOptions<
+  Current = unknown,
+> extends ResolvedCacheOptions<Current> {
   provider: CacheProvider;
+}
+
+/**
+ * Settle the provider of resolved options on `fallback` when the call site
+ * supplied none.
+ */
+export function bindCacheProvider<Current = unknown>(
+  options: ResolvedCacheOptions<Current>,
+  fallback: CacheProvider,
+): BoundCacheOptions<Current> {
+  return options.provider
+    ? (options as BoundCacheOptions<Current>)
+    : { ...options, provider: fallback };
 }
 
 /**
  * Resolve a user-supplied {@link CacheOptions} into a fully populated
  * {@link ResolvedCacheOptions}, filling defaults: {@link defaultCacheKey}
- * for `key`, no TTL, and the module-level in-memory provider. A custom
- * `key` ignores the scope.
+ * for `key` and no TTL. A custom `key` ignores the scope. The provider is
+ * left as supplied; the `CACHE` provider fills it.
  *
  * @internal
  */
@@ -161,7 +190,7 @@ export function resolveCacheOptions<Current = unknown>(
       options.ttl === undefined
         ? undefined
         : parseDuration(options.ttl, "cache({ ttl })"),
-    provider: options.provider ?? defaultMemoryCacheProvider,
+    provider: options.provider,
   };
 }
 
@@ -188,10 +217,10 @@ export function defaultCacheKey(
         `Default cache key for route "${scope.routeId}" has nothing to key on: the exchange body is undefined. ` +
         "A bodiless request such as an http() GET carries its input in the routecraft.http.params and " +
         "routecraft.http.query headers, which the default key does not read. Supply a key, e.g. " +
-        "cache({ key: (ex) => JSON.stringify([ex.headers['routecraft.route'], ex.principal?.issuer, " +
-        "ex.principal?.subject, ex.headers['routecraft.http.params'], ex.headers['routecraft.http.query']]) }). " +
+        "cache({ key: (ex) => JSON.stringify([ex.headers['routecraft.route'], principalOf(ex)?.issuer, " +
+        "principalOf(ex)?.subject, ex.headers['routecraft.http.params'], ex.headers['routecraft.http.query']]) }). " +
         "A custom key is used verbatim: drop the principal only when every caller sees the same answer, " +
-        "and on a route that admits delegation add each ex.principal.actor hop as well.",
+        "and on a route that admits delegation add each principalOf(ex)?.actor hop as well.",
     });
   }
   let bodyHash: string;
@@ -208,7 +237,7 @@ export function defaultCacheKey(
     scope.kind,
     scope.routeId,
     scope.kind === "step" ? scope.site : scope.pipeline,
-    principalIdentity(exchange.principal),
+    principalIdentity(principalOf(exchange)),
     bodyHash,
   ]);
   return createHash("sha256").update(identity).digest("hex");
@@ -367,6 +396,7 @@ export class CacheWrapperStep<
   // source is the same for every cache, so fingerprint the original.
   readonly #customKey: CacheOptions["key"];
   #site: string | undefined;
+  readonly #runs = new WeakMap<object, CacheStep>();
 
   constructor(inner: Step<T>, options: CacheOptions = {}) {
     super(inner);
@@ -388,6 +418,10 @@ export class CacheWrapperStep<
     return this.#options.usesDefaultKey;
   }
 
+  override get requiredPosition(): RequiredPosition {
+    return { port: CACHE, method: "cache", member: "wrap" };
+  }
+
   /**
    * Record this wrapper's position in its route. Called by
    * {@link assignCacheSites}; see {@link CacheKeyScope}.
@@ -402,26 +436,25 @@ export class CacheWrapperStep<
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const { route, context, routeId, stepLabel, correlationId } =
-      wrapperEventScope(exchange, this);
-    const shouldEmit = route && context && routeId;
+    const { context, routeId, stepLabel, correlationId } = wrapperEventScope(
+      exchange,
+      this,
+    );
     const site = (this.#site ??= `unbuilt:${randomUUID()}`);
 
     let key: string;
     try {
       key = this.#options.key(exchange, { kind: "step", routeId, site });
     } catch (err) {
-      if (shouldEmit) {
-        context.emit("route:cache:failed", {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel,
-          scope: "step",
-          phase: "key",
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+      context?.emit("route:cache:failed", {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel,
+        scope: "step",
+        phase: "key",
+        error: err instanceof Error ? err.message : String(err),
+      });
       throw isRoutecraftError(err)
         ? err
         : rcError("RC5029", err, {
@@ -429,139 +462,141 @@ export class CacheWrapperStep<
           });
     }
 
-    let ranInner = false;
-    // Flips true once the inner step has produced its value inside the
-    // loader. Lets the catch below tell an inner-step failure (loader
-    // not yet resolved) from a provider write failure (loader resolved,
-    // `getOrCompute` rejected while caching).
-    let loaderResolved = false;
-    // Set only by the call that runs the loader (the cache miss). On a
-    // hit or stampede-dedup this stays undefined and the wrapper rewraps
-    // the current exchange with the cached body instead.
-    let producedExchange: Exchange | undefined;
-    let computed: unknown;
+    const cache = positionFor(
+      this.#runs,
+      exchange,
+      this,
+      CACHE,
+      "cache",
+      (provider) => provider.wrap(this.#options),
+      { member: "wrap" },
+    );
+    return cache.run({
+      routeId,
+      scope: "step",
+      stepLabel,
+      exchange,
+      key,
+      emit: (event, details) => context?.emit(event, details),
+      attempt: () => this.inner.execute(exchange, ctx),
+    });
+  }
+}
 
-    try {
-      computed = await this.#options.provider.getOrCompute(
-        key,
-        async () => {
-          ranInner = true;
-          const outcome = await this.inner.execute(exchange, ctx);
-          // A genuine drop is signalled by the drop outcome (filter
-          // reject / halt), NOT by an undefined body: a step such as
-          // `transform(() => undefined)` legitimately sets the body to
-          // undefined and must not be misread as a drop.
-          if (outcome.kind === "drop" || isDropped(exchange)) {
-            // Abort via sentinel so `getOrCompute` writes nothing.
-            throw new CacheLoaderDrop();
-          }
-          if (
-            outcome.kind === "fanOut" ||
-            outcome.kind === "branch" ||
-            outcome.kind === "defer"
-          ) {
-            // The wrapper caches and replays a single output. Fan-out
-            // would lose all but one child; a branch outcome carries
-            // live steps that cannot be cached; a defer exchange is
-            // mid-flight and must never be cache-stored. split / aggregate
-            // are already blocked at construction by WrapperStep; this
-            // guards choice and custom steps explicitly (the
-            // pre-outcome engine silently discarded a wrapped choice's
-            // branch steps instead).
-            throw rcError("RC5003", undefined, {
-              message:
-                `.cache() cannot wrap "${stepLabel}": the step produced a "${outcome.kind}" ` +
-                `outcome, but cache replays a single output. Wrap a single-output step instead.`,
-            });
-          }
-          producedExchange = outcome.exchange;
-          loaderResolved = true;
-          return outcome.exchange.body;
-        },
-        this.#options.ttl,
-      );
-    } catch (err) {
-      if (err instanceof CacheLoaderDrop) {
-        // Mark this exchange (may be a concurrent waiter whose own
-        // inner never ran) so the template's empty-queue branch
-        // forwards a drop, not a live exchange.
-        markDropped(exchange);
-        if (shouldEmit) {
-          context.emit("route:cache:miss", {
-            routeId,
-            exchangeId: exchange.id,
-            correlationId,
-            stepLabel,
-            scope: "step",
-            key,
-            dropped: true,
-          });
-        }
-        return { kind: "drop" };
-      }
-      // Attribute the failure:
-      // - `"get"`   provider read threw before the inner ran.
-      // - `"inner"` the wrapped step itself threw (loader not resolved).
-      // - `"set"`   the inner succeeded but the provider write threw.
-      const phase = !ranInner ? "get" : loaderResolved ? "set" : "inner";
-      if (shouldEmit) {
-        context.emit("route:cache:failed", {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel,
-          scope: "step",
-          phase,
-          key,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-      // Inner-step failures propagate unchanged so route-level handlers
-      // see the real cause (matching unwrapped step behaviour). Provider
-      // read / write failures map to the retryable RC5028 boundary code
-      // unless the provider already threw a RoutecraftError.
-      if (phase !== "inner" && !isRoutecraftError(err)) {
-        throw rcError("RC5028", err, {
-          message: `cache() provider ${phase === "get" ? "read" : "write"} failed for "${stepLabel}"`,
-        });
-      }
-      throw err;
-    }
-
-    if (shouldEmit) {
-      context.emit(ranInner ? "route:cache:miss" : "route:cache:hit", {
+/**
+ * The framework's step-scope cache: what fills `CachePositions.wrap` unless
+ * an installed plugin replaces `CACHE`. One `getOrCompute` per key, so a
+ * stampede computes once and every waiter gets the value; a drop inside the
+ * loader caches nothing and drops every waiter; a fan-out, branch or defer
+ * outcome is refused, since the cache replays a single output.
+ *
+ * @internal
+ */
+export function cacheStepRun(options: BoundCacheOptions): CacheStep {
+  return {
+    async run(run) {
+      const { exchange, key, routeId, stepLabel, scope } = run;
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const scoped = {
         routeId,
         exchangeId: exchange.id,
         correlationId,
         stepLabel,
-        scope: "step",
+        scope,
+      };
+
+      let ranInner = false;
+      // Flips true once the inner step has produced its value inside the
+      // loader, so the catch below tells an inner-step failure (loader not
+      // yet resolved) from a provider write failure (loader resolved,
+      // `getOrCompute` rejected while caching).
+      let loaderResolved = false;
+      // Set only by the call that runs the loader (the cache miss). On a hit
+      // or stampede-dedup this stays undefined and the current exchange is
+      // rewrapped with the cached body instead.
+      let producedExchange: Exchange | undefined;
+      let computed: unknown;
+
+      try {
+        computed = await options.provider.getOrCompute(
+          key,
+          async () => {
+            ranInner = true;
+            const outcome = await run.attempt();
+            // A genuine drop is signalled by the drop outcome, never by an
+            // undefined body: `transform(() => undefined)` is a value.
+            if (outcome.kind === "drop" || isDropped(exchange)) {
+              throw new CacheLoaderDrop();
+            }
+            if (
+              outcome.kind === "fanOut" ||
+              outcome.kind === "branch" ||
+              outcome.kind === "defer"
+            ) {
+              throw rcError("RC5003", undefined, {
+                message:
+                  `.cache() cannot wrap "${stepLabel}": the step produced a "${outcome.kind}" ` +
+                  `outcome, but cache replays a single output. Wrap a single-output step instead.`,
+              });
+            }
+            producedExchange = outcome.exchange;
+            loaderResolved = true;
+            return outcome.exchange.body;
+          },
+          options.ttl,
+        );
+      } catch (err) {
+        if (err instanceof CacheLoaderDrop) {
+          // Mark this exchange (it may be a waiter whose own inner never
+          // ran) so the template's empty-queue branch forwards a drop.
+          markDropped(exchange);
+          run.emit("route:cache:miss", { ...scoped, key, dropped: true });
+          return { kind: "drop" };
+        }
+        // `"get"`: the provider read threw before the inner ran; `"inner"`:
+        // the wrapped step threw; `"set"`: the inner succeeded and the
+        // provider write threw.
+        const phase = !ranInner ? "get" : loaderResolved ? "set" : "inner";
+        run.emit("route:cache:failed", {
+          ...scoped,
+          phase,
+          key,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        // Inner-step failures propagate unchanged so route-level handlers
+        // see the real cause. Provider read and write failures map to the
+        // retryable RC5028 unless the provider already threw a RoutecraftError.
+        if (phase !== "inner" && !isRoutecraftError(err)) {
+          throw rcError("RC5028", err, {
+            message: `cache() provider ${phase === "get" ? "read" : "write"} failed for "${stepLabel}"`,
+          });
+        }
+        throw err;
+      }
+
+      run.emit(ranInner ? "route:cache:miss" : "route:cache:hit", {
+        ...scoped,
         key,
       });
       if (ranInner) {
-        context.emit("route:cache:stored", {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel,
-          scope: "step",
+        run.emit("route:cache:stored", {
+          ...scoped,
           key,
-          ...(this.#options.ttl !== undefined
-            ? { ttl: this.#options.ttl }
-            : {}),
+          ...(options.ttl !== undefined ? { ttl: options.ttl } : {}),
         });
       }
-    }
 
-    // On a miss (this call ran the inner), forward the inner's produced
-    // exchange so its header mutations and body survive. On a hit or
-    // stampede-dedup the inner did not run for THIS exchange, so rewrap
-    // the current exchange with the cached body: a cache hit means the
-    // wrapped step's side effects (including header writes) did not
-    // happen for this exchange.
-    const forwarded =
-      ranInner && producedExchange !== undefined
-        ? producedExchange
-        : DefaultExchange.rewrap(exchange, { body: computed });
-    return { kind: "continue", exchange: forwarded };
-  }
+      // On a miss this call ran the inner, so its produced exchange carries
+      // its header writes and body. On a hit or stampede-dedup the inner did
+      // not run for THIS exchange, so the current exchange is rewrapped with
+      // the cached body: the wrapped step's side effects did not happen.
+      const forwarded =
+        ranInner && producedExchange !== undefined
+          ? producedExchange
+          : DefaultExchange.rewrap(exchange, { body: computed });
+      return { kind: "continue", exchange: forwarded };
+    },
+  };
 }

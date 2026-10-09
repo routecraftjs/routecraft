@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, noop, type CraftPlugin } from "@routecraft/routecraft";
+import { craft, simple, noop, type Plugin } from "@routecraft/routecraft";
 
 describe("CraftContext", () => {
   let t: TestContext;
@@ -189,21 +189,22 @@ describe("Lifecycle Management", () => {
   });
 
   /**
-   * @case Verifies context:stopped is emitted only after teardown work completes
-   * @preconditions Context with async plugin teardown and registered teardown callback
-   * @expectedResult Event ordering is plugin teardown, registered teardown, then context:stopped
+   * @case Verifies context:stopped is emitted only after plugin stop work completes
+   * @preconditions Context with an async plugin stop and an async disposer registered through onDispose
+   * @expectedResult Event ordering is plugin stop, disposer, then context:stopped
    */
   test("Emits context:stopped after teardown completes", async () => {
     const lifecycle: string[] = [];
 
-    const plugin: CraftPlugin = {
-      apply(ctx) {
-        ctx.registerTeardown(async () => {
+    const plugin: Plugin = {
+      id: "test.slow-stop",
+      bind(c) {
+        c.onDispose(async () => {
           await new Promise((resolve) => setTimeout(resolve, 10));
           lifecycle.push("callback");
         });
       },
-      async teardown() {
+      async stop() {
         await new Promise((resolve) => setTimeout(resolve, 10));
         lifecycle.push("plugin");
       },

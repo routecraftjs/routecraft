@@ -1,4 +1,5 @@
 import type { Cron as CronType } from "croner";
+import { port } from "../../kernel/port.ts";
 import type { ExchangeHeaders } from "../../exchange";
 import { CronHeaders } from "./types";
 import type { Source, Subscription } from "../../operations/from";
@@ -8,20 +9,12 @@ import { parseDuration } from "../../shared/duration.ts";
 import type { CronExpression, CronOptions } from "./types";
 
 /**
- * Store key for merged cron adapter options.
- * Set context-level defaults (e.g., maxJitter) once and share across all
- * cron sources in the same context.
- * @internal
+ * Context-level defaults (e.g. maxJitter) shared by every cron source,
+ * provided by the `cron` config key.
  */
-export const ADAPTER_CRON_OPTIONS = Symbol.for(
-  "routecraft.adapter.cron.options",
+export const CRON_DEFAULTS = port<Partial<CronOptions>>(
+  "routecraft.cron.defaults@1",
 );
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [ADAPTER_CRON_OPTIONS]: Partial<CronOptions>;
-  }
-}
 
 /**
  * Source adapter that fires on a cron schedule using the `croner` library.
@@ -33,8 +26,8 @@ declare module "@routecraft/routecraft" {
  * Supports standard 5-field cron (minute granularity), extended 6-field
  * (second granularity), and nicknames (`@daily`, `@hourly`, etc.).
  *
- * Options can be set per-adapter or globally via `CraftContext` store
- * using the `ADAPTER_CRON_OPTIONS` key. Per-adapter options take precedence.
+ * Options can be set per-adapter or globally with the `cron` config key,
+ * which provides the `CRON_DEFAULTS` port. Per-adapter options take precedence.
  */
 export class CronSourceAdapter
   implements Source<undefined>, MergedOptions<CronOptions>
@@ -70,9 +63,7 @@ export class CronSourceAdapter
    * @returns Merged options
    */
   mergedOptions(context: CraftContext): CronOptions {
-    const contextOptions =
-      (context.getStore(ADAPTER_CRON_OPTIONS) as
-        Partial<CronOptions> | undefined) ?? {};
+    const contextOptions = context.lookup(CRON_DEFAULTS) ?? {};
     return {
       ...contextOptions,
       ...this.options,

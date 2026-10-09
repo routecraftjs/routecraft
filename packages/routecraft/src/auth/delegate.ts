@@ -1,7 +1,11 @@
 import { rcError } from "../error.ts";
-import { authenticate, type PrincipalClaims } from "./authenticate.ts";
-import { isAuthentic, markAuthentic } from "./authentic.ts";
-import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
+import type { PrincipalClaims } from "./authenticate.ts";
+import type { Authority } from "../kernel/authority.ts";
+import type {
+  ActorMatcher,
+  Principal,
+  PrincipalProfile,
+} from "../principal.ts";
 
 /**
  * Options accepted by {@link delegate}.
@@ -112,6 +116,9 @@ function intersect(
  * Routecraft supports delegation only, never impersonation (RFC 8693
  * section 1.1): the subject is always retained and the actor always named.
  *
+ * @param authority - Whose notion of authentic the chain is built on; a
+ *   route step passes its application's, so a replaced `AUTHORITY` both
+ *   checks the subject and brands the result
  * @throws RC5023 when `subject` is not an authentic principal. A chain may
  *   only be built on an identity the framework already trusts; this is what
  *   keeps authenticity a property of the whole chain.
@@ -129,18 +136,21 @@ function intersect(
  *
  * @example
  * ```ts
- * const delegated = delegate(ex.principal, zoeIdentity, {
- *   scopes: grant.scopes,
- *   grantId: grant.id,
- * })
+ * const delegated = delegate(
+ *   ex.auth.principal,
+ *   zoeIdentity,
+ *   { scopes: grant.scopes, grantId: grant.id },
+ *   authorityOf(ex),
+ * )
  * ```
  */
 export function delegate(
   subject: Principal,
   actor: PrincipalClaims,
-  options: DelegateOptions = {},
+  options: DelegateOptions,
+  authority: Authority,
 ): Principal {
-  if (!isAuthentic(subject)) {
+  if (!authority.isAuthentic(subject)) {
     throw rcError("RC5023", new Error("Subject principal is not authentic"), {
       message:
         "delegate() requires an authentic subject principal; a self-asserted object cannot be delegated",
@@ -162,7 +172,7 @@ export function delegate(
   const actorClaims: PrincipalClaims = { ...actor };
   delete (actorClaims as { actor?: unknown; grantId?: unknown }).actor;
   delete (actorClaims as { actor?: unknown; grantId?: unknown }).grantId;
-  const actorPrincipal = authenticate(actorClaims);
+  const actorPrincipal = authority.mint(actorClaims);
 
   if (subject.mayAct !== undefined) {
     const permitted = subject.mayAct.some((m) =>
@@ -182,7 +192,7 @@ export function delegate(
   const chainedActor: Principal =
     subject.actor === undefined
       ? actorPrincipal
-      : markAuthentic({ ...actorPrincipal, actor: subject.actor });
+      : authority.brand({ ...actorPrincipal, actor: subject.actor });
 
   const expiresAt =
     subject.expiresAt !== undefined || actorPrincipal.expiresAt !== undefined
@@ -206,5 +216,5 @@ export function delegate(
   if (options.grantId !== undefined) delegated.grantId = options.grantId;
   else delete delegated.grantId;
 
-  return markAuthentic(delegated);
+  return authority.brand(delegated);
 }

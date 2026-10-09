@@ -2,12 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, isRoutecraftError, noop } from "@routecraft/routecraft";
 import { mcp, mcpPlugin } from "@routecraft/ai";
-import { MCP_TOOL_REGISTRY } from "../src/mcp/types.ts";
+import { MCP } from "../src/mcp/port.ts";
 import type { McpToolRegistry } from "@routecraft/ai";
 import { z } from "zod";
-
-const MCP_TOOL_REGISTRY_KEY =
-  MCP_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry;
 
 describe("MCP Plugin Integration", () => {
   let t: TestContext;
@@ -98,25 +95,25 @@ describe("MCP Plugin Integration", () => {
   /**
    * @case Verifies that mcpPlugin can filter tools
    * @preconditions Multiple tools are defined and filter is applied
-   * @expectedResult Plugin is an object with apply and optional teardown
+   * @expectedResult Plugin is a descriptor with bind and start hooks
    */
   test("mcpPlugin() can filter tools by name", () => {
     const p = mcpPlugin({ tools: ["allowed-tool"] });
-    expect(typeof p.apply).toBe("function");
-    expect(p).toHaveProperty("teardown");
+    expect(typeof p.bind).toBe("function");
+    expect(typeof p.start).toBe("function");
   });
 
   /**
    * @case Verifies that mcpPlugin can filter tools by function
    * @preconditions Custom filter function is provided operating on McpLocalToolEntry
-   * @expectedResult Plugin is an object with apply and optional teardown
+   * @expectedResult Plugin is a descriptor with bind and start hooks
    */
   test("mcpPlugin() can filter tools by function", () => {
     const p = mcpPlugin({
       tools: (entry) => entry.annotations?.readOnlyHint === true,
     });
-    expect(typeof p.apply).toBe("function");
-    expect(p).toHaveProperty("teardown");
+    expect(typeof p.bind).toBe("function");
+    expect(typeof p.start).toBe("function");
   });
 
   /**
@@ -166,11 +163,11 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case mcpPlugin stores MCP_TOOL_REGISTRY in context store
+   * @case mcpPlugin provides the MCP port with its tool registry
    * @preconditions Plugin is applied
-   * @expectedResult Context store has McpToolRegistry instance
+   * @expectedResult The MCP service is provided and holds a McpToolRegistry instance
    */
-  test("mcpPlugin stores MCP_TOOL_REGISTRY in context store", async () => {
+  test("mcpPlugin provides the MCP port with its tool registry", async () => {
     t = await testContext()
       .routes(craft().id("test").description("test").from(mcp()).to(noop()))
       .with({
@@ -178,8 +175,7 @@ describe("MCP Plugin Integration", () => {
       })
       .build();
 
-    const registry = t.ctx.getStore(MCP_TOOL_REGISTRY_KEY) as
-      McpToolRegistry | undefined;
+    const registry: McpToolRegistry | undefined = t.ctx.lookup(MCP)?.tools;
     expect(registry).toBeDefined();
     expect(typeof registry!.getTools).toBe("function");
     expect(typeof registry!.getTool).toBe("function");
@@ -204,7 +200,7 @@ describe("MCP Plugin Integration", () => {
 
     await t.test();
 
-    const registry = t.ctx.getStore(MCP_TOOL_REGISTRY_KEY) as McpToolRegistry;
+    const registry = t.ctx.require(MCP).tools;
     const tools = registry.getTools();
     // Local routes should not appear in the MCP tool registry.
     // The registry is for external tools (stdio/HTTP clients) only.
@@ -515,15 +511,15 @@ describe("MCP Plugin Integration", () => {
         restartBackoffMultiplier: 1.5,
         toolRefreshInterval: 30000,
       });
-      expect(typeof p.apply).toBe("function");
+      expect(typeof p.bind).toBe("function");
     });
 
     /**
-     * @case Validation rejects an invalid cors.origin shape at plugin-apply time
+     * @case Validation rejects an invalid cors.origin shape at plugin creation time
      * @preconditions transport: 'http', cors: { origin: 42 } cast through unknown to bypass TypeScript
      * @expectedResult TypeError thrown by `validateMcpPluginOptions`, not deferred to server start; surfaces alongside `auth`/`port`/`host` shape errors
      */
-    test("rejects invalid cors.origin shape at apply time", () => {
+    test("rejects invalid cors.origin shape at creation time", () => {
       expect(() =>
         mcpPlugin({
           transport: "http",
@@ -584,7 +580,7 @@ describe("MCP Plugin Integration", () => {
         restartDelay: 100,
         restartBackoffMultiplier: 2,
       });
-      expect(typeof p.apply).toBe("function");
+      expect(typeof p.bind).toBe("function");
     });
 
     /**
@@ -603,7 +599,7 @@ describe("MCP Plugin Integration", () => {
           },
         },
       });
-      expect(typeof p.apply).toBe("function");
+      expect(typeof p.bind).toBe("function");
     });
   });
 
@@ -624,7 +620,7 @@ describe("MCP Plugin Integration", () => {
           }),
         },
       });
-      expect(typeof p.apply).toBe("function");
+      expect(typeof p.bind).toBe("function");
     });
 
     /**

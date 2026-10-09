@@ -112,7 +112,7 @@ Import only from `@standard-schema/spec` (e.g., `import type { StandardSchemaV1 
 ### Use a plugin when
 
 - Something must be **started, stopped, or managed** as a process (lifecycle). Examples: `mcpPlugin` starts the MCP server, spawns stdio subprocesses.
-- Or you want a **typed, validated config helper** that populates the context store. Document it clearly in JSDoc (e.g., "Config only; no lifecycle hooks."). Example: `llmPlugin`.
+- Or something other plugins or adapters use: the plugin **provides a port** (`definePlugin({ provides: [LLM], bind(c) { c.provide(LLM, ...) } })`). Example: `llmPlugin`, whose providers `llm()` reads through `context.lookup(LLM)`.
 
 Plugins may be lifecycle-only, config-helper-only, or both. Which hook a
 piece of lifecycle work belongs in is covered in
@@ -120,18 +120,18 @@ piece of lifecycle work belongs in is covered in
 
 ### Context store
 
-The context store is the underlying mechanism for sharing config between plugins and adapters. Prefer plugin helpers to populate it (typed options, validation). Advanced users can set store directly: `builder.store(KEY, value)`.
+The context store holds an adapter's own per-context state. It is not how plugins share anything: what crosses a plugin boundary is a port, so no store key is read by a plugin other than the one that writes it. Cooperating modules inside one adapter or framework subsystem may share a typed key (the split and aggregate steps and the executor share `SPLIT_PARENT_STORE`); that sharing stays inside the subsystem.
 
 ### Route: named vs inline
 
 Adapters in routes can be:
 
-- **Named:** Reference a pre-registered backend by id (e.g., `mcp("browser:screenshot")`, `llm("ollama:llama3")`). Config comes from context store (plugin or `builder.store()`). Preferred for recurring, credentialed, or auditable backends.
+- **Named:** Reference a pre-registered backend by id (e.g., `mcp("browser:screenshot")`, `llm("ollama:llama3")`). The backend comes from the plugin's port (`context.lookup(MCP)`, `context.lookup(LLM)`). Preferred for recurring, credentialed, or auditable backends.
 - **Inline:** Full options in the route (e.g., `http({ url, method })`, `mcp({ url, tool })`, `agent({ modelId, ... })`). Use for ad-hoc or dynamic cases.
 
 ### stdio = plugin only
 
-Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin({ clients: { name: { command, args } } })` and managed by the plugin's `apply()` / `teardown()` hooks. The route API does not expose a stdio option; only HTTP (inline `url` or named `serverId`) is valid in a route.
+Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin({ clients: { name: { command, args } } })` and managed by the plugin's `bind()` / `stop()` hooks. The route API does not expose a stdio option; only HTTP (inline `url` or named `serverId`) is valid in a route.
 
 ---
 
@@ -140,10 +140,16 @@ Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin
 Every `declare module` block inside `packages/*/src/**` must target the published package specifier, never a relative path.
 
 ```ts
-// Good
+// Good: a step method generic at the call site, merged into StepMethods
+// under the plugin's namespace; `S` is the route's state at the call and
+// `This` the builder the method is called on
 declare module "@routecraft/routecraft" {
-  interface RouteBuilder<Current> {
-    myMethod(...): RouteBuilder<Current>;
+  interface StepMethods<S extends BuilderState, This> {
+    acme: {
+      pick<K extends keyof S["body"]>(
+        key: K,
+      ): Retyped<This, SetBody<S, S["body"][K]>>;
+    };
   }
 }
 
@@ -151,6 +157,10 @@ declare module "@routecraft/routecraft" {
 declare module "./builder.ts" { ... }
 declare module "../exchange.ts" { ... }
 ```
+
+A plugin's ordinary steps need no augmentation at all: `steps` on the
+descriptor become builder methods typed by `step<In, Out>()`, and the
+project's `craft()` carries exactly the installed plugins' methods.
 
 ### Why
 
@@ -166,8 +176,9 @@ Using the package specifier attaches the augmentation to the same `RouteBuilder`
 
 This rule applies to every augmentation block, including:
 
-- `RouteBuilder` sugar (`.log`, `.debug`, `.map`, `.schema`) in `packages/routecraft/src/dsl.ts`
-- `RoutecraftHeaders` entries in `packages/routecraft/src/auth/types.ts` and per-adapter shared files
+- the step and facet registries (`StepMethods`, `FacetTypes`, `ShippedPluginTypes`, `DefaultPluginTypes`, `ConfigKeyPlugins`) merged from a shipped plugin, for example `packages/routecraft/src/plugins/deferral/steps.ts`
+- `CraftConfig` keys a package's config applier adds (`adapters/cron/config.ts`, `adapters/mail/config.ts`)
+- `RoutecraftHeaders` entries in `packages/routecraft/src/principal.ts` and per-adapter shared files
 - `StoreRegistry` entries in per-adapter shared files (cron, direct, mail, split, etc.)
 - Any future augmentation of a type exported from `@routecraft/routecraft`
 
@@ -185,7 +196,7 @@ The user-facing contract (copy-on-write via a plain object spread, the framework
 
 ### Authoring contract for new operations
 
-- Steps must construct new exchanges via `new DefaultExchange(...)` or `DefaultExchange.rewrap(prev, partial)`. Direct mutation of `exchange.body`, `exchange.headers[...]`, or `exchange.principal` will fail to compile and throw at runtime.
+- Steps must construct new exchanges via `new DefaultExchange(...)` or `DefaultExchange.rewrap(prev, partial)`. Direct mutation of `exchange.body` or `exchange.headers[...]` will fail to compile and throw at runtime.
 - Drop signalling uses `markDropped(exchange)` / `isDropped(exchange)`, not a header flag. Frozen headers cannot accept the legacy `"routecraft.dropped"` write.
 - Child start timestamps used for telemetry are stored on the exchange's internals via `setStartedAt` / `getStartedAt`, which survive `rewrap` because internals are shared between `prev` and `next`.
 

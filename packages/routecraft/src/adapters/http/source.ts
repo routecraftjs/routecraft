@@ -1,12 +1,6 @@
-import type { CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { Source, Subscription } from "../../operations/from";
-import {
-  HTTP_MOUNTS,
-  HTTP_PLUGIN_REGISTERED,
-  type HttpMountRuntime,
-  type HttpRouteEntry,
-} from "../../plugins/http/registry";
+import { HTTP, type HttpRouteEntry } from "../../plugins/http/registry";
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
 import { METHODS_WITHOUT_BODY } from "../../plugins/http/body-parser";
 import { invalidSignatureOptionsReason } from "../../plugins/http/webhook-signature";
@@ -67,11 +61,6 @@ function joinMountPath(mountPath: string, routePath: string): string {
   return `${prefix}${suffix}` || "/";
 }
 
-// Surface CraftPlugin in the public types of this module so consumers that
-// only import the source adapter still see the symbol (without re-exporting
-// the whole plugin entry point).
-export type { CraftPlugin };
-
 /**
  * Source adapter exposed by `http({ path, method })` when used with
  * `.from(...)`. Registers itself in the http plugin's registry on
@@ -129,19 +118,11 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
 
   async subscribe(sub: Subscription<HttpRequestBody>): Promise<void> {
     const { context, meta } = sub;
-    const registered = context.getStore(HTTP_PLUGIN_REGISTERED);
-    if (registered !== true) {
-      throw rcError("RC5003", undefined, {
-        message:
-          "http() source requires the http plugin. Add `servers: { default: { port: 8080 } }, http: {}` to defineConfig({...}).",
-      });
-    }
-    const mounts: ReadonlyMap<string, HttpMountRuntime> | undefined =
-      context.getStore(HTTP_MOUNTS);
+    const mounts = context.lookup(HTTP)?.mounts;
     if (!mounts) {
       throw rcError("RC5003", undefined, {
         message:
-          "http() source: mount table missing from context store. The http plugin failed to initialise.",
+          "http() source requires the http plugin. Add `servers: { default: { port: 8080 } }, http: {}` to defineConfig({...}).",
       });
     }
 

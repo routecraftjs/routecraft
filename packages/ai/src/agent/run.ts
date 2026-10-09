@@ -1,4 +1,5 @@
 import {
+  authorityOf,
   HeadersKeys,
   DeferSignal,
   isDeferSignal,
@@ -868,7 +869,7 @@ export class AgentRun<T = unknown> {
       context,
       abortSignal,
       dispatchIdentity,
-      exchange.principal,
+      authorityOf(exchange).read(exchange),
       bridge,
       this.inFlight,
       this.input.session,

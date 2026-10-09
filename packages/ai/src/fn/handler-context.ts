@@ -1,8 +1,8 @@
 import {
   logger as frameworkLogger,
-  isAuthentic,
+  authorityOf,
   isStandardSchema,
-  markAuthentic,
+  type Authority,
   parseDuration,
   rcError,
   type Principal,
@@ -71,15 +71,16 @@ export function makeFnHandlerContext(
   toolName: string,
   abortSignal: AbortSignal,
   principal: Principal | undefined,
-  deferral?: FnDeferralWiring,
-  session?: FnSessionView,
-  correlationId?: string,
+  deferral: FnDeferralWiring | undefined,
+  session: FnSessionView | undefined,
+  correlationId: string | undefined,
+  authority: Authority,
 ): FnHandlerContext {
-  return {
+  const hctx: FnHandlerContext = {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
     ...(correlationId !== undefined ? { correlationId } : {}),
-    ...(principal ? { principal: freezePrincipal(principal) } : {}),
+    ...(principal ? { principal: freezePrincipal(principal, authority) } : {}),
     ...(session ? { session: Object.freeze({ ...session }) } : {}),
     ...(deferral
       ? {
@@ -89,6 +90,8 @@ export function makeFnHandlerContext(
         }
       : { defer: makeDeferRefusal(toolName, session !== undefined) }),
   };
+  handlerAuthorities.set(hctx, authority);
+  return hctx;
 }
 
 /** @internal */
@@ -172,11 +175,14 @@ function makeDeferRefusal(
  *
  * @internal
  */
-export function freezePrincipal(principal: Principal): Principal {
+export function freezePrincipal(
+  principal: Principal,
+  authority: Authority,
+): Principal {
   // Capture the trusted-origin signal before cloning: the spread below
-  // produces a fresh object that is not a member of the authenticity
-  // WeakSet, so authenticity must be re-derived from the live principal.
-  const wasAuthentic = isAuthentic(principal);
+  // produces a fresh object the authority has not branded, so authenticity
+  // must be re-derived from the live principal.
+  const wasAuthentic = authority.isAuthentic(principal);
   const snapshot: Principal = { ...principal };
   if (snapshot.audience) snapshot.audience = [...snapshot.audience];
   if (snapshot.scopes) snapshot.scopes = [...snapshot.scopes];
@@ -200,11 +206,23 @@ export function freezePrincipal(principal: Principal): Principal {
   // Preserve authenticity across the snapshot: a snapshot of an authentic
   // principal is exactly as authentic as its source, and a snapshot of a
   // self-asserted (plain-object) principal must stay non-authentic so a
-  // downstream authorize() still rejects it with RC5023. markAuthentic
-  // re-clones and freezes the policy-bearing structures (actor chain,
-  // mayAct, roles/scopes/audience); claims and userinfoClaims stay the
-  // already deep-frozen references from above.
-  return wasAuthentic ? markAuthentic(snapshot) : snapshot;
+  // downstream authorize() still rejects it with RC5023. The brand contract
+  // promises a trusted copy, not a frozen one: the default authority freezes
+  // its copy, but a replacement may hand back a mutable one, and the
+  // handler's write-protection must not depend on which authority is bound.
+  return wasAuthentic ? deepFreeze(authority.brand(snapshot)) : snapshot;
+}
+
+const handlerAuthorities = new WeakMap<FnHandlerContext, Authority>();
+
+/**
+ * The authority a handler context's principal was checked against, so a
+ * tool forwarding that principal re-brands it with the same one.
+ *
+ * @internal
+ */
+export function authorityOfHandler(hctx: FnHandlerContext): Authority {
+  return handlerAuthorities.get(hctx) ?? authorityOf(undefined);
 }
 
 /**

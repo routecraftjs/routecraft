@@ -15,10 +15,12 @@ import {
   DEFERRAL_SECRET_ENV,
   DEFERRAL_STORE_ENV,
   rcError,
-  type DeferralRuntime,
 } from "../src/index.ts";
 // Engine machinery, reached through the intra-package barrel.
-import { createDeferralRuntime } from "../src/deferral/index.ts";
+import {
+  createDeferralRuntime,
+  type ResolvedDeferral,
+} from "../src/plugins/deferral/public.ts";
 import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-deferral-runtime-"));
@@ -63,7 +65,7 @@ function captureWarnings(context: CraftContext): string[] {
 }
 
 describe("deferral runtime resolution", () => {
-  let runtime: DeferralRuntime | undefined;
+  let runtime: ResolvedDeferral | undefined;
   const inherited: Record<string, string | undefined> = {};
 
   // Every test here exercises a resolution path that reads the environment,
@@ -83,7 +85,7 @@ describe("deferral runtime resolution", () => {
     // is the caller's to close. Closing it here would contradict the
     // ownership contract this suite asserts a few tests down, and would
     // break the moment a custom backend has a close that does something.
-    if (runtime?.ownsStore) await runtime.store.close();
+    if (runtime?.ownsStore) await runtime.runtime.store.close();
     runtime = undefined;
     for (const [key, value] of Object.entries(inherited)) {
       if (value === undefined) delete process.env[key];
@@ -104,7 +106,7 @@ describe("deferral runtime resolution", () => {
     });
 
     expect(runtime.backend).toBe("sqlite");
-    expect(runtime.signer.source).toBe("config");
+    expect(runtime.runtime.signer.source).toBe("config");
   });
 
   /**
@@ -159,7 +161,7 @@ describe("deferral runtime resolution", () => {
       ...SECRET,
       store: custom,
     });
-    expect(runtime.store).toBe(custom);
+    expect(runtime.runtime.store).toBe(custom);
   });
 
   /**
@@ -215,6 +217,26 @@ describe("deferral runtime resolution", () => {
   });
 
   /**
+   * @case A sweep interval the platform timer cannot schedule is refused at build
+   * @preconditions sweepInterval: "30d", which exceeds setInterval's 2^31-1 ms ceiling
+   * @expectedResult RC5003 naming the ceiling, rather than an interval coerced to 1ms that sweeps the store back to back
+   */
+  test("refuses a sweep interval above the timer ceiling", async () => {
+    await expect(
+      createDeferralRuntime(new CraftContext(), {
+        ...SECRET,
+        store: "memory",
+        sweepInterval: "30d",
+      }),
+    ).rejects.toThrow(
+      expect.objectContaining({
+        rc: "RC5003",
+        message: expect.stringContaining("deferral.sweepInterval"),
+      }),
+    );
+  });
+
+  /**
    * @case A custom backend keeps its own lifecycle
    * @preconditions A caller-supplied store
    * @expectedResult The runtime reports it as custom and disclaims
@@ -246,7 +268,7 @@ describe("deferral runtime resolution", () => {
       allowEphemeralSecret: true,
     });
 
-    expect(runtime.signer.source).toBe("ephemeral");
+    expect(runtime.runtime.signer.source).toBe("ephemeral");
     expect(warnings.at(-1) ?? "").toMatch(new RegExp(DEFERRAL_SECRET_ENV));
   });
 });

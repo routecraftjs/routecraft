@@ -10,18 +10,22 @@ import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   authenticate,
   authorize,
+  DefaultExchange,
+  HeadersKeys,
+  insufficientAuthorityOf,
   craft,
-  delegate,
   type InsufficientAuthority,
   isAuthorizationRefusal,
-  markAuthentic,
+  defaultAuthority,
   noop,
   rcError,
   simple,
   type Principal,
   type Source,
   type RouteBuilder,
+  principalOf,
 } from "../../src/index.ts";
+import { delegate } from "../helpers/authority.ts";
 import { missingScopes } from "../../src/auth/authorize.ts";
 
 type FailedEventDetails = { details: { error: unknown } };
@@ -38,7 +42,7 @@ function principalSource<T>(body: T, principal?: Principal): Source<T> {
   return {
     subscribe: async (sub) => {
       const headers = principal
-        ? { "routecraft.auth.principal": markAuthentic(principal) }
+        ? { "routecraft.auth.principal": defaultAuthority.brand(principal) }
         : undefined;
       await sub.emit({ message: body, ...(headers ? { headers } : {}) });
     },
@@ -55,7 +59,7 @@ describe("authorize() validator", () => {
   /**
    * @case Validator returns body unchanged when an authenticated principal is present
    * @preconditions Route .process() attaches a principal then .validate(authorize()) runs
-   * @expectedResult Spy destination receives the body, exchange.principal is preserved
+   * @expectedResult Spy destination receives the body, ex.auth.principal is preserved
    */
   test("passes through when principal is present", async () => {
     const s = spy<string>();
@@ -78,12 +82,12 @@ describe("authorize() validator", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal).toEqual(principal);
+    expect(principalOf(s.lastReceived())).toEqual(principal);
   });
 
   /**
    * @case Validator throws RC5012 when no principal is attached to the exchange
-   * @preconditions Route uses .validate(authorize()) but never sets exchange.principal
+   * @preconditions Route uses .validate(authorize()) but never sets ex.auth.principal
    * @expectedResult exchange:failed event fires with an RC5012-coded error and the destination is skipped
    */
   test("rejects with RC5012 when no principal is present", async () => {
@@ -617,7 +621,7 @@ describe(".authorize() positional rules", () => {
   });
 });
 
-describe("exchange.principal propagation", () => {
+describe("ex.auth.principal propagation", () => {
   let t: TestContext;
 
   afterEach(async () => {
@@ -649,7 +653,7 @@ describe("exchange.principal propagation", () => {
       .build();
     await t.test();
 
-    expect(s.lastReceived().principal).toEqual(principal);
+    expect(principalOf(s.lastReceived())).toEqual(principal);
   });
 
   /**
@@ -678,7 +682,7 @@ describe("exchange.principal propagation", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello!"]);
-    expect(s.lastReceived().principal).toEqual(principal);
+    expect(principalOf(s.lastReceived())).toEqual(principal);
   });
 
   /**
@@ -704,7 +708,7 @@ describe("exchange.principal propagation", () => {
       .build();
     await t.test();
 
-    expect(s.lastReceived().principal).toEqual(principal);
+    expect(principalOf(s.lastReceived())).toEqual(principal);
   });
 
   /**
@@ -733,8 +737,8 @@ describe("exchange.principal propagation", () => {
       .build();
     await t.test();
 
-    expect(main.lastReceived().principal).toEqual(principal);
-    expect(tapped.lastReceived().principal).toEqual(principal);
+    expect(principalOf(main.lastReceived())).toEqual(principal);
+    expect(principalOf(tapped.lastReceived())).toEqual(principal);
   });
 
   /**
@@ -778,7 +782,7 @@ describe("exchange.principal propagation", () => {
             // does not isolate nested mutations of structured header
             // values. The mutation leaks into the tap snapshot because
             // they share the same `principal` object reference.
-            (ex.principal!.claims as { tenant: string }).tenant = "after";
+            (ex.auth.principal!.claims as { tenant: string }).tenant = "after";
             return ex;
           })
           .to(main),
@@ -787,10 +791,10 @@ describe("exchange.principal propagation", () => {
     await t.test();
 
     expect(
-      (main.lastReceived().principal!.claims as { tenant: string }).tenant,
+      (principalOf(main.lastReceived())!.claims as { tenant: string }).tenant,
     ).toBe("after");
     expect(
-      (tapped.lastReceived().principal!.claims as { tenant: string }).tenant,
+      (principalOf(tapped.lastReceived())!.claims as { tenant: string }).tenant,
     ).toBe("after");
   });
 });
@@ -1124,7 +1128,10 @@ describe("authorize() anyScope", () => {
   ): unknown {
     const check = authorize(options);
     try {
-      check({ body: "x", principal } as unknown as Parameters<typeof check>[0]);
+      check({
+        body: "x",
+        headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+      } as unknown as Parameters<typeof check>[0]);
       return undefined;
     } catch (err) {
       return err;
@@ -1180,7 +1187,11 @@ describe("authorize() anyScope", () => {
     const refusal = refusalOf({ anyScope: family }, principal);
 
     expect(String(refusal)).toContain("RC5038");
-    expect(missingFromCause(refusal)).toEqual({ scopes: family, mode: "any" });
+    expect(missingFromCause(refusal)).toEqual({
+      scopes: family,
+      mode: "any",
+      effective: false,
+    });
     for (const scope of family) expect(String(refusal)).toContain(scope);
   });
 
@@ -1203,11 +1214,16 @@ describe("authorize() anyScope", () => {
     expect(missingFromCause(noAnd)).toEqual({
       scopes: ["leave:list"],
       mode: "all",
+      effective: false,
     });
 
     const noOr = refusalOf(options, holder(["leave:list"]));
     expect(String(noOr)).toContain("RC5038");
-    expect(missingFromCause(noOr)).toEqual({ scopes: family, mode: "any" });
+    expect(missingFromCause(noOr)).toEqual({
+      scopes: family,
+      mode: "any",
+      effective: false,
+    });
   });
 
   /**
@@ -1307,6 +1323,134 @@ describe(".authorize() type checks", () => {
   });
 });
 
+describe("insufficientAuthorityOf", () => {
+  /** Run a gate against a principal and hand back whatever it threw. */
+  async function refuse(
+    options: Parameters<typeof authorize>[0],
+    principal: Principal,
+  ): Promise<{ cause: InsufficientAuthority }> {
+    const exchange = new DefaultExchange(undefined as never, {
+      body: {},
+      headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+    });
+    // The gate throws synchronously, so the call has to be inside the try
+    // rather than handed to a promise that never sees it.
+    try {
+      await authorize(options)(exchange);
+      throw new Error("the gate did not refuse");
+    } catch (err) {
+      return err as { cause: InsufficientAuthority };
+    }
+  }
+
+  /**
+   * @case A real RC5038 refusal reads back with its scopes, mode and effective flag
+   * @preconditions An authorize({ scopes }) gate refusing a principal that lacks one
+   * @expectedResult The detail carries the missing scope and the flags authorize() sets
+   */
+  test("reads the detail off a refusal the framework raised", async () => {
+    const thrown = await refuse(
+      { scopes: ["payout:write"] },
+      defaultAuthority.brand({
+        subject: "agent",
+        scopes: ["payout:read"],
+      } as unknown as Principal),
+    );
+
+    const refusal = insufficientAuthorityOf(thrown);
+    expect(refusal?.scopes).toEqual(["payout:write"]);
+    expect(refusal?.mode).toBe("all");
+    expect(refusal?.effective).toBe(false);
+  });
+
+  /**
+   * @case A plain object wearing the RC code is not a refusal
+   * @preconditions A hand-built object carrying rc "RC5038" and a well-formed cause
+   * @expectedResult undefined, because the brand is what says the framework raised it
+   */
+  test("refuses an unbranded look-alike", () => {
+    const lookalike = {
+      rc: "RC5038",
+      cause: { missing: { scopes: ["admin"], mode: "any", effective: true } },
+    };
+
+    // A thrown value is not always in-process code's own: an adapter
+    // rejecting with a parsed remote payload would otherwise let that
+    // payload name the scopes a park records as its lend bound.
+    expect(insufficientAuthorityOf(lookalike)).toBeUndefined();
+  });
+
+  /**
+   * @case A malformed optional field refuses the whole detail
+   * @preconditions A hand-thrown branded RC5038 whose cause is given a bad mode, then a bad effective; a refusal authorize() raised reads the detail it bound at the throw, so the shape check is for a hand-thrown one
+   * @expectedResult undefined for each, rather than the field being dropped and the rest trusted
+   */
+  test("refuses a detail whose mode or effective is not the documented shape", () => {
+    const detail: Record<string, unknown> = { scopes: ["payout:write"] };
+    const real = rcError(
+      "RC5038",
+      Object.assign(new Error("lacks payout:write"), { missing: detail }),
+    );
+
+    detail["mode"] = "either";
+    expect(insufficientAuthorityOf(real)).toBeUndefined();
+
+    detail["mode"] = "any";
+    detail["effective"] = "yes";
+    expect(insufficientAuthorityOf(real)).toBeUndefined();
+
+    // Both fields are what a consent flow asks a human for: whether one
+    // scope suffices, and whether lending on the actor's ring could open
+    // this door at all. Half-understanding them is not a basis for asking.
+    detail["effective"] = true;
+    expect(insufficientAuthorityOf(real)?.mode).toBe("any");
+  });
+
+  /**
+   * @case The shape an application throws by hand, carrying scopes and nothing else
+   * @preconditions A hand-thrown branded RC5038 whose cause has `missing` with only `scopes`, which the helper documents as supported: `authorize()` always sets `mode`, an application need not
+   * @expectedResult A detail with the scopes copied and the optionals absent, rather than the whole thing refused
+   */
+  test("accepts a detail carrying only scopes, as an application may throw", () => {
+    const missing = { scopes: ["payout:write"] };
+    const real = rcError(
+      "RC5038",
+      Object.assign(new Error("lacks payout:write"), { missing }),
+    );
+
+    const detail = insufficientAuthorityOf(real);
+    expect(detail?.scopes).toEqual(["payout:write"]);
+    expect(detail?.mode).toBeUndefined();
+    expect(detail?.effective).toBeUndefined();
+    // Copied rather than handed back, same as every other accepted shape.
+    expect(detail?.scopes).not.toBe(missing.scopes);
+  });
+
+  /**
+   * @case What the caller receives cannot be changed afterwards
+   * @preconditions A refusal read once, then its own scopes array mutated through the error
+   * @expectedResult The detail already returned still reports what it reported
+   */
+  test("returns a frozen copy rather than a live reference", async () => {
+    const thrown = await refuse(
+      { scopes: ["payout:write"] },
+      defaultAuthority.brand({
+        subject: "agent",
+        scopes: [],
+      } as unknown as Principal),
+    );
+
+    const refusal = insufficientAuthorityOf(thrown)!;
+    // Cast because the type forbids exactly what this line does. That is the
+    // point: the guarantee has to hold against a holder who reaches past it.
+    (thrown.cause.missing.scopes as string[]).push("admin");
+
+    // The framework records this as a deferral's lend bound, so whoever
+    // still holds the error must not be able to widen it afterwards.
+    expect(refusal.scopes).toEqual(["payout:write"]);
+  });
+});
+
 describe("isAuthorizationRefusal()", () => {
   let t: TestContext | undefined;
 
@@ -1321,7 +1465,7 @@ describe("isAuthorizationRefusal()", () => {
    * @expectedResult The failure is an RC5015 refusal with no caller given and for "guarded" with that exact principal; not for another route id, and not for an equal-looking copy of the principal
    */
   test("recognises a refusal raised by authorize()", async () => {
-    const principal = markAuthentic<Principal>({
+    const principal = defaultAuthority.brand<Principal>({
       kind: "custom",
       scheme: "bearer",
       subject: "user-1",
@@ -1360,7 +1504,7 @@ describe("isAuthorizationRefusal()", () => {
    * @expectedResult The RC5038 is a refusal, but not one of the caller the route was entered with
    */
   test("does not attribute a replacement identity's refusal to the caller", async () => {
-    const principal = markAuthentic<Principal>({
+    const principal = defaultAuthority.brand<Principal>({
       kind: "custom",
       scheme: "bearer",
       subject: "user-1",

@@ -1,9 +1,6 @@
-import type { CraftContext, CraftPlugin } from "@routecraft/routecraft";
+import { definePlugin, type Plugin } from "@routecraft/routecraft";
 import { disposeEmbeddingPipelineCache } from "./providers/index.ts";
-import {
-  ADAPTER_EMBEDDING_OPTIONS,
-  ADAPTER_EMBEDDING_PROVIDERS,
-} from "./types.ts";
+import { EMBEDDING } from "./types.ts";
 import type { EmbeddingModelConfig, EmbeddingPluginOptions } from "./types.ts";
 
 /** Normalize provider options to full EmbeddingModelConfig (providerId wins over opts.provider). */
@@ -25,9 +22,11 @@ function toModelConfig(
  */
 export function embeddingPlugin(
   options: EmbeddingPluginOptions = { providers: {} },
-): CraftPlugin {
-  return {
-    apply(ctx: CraftContext) {
+): Plugin {
+  return definePlugin({
+    id: "routecraft.ai.embedding",
+    provides: [EMBEDDING],
+    bind(c) {
       const map = new Map<string, EmbeddingModelConfig>();
       for (const [providerId, opts] of Object.entries(options.providers)) {
         if (opts !== undefined) {
@@ -37,16 +36,17 @@ export function embeddingPlugin(
           );
         }
       }
-      ctx.setStore(ADAPTER_EMBEDDING_PROVIDERS, map);
-      if (
-        options.defaultOptions &&
-        Object.keys(options.defaultOptions).length > 0
-      ) {
-        ctx.setStore(ADAPTER_EMBEDDING_OPTIONS, options.defaultOptions);
-      }
+      const defaults =
+        options.defaultOptions && Object.keys(options.defaultOptions).length > 0
+          ? options.defaultOptions
+          : undefined;
+      c.provide(EMBEDDING, {
+        providers: map,
+        ...(defaults !== undefined ? { defaults } : {}),
+      });
     },
-    async teardown() {
+    async stop() {
       await disposeEmbeddingPipelineCache();
     },
-  };
+  });
 }

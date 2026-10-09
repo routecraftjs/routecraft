@@ -419,6 +419,7 @@ describe("dispatch operation", () => {
         return { failed: false, dropped: false, aborted };
       },
       captureDownstream: () => async () => ({ failed: false, dropped: false }),
+      invoke: async (_point, exchange) => exchange,
     });
 
     const ex = new DefaultExchange(t.ctx, { body: job("1") });

@@ -1,7 +1,7 @@
-import type { CraftContext } from "@routecraft/routecraft";
+import type { McpService } from "./port.ts";
 import { mergeAnnotations } from "./annotation-tags.ts";
 import { TOOL_NAME_PATTERN_SOURCE } from "../tool-name.ts";
-import { MCP_TOOL_NAME_PATTERN, MCP_TOOL_REGISTRY } from "./types.ts";
+import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
 import type {
   McpProxyToolConfig,
   McpTool,
@@ -118,12 +118,12 @@ export interface McpProxiedTool {
  * @internal
  */
 export function resolveProxiedTools(
-  ctx: CraftContext,
+  service: McpService | undefined,
   proxy: Array<string | McpProxyToolConfig>,
   warn: (key: string, message: string) => void,
 ): Map<string, McpProxiedTool> {
   const resolved = new Map<string, McpProxiedTool>();
-  const registry = ctx.getStore(MCP_TOOL_REGISTRY);
+  const registry = service?.tools;
   if (!registry) {
     warn(
       "proxy:no-registry",

@@ -61,7 +61,7 @@ Delegation state can only be established here. [`authenticate()`](/docs/referenc
 
 ```ts skip="fragment: mailPrincipal, grants are illustrative"
 import { agent } from '@routecraft/ai'
-import { craft, mail } from '@routecraft/routecraft'
+import { craft, mail, principalOf } from '@routecraft/routecraft'
 
 const zoeIdentity = {
   subject: 'agent:zoe',
@@ -77,8 +77,9 @@ craft()
   .authenticate(mailPrincipal) // identification: who is this
   .delegate(async (ex) => {
     // authority: what may the agent do for them
-    if (!ex.principal) return undefined
-    const grant = await grants.find(ex.principal.subject, 'agent:zoe')
+    const principal = principalOf(ex)
+    if (!principal) return undefined
+    const grant = await grants.find(principal.subject, 'agent:zoe')
     if (!grant) return undefined // no consent: principal dropped, the agent acquires nothing
     return { actor: zoeIdentity, scopes: grant.scopes, grantId: grant.id }
   })

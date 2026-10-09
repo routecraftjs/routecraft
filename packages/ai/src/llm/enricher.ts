@@ -26,7 +26,7 @@ import type {
   LlmOptionsMerged,
   LlmResultWithOutput,
 } from "./types.ts";
-import { ADAPTER_LLM_OPTIONS } from "./types.ts";
+import { LLM } from "./types.ts";
 
 /**
  * When the AI SDK doesn't set result.output (e.g. it threw on the getter), try to
@@ -81,7 +81,7 @@ export class LlmEnricherAdapter<
   public options: Partial<LlmOptionsMerged<T>>;
 
   mergedOptions(context: CraftContext): LlmOptionsMerged<T> {
-    const store = context.getStore(ADAPTER_LLM_OPTIONS);
+    const store = context.lookup(LLM)?.defaults;
     return {
       temperature: DEFAULT_TEMPERATURE,
       maxTokens: DEFAULT_MAX_TOKENS,

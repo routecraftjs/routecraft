@@ -10,8 +10,7 @@ import {
   TOOL_NAME_SEPARATOR,
 } from "../src/tool-name.ts";
 import { BLOCK_LOADER_PREFIX } from "../src/block/resolve.ts";
-import { MCP_TOOL_REGISTRY } from "../src/mcp/types.ts";
-import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
+import { mcpPort, mcpService } from "./helpers/mcp-port.ts";
 import {
   DIRECT_TOOL_PREFIX,
   MCP_TOOL_PREFIX,
@@ -199,8 +198,10 @@ describe("MCP client tool-name validation", () => {
    * @expectedResult The safe tool resolves, the unsafe one is absent, and a warning names it
    */
   test("drops a remote tool whose wire name is unusable", async () => {
-    t = await testContext().build();
-    const registry = new McpToolRegistry();
+    t = await testContext()
+      .with({ plugins: [mcpPort()] })
+      .build();
+    const registry = mcpService(t.ctx).tools;
     registry.setToolsForSource("github", "stdio", [
       { name: "list_issues", inputSchema: { type: "object", properties: {} } },
       // A remote is free to name its tools anything; we are not.
@@ -209,7 +210,6 @@ describe("MCP client tool-name validation", () => {
         inputSchema: { type: "object", properties: {} },
       },
     ]);
-    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
 
     const resolved = tools(["MCP(github)"]).resolve(t.ctx);
     expect(resolved.map((r) => r.name)).toEqual(["mcp__github__list_issues"]);
@@ -228,15 +228,16 @@ describe("MCP client tool-name validation", () => {
    * @expectedResult Resolution returns no tool and does not throw, so one bad remote name cannot fail every dispatch
    */
   test("dropping applies to an explicit reference too", async () => {
-    t = await testContext().build();
-    const registry = new McpToolRegistry();
+    t = await testContext()
+      .with({ plugins: [mcpPort()] })
+      .build();
+    const registry = mcpService(t.ctx).tools;
     registry.setToolsForSource("github", "stdio", [
       {
         name: "issues.create",
         inputSchema: { type: "object", properties: {} },
       },
     ]);
-    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
 
     expect(tools(["MCP(github:issues.create)"]).resolve(t.ctx)).toEqual([]);
   });
@@ -247,14 +248,15 @@ describe("MCP client tool-name validation", () => {
    * @expectedResult One warning across the three resolutions, and a fresh one after the registry actually changes
    */
   test("warns once per registry version rather than once per resolve", async () => {
-    t = await testContext().build();
-    const registry = new McpToolRegistry();
+    t = await testContext()
+      .with({ plugins: [mcpPort()] })
+      .build();
+    const registry = mcpService(t.ctx).tools;
     const bad = {
       name: "issues.create",
       inputSchema: { type: "object" as const, properties: {} },
     };
     registry.setToolsForSource("github", "stdio", [bad]);
-    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
 
     const warnCount = () =>
       t!.contextLogger.warn.mock.calls.filter(
@@ -293,13 +295,14 @@ describe("MCP client tool-name validation", () => {
    * @expectedResult The tool is dropped with a warning naming the client, rather than exposed under an ambiguous name
    */
   test("drops tools from a client whose name contains the separator", async () => {
-    t = await testContext().build();
-    const registry = new McpToolRegistry();
+    t = await testContext()
+      .with({ plugins: [mcpPort()] })
+      .build();
+    const registry = mcpService(t.ctx).tools;
     // `mcp__a__b__c` would read back as server "a", tool "b__c".
     registry.setToolsForSource("a__b", "stdio", [
       { name: "c", inputSchema: { type: "object", properties: {} } },
     ]);
-    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
 
     expect(tools(["MCP(a__b)"]).resolve(t.ctx)).toEqual([]);
     const warned = t.contextLogger.warn.mock.calls.some(
@@ -316,15 +319,16 @@ describe("MCP client tool-name validation", () => {
    * @expectedResult The tool resolves, and its wire name parses back to the same server and tool
    */
   test("allows the separator inside a remote tool name", async () => {
-    t = await testContext().build();
-    const registry = new McpToolRegistry();
+    t = await testContext()
+      .with({ plugins: [mcpPort()] })
+      .build();
+    const registry = mcpService(t.ctx).tools;
     registry.setToolsForSource("github", "stdio", [
       {
         name: "issues__create",
         inputSchema: { type: "object", properties: {} },
       },
     ]);
-    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
 
     const [resolved] = tools(["MCP(github)"]).resolve(t.ctx);
     expect(resolved?.name).toBe("mcp__github__issues__create");
@@ -340,13 +344,14 @@ describe("MCP client tool-name validation", () => {
    * @expectedResult The tool is dropped with a length-based reason
    */
   test("enforces the ceiling on the composed name", async () => {
-    t = await testContext().build();
-    const registry = new McpToolRegistry();
+    t = await testContext()
+      .with({ plugins: [mcpPort()] })
+      .build();
+    const registry = mcpService(t.ctx).tools;
     const longTool = "a".repeat(60);
     registry.setToolsForSource("github", "stdio", [
       { name: longTool, inputSchema: { type: "object", properties: {} } },
     ]);
-    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
 
     expect(tools(["MCP(github)"]).resolve(t.ctx)).toEqual([]);
     const warned = t.contextLogger.warn.mock.calls.some(

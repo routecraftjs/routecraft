@@ -44,7 +44,7 @@ export interface CronOptions {
    * synchronized spikes in distributed deployments. Each delay is drawn
    * uniformly from `[0, maxJitter)`.
    * Recommended: "1s" to "30s" for production workloads.
-   * Can be set globally via `ADAPTER_CRON_OPTIONS` in the context store.
+   * Can be set globally with the `cron` config key.
    * @default 0
    */
   maxJitter?: Duration;

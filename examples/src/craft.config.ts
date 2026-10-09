@@ -6,6 +6,7 @@ import { z } from "zod";
 
 export const craftConfig = defineConfig({
   telemetry: { sqlite: { captureSnapshots: true } },
+  servers: { default: { port: 3000 } },
   mail: {
     accounts: {
       default: {

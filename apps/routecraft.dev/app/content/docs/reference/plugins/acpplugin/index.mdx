@@ -58,9 +58,9 @@ export const craftConfig = defineConfig({
 | `agentInfo` | `{ name?, title?, version? }` | `{ name: 'routecraft', title: 'Routecraft', version }` | What the editor calls this agent |
 | `toolCallPayloads` | `boolean` | `true` | Whether a tool call's arguments and result reach the editor |
 
-## Order matters in `plugins`, and it is checked
+## Order in `plugins` does not matter, and an empty registry is checked
 
-The mount builds one route per registered agent when it applies, so it has to apply **after** the agents are registered. The `acp` key does this on its own: config keys apply in a fixed order with `acp` last, before anything in `plugins`. As a plugin in `plugins`, `acpPlugin()` has to be listed after `agentPlugin()`. A context whose agent registry is empty at that moment fails the build with a message saying so, rather than serving a protocol with nothing behind it.
+The mount builds one route per registered agent when it binds, after every `agentPlugin()` contribution: a repeatable contribution binds ahead of the other consumers of its port, so the list order of `acpPlugin()` and `agentPlugin()` does not matter, and the `acp` key behaves the same. A context whose agent registry is empty at that moment fails the build with a message saying so, rather than serving a protocol with nothing behind it.
 
 ## Which agent a client talks to
 

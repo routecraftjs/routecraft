@@ -1,24 +1,14 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { craft, noop } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { McpServer } from "../src/mcp/server.ts";
+import type { McpServer } from "../src/mcp/server.ts";
+import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { mcp, mcpPlugin } from "../src/index.ts";
-import {
-  MCP_PLUGIN_REGISTERED,
-  MCP_STDIO_MANAGERS,
-  MCP_TOOL_REGISTRY,
-} from "../src/mcp/types.ts";
 import type { McpRawToolResult, McpTool } from "../src/mcp/types.ts";
 import type { FnHandlerContext } from "../src/fn/types.ts";
 import http from "node:http";
 import { rpcResult } from "./fixtures/rpc-body.ts";
-
-type StoreKey = keyof import("@routecraft/routecraft").StoreRegistry;
-
-const REGISTERED_KEY = MCP_PLUGIN_REGISTERED as StoreKey;
-const REGISTRY_KEY = MCP_TOOL_REGISTRY as StoreKey;
-const MANAGERS_KEY = MCP_STDIO_MANAGERS as StoreKey;
 
 /** Private surface of McpServer used by these tests. */
 type TestableServer = {
@@ -139,8 +129,10 @@ describe("MCP tool proxying", () => {
    * @expectedResult getAvailableTools() lists "get_document" carrying the remote inputSchema, outputSchema, title, description, annotations, and icons verbatim
    */
   test("exact ref passes remote tool metadata through to tools/list", async () => {
-    t = await testContext().store(REGISTRY_KEY, buildRegistry()).build();
-    server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
+    t = await testContext()
+      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
+      .build();
+    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
 
     const tools = server.getAvailableTools();
     expect(tools.map((tool) => tool.name)).toEqual(["get_document"]);
@@ -166,9 +158,11 @@ describe("MCP tool proxying", () => {
    * @expectedResult Both forms list get_document and search
    */
   test("wildcard and bare-server refs expose all client tools", async () => {
-    t = await testContext().store(REGISTRY_KEY, buildRegistry()).build();
+    t = await testContext()
+      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
+      .build();
 
-    server = new McpServer(t.ctx, { proxy: ["docs:*"] });
+    server = mcpServerFor(t.ctx, { proxy: ["docs:*"] });
     expect(
       server
         .getAvailableTools()
@@ -177,7 +171,7 @@ describe("MCP tool proxying", () => {
     ).toEqual(["get_document", "search"]);
     await server.stop();
 
-    server = new McpServer(t.ctx, { proxy: ["docs"] });
+    server = mcpServerFor(t.ctx, { proxy: ["docs"] });
     expect(
       server
         .getAvailableTools()
@@ -192,8 +186,10 @@ describe("MCP tool proxying", () => {
    * @expectedResult Listed tool is "read_doc" with the override description and merged annotations (remote readOnlyHint kept)
    */
   test("overrides apply to name, description, and annotations", async () => {
-    t = await testContext().store(REGISTRY_KEY, buildRegistry()).build();
-    server = new McpServer(t.ctx, {
+    t = await testContext()
+      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
+      .build();
+    server = mcpServerFor(t.ctx, {
       proxy: [
         {
           ref: "docs:get_document",
@@ -224,10 +220,13 @@ describe("MCP tool proxying", () => {
       structuredContent: { text: "the doc" },
     };
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers(raw))
+      .with({
+        plugins: [
+          mcpPort({ tools: buildRegistry(), stdio: buildManagers(raw) }),
+        ],
+      })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       proxy: [{ ref: "docs:get_document", name: "read_doc" }],
     });
 
@@ -250,11 +249,12 @@ describe("MCP tool proxying", () => {
    */
   test("string arguments are normalized on the proxied path", async () => {
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .build();
-    server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
+    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
 
     await (
       server as unknown as {
@@ -273,11 +273,12 @@ describe("MCP tool proxying", () => {
    */
   test("non-object arguments normalize to a safe object on the proxied path", async () => {
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .build();
-    server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
+    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
 
     const call = (args: unknown) =>
       (
@@ -305,10 +306,13 @@ describe("MCP tool proxying", () => {
       content: [{ type: "text", text: "remote boom" }],
     };
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers(raw))
+      .with({
+        plugins: [
+          mcpPort({ tools: buildRegistry(), stdio: buildManagers(raw) }),
+        ],
+      })
       .build();
-    server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
+    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
 
     const result = await (server as unknown as TestableServer).handleToolCall(
       "get_document",
@@ -326,10 +330,11 @@ describe("MCP tool proxying", () => {
   test("guard runs before dispatch with args and handler context", async () => {
     const seen: Array<{ input: unknown; ctx: FnHandlerContext }> = [];
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       proxy: [
         {
           ref: "docs:get_document",
@@ -359,10 +364,11 @@ describe("MCP tool proxying", () => {
    */
   test("guard rejection blocks dispatch and surfaces as isError", async () => {
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       proxy: [
         {
           ref: "docs:get_document",
@@ -389,10 +395,11 @@ describe("MCP tool proxying", () => {
    */
   test("wildcard guard applies to every expanded tool", async () => {
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       proxy: [
         {
           ref: "docs:*",
@@ -420,8 +427,10 @@ describe("MCP tool proxying", () => {
    * @expectedResult handleToolCall returns isError true; the client text is the generic proxied-failure message and does not leak the RC5003 dispatch detail
    */
   test("dispatch failure returns a generic isError result without leaking detail", async () => {
-    t = await testContext().store(REGISTRY_KEY, buildRegistry()).build();
-    server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
+    t = await testContext()
+      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
+      .build();
+    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
 
     const result = await (server as unknown as TestableServer).handleToolCall(
       "get_document",
@@ -451,11 +460,11 @@ describe("MCP tool proxying", () => {
           .from(mcp())
           .to(noop()),
       ])
-      .store(REGISTERED_KEY, true)
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .build();
-    server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
+    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
     await t.startAndWaitReady();
 
     const tools = server.getAvailableTools();
@@ -476,10 +485,11 @@ describe("MCP tool proxying", () => {
    */
   test("proxied name collision resolves first-wins in config order", async () => {
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       proxy: ["docs:search", { ref: "billing:search" }],
     });
 
@@ -504,10 +514,11 @@ describe("MCP tool proxying", () => {
    */
   test("name overrides disambiguate colliding remote tools", async () => {
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       proxy: [
         { ref: "docs:search", name: "docs_search" },
         { ref: "billing:search", name: "billing_search" },
@@ -532,8 +543,10 @@ describe("MCP tool proxying", () => {
    * @expectedResult tools/list still returns the resolvable entries
    */
   test("unresolved refs skip gracefully", async () => {
-    t = await testContext().store(REGISTRY_KEY, buildRegistry()).build();
-    server = new McpServer(t.ctx, {
+    t = await testContext()
+      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
+      .build();
+    server = mcpServerFor(t.ctx, {
       proxy: ["ghost:*", "docs:missing_tool", "docs:get_document"],
     });
 
@@ -548,8 +561,10 @@ describe("MCP tool proxying", () => {
    */
   test("wildcard selection is dynamic across registry refresh", async () => {
     const registry = buildRegistry();
-    t = await testContext().store(REGISTRY_KEY, registry).build();
-    server = new McpServer(t.ctx, { proxy: ["docs:*"] });
+    t = await testContext()
+      .with({ plugins: [mcpPort({ tools: registry })] })
+      .build();
+    server = mcpServerFor(t.ctx, { proxy: ["docs:*"] });
 
     expect(server.getAvailableTools()).toHaveLength(2);
 
@@ -595,10 +610,13 @@ describe("MCP tool proxying", () => {
     }
     for (const proxy of orders) {
       t = await testContext()
-        .store(REGISTRY_KEY, buildRegistry())
-        .store(MANAGERS_KEY, buildManagers())
+        .with({
+          plugins: [
+            mcpPort({ tools: buildRegistry(), stdio: buildManagers() }),
+          ],
+        })
         .build();
-      server = new McpServer(t.ctx, { proxy });
+      server = mcpServerFor(t.ctx, { proxy });
 
       const listed = server
         .getAvailableTools()
@@ -634,8 +652,10 @@ describe("MCP tool proxying", () => {
         icons: [],
       },
     ]);
-    t = await testContext().store(REGISTRY_KEY, registry).build();
-    server = new McpServer(t.ctx, { proxy: ["docs:search"] });
+    t = await testContext()
+      .with({ plugins: [mcpPort({ tools: registry })] })
+      .build();
+    server = mcpServerFor(t.ctx, { proxy: ["docs:search"] });
 
     const tools = server.getAvailableTools();
     expect(tools).toHaveLength(1);
@@ -650,13 +670,14 @@ describe("MCP tool proxying", () => {
   test("guard rejection failed event carries proxied metadata", async () => {
     const failures: Array<Record<string, unknown>> = [];
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .build();
     t.ctx.on("plugin:mcp:tool:failed", (event) => {
       failures.push((event as { details: Record<string, unknown> }).details);
     });
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       proxy: [
         {
           ref: "docs:get_document",
@@ -695,15 +716,14 @@ describe("MCP tool proxying", () => {
       },
     ]);
     t = await testContext()
-      .store(REGISTRY_KEY, registry)
-      .store(MANAGERS_KEY, buildManagers())
+      .with({ plugins: [mcpPort({ tools: registry, stdio: buildManagers() })] })
       .build();
 
-    server = new McpServer(t.ctx, { proxy: ["docs:*"] });
+    server = mcpServerFor(t.ctx, { proxy: ["docs:*"] });
     expect(server.getAvailableTools()).toHaveLength(0);
     await server.stop();
 
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       proxy: [{ ref: "docs:bad.name", name: "bad_name" }],
     });
     expect(server.getAvailableTools().map((tool) => tool.name)).toEqual([
@@ -726,9 +746,9 @@ describe("MCP tool proxying", () => {
         craft().id("tool1").description("First").from(mcp()).to(noop()),
         craft().id("tool2").description("Second").from(mcp()).to(noop()),
       ])
-      .store(REGISTERED_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx, { tools: ["tool1"] });
+    server = mcpServerFor(t.ctx, { tools: ["tool1"] });
     await t.startAndWaitReady();
 
     expect(server.getAvailableTools().map((tool) => tool.name)).toEqual([
@@ -807,11 +827,12 @@ describe("MCP tool proxying over HTTP with auth", () => {
    */
   test("guard authorises proxied calls by caller principal over HTTP", async () => {
     t = await testContext()
-      .store(REGISTRY_KEY, buildRegistry())
-      .store(MANAGERS_KEY, buildManagers())
+      .with({
+        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
+      })
       .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       transport: "http",
       auth: {
         validator: (token: string) => ({

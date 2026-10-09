@@ -93,7 +93,7 @@ capitalised, however the acronym is written in prose. `Http` (not `HTTP`),
 `Csv`, `Jsonl`, `Mcp`, `Carddav` (not `CardDAV`). Prose and comments keep
 the canonical spelling ("the CardDAV protocol", "an HTTP request"); only
 identifiers fold. CONSTANT_CASE names uppercase the whole acronym as usual
-(`CARDDAV_CLIENT_MANAGER`, `DEFAULT_CARDDAV_SERVER_URL`).
+(`DEFAULT_CARDDAV_SERVER_URL`, `CRON_DEFAULTS`).
 
 Why: mixed-caps acronyms produce unreadable juxtapositions
 (`CardDAVVCardLike`) and inconsistent prefix searches; `Http` is the

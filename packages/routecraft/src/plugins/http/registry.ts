@@ -1,3 +1,4 @@
+import { port } from "../../kernel/port.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange";
 import type { RouteDiscovery } from "../../route";
 import type { HttpMethod, HttpResponder } from "../../adapters/http/types";
@@ -68,29 +69,14 @@ export interface HttpMountRuntime {
   readonly registry: HttpRouteRegistry;
 }
 
-/**
- * Symbol key sharing the mount table between the http plugin (which creates
- * and owns it) and the http source (which resolves a mount by name and
- * inserts / removes route entries). `Symbol.for` so the key is shared across
- * any duplicate package copies in a workspace (matches the convention used
- * by every other plugin in `.standards/adapter-architecture.md`).
- */
-export const HTTP_MOUNTS: unique symbol = Symbol.for(
-  "routecraft.plugin.http.mounts",
-);
-
-/**
- * Symbol key used by the http source to assert the plugin has been
- * registered. Set to `true` in `httpPlugin.apply(ctx)`. The source throws
- * `RC5003` when it is missing so misconfiguration fails at subscribe time.
- */
-export const HTTP_PLUGIN_REGISTERED: unique symbol = Symbol.for(
-  "routecraft.plugin.http.registered",
-);
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [HTTP_MOUNTS]: ReadonlyMap<string, HttpMountRuntime>;
-    [HTTP_PLUGIN_REGISTERED]: boolean;
-  }
+/** What the http plugin offers the http source: its configured mounts. */
+export interface HttpMounts {
+  /** Every configured mount, by name. */
+  readonly mounts: ReadonlyMap<string, HttpMountRuntime>;
 }
+
+/**
+ * The http plugin's mount table. An `http()` source resolves its mount here
+ * at subscribe time and registers its route in that mount's registry.
+ */
+export const HTTP = port<HttpMounts>("routecraft.http@1");

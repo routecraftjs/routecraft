@@ -17,21 +17,20 @@
 
 import { randomUUID } from "node:crypto";
 import {
-  CraftClient,
   HeadersKeys,
   rcCodeOf,
   rcError,
-  type CraftContext,
   type EventPayload,
   type Exchange,
   type ExchangeHeaders,
+  type PluginContext,
   type Principal,
 } from "@routecraft/routecraft";
 import type { SessionUpdate } from "@agentclientprotocol/sdk";
 import type { AgentDelta } from "../agent/events.ts";
 import { correlationOf } from "../agent/run.ts";
-import { ADAPTER_AGENT_REGISTRY } from "../agent/store.ts";
-import { AgentSessionRuntime } from "../agent/session/index.ts";
+import type { AgentRegistry } from "../agent/port.ts";
+import type { AgentSessionRuntime } from "../agent/session/index.ts";
 import type {
   AgentSessionKey,
   AgentSessionScope,
@@ -39,8 +38,8 @@ import type {
 import type { AgentRegisteredOptions, AgentResult } from "../agent/types.ts";
 import {
   AGENT_SURFACE_HEADER,
-  AGENT_SURFACES,
   registerTurn,
+  type SurfaceState,
   type AgentSurfaceRef,
 } from "../surface/index.ts";
 import {
@@ -116,15 +115,22 @@ export class AcpRuntime {
    * when a conversation has no request open.
    */
   private readonly spoken = new Map<string, Map<string, Set<string>>>();
-  private readonly client: CraftClient;
   private readonly unsubscribes: Array<() => void> = [];
 
+  /**
+   * @param plugin - The ACP plugin's context: logging, events, and the
+   *   deliveries a prompt is
+   * @param registry - The agents served, and their session runtime
+   * @param surfaces - Where this mount publishes its connections and turns,
+   *   and where `surface()` steps find them
+   * @param options - The plugin's options
+   */
   constructor(
-    readonly context: CraftContext,
+    readonly plugin: PluginContext,
+    private readonly registry: AgentRegistry,
+    readonly surfaces: SurfaceState,
     private readonly options: AcpPluginOptions,
-  ) {
-    this.client = new CraftClient(context);
-  }
+  ) {}
 
   /** Whether a tool call's arguments and result reach the editor. */
   get toolCallPayloads(): boolean {
@@ -133,15 +139,12 @@ export class AcpRuntime {
 
   /** Every agent this context holds, read live so plugin order cannot fix it. */
   agents(): ReadonlyMap<string, AgentRegisteredOptions> {
-    return (
-      this.context.getStore(ADAPTER_AGENT_REGISTRY) ??
-      new Map<string, AgentRegisteredOptions>()
-    );
+    return this.registry.agents;
   }
 
   /** The session runtime, which is where ownership and turns live. */
   sessions(): AgentSessionRuntime {
-    return AgentSessionRuntime.for(this.context);
+    return this.registry.sessions();
   }
 
   /**
@@ -188,7 +191,7 @@ export class AcpRuntime {
       ) => SessionUpdate,
     ): void => {
       this.unsubscribes.push(
-        this.context.on(name, ({ details }) => {
+        this.plugin.observe(name, ({ details }) => {
           for (const turn of this.targetsFor(
             details.correlationId,
             details.session,
@@ -250,7 +253,7 @@ export class AcpRuntime {
    */
   private tell(turn: LiveTurn, update: SessionUpdate): void {
     turn.updates.push(update).catch((error: unknown) => {
-      this.context.logger.debug(
+      this.plugin.logger.debug(
         { err: error, session: turn.session, source: "acp" },
         "Dropped a tool update: the editor is no longer listening",
       );
@@ -290,7 +293,7 @@ export class AcpRuntime {
       );
       for (const outcome of sent) {
         if (outcome.status === "rejected") {
-          this.context.logger.debug(
+          this.plugin.logger.debug(
             { err: outcome.reason, session, source: "acp" },
             "Dropped a delta: the editor is no longer listening",
           );
@@ -350,7 +353,7 @@ export class AcpRuntime {
     });
     // The turn is findable by its correlation id as well as by the header,
     // so a route the agent calls as a hand can reach the person too.
-    const forgetTurn = registerTurn(this.context, correlationId, surface);
+    const forgetTurn = registerTurn(this.surfaces, correlationId, surface);
     const headers: ExchangeHeaders = {
       [HeadersKeys.CORRELATION_ID]: correlationId,
       [AGENT_SURFACE_HEADER]: surface,
@@ -359,11 +362,12 @@ export class AcpRuntime {
         : {}),
     };
     try {
-      const result = await this.client.sendDirect<AcpPromptBody, AgentResult>(
+      // The turn route is ACP's own, built to end in the agent's result.
+      const result = (await this.plugin.execution.deliver(
         `${ACP_ROUTE_PREFIX}${agent}`,
-        { session: key, message },
+        { session: key, message } satisfies AcpPromptBody,
         headers,
-      );
+      )) as AgentResult;
       // A turn that ran with a delta listener has already said its reply
       // (the run hands the listener the whole text). One that ran on
       // another route's continuation, with no listener, has said nothing,
@@ -417,7 +421,7 @@ export class AcpRuntime {
     session: string | undefined,
   ): LiveTurn[] {
     const own = this.turns.get(correlationId);
-    if (own !== undefined && isSurfaceLive(this.context, own.connection)) {
+    if (own !== undefined && isSurfaceLive(this.surfaces, own.connection)) {
       return [own];
     }
     if (session === undefined) return [];
@@ -428,7 +432,7 @@ export class AcpRuntime {
         !perConnection.has(turn.connection) &&
         // A request whose editor has gone stays in the table until its
         // turn ends; the reply goes to the editor that is still there.
-        isSurfaceLive(this.context, turn.connection)
+        isSurfaceLive(this.surfaces, turn.connection)
       ) {
         perConnection.set(turn.connection, turn);
       }
@@ -464,8 +468,8 @@ export class AcpRuntime {
 }
 
 /** Whether the connection is still registered as a surface, which it is until it closes. */
-function isSurfaceLive(context: CraftContext, connection: string): boolean {
-  return context.getStore(AGENT_SURFACES)?.has(connection) === true;
+function isSurfaceLive(surfaces: SurfaceState, connection: string): boolean {
+  return surfaces.surfaces.has(connection);
 }
 
 /**

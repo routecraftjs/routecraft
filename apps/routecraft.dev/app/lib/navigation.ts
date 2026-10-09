@@ -84,6 +84,7 @@ export const navigation = [
       { title: 'Error handling', href: '/docs/advanced/error-handling' },
       { title: 'Filter chain', href: '/docs/advanced/filter-chain' },
       { title: 'Events', href: '/docs/advanced/events' },
+      { title: 'Architecture', href: '/docs/advanced/architecture' },
       { title: 'Plugins', href: '/docs/advanced/plugins' },
       { title: 'Creating adapters', href: '/docs/advanced/custom-adapters' },
       { title: 'Merged options', href: '/docs/advanced/merged-options' },

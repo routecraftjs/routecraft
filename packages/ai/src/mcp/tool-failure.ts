@@ -77,6 +77,8 @@ function refusalText(tool: string, refusal: CallerRefusal): string {
         ? `Tool "${tool}" refused the call: insufficient scope, requires one of: ${scopes}.`
         : `Tool "${tool}" refused the call: insufficient scope, missing: ${scopes}.`;
     }
+    case "refused":
+      return `Tool "${tool}" refused the call (${refusal.as}, RC5068): ${refusal.reason}`;
   }
 }
 

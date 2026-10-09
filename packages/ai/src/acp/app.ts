@@ -43,7 +43,11 @@ import type {
   SetSessionConfigOptionResponse,
   StopReason,
 } from "@agentclientprotocol/sdk";
-import { rcCodeOf, type Principal } from "@routecraft/routecraft";
+import {
+  callerRefusalOf,
+  rcCodeOf,
+  type Principal,
+} from "@routecraft/routecraft";
 import { version as PACKAGE_VERSION } from "../../package.json";
 import type {
   AgentSessionOutcome,
@@ -60,11 +64,18 @@ import {
   type ConfigOptionState,
 } from "./config-options.ts";
 import { replayUpdates } from "./replay.ts";
-import { AcpRuntime } from "./runtime.ts";
+import { AcpRuntime, ACP_ROUTE_PREFIX } from "./runtime.ts";
 import type { AcpPluginOptions } from "./types.ts";
 
 /** JSON-RPC invalid params, which is how this mount refuses a bad request. */
 const INVALID_PARAMS = -32602;
+/**
+ * A refusal of the caller's request that is not a parameter fault: the
+ * turn route's own `authorize()`, or a plugin's validate hook. Application
+ * range, so a client branches on it without confusing it with a reserved
+ * JSON-RPC code; `data` carries the RC code, the kind and the reason.
+ */
+const REFUSED = -32001;
 
 /**
  * The protocol's resource-not-found code, which is how this mount answers
@@ -281,8 +292,8 @@ export class AcpConnection implements AgentSurfaceConnection {
   /** Called once the SDK has opened the connection and given us its context. */
   open(client: AgentContext, closed: Promise<void>): void {
     this.client = client;
-    this.retire = registerSurface(this.runtime.context, this.id, this);
-    this.runtime.context.emit("plugin:acp:connection:opened", {
+    this.retire = registerSurface(this.runtime.surfaces, this.id, this);
+    this.runtime.plugin.emit("plugin:acp:connection:opened", {
       connectionId: this.id,
       ...(this.principal !== undefined
         ? { subject: this.principal.subject }
@@ -316,7 +327,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     this.retire();
     this.retire = undefined;
     this.client = undefined;
-    this.runtime.context.emit("plugin:acp:connection:closed", {
+    this.runtime.plugin.emit("plugin:acp:connection:closed", {
       connectionId: this.id,
       ...(fault !== undefined ? { fault: faultMessage(fault) } : {}),
     });
@@ -345,7 +356,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     how: "new" | "load" | "resume",
   ): void {
     this.attachedSessions.add(sessionId);
-    this.runtime.context.emit("plugin:acp:session:attached", {
+    this.runtime.plugin.emit("plugin:acp:session:attached", {
       connectionId: this.id,
       sessionId,
       agentName,
@@ -361,10 +372,14 @@ export class AcpConnection implements AgentSurfaceConnection {
    *
    * The mount is a door, and its caller is outside the process. A refusal
    * the mount raised itself is written for that caller and passes as it
-   * is. Anything else (a failed turn, a store outage) answers `-32603`
-   * carrying the RC code when there is one and nothing else: the message
-   * names hosts, paths and upstream text, and stays in the log. Without
-   * this the SDK would put the message in the error's `data`.
+   * is. A failure `callerRefusalOf` attributes to the caller's own request
+   * on the turn route (its `.input()`, a validate hook, `authorize()`)
+   * answers `-32602` for input the route cannot act on and `-32001` for the
+   * rest, carrying the code, the kind and the reason the refusal wrote for
+   * the caller. Anything else (a failed turn, a store outage) answers
+   * `-32603` carrying the RC code when there is one and nothing else: the
+   * message names hosts, paths and upstream text, and stays in the log.
+   * Without this the SDK would put the message in the error's `data`.
    *
    * Parameter validation is unaffected: the SDK checks params before the
    * handler runs and answers `-32602` on its own.
@@ -380,12 +395,66 @@ export class AcpConnection implements AgentSurfaceConnection {
       return await run();
     } catch (err: unknown) {
       if (isOwnRefusal(err)) throw err;
+      const refused = this.refusalOf(err);
+      if (refused !== undefined) {
+        this.runtime.plugin.logger.debug(
+          { method, session, connectionId: this.id, code: rcCodeOf(err) },
+          "ACP request refused for the caller's own request",
+        );
+        throw refused;
+      }
       this.logFailure(method, session, err);
       const code = rcCodeOf(err);
       throw this.sdk.RequestError.internalError(
         code === undefined ? undefined : { code },
       );
     }
+  }
+
+  /**
+   * The JSON-RPC answer for a turn-route failure the caller caused, or
+   * `undefined` for one the instance owns. The turn route is the agent's
+   * own; a refusal raised on a route the agent called as a tool never
+   * reaches here, because the tool bridge answers it to the model.
+   */
+  private refusalOf(err: unknown): Error | undefined {
+    let agent: string;
+    try {
+      agent = this.requestedAgent ?? this.runtime.defaultAgent();
+    } catch {
+      // No agent to attribute the turn route to: the failure stays the instance's.
+      return undefined;
+    }
+    const refusal = callerRefusalOf(err, {
+      routeId: `${ACP_ROUTE_PREFIX}${agent}`,
+      principal: this.principal,
+      credentialCouldHelp: false,
+    });
+    if (refusal === undefined) return undefined;
+    const code = rcCodeOf(err);
+    if (refusal.kind === "input") {
+      return new this.sdk.RequestError(
+        INVALID_PARAMS,
+        "The request's payload was refused by the route's schema",
+        { code, kind: "input", in: refusal.in, issues: refusal.issues },
+      );
+    }
+    if (refusal.kind === "refused" && refusal.as === "invalid") {
+      return new this.sdk.RequestError(INVALID_PARAMS, refusal.reason, {
+        code,
+        kind: refusal.as,
+        reason: refusal.reason,
+      });
+    }
+    return new this.sdk.RequestError(
+      REFUSED,
+      refusal.kind === "refused" ? refusal.reason : "The request was refused",
+      {
+        code,
+        kind: refusal.kind === "refused" ? refusal.as : refusal.kind,
+        ...(refusal.kind === "refused" ? { reason: refusal.reason } : {}),
+      },
+    );
   }
 
   /**
@@ -428,9 +497,9 @@ export class AcpConnection implements AgentSurfaceConnection {
         ? err.message
         : "ACP request failed";
     if (err instanceof SurfaceDisconnected) {
-      this.runtime.context.logger.debug(bindings, message);
+      this.runtime.plugin.logger.debug(bindings, message);
     } else {
-      this.runtime.context.logger.error(bindings, message);
+      this.runtime.plugin.logger.error(bindings, message);
     }
   }
 
@@ -477,7 +546,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     if (params.mcpServers.length > 0) {
       // Logged and ignored: a remote instance must not spawn what an
       // editor names. Recorded as a requirement rather than a refusal.
-      this.runtime.context.logger.info(
+      this.runtime.plugin.logger.info(
         { count: params.mcpServers.length },
         "ACP client declared MCP servers; this mount does not connect them",
       );
@@ -610,7 +679,7 @@ export class AcpConnection implements AgentSurfaceConnection {
       throw this.refuse(`No configuration option "${params.configId}".`);
     }
     if (outcome.kind === "refused") {
-      this.runtime.context.logger.warn(
+      this.runtime.plugin.logger.warn(
         {
           agent,
           session: params.sessionId,
@@ -685,7 +754,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     // harness, the same entry it picked to start one.
     const mine = this.agentForNewSession();
     if (agent !== mine) {
-      this.runtime.context.logger.debug(
+      this.runtime.plugin.logger.debug(
         { agent, harnessAgent: mine, session: sessionId },
         "ACP session belongs to another agent than this harness serves",
       );

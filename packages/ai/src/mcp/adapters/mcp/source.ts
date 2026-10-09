@@ -5,12 +5,12 @@ import {
   type Source,
   type Subscription,
 } from "@routecraft/routecraft";
-import {
-  MCP_LOCAL_TOOL_REGISTRY,
-  MCP_PLUGIN_REGISTERED,
-  type McpLocalToolEntry,
-  type McpServerOptions,
-  type McpUiOptions,
+import { MCP } from "../../port.ts";
+import type {
+  McpLocalToolEntry,
+  McpServerOptions,
+  McpToolRequest,
+  McpUiOptions,
 } from "../../types.ts";
 import type { McpMessage } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
@@ -82,7 +82,7 @@ function assertValidUiOptions(ui: McpUiOptions): void {
  * before the route handler runs. Adapter options hold only MCP-protocol
  * extras (annotations, icons, an MCP Apps view).
  *
- * Maintains its own registry ({@link MCP_LOCAL_TOOL_REGISTRY}) so MCP and
+ * Registers in the MCP service's own `local` registry so MCP and
  * direct routes stay fully isolated: a shared endpoint string does not
  * collide, and direct routes never leak into MCP `tools/list`.
  */
@@ -132,21 +132,14 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       });
     }
 
-    const registered = context.getStore(MCP_PLUGIN_REGISTERED);
-    if (registered !== true) {
+    const service = context.lookup(MCP);
+    if (!service) {
       throw rcError("RC5003", undefined, {
         message:
           "MCP plugin required: routes using .from(mcp(...)) require the MCP plugin. Add `mcp: {}` to defineConfig({...}) in craft.config.ts, or mcpPlugin() to the plugins of a context you build yourself.",
       });
     }
-
-    let registry = context.getStore(MCP_LOCAL_TOOL_REGISTRY);
-    if (!registry) {
-      registry = new Map<string, McpLocalToolEntry>();
-      context.setStore(MCP_LOCAL_TOOL_REGISTRY, registry);
-    }
-
-    if (registry.has(endpoint)) {
+    if (service.local.has(endpoint)) {
       throw rcError("RC5003", undefined, {
         message: `Duplicate MCP tool endpoint "${endpoint}": another .from(mcp(...)) route already registered this endpoint in the same context`,
         suggestion:
@@ -159,10 +152,10 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     // principal (set by the MCP server when auth is configured) rides
     // through on headers["routecraft.auth.principal"], the single source
     // of truth for identity.
-    const entryHandler = async (exchange: Exchange): Promise<Exchange> => {
+    const entryHandler = async (request: McpToolRequest): Promise<Exchange> => {
       return sub.emit({
-        message: exchange.body as McpMessage<undefined>,
-        headers: exchange.headers,
+        message: request.body as McpMessage<undefined>,
+        headers: request.headers,
       });
     };
 
@@ -179,8 +172,13 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     // server must advertise the union. Static `.defer()` sites are
     // definite; a defer-capable step (an agent) only MAY defer, and the
     // over-approximation is the honest direction for a client.
+    // The context is passed because a registered error handler that may park
+    // can defer ANY route here, including one declaring no defer site of its
+    // own. Without it every such route is under-advertised, and a client
+    // validating results against the declared output rejects the
+    // acknowledgment the route legitimately answered with.
     const definition = context.getRouteById(endpoint)?.definition;
-    if (definition && routeCanDefer(definition)) {
+    if (definition && routeCanDefer(definition, context)) {
       entry.deferrable = true;
     }
 
@@ -202,20 +200,12 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     // (including one dispatched synchronously from inside addEventListener if
     // the signal is already aborted) will run the cleanup, so the entry never
     // outlives its teardown handler.
-    sub.signal.addEventListener(
-      "abort",
-      () => {
-        const current = context.getStore(MCP_LOCAL_TOOL_REGISTRY);
-        current?.delete(endpoint);
-      },
-      { once: true },
-    );
-
     if (sub.signal.aborted) {
       return;
     }
 
-    registry.set(endpoint, entry);
+    const withdraw = service.registerLocal(entry);
+    sub.signal.addEventListener("abort", withdraw, { once: true });
 
     sub.ready();
 

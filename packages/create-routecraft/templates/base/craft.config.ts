@@ -1,4 +1,4 @@
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 import "@routecraft/ai";
 
 /**
@@ -11,6 +11,6 @@ import "@routecraft/ai";
  * The bare `@routecraft/ai` import is what registers the `mcp` key, so it
  * stays here rather than relying on a capability that happens to import it.
  */
-export const craftConfig = defineConfig({
+export default defineProject({
   mcp: {},
 });

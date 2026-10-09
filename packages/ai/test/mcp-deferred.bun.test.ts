@@ -2,19 +2,15 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
   DefaultExchange,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   craft,
   direct,
   noop,
-  type Exchange,
 } from "@routecraft/routecraft";
 import { deferring, testContext, type TestContext } from "@routecraft/testing";
-import { McpServer } from "../src/mcp/server.ts";
-import {
-  MCP_LOCAL_TOOL_REGISTRY,
-  MCP_PLUGIN_REGISTERED,
-  type McpLocalToolEntry,
-} from "../src/mcp/types.ts";
+import type { McpServer } from "../src/mcp/server.ts";
+import { mcpPort, mcpServerFor, mcpService } from "./helpers/mcp-port.ts";
+import { type McpLocalToolEntry } from "../src/mcp/types.ts";
 import { agent, llmPlugin, mcp } from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
@@ -27,9 +23,6 @@ mock.module("../src/llm/providers/index.ts", () => ({
   callLlm: llm.callLlm,
   streamLlm: llm.streamLlm,
 }));
-
-const MCP_STORE_KEY =
-  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
 
 const Approval = z.object({ approved: z.boolean() });
 const Payout = z.object({ paid: z.boolean() });
@@ -56,8 +49,8 @@ describe("MCP carries Deferred (#581)", () => {
    */
   test("a deferrable tool advertises the derived oneOf union", async () => {
     t = await testContext()
+      .with({ plugins: [mcpPort()] })
       .with(deferring())
-      .store(MCP_STORE_KEY, true)
       .routes([
         craft()
           .id("approve-payout")
@@ -72,7 +65,7 @@ describe("MCP carries Deferred (#581)", () => {
       ])
       .build();
     await t.startAndWaitReady();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
 
     const tool = server
       .getAvailableTools()
@@ -110,7 +103,7 @@ describe("MCP carries Deferred (#581)", () => {
       .with({
         plugins: [llmPlugin({ providers: { anthropic: { apiKey: "sk" } } })],
       })
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .routes([
         craft()
           .id("agentic")
@@ -128,7 +121,7 @@ describe("MCP carries Deferred (#581)", () => {
       ])
       .build();
     await t.startAndWaitReady();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
 
     const tools = server.getAvailableTools();
     const agentic = tools.find((entry) => entry.name === "agentic")!;
@@ -145,8 +138,8 @@ describe("MCP carries Deferred (#581)", () => {
    */
   test("a deferrable tool without .output() advertises no schema", async () => {
     t = await testContext()
+      .with({ plugins: [mcpPort()] })
       .with(deferring())
-      .store(MCP_STORE_KEY, true)
       .routes([
         craft()
           .id("quiet")
@@ -157,7 +150,7 @@ describe("MCP carries Deferred (#581)", () => {
       ])
       .build();
     await t.startAndWaitReady();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
 
     const tool = server
       .getAvailableTools()
@@ -173,8 +166,8 @@ describe("MCP carries Deferred (#581)", () => {
   test("deferral over MCP, resume through an ingress, contract honored end to end", async () => {
     const events: Array<{ name: string; detail: Record<string, unknown> }> = [];
     t = await testContext()
+      .with({ plugins: [mcpPort()] })
       .with(deferring())
-      .store(MCP_STORE_KEY, true)
       .routes([
         craft()
           .id("approve-payout")
@@ -200,7 +193,7 @@ describe("MCP carries Deferred (#581)", () => {
         events.push({ name, detail: detail as Record<string, unknown> });
       });
     }
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
 
     const result = await callTool(server, "approve-payout", { amount: 100 });
     expect(result.isError).toBeUndefined();
@@ -222,7 +215,7 @@ describe("MCP carries Deferred (#581)", () => {
     expect(Object.keys(ack)).not.toContain("meta");
     expect(JSON.stringify(result)).not.toContain("payouts:approve");
     const record = await t.ctx
-      .getStore(DEFERRAL_RUNTIME)!
+      .require(CONTINUATIONS)!
       .store.get(ack.deferralId);
     // Asserted before the resume below, so a record the acknowledgment called
     // deferred but the store left unresumable fails here rather than surfacing
@@ -255,20 +248,24 @@ describe("MCP carries Deferred (#581)", () => {
    * @expectedResult AI2001: the call comes back isError true naming the declared output schema
    */
   test("a non-conforming body still fails AI2001 on a deferrable tool", async () => {
-    t = await testContext().store(MCP_STORE_KEY, true).build();
+    t = await testContext()
+      .with({ plugins: [mcpPort()] })
+      .build();
     await t.startAndWaitReady();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     const entry: McpLocalToolEntry = {
       endpoint: "junk-tool",
       description: "Returns a body neither arm accepts",
       output: { body: Payout },
       deferrable: true,
-      handler: (exchange: Exchange) =>
+      handler: (request) =>
         Promise.resolve(
-          DefaultExchange.rewrap(exchange, { body: { nonsense: 1 } }),
+          new DefaultExchange(t!.ctx, { ...request, body: { nonsense: 1 } }),
         ),
     };
-    t.ctx.setStore(MCP_LOCAL_TOOL_REGISTRY, new Map([["junk-tool", entry]]));
+    const local = mcpService(t.ctx).local as Map<string, McpLocalToolEntry>;
+    local.clear();
+    local.set("junk-tool", entry);
 
     const result = await callTool(server, "junk-tool", {});
     expect(result.isError).toBe(true);

@@ -1,0 +1,470 @@
+# Plugin Architecture
+
+Routecraft is a small kernel and a set of plugins. Every feature we ship is a
+plugin that reaches the kernel through the same sockets a third party uses,
+and no first-party package reaches the kernel through a path a third party
+cannot. This standard is the contract that claim rests on: what the kernel
+owns, what a plugin declares, how the route chain is ordered, and where every
+first-party feature now lives.
+
+The [plugins reference](../apps/routecraft.dev/app/content/docs/reference/plugins/index.mdx)
+explains the model to a consumer. This standard says how it is built, and
+records every migration decision the design left open.
+
+---
+
+## 1. The kernel and its boundary
+
+The kernel lives in `packages/routecraft/src/kernel/`. It owns five things and
+implements none of what plugs into them:
+
+| The kernel owns                                                     | Where                                      |
+| ------------------------------------------------------------------- | ------------------------------------------ |
+| Lifecycle: install, order, bind, freeze, start, stop                | `kernel/host.ts`, driven by `CraftContext` |
+| Resolution: every required port resolved to one provider            | `kernel/host.ts`                           |
+| Ordering: hooks placed in the slots of the fixed chain              | `kernel/hooks.ts`                          |
+| Execution: one exchange through a route                             | `pipeline/executor.ts` (unchanged home)    |
+| Continuation: how a parked exchange is written, claimed and resumed | `kernel/continuation/`                     |
+
+The kernel never imports a plugin module. `test/kernel-boundary.bun.test.ts`
+reads the direct import edges of `kernel/`, `pipeline/`, `context.ts`,
+`route.ts`, `builder.ts`, `step-builder-base.ts`, `exchange.ts`, `project.ts`
+and `config-applier.ts`, and fails on any edge into `plugins/`, `auth/` or
+`adapters/direct/`. A new kernel file joins the check by living in one of
+those places. Where the kernel needs a plugin's service, the contract lives in
+the kernel and the plugin provides it: `kernel/direct.ts` declares `DIRECT`,
+and a route forwards from an error handler through `DIRECT.send()`.
+`DirectChannel.subscribe` still takes the `CraftContext`: the one place the
+context crosses into an interface a plugin may provide, so a `DIRECT`
+replacement's channels receive it.
+
+`CraftContext` stays the runtime host a route and an adapter run inside. It is
+not handed to plugins.
+
+## 2. A plugin
+
+A plugin is a plain descriptor, built with `definePlugin()`. Only `id` is
+required; every other field is a capability the plugin adds, and a plugin
+that adds none of them is still a plugin:
+
+| Field                        | Declares                                                                                                                                                                                                                                                                                                                                                | Read                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `id`                         | identity, dotted (`routecraft.deferral`, `acme.approvals`)                                                                                                                                                                                                                                                                                              | before anything binds               |
+| `namespace`                  | the prefix its strings live under; default: last id segment                                                                                                                                                                                                                                                                                             | before anything binds               |
+| `requires`                   | ports it cannot run without                                                                                                                                                                                                                                                                                                                             | resolution                          |
+| `optional`                   | ports it uses when present                                                                                                                                                                                                                                                                                                                              | resolution                          |
+| `provides`                   | ports it offers                                                                                                                                                                                                                                                                                                                                         | resolution                          |
+| `replaces`                   | ports whose default provider it displaces                                                                                                                                                                                                                                                                                                               | resolution                          |
+| `points`                     | moments it declares and invokes from its own steps                                                                                                                                                                                                                                                                                                      | before anything binds               |
+| `facet`                      | `(exchange) => view`: `ex.<namespace>`, computed on every read                                                                                                                                                                                                                                                                                          | static                              |
+| `steps`                      | step factories; each key becomes a builder method                                                                                                                                                                                                                                                                                                       | static                              |
+| `installs`                   | plugins it brings along: placed ahead of it; a single plugin is installed once per id and never when the application lists that id itself, and two bundles bringing different descriptors under one single id the application does not list as a single plugin is `RC1101`; a repeatable plugin is installed once per descriptor instance wherever it appears, so two bundles bringing their own instances of one id both install, and one instance brought by two bundles installs once | before anything binds               |
+| `repeatable`                 | several installs coexist (`id#1`, `id#2`, in list order), listed and brought alike, each distinct descriptor counting once; such a plugin contributes through another plugin's port and may not provide, replace, or declare hooks, points, steps or a facet                                                                                            | before anything binds               |
+| `hooks`                      | handlers and wrappers in the chain's slots, each with a phase                                                                                                                                                                                                                                                                                           | static, placed when routes compile  |
+| `keepsAlive`                 | the plugin owns a lifetime past the routes (a listener)                                                                                                                                                                                                                                                                                                 | at completion                       |
+| `bind(c)`                    | requires, provides, observes, registers routes                                                                                                                                                                                                                                                                                                          | in dependency order                 |
+| `start(c)` / `stop(c, info)` | acquires and releases what needs a running application                                                                                                                                                                                                                                                                                                  | after routes start; reverse at stop |
+
+`CraftPlugin` and its `apply` are removed. There is one plugin shape.
+
+### The plugin context
+
+`bind`, `start` and `stop` receive a `PluginContext`, never the `CraftContext`:
+
+| Member                                             | What it reaches                                                                                                                |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `require(port)` / `lookup(port)`                   | a declared port's provider; `require` throws, `lookup` answers `undefined`                                                     |
+| `provide(port, value)`                             | in `bind` only, a port this plugin declared in `provides`                                                                      |
+| `observe(event, handler)` / `emit(event, details)` | the event bus                                                                                                                  |
+| `onDispose(fn)`                                    | released at stop, LIFO, every one run even when another throws; also when this plugin's own `bind` throws after registering it |
+| `routes`                                           | `register(...definitions)` in `bind`; `list()`, `get(id)` and `hooksOf(id)` read views, read-only down the graph (a write is `RC1110`)                                         |
+| `execution`                                        | `deliver` (resolves `unknown`; the caller narrows), `resume`, `sweep`, `capabilities`, `whenStarted`, `requestStop`            |
+| `frozen`                                           | true once the last `bind` returned; a provider collecting contributions through its port refuses later ones with `RC1110`      |
+| `logger`, `id`, `namespace`                        |                                                                                                                                |
+
+**Adapters** keep their per-context state in `CraftContext.getStore()` /
+`setStore()`; that is adapter memory, not a plugin contract. Whenever a plugin
+offers something an adapter or another plugin uses, it is a port: the adapter
+calls `context.require(PORT)` or `context.lookup(PORT)` at runtime. No store
+key crosses a plugin boundary.
+
+### Ports
+
+`port<T>("name@version")` returns a token. The identity is the name: the
+token's key is `Symbol.for(name)`, so two copies of a contract module in one
+process (the ESM and CJS builds of one package, a global CLI beside a
+project's install) resolve as one port. The version segment carries the
+contract: a shape change ships under a new version. A token carrying a port's
+name under another key is `RC1103`, at install when a plugin declares it
+and at lookup when it is presented at runtime. A plugin requires a
+capability, never a plugin.
+
+One copy of the kernel per process is the supported configuration. Ports
+resolve across copies, but the bindings a door trusts for a refusal
+(`RC5068`, `RC5065`, `RC5049`, `RC5038`) are module-local, so a refusal
+raised by one copy is answered by a door of the other as a plain failure.
+The context warns at build when it finds more than one copy loaded.
+
+### Lifecycle
+
+1. **Identity.** One plugin per id (`RC1101`), one per namespace (`RC1102`),
+   one key per port name, the one `port()` mints (`RC1103`).
+2. **Resolution.** Every required port resolves to one provider (`RC1104`). Two
+   providers neither of which declares `replaces` is `RC1105`, naming both. A
+   `replaces` for a port the plugin does not also `provides`, or two plugins
+   replacing one port, is `RC1106`.
+3. **Order.** A topological sort over requires and optional edges; ties keep
+   list order. A repeatable plugin also binds ahead of every other consumer of
+   the ports it uses, so a plugin reading what was contributed (ACP building a
+   route per registered agent) sees every contribution wherever it was listed.
+   A contributor that already reaches a consumer, through the declared edges
+   or a contributor edge added before it, binds after that consumer instead,
+   which then does not see its contribution: the edge would close a cycle the
+   declared graph does not have. A cycle is `RC1107` with the edges.
+4. **Bind**, in that order. `require` of an undeclared port is `RC1108`; a
+   declared `provides` left unprovided after `bind`, or a `provide` of an
+   undeclared port, is `RC1109`.
+5. **Freeze.** Anything a plugin context is asked to accept after the last
+   `bind` is `RC1110`.
+6. **Compile.** Routes register; every hook is placed; a route that needs a
+   port nobody provides is `RC1111`; a hook naming a slot or point that does
+   not exist is `RC1112`.
+7. **Start.** Routes start and signal readiness, then each plugin's `start`.
+8. **Stop.** Reverse order, consumers before providers, failures aggregated.
+
+The unwind, readiness and teardown guarantees of
+[Plugin Lifecycle](./plugin-lifecycle.md) hold: a failed bind or start tears
+down exactly what bound, in reverse, and the original error surfaces
+unchanged. A start refused before any route runs (`RC1111`, `RC5052`) stops
+the plugins bound at build, since its caller has no reason to.
+
+Events: `plugin:binding`, `plugin:bound`, `plugin:starting`,
+`plugin:started`, `plugin:stopping`, `plugin:stopped`, each carrying the
+plugin's real `id`.
+
+### Config keys
+
+`registerConfigApplier(key, factory)` stays: a config key is how an
+application installs a plugin with options in one line (`deferral: {}`,
+`http: {...}`). The factory returns a plugin descriptor and is pure, because
+`defineProject` and the application each call it. A key and an explicit
+plugin with the same id is `RC1101`. A key whose plugin adds steps or a facet
+merges its plugin type into `ConfigKeyPlugins` beside the applier, so a
+project that sets the key is typed by it without naming the plugin.
+
+### Default plugins
+
+Installed in every application, ahead of its own plugins:
+`routecraft.direct`, `routecraft.resilience`, `routecraft.cache`,
+`routecraft.principals`, `routecraft.auth`. An application plugin with the
+same id takes a default's place; a plugin that `replaces` a default's port is
+selected over it. Each shipped plugin's module registers it once when the
+package loads (`registerShippedPlugin(factory, { default })`, internal): the
+id, steps and facet are read from the descriptor, so nothing restates them.
+They are defaults because they are installed by default, not because the
+kernel knows their names. The registry is module-local, so a second copy of
+the package never installs its defaults into the first copy's applications.
+Ahead, so the application's plugins keep their relative order: a plugin that
+requires a default binds after it either way.
+
+## 3. The chain
+
+The chain around every route has a fixed order. Two kinds of place:
+
+- A **position** belongs to the framework and holds one thing. A plugin may
+  replace what fills it through the position's port. It cannot move, remove or
+  add one.
+- A **slot** sits between positions. Any number of plugins add hooks there.
+
+| In order                              | Kind      | Filled by                                    |
+| ------------------------------------- | --------- | -------------------------------------------- |
+| `error`                               | slot      | hooks; the route's own `.error()` runs first |
+| `beforeAuth`                          | slot      | hooks                                        |
+| `authorize`                           | position  | `ENFORCEMENT` (auth plugin)                  |
+| `afterAuth`                           | slot      | hooks                                        |
+| `parse`, `input`                      | positions | the kernel; not replaceable                  |
+| `admitted`                            | slot      | hooks                                        |
+| `throttle`, `circuitBreaker`, `retry` | positions | `RESILIENCE`                                 |
+| `perAttempt`                          | slot      | wrappers                                     |
+| `timeout`, `concurrency`              | positions | `RESILIENCE`                                 |
+| `cacheCheck`                          | position  | `CACHE`                                      |
+| the pipeline                          |           | the route's steps                            |
+| `cacheStore`                          | position  | `CACHE`                                      |
+| `exit`                                | slot      | hooks, over completed exchanges only         |
+
+### Phases and order
+
+A hook names a slot and a phase, never another plugin.
+
+| Phase      | May                                    | Enforced                                       |
+| ---------- | -------------------------------------- | ---------------------------------------------- |
+| `observe`  | read                                   | returning anything but `undefined` is `RC1115` |
+| `mutate`   | return a changed exchange              |                                                |
+| `validate` | allow, or refuse with `refuse(reason)` | returning a changed exchange is `RC1115`       |
+
+A slot runs observe, then mutate, then validate. `exit` has no validate phase
+(`RC1115` at compile). In the `error` slot `mutate` is the deciding phase: a
+hook answers with a recovery (a body, `recovery.drop`, `recovery.defer`) or
+`undefined` to pass, and the first answer decides. Inside a phase, hooks run in
+the order the application lists the plugins.
+
+A refusal throws `RC5068` naming the hook, its kind and its reason, which reaches the
+`error` slot like any failure.
+
+Two mutate hooks writing the same header in one slot: the later wins and the
+framework warns once per route naming both. A hook that declares `writes`
+moves that warning to start. A mutate hook may not write an engine-owned
+header (`routecraft.id`, `routecraft.route`, `routecraft.operation`,
+`routecraft.split_hierarchy`): that is `RC1115`, the contract `.header()`
+enforces.
+
+Hooks at a point another plugin declares go under `hooks.points`, keyed by
+point name, so the slot keys stay closed and a misspelled slot is a compile
+error.
+
+Points ship with no shipped consumer, which the positioning check
+challenged. Overruled by Jaco on 2026-10-08: a point is the extension
+point a third-party plugin offers to other plugins, and the framework's own
+plugins not needing one yet says nothing about an ecosystem plugin's need.
+The check's holder watches for the pattern: a second concept kept on the
+same reasoning is the signal, not this one.
+
+Every hook names itself with `id`, and `hooks.order` and `hooks.disable`
+address it as `pluginId/id`; a hook without one is `RC1117`. The name is
+part of the plugin's public surface, so it is stable across releases. The
+application settles conflicts, in config:
+
+```ts
+hooks: {
+  order: { "beforeAuth/mutate": ["legacy", "tenancy"] },
+  disable: ["legacy/setTenantFromPath"],
+}
+```
+
+A name in `order` or `disable` that matches no hook is `RC1112`. A name
+repeated in one `order` list is `RC1112` too: a hook runs once per exchange. `disable`
+applies to slots; a position is never switched off.
+
+### Survival
+
+Every hook declares the run kinds it applies to (`normal`, `resume`,
+`debounce`, `errorChannel`) with `runs`, defaulting to `normal` only. The
+`error` slot is the exception and defaults to every kind: a failure on a
+resumed or released run is still the route's failure, and a handler that
+heard only first runs would miss exactly the failures a park produces. The
+per-position table in `pipeline/chain-policy.ts` stays the source for
+positions.
+
+The run carries its kind, independent of which hooks exist: a resume, a
+debounce release and an error-channel re-entry each report their own kind to
+the `error` slot, to points and to `perAttempt`. Detached runs re-enter below
+admission, so `beforeAuth`, `afterAuth` and `admitted` never run on them,
+with one exception: an admission resume (a park raised before the route
+admitted the exchange) completes the admission its first run never reached,
+so it runs `afterAuth` and `admitted` around the `authorize` it re-runs.
+`beforeAuth` ran on the first run and does not run again. Those two slots
+see the admission as kind `normal`, so a hook keeping the default `runs`
+guards it, while the `error` slot, points and `perAttempt` see the same run
+as kind `resume`. A hook in `beforeAuth`, `afterAuth` or `admitted` whose
+`runs` leaves `normal` out could never run, so it is refused at install
+(`RC1115`).
+
+A `perAttempt` wrapper calls `proceed()` once. A second call is `RC1115`, and
+an attempt the wrapper started is settled before the slot settles even when
+the wrapper did not await it, so retry never runs two attempts at once.
+A wrapper surrounds the attempts of the route-scope chain: a `.retry()`
+placed after `.from()` is a step inside the route's work, so its attempts run
+inside one wrapper call. Wrappers run in plugin list order; `hooks.order` has
+no entry for `perAttempt`, which has no phases.
+
+## 4. Steps, the project, and facets
+
+```ts
+export const dedupe = definePlugin({
+  id: "acme.dedupe",
+  steps: {
+    dedupe: (opts: { key: (body: Order) => string }) =>
+      step<Order, Order>(async (exchange) => ...),
+  },
+});
+
+export const { craft } = defineProject({ plugins: [dedupe] });
+craft().id("orders").from(source).dedupe({ key: (o) => o.id }).to(sink);
+```
+
+- `step<In, Out>(execute)` builds a typed step. The method exists when the
+  current body is assignable to `In` and returns the builder at `Out`.
+- `Body` is a placeholder type: `step<Body, Body>` with `(fn: (b: Body) => ...)`
+  in the factory's arguments gives a body-preserving method typed at whatever
+  the body is when it is called.
+- A step whose type depends on a call-site generic (`.defer<Schema>()`)
+  declares its method type by merging into `StepMethods<S, This>` under its
+  namespace. The `steps` entry still provides the runtime.
+- `defineProject({ plugins, ...config })` returns `{ craft, config, plugins }`.
+  It composes the plugins exactly as the application does (the defaults
+  first, then the config-key plugins and the listed ones, each brought
+  plugin placed ahead of the first plugin that brings it), so its
+  `craft` has exactly the installed steps. Its types are the listed plugins,
+  the plugin each set config key brings that declares itself in
+  `ConfigKeyPlugins`, the defaults no listed or config-key plugin displaces
+  by literal id, and what all of those bring through `installs` unless the
+  application already holds that id. A plugin typed with a plain `string`
+  id displaces nothing and keeps nothing out, the way an unknown id does at
+  runtime; two different brought single plugins with one id are `RC1101` at
+  install unless the application lists that id as a single plugin itself,
+  and then the listed one is the type, so the union the types would otherwise carry never reaches a
+  running application (repeatable descriptors each install). A step or facet of an uninstalled plugin is a
+  compile error; a plugin step's callables typed with `Exchange<Body>` see
+  the route's facets, as the built-in callables do.
+- The root `craft()` export is typed by the catalogue `@routecraft/routecraft`
+  ships. A route using an uninstalled plugin's step refuses to start
+  (`RC1111`); reading an uninstalled plugin's facet fails with `RC1111` at
+  the read.
+- A step factory builds a new step per call: the method labels and tags what
+  it returns, and a step it already returned (or a frozen one) is `RC1116`.
+  A step named like a builder method or field is `RC1116` too.
+- `test/type-budget.bun.test.ts` installs ten plugins and fails when `tsc` over
+  the fixture exceeds its time budget or a wrong argument stops producing a
+  readable error.
+
+Facets: a plugin's facet is `ex.<namespace>`, typed in project routes,
+computed from body and headers on every read, never stored. The kernel defines
+the getter; the exchange's own fields (`id`, `headers`, `body`, `logger`,
+`context`) and its prototype's members are reserved (`RC1114`).
+`ex.principal` is removed: it is `ex.auth.principal`, and library code reads
+`principalOf(exchange)`.
+
+`registerDsl` and the `StepBuilderBase` augmentation are removed. The sugar
+`.log()`, `.debug()`, `.map()` and `.schema()` are ordinary builder methods.
+
+A raw step that runs steps of its own reports them through `NESTED_STEPS`
+(`NestingStep`, `NestedSteps`), a registered symbol the walks of a route's
+step tree read: plugin ownership (`RC1111` at start), the positions a route
+needs, the continuation digest and the defer-site resolver. A step that
+hides its nested steps hides them from all four, and a park inside it is
+`RC5051`; a step-scope wrapper forwards the protocol. A step that
+establishes the principal carries `AUTHENTICATES`, the registered mark the
+builder reads to refuse a route-scope `.cache()` above it (`RC5003`). Both
+are registered symbols rather than classes so the package's other build, or
+a step of yours, is seen the same way.
+
+## 5. Where every first-party feature lives
+
+| Plugin                                                                   | Provides                                                             | Steps / hooks / facet                             |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------- |
+| `routecraft.direct`                                                      | `DIRECT` (endpoint registry, options)                                |                                                   |
+| `routecraft.resilience`                                                  | `RESILIENCE` (throttle, circuitBreaker, retry, timeout, concurrency) |                                                   |
+| `routecraft.cache`                                                       | `CACHE`                                                              |                                                   |
+| `routecraft.principals`                                                  | `AUTHORITY` (mint, brand, isAuthentic, restore, isRestored, read)    |                                                   |
+| `routecraft.auth`                                                        | `ENFORCEMENT`                                                        | steps `authenticate`, `delegate`; facet `ex.auth` |
+| `routecraft.deferral`                                                    | `CONTINUATIONS` (store, signer, default deadline)                    | steps `defer`, `resume`; facet `ex.deferral`      |
+| `routecraft.telemetry`                                                   |                                                                      | observes                                          |
+| `routecraft.servers`                                                     | `WEB_INGRESS`                                                        |                                                   |
+| `routecraft.http`                                                        | `HTTP`                                                               |                                                   |
+| `routecraft.ops`                                                         | `OPS` (health, resources, indicators)                                |                                                   |
+| `routecraft.remotes`                                                     | `REMOTES`                                                            |                                                   |
+| `routecraft.cron`, `.mail`, `.carddav`                                   | their adapter port                                                   |                                                   |
+| `routecraft.ai.llm`, `.embedding`, `.mcp`, `.agent`, `.sessions`, `.acp` | their ports                                                          |                                                   |
+| `routecraft.os.shell`                                                    | `SHELL`                                                              |                                                   |
+
+Every mint and every trust check goes through the application's authority,
+`authorityOf(exchangeOrContext)`. Nothing defaults to the built-in one:
+`delegate()`, the ingress mounts and the AI handler contexts take the
+authority as an argument, so a replaced `AUTHORITY` cannot be bypassed by an
+omitted parameter. `isAuthentic` is never true for a restored record. The
+standalone `markAuthentic` / `isAuthentic` / `markRestored` / `isRestored`
+helpers are the default authority's internals.
+
+Position config stays on the builder (`.retry()`, `.authorize()`, `.cache()`
+and the rest) because positions are the framework's; the builder method
+configures the position and the provider fills it. A route that configures a
+position whose provider is missing refuses to start (`RC1111`).
+
+### What a replacement must preserve
+
+Replacing a security-relevant port moves the invariants written against the
+shipped provider. The kernel keeps what it can enforce structurally; the rest
+is the replacement's obligation, and delegating to the exported default
+(`defaultAuthority`, `enforcementProvider`, `cacheProvider`) keeps it.
+
+| Port            | The kernel still guarantees                                                                                                               | The replacement must guarantee                                                                                                                                                                                                                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTHORITY`     | every mint, brand, restore and trust check goes through the one provider (`authorityOf`); restored principals come back through `restore` | `isAuthentic` is true only for what it minted or branded, and never for a `restore`d record (`keep()` and `delegate()` trust on `isAuthentic` alone); `restore` returns a new object `isRestored` recognises                                                                                                                                |
+| `ENFORCEMENT`   | the position runs where the chain puts it, and on the run kinds `CHAIN_SURVIVAL` allows                                                   | the refusal codes keep their meaning (`RC5012` no principal, `RC5023` not authentic, `RC5043` restored, `RC5015` role or predicate, `RC5038` scope, `RC5034`-`RC5036` actor); a door maps a refusal to the caller only when it was bound to the exchange at the raise site with `authorizationRefusal(exchange, error)`, which the shipped gate uses, so a replacement binds the refusals it raises itself or composes `enforcementProvider`'s gate |
+| `CACHE`         | check runs after `authorize` and `input`, store after the pipeline                                                                        | the default key carries the principal and the route, or one caller's cached body serves another                                                                                                                                                                                                                                             |
+| `CONTINUATIONS` | the door order, the compare-and-swap, the continuation hash, the outcome cache and expiry through the error channel                       | the signer refuses a forged or expired token, and the secret policy holds: no secret is `RC5040` outside a named `NODE_ENV`                                                                                                                                                                                                                 |
+
+The application names every replaced port at boot, at warn for `AUTHORITY`
+and `ENFORCEMENT`, because a dependency's `installs` can bring a replacement
+the application's own config never mentions.
+
+## 6. The continuation protocol
+
+The kernel owns park, resume and sweep (`kernel/continuation/`): the record
+write, the site and tail hash, the door order, the compare-and-swap, the
+outcome cache, expiry through the error channel, claim healing and retention.
+A plugin step's definition is part of the tail hash: for `step(fn)` the
+callback's source is digested beside the factory arguments, so a redeploy
+that changes a callback in the tail refuses the resume with `RC5048`; a raw step is
+digested by its adapter's own properties and the factory arguments, so what
+defines it belongs on its adapter. The digest reads source, never closures:
+a value a callback captures from its surroundings is invisible to it, so
+anything that changes what the step does belongs in the factory arguments
+or on the adapter, where it is digested. It reaches storage only through
+`CONTINUATIONS`. The deferral plugin provides
+that port over the memory or SQLite store, mints and verifies resume tokens,
+sets the default deadline, calls `execution.sweep()` on its cadence, and
+contributes `.defer()`, `.resume()`, the `ex.deferral` facet and the
+`/ops/deferrals` resource.
+
+The door stays on the ingress route: `.resume(mapper, { authorize, elevate })`.
+Its order: token, call binding, `authorize`, lifecycle disclosure, deadline,
+live tail, payload, compare-and-swap, `elevate` applied after the claim, the
+suffix, the recorded outcome.
+
+## 7. Migration decisions
+
+The rows the design left open, decided:
+
+| Question                             | Decision                                                                                              | Why                                                                                                                           |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Which shipped positions become ports | authorize, the five resilience positions, both cache positions; parse and input stay kernel-owned     | parse and input are properties of the route's source and schema; no consumer needs to replace them                            |
+| The operations plugin                | the route grammar (`from`, `to`, `transform`, `filter`, `split`, `choice`, ...) stays on the builder  | it holds no state and needs no port; equal reach is the `steps` socket, which a third party uses with the same outcomes we do |
+| Door location                        | on the ingress route, `.resume(mapper, { authorize, elevate })`                                       | the door is where the token arrives; a deferred-route door would need a second ingress anyway                                 |
+| Default door policy                  | bearer, unchanged                                                                                     | changing it is a separate security decision with its own consumer impact                                                      |
+| Event names                          | unchanged, except the plugin lifecycle events                                                         | renaming every event buys nothing a payload field does not                                                                    |
+| Error codes                          | the existing `RC` numbering stays; kernel faults take `RC1101`-`RC1118` and `RC5068`                  |                                                                                                                               |
+| Context error handlers (#818)        | become `error` slot hooks; `registerHandler` and the `handlers` config key are removed before release | one mechanism, not two                                                                                                        |
+| How the CLI finds the project        | `craft.config.ts` default-exports `defineProject(...)`; a plain config object still works             |                                                                                                                               |
+| Roles, actors, delegation            | stay on the principal, owned by the principals plugin                                                 | the spike's `subject` / `grants` / `lent` shape was a spike simplification                                                    |
+| Packages                             | first-party plugins stay in the package they ship in                                                  | the boundary is the import graph test, not the package count                                                                  |
+
+## 8. Error codes
+
+| Code   | Fault                                                                                                                                                                                                                                             |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RC1101 | two plugins share an id, or two bundles bring different descriptors under one id the application has not listed |
+| RC1102 | two plugins share a namespace                                                                                                                                                                                                                     |
+| RC1103 | a port name is malformed, or two keys carry one port name                                                                                                                                                                                         |
+| RC1104 | a required port has no provider                                                                                                                                                                                                                   |
+| RC1105 | two providers of one port, neither a replacement                                                                                                                                                                                                  |
+| RC1106 | an invalid replacement                                                                                                                                                                                                                            |
+| RC1107 | a dependency cycle                                                                                                                                                                                                                                |
+| RC1108 | `require` of an undeclared port                                                                                                                                                                                                                   |
+| RC1109 | a declared port left unprovided, or an undeclared port provided                                                                                                                                                                                   |
+| RC1110 | a contribution after freeze                                                                                                                                                                                                                       |
+| RC1111 | a route needs a port nobody provides                                                                                                                                                                                                              |
+| RC1112 | a hook, order or disable entry names nothing that exists                                                                                                                                                                                          |
+| RC1113 | two plugins declare one point                                                                                                                                                                                                                     |
+| RC1114 | a facet not named by its namespace, or named after a reserved field                                                                                                                                                                               |
+| RC1115 | a hook broke its phase                                                                                                                                                                                                                            |
+| RC1116 | two plugins declare one step, or a step shadows a builder method                                                                                                                                                                                  |
+| RC1117 | an invalid plugin descriptor: a missing plugin or hook id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what only a single install may: `provides`, `replaces`, `hooks`, `points`, `steps` or a `facet` |
+| RC1118 | a `bind` or `start` hook awaited `c.execution.whenStarted()`, which resolves only once every hook returned, so the hook was waiting on itself |
+| RC5068 | a `validate` hook refused the exchange                                                                                                                                                                                                            |
+
+## Related
+
+- [Plugin Lifecycle](./plugin-lifecycle.md) -- unwind, readiness, teardown
+- [Pre-from Filter Chain](./pre-from-filter-chain.md) -- positions and survival
+- [Exchange State Model](./exchange-state-model.md) -- facets are derivations

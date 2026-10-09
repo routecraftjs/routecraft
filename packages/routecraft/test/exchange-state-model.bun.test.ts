@@ -7,6 +7,7 @@ import {
   simple,
   type Exchange,
   type Principal,
+  principalOf,
 } from "@routecraft/routecraft";
 
 describe("Exchange state model", () => {
@@ -106,7 +107,7 @@ describe("Exchange state model", () => {
     expect(rehydrated.id).toBe(originalId);
     expect(rehydrated.headers[HeadersKeys.ID]).toBe(originalId);
     // Principal is reconstructed by the getter from the rehydrated header.
-    expect(rehydrated.principal).toEqual(principal);
+    expect(principalOf(rehydrated)).toEqual(principal);
     // Logger is regenerated lazily; the rehydrated exchange must still
     // produce a usable child logger without the original's runtime services.
     expect(typeof rehydrated.logger).toBe("object");
@@ -143,7 +144,7 @@ describe("Exchange state model", () => {
     });
 
     expect(ex.id).toBe("fixed-id-123");
-    expect(ex.principal).toEqual(principal);
+    expect(principalOf(ex)).toEqual(principal);
     expect(ex.headers["routecraft.id"]).toBe("fixed-id-123");
     expect(ex.headers["routecraft.auth.principal"]).toEqual(principal);
   });

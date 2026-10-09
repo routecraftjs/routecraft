@@ -17,7 +17,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup && bun scripts/verify-dist.mjs esm && bun scripts/verify-dist.mjs cjs",
+    "build": "tsup && bun scripts/verify-dist.mjs esm && bun scripts/verify-dist.mjs cjs && bun scripts/verify-dist.mjs mixed",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "prepublishOnly": "bun run build"

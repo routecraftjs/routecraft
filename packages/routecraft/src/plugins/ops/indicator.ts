@@ -11,12 +11,11 @@
 import { parseDuration } from "../../shared/duration.ts";
 import { rejectStaleOptions } from "../../shared/stale-options.ts";
 import { rcError } from "../../error";
-import type { CraftContext } from "../../context";
 import type { HealthState } from "./state";
 import type { Indicator, IndicatorDefinition } from "./types";
 
 interface Bound {
-  ctx: CraftContext;
+  owner: object;
   state: HealthState;
 }
 
@@ -39,34 +38,35 @@ const binders = new WeakMap<Indicator, Bound[]>();
 const declared = new Set<Indicator>();
 
 /**
- * Bind a handle to a context's ledger. Bindings are keyed by context, never
- * held in a single slot, because one plugin instance may serve several
- * contexts in a process.
+ * Bind a handle to an application's ledger. Bindings are keyed by an owner
+ * (the ops plugin's context in that application), never held in a single
+ * slot, because one plugin instance may serve several applications in a
+ * process.
  *
  * @internal
  */
 export function bindIndicator(
   indicator: Indicator,
-  ctx: CraftContext,
+  owner: object,
   state: HealthState,
 ): void {
   // Callers validate with `isIndicator` before binding, so a missing entry
   // cannot happen here; the plugin owns the refusal and its message.
   const bound = binders.get(indicator)!;
-  const existing = bound.findIndex((entry) => entry.ctx === ctx);
+  const existing = bound.findIndex((entry) => entry.owner === owner);
   if (existing >= 0) bound.splice(existing, 1);
-  bound.push({ ctx, state });
+  bound.push({ owner, state });
 }
 
 /**
- * Release a handle's binding to one context.
+ * Release a handle's binding to one owner.
  *
  * @internal
  */
-export function unbindIndicator(indicator: Indicator, ctx: CraftContext): void {
+export function unbindIndicator(indicator: Indicator, owner: object): void {
   const bound = binders.get(indicator);
   if (!bound) return;
-  const index = bound.findIndex((entry) => entry.ctx === ctx);
+  const index = bound.findIndex((entry) => entry.owner === owner);
   if (index >= 0) bound.splice(index, 1);
 }
 

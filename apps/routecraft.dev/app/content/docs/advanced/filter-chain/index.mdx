@@ -42,6 +42,12 @@ Outside in (position 1 wraps everything below):
 
 </Callout>
 
+## Positions, providers and slots
+
+Each numbered row is a **position**: it belongs to the framework, holds one thing, and never moves. The builder method configures the position; a plugin fills it through a port. `authorize` is filled through `ENFORCEMENT` by the auth plugin, the five resilience positions through `RESILIENCE`, and both cache positions through `CACHE`, all by [default plugins](/docs/advanced/plugins#default-plugins) every application installs. `error`, `parse` and `input` belong to the kernel and are not replaceable: `error` is the route's own handler, invoked by the executor as the chain's catch boundary, and no port fills it. A plugin may [replace a provider](/docs/advanced/plugins#replacing-a-position), but cannot move, remove or add a position, and a route that configures a position no installed plugin provides refuses to start with [`RC1111`](/docs/reference/errors#rc-1111).
+
+Between the positions sit **slots**, where any number of plugins add [hooks](/docs/advanced/plugins#hooks): `error` (after the route's own `.error()`), `beforeAuth` and `afterAuth` around `authorize`, `admitted` after `input`, `perAttempt` between `retry` and `timeout`, and `exit` over completed exchanges. The full order, positions and slots together, is in the [Plugins reference](/docs/reference/plugins#slots).
+
 ## What this means in practice
 
 ### The chain runs in this order regardless of how you typed it

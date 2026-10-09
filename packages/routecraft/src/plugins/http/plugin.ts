@@ -1,4 +1,4 @@
-import type { CraftContext, CraftPlugin } from "../../context";
+import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { rcError } from "../../error";
 import type {
   HttpAuth,
@@ -17,16 +17,11 @@ import {
   type GatedBuiltins,
   type RequestCompletedHandler,
 } from "./dispatcher";
-import {
-  HTTP_MOUNTS,
-  HTTP_PLUGIN_REGISTERED,
-  type HttpMountRuntime,
-  type HttpRouteView,
-} from "./registry";
+import { HTTP, type HttpMountRuntime, type HttpRouteView } from "./registry";
 import type { HttpOpenApiInfo } from "./openapi";
 import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 import { findPackageInfo } from "./package-info";
-import { requireWebIngress } from "../server/registry.ts";
+import { requireWebIngress, WEB_INGRESS } from "../server/registry.ts";
 import { normalizeStaticPathPrefix } from "../server/mount-path.ts";
 import type { PathClaim } from "../server/types.ts";
 import { staticPathPrefix } from "./path-matcher.ts";
@@ -55,11 +50,11 @@ interface ResolvedMount {
  * `.authorize()`, which pull verification through it.
  *
  * Lifecycle:
- *   - `apply(ctx)`: validate options, publish the mount table on the context
- *     store, and mount each dispatcher on its mount's named server.
- *   - `teardown(ctx)`: unmount the dispatchers and clear the registries.
+ *   - `bind(c)`: provide the mount table as {@link HTTP}, and mount each
+ *     dispatcher on its mount's named server.
+ *   - `stop(c)`: unmount the dispatchers and clear the registries.
  */
-export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
+export function httpPlugin(options: HttpPluginOptions): Plugin {
   const { mounts: mountsResolved, maxBodySize } = validate(options);
 
   const perRequestEnabled = options.events?.perRequest ?? true;
@@ -85,21 +80,27 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
     ...(openapiInfoOverride ?? {}),
   };
 
-  const unmounts: Array<() => void> = [];
-  const mountRuntimes = new Map<string, HttpMountRuntime>();
-  for (const mount of mountsResolved) {
-    mountRuntimes.set(mount.name, {
-      path: mount.path,
-      registry: new Map(),
-    });
-  }
+  // Mount tables and unmounts belong to the application that bound this
+  // descriptor: one descriptor may serve two contexts, and a table in the
+  // closure would hand one listener the other's routes and let one stop
+  // tear the other down.
+  const runtimes = new WeakMap<
+    PluginContext,
+    {
+      unmounts: Array<() => void>;
+      mountRuntimes: Map<string, HttpMountRuntime>;
+    }
+  >();
 
   // Built-ins (/health, /ready, /openapi.json) serve only from the "default"
   // mount when it owns the "/" catch-all, and report routes across every
   // mount ON THAT MOUNT'S SERVER only. Aggregating across servers would
   // publish an internal listener's route inventory and schemas through the
   // public listener's OpenAPI document.
-  const routesOnServer = (server: string): HttpRouteView => ({
+  const routesOnServer = (
+    mountRuntimes: ReadonlyMap<string, HttpMountRuntime>,
+    server: string,
+  ): HttpRouteView => ({
     get size() {
       let total = 0;
       for (const mount of mountsResolved) {
@@ -117,13 +118,24 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   });
 
   return {
-    async apply(ctx: CraftContext) {
-      ctx.setStore(HTTP_PLUGIN_REGISTERED, true);
-      ctx.setStore(HTTP_MOUNTS, mountRuntimes);
+    id: "routecraft.http",
+    requires: [WEB_INGRESS],
+    provides: [HTTP],
+    async bind(c: PluginContext) {
+      const unmounts: Array<() => void> = [];
+      const mountRuntimes = new Map<string, HttpMountRuntime>();
+      for (const mount of mountsResolved) {
+        mountRuntimes.set(mount.name, {
+          path: mount.path,
+          registry: new Map(),
+        });
+      }
+      runtimes.set(c, { unmounts, mountRuntimes });
+      c.provide(HTTP, { mounts: mountRuntimes });
 
       const onRequestCompleted: RequestCompletedHandler | undefined =
         perRequestEnabled
-          ? (event) => ctx.emit("plugin:http:request:completed", { ...event })
+          ? (event) => c.emit("plugin:http:request:completed", { ...event })
           : undefined;
 
       // Streaming responses are the one kind of in-flight request that can
@@ -133,7 +145,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
       // listener's graceful close finds nothing left to drain.
       const shutdown = new AbortController();
       unmounts.push(
-        ctx.on("context:stopping", () => {
+        c.observe("context:stopping", () => {
           shutdown.abort(new Error("Context is stopping"));
         }),
       );
@@ -142,10 +154,11 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
       // `server` on the third mount cannot leave the first two registered on
       // a context whose boot then fails; the unwind is not guaranteed to
       // reach this plugin's teardown.
+      const ingressMap = c.require(WEB_INGRESS);
       const ingresses = new Map(
         mountsResolved.map((mount) => [
           mount.name,
-          requireWebIngress(ctx, mount.server),
+          requireWebIngress(ingressMap, mount.server),
         ]),
       );
       for (const mount of mountsResolved) {
@@ -162,7 +175,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         // the event. Built per mount so every rejection path on one surface
         // reports the same `source` the thunk's events carry.
         const onAuthAbsent = (scheme: string) => {
-          ctx.emit("auth:rejected", {
+          c.emit("auth:rejected", {
             reason: missingCredentialReason(scheme),
             scheme,
             source: mountId,
@@ -174,7 +187,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         // because the per-route signature gate is independent of the mount
         // wall; a webhook endpoint typically lives on a public mount.
         const onSignatureRejected = (reason: HttpWebhookSignatureRejection) => {
-          ctx.emit("auth:rejected", {
+          c.emit("auth:rejected", {
             reason,
             scheme: "signature",
             source: mountId,
@@ -186,7 +199,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         const walled = mountAuth.walled;
         const isDefaultRoot = mount.name === "default" && mount.path === "/";
         const authConfigured = walled;
-        const serverRoutes = routesOnServer(mount.server);
+        const serverRoutes = routesOnServer(mountRuntimes, mount.server);
 
         // Built-ins layering (default-root mount only). See the matrix in
         // HttpBuiltinOptions: /ready and /openapi.json gate on the mount
@@ -244,7 +257,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           shutdownSignal: shutdown.signal,
           onAuthAbsent,
           onSignatureRejected,
-          logger: ctx.logger,
+          logger: c.logger,
         });
         unmounts.push(
           ingress.mountHttp({
@@ -306,21 +319,20 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         );
       }
     },
-    async teardown(ctx: CraftContext) {
+    async stop(c: PluginContext) {
+      const runtime = runtimes.get(c);
+      if (runtime === undefined) return;
+      const { unmounts, mountRuntimes } = runtime;
       for (const unmount of unmounts.splice(0)) {
         try {
           unmount();
         } catch (error) {
-          ctx.logger.warn(
-            { err: error },
-            "HTTP mount failed to unmount cleanly",
-          );
+          c.logger.warn({ err: error }, "HTTP mount failed to unmount cleanly");
         }
       }
       for (const runtime of mountRuntimes.values()) {
         runtime.registry.clear();
       }
-      ctx.setStore(HTTP_PLUGIN_REGISTERED, false);
     },
   };
 }

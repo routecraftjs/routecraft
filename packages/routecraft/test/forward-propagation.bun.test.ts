@@ -5,13 +5,14 @@ import {
   direct,
   getExchangeRoute,
   HeadersKeys,
-  markAuthentic,
-  markRestored,
+  defaultAuthority,
   simple,
   type Exchange,
   type Principal,
   type Source,
+  principalOf,
 } from "../src/index.ts";
+import { markRestored } from "../src/auth/restored.ts";
 
 /**
  * Source that emits one body carrying a principal the way an authenticating
@@ -22,7 +23,7 @@ import {
 function principalSource<T>(
   body: T,
   principal?: Principal,
-  mark: (p: Principal) => Principal = markAuthentic,
+  mark: (p: Principal) => Principal = (p) => defaultAuthority.brand(p),
 ): Source<T> {
   return {
     subscribe: async (sub) => {
@@ -71,7 +72,7 @@ describe("forward() header propagation", () => {
           .authorize({ scopes: ["kb:read"] })
           .from(direct())
           .transform((_b: unknown, ex: Exchange<unknown>) => {
-            seenSubject = ex.principal?.subject;
+            seenSubject = principalOf(ex)?.subject;
             return { ok: true };
           }),
         craft()
@@ -127,7 +128,7 @@ describe("forward() header propagation", () => {
 
   /**
    * @case An anonymous caller forwards anonymously rather than acquiring an identity
-   * @preconditions Caller route has no principal and forwards to a target that records ex.principal
+   * @preconditions Caller route has no principal and forwards to a target that records ex.auth.principal
    * @expectedResult Target sees no principal; forward never fabricates one
    */
   test("does not fabricate a principal for an anonymous caller", async () => {
@@ -139,7 +140,7 @@ describe("forward() header propagation", () => {
           .id("target-anon")
           .from(direct())
           .transform((_b: unknown, ex: Exchange<unknown>) => {
-            sawPrincipal = ex.principal !== undefined;
+            sawPrincipal = principalOf(ex) !== undefined;
             return { ok: true };
           }),
         craft()
@@ -281,7 +282,7 @@ describe("forward() header propagation", () => {
           .authorize({ scopes: ["kb:read"] })
           .from(direct())
           .transform((_b: unknown, ex: Exchange<unknown>) => {
-            fallbackSubject = ex.principal?.subject;
+            fallbackSubject = principalOf(ex)?.subject;
             return { recovered: true };
           }),
         craft()
@@ -299,7 +300,9 @@ describe("forward() header propagation", () => {
       .build();
 
     await t.startAndWaitReady();
-    const headers = { [HeadersKeys.AUTH_PRINCIPAL]: markAuthentic(principal) };
+    const headers = {
+      [HeadersKeys.AUTH_PRINCIPAL]: defaultAuthority.brand(principal),
+    };
     // First call fails and trips the breaker; the second meets it open and
     // takes the fallback, which is the path under test.
     await expect(
@@ -355,7 +358,7 @@ describe("forward() header propagation", () => {
           .authorize({ scopes: ["kb:read"] })
           .from(direct())
           .transform((_b: unknown, ex: Exchange<unknown>) => {
-            recoverySubject = ex.principal?.subject;
+            recoverySubject = principalOf(ex)?.subject;
             return { recovered: true };
           }),
         craft()

@@ -12,7 +12,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   keep,
-  markAuthentic,
+  defaultAuthority,
   mask,
   type CallableTransformer,
   type Exchange,
@@ -60,7 +60,7 @@ function mk<T>(body: T, principal?: Principal): Exchange<T> {
 // keep trusts only authentic principals, so brand the test principal the way a
 // source verifier or authenticate() would.
 function who(roles: string[], email = "a@x.com"): Principal {
-  return markAuthentic({
+  return defaultAuthority.brand({
     kind: "custom",
     scheme: "bearer",
     subject: "u",
@@ -86,7 +86,7 @@ describe("transform second argument", () => {
   /**
    * @case transform passes the current exchange as a second argument
    * @preconditions A route attaches a principal then transforms using it
-   * @expectedResult The transformer can read ex.principal to shape the body
+   * @expectedResult The transformer can read ex.auth.principal to shape the body
    */
   test("the transformer receives the exchange", async () => {
     const s = spy<{ subject?: string }>();
@@ -105,7 +105,7 @@ describe("transform second argument", () => {
           .from(principalSource)
           .transform((body, ex) => ({
             ...body,
-            subject: ex.principal?.subject,
+            subject: ex.auth.principal?.subject,
           }))
           .to(s),
       )

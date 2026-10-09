@@ -8,10 +8,7 @@ import {
   type AgentRegisteredOptions,
 } from "../src/index.ts";
 import { currentTimeFn, randomUuidFn } from "./helpers/fn-fixtures.ts";
-import {
-  ADAPTER_AGENT_DEFAULT_OPTIONS,
-  ADAPTER_AGENT_REGISTRY,
-} from "../src/agent/store.ts";
+import { AGENTS } from "../src/agent/port.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
 
 describe("agentPlugin defaultOptions storage", () => {
@@ -22,11 +19,11 @@ describe("agentPlugin defaultOptions storage", () => {
   });
 
   /**
-   * @case defaultOptions.tools is stored under ADAPTER_AGENT_DEFAULT_OPTIONS
+   * @case defaultOptions.tools is held as the AGENTS registry defaults
    * @preconditions agentPlugin({ defaultOptions: { tools: tools(["CurrentTime"]) } })
    * @expectedResult Store entry has a `tools` ToolSelection
    */
-  test("agentPlugin stores defaultOptions.tools under the new symbol", async () => {
+  test("agentPlugin contributes defaultOptions.tools to the registry", async () => {
     t = await testContext()
       .with({
         plugins: [
@@ -38,17 +35,17 @@ describe("agentPlugin defaultOptions storage", () => {
       })
       .build();
 
-    const stored = t.ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
+    const stored = t.ctx.lookup(AGENTS)?.defaults;
     expect(stored).toBeDefined();
     expect(isToolSelection(stored!.tools!)).toBe(true);
   });
 
   /**
-   * @case defaultOptions.model is stored under ADAPTER_AGENT_DEFAULT_OPTIONS
+   * @case defaultOptions.model is held as the AGENTS registry defaults
    * @preconditions agentPlugin({ defaultOptions: { model: "anthropic:claude-opus-4-7" } })
    * @expectedResult Store entry has a `model` string
    */
-  test("agentPlugin stores defaultOptions.model under the new symbol", async () => {
+  test("agentPlugin contributes defaultOptions.model to the registry", async () => {
     t = await testContext()
       .with({
         plugins: [
@@ -59,16 +56,16 @@ describe("agentPlugin defaultOptions storage", () => {
       })
       .build();
 
-    const stored = t.ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
+    const stored = t.ctx.lookup(AGENTS)?.defaults;
     expect(stored?.model).toBe("anthropic:claude-opus-4-7");
   });
 
   /**
-   * @case Without defaultOptions, ADAPTER_AGENT_DEFAULT_OPTIONS is unset
+   * @case Without defaultOptions, the AGENTS registry holds no defaults
    * @preconditions agentPlugin without defaultOptions field
    * @expectedResult Store entry is undefined
    */
-  test("agentPlugin without defaultOptions does not set the store", async () => {
+  test("agentPlugin without defaultOptions leaves the registry defaults unset", async () => {
     t = await testContext()
       .with({
         plugins: [
@@ -79,7 +76,7 @@ describe("agentPlugin defaultOptions storage", () => {
       })
       .build();
 
-    expect(t.ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS)).toBeUndefined();
+    expect(t.ctx.lookup(AGENTS)?.defaults).toBeUndefined();
   });
 
   /**
@@ -150,7 +147,7 @@ describe("agentPlugin defaultOptions storage", () => {
       })
       .build();
 
-    const stored = t.ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
+    const stored = t.ctx.lookup(AGENTS)?.defaults;
     expect(stored?.model).toBe("anthropic:claude-opus-4-7");
     expect(isToolSelection(stored!.tools!)).toBe(true);
   });
@@ -227,7 +224,7 @@ describe("agentPlugin per-agent tools field", () => {
       })
       .build();
 
-    const entry = t.ctx.getStore(ADAPTER_AGENT_REGISTRY)?.get("researcher") as
+    const entry = t.ctx.lookup(AGENTS)?.agents?.get("researcher") as
       AgentRegisteredOptions | undefined;
     expect(entry?.tools).toBe(sel);
   });
@@ -254,7 +251,7 @@ describe("agentPlugin per-agent tools field", () => {
       })
       .build();
 
-    const entry = t.ctx.getStore(ADAPTER_AGENT_REGISTRY)?.get("inheritor") as
+    const entry = t.ctx.lookup(AGENTS)?.agents?.get("inheritor") as
       AgentRegisteredOptions | undefined;
     expect(entry?.model).toBeUndefined();
   });

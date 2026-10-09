@@ -13,7 +13,7 @@ import {
   direct,
   http,
   jwt,
-  markAuthentic,
+  defaultAuthority,
   MemoryCacheProvider,
   noop,
   otherwise,
@@ -28,6 +28,12 @@ import {
   simple,
   type StepContext,
   type StepOutcome,
+  CACHE,
+  bindCacheProvider,
+  cacheProvider,
+  definePlugin,
+  getExchangeContext,
+  port,
 } from "@routecraft/routecraft";
 
 /**
@@ -699,6 +705,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),
       captureDownstream: () => async () => ({ failed: false, dropped: false }),
+      invoke: async (_point, exchange) => exchange,
     };
 
     const [o1, o2] = await Promise.all([
@@ -749,6 +756,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),
       captureDownstream: () => async () => ({ failed: false, dropped: false }),
+      invoke: async (_point, exchange) => exchange,
     };
 
     const [o1, o2] = await Promise.all([
@@ -1344,7 +1352,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       return {
         subscribe: async (sub) => {
           const headers = principal
-            ? { "routecraft.auth.principal": markAuthentic(principal) }
+            ? { "routecraft.auth.principal": defaultAuthority.brand(principal) }
             : undefined;
           await sub.emit({ message: body, ...(headers ? { headers } : {}) });
         },
@@ -1752,7 +1760,9 @@ describe(".cache() default key identity", () => {
           await sub.emit({
             message: "same",
             headers: {
-              "routecraft.auth.principal": markAuthentic(principal(subject)),
+              "routecraft.auth.principal": defaultAuthority.brand(
+                principal(subject),
+              ),
             },
           });
         }
@@ -1769,7 +1779,10 @@ describe(".cache() default key identity", () => {
           .cache({ provider: new MemoryCacheProvider() })
           .process((ex) =>
             DefaultExchange.rewrap(ex, {
-              body: { subject: ex.principal?.subject ?? null, run: ++runs },
+              body: {
+                subject: ex.auth.principal?.subject ?? null,
+                run: ++runs,
+              },
             }),
           )
           .to(sink),
@@ -2186,7 +2199,9 @@ describe(".cache() default key identity", () => {
           await sub.emit({
             message: "same",
             headers: {
-              "routecraft.auth.principal": markAuthentic(delegated(actor)),
+              "routecraft.auth.principal": defaultAuthority.brand(
+                delegated(actor),
+              ),
             },
           });
         }
@@ -2204,7 +2219,7 @@ describe(".cache() default key identity", () => {
           .process((ex) =>
             DefaultExchange.rewrap(ex, {
               body: {
-                actor: ex.principal?.actor?.subject ?? null,
+                actor: ex.auth.principal?.actor?.subject ?? null,
                 run: ++runs,
               },
             }),
@@ -2246,7 +2261,9 @@ describe(".cache() default key identity", () => {
         for (const principal of [cyclic, cyclic, plain]) {
           await sub.emit({
             message: "same",
-            headers: { "routecraft.auth.principal": markAuthentic(principal) },
+            headers: {
+              "routecraft.auth.principal": defaultAuthority.brand(principal),
+            },
           });
         }
       },
@@ -2321,7 +2338,7 @@ describe(".cache() default key identity", () => {
         .from(http({ path: "/me", method: "POST" }))
         .process((ex) =>
           DefaultExchange.rewrap(ex, {
-            body: { subject: ex.principal?.subject ?? null, run: ++runs },
+            body: { subject: ex.auth.principal?.subject ?? null, run: ++runs },
           }),
         )
         .to(noop()),
@@ -2482,5 +2499,104 @@ describe(".cache() default key identity", () => {
 
     expect(calls).toBe(2);
     expect(provider.size).toBe(0);
+  });
+});
+
+describe("the default cache provider is the application's own", () => {
+  const contexts: TestContext[] = [];
+
+  afterEach(async () => {
+    await Promise.all(contexts.splice(0).map((c) => c.stop()));
+  });
+
+  /**
+   * @case Two applications run one route id over one body with the default cache
+   * @preconditions One route definition with .cache() and no provider, installed in two contexts whose plugin provides a different value to the route; the same body dispatched to each
+   * @expectedResult Each application computes and serves its own value; a warm entry in one never answers the other
+   */
+  test("two applications never read each other's default cache entries", async () => {
+    const VALUE = port<string>("test.value@1");
+    const value = (v: string) =>
+      definePlugin({
+        id: "test.value",
+        provides: [VALUE],
+        bind(c) {
+          c.provide(VALUE, v);
+        },
+      });
+    const route = () =>
+      craft()
+        .id("cache-per-application")
+        .cache()
+        .from(direct())
+        .transform((_b, ex) => getExchangeContext(ex)!.require(VALUE));
+    const a = await testContext()
+      .with({ plugins: [value("A")] })
+      .routes(route())
+      .build();
+    const b = await testContext()
+      .with({ plugins: [value("B")] })
+      .routes(route())
+      .build();
+    contexts.push(a, b);
+    await Promise.all([a.startAndWaitReady(), b.startAndWaitReady()]);
+    expect(
+      await a.client.sendDirect<object, string>("cache-per-application", {}),
+    ).toBe("A");
+    expect(
+      await b.client.sendDirect<object, string>("cache-per-application", {}),
+    ).toBe("B");
+    expect(
+      await a.client.sendDirect<object, string>("cache-per-application", {}),
+    ).toBe("A");
+  });
+
+  /**
+   * @case A plugin replacing CACHE receives the call site's provider choice
+   * @preconditions A replacement that records whether the resolved options carry a provider, for a .cache() without one and a .cache({ provider })
+   * @expectedResult The options carry undefined for the first and the supplied provider for the second; bindCacheProvider settles the first on the fallback
+   */
+  test("hands a replacement the provider the call site supplied, or none", async () => {
+    const seen: Array<CacheProvider | undefined> = [];
+    const own = new MemoryCacheProvider();
+    const fallback = new MemoryCacheProvider();
+    const recording = definePlugin({
+      id: "test.recording-cache",
+      provides: [CACHE],
+      replaces: [CACHE],
+      bind(c) {
+        const positions = cacheProvider(fallback);
+        c.provide(CACHE, {
+          ...positions,
+          wrap(options) {
+            seen.push(options.provider);
+            expect(bindCacheProvider(options, fallback).provider).toBe(
+              options.provider ?? fallback,
+            );
+            return positions.wrap(options);
+          },
+        });
+      },
+    });
+    const t = await testContext()
+      .with({ plugins: [recording] })
+      .routes([
+        craft()
+          .id("unsupplied")
+          .from(direct())
+          .cache()
+          .transform(() => 1),
+        craft()
+          .id("supplied")
+          .from(direct())
+          .cache({ provider: own })
+          .transform(() => 2),
+      ])
+      .build();
+    contexts.push(t);
+    await t.startAndWaitReady();
+    await t.client.sendDirect("unsupplied", {});
+    await t.client.sendDirect("supplied", {});
+    expect(seen).toEqual([undefined, own]);
   });
 });

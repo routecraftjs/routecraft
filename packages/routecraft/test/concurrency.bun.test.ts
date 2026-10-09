@@ -179,6 +179,51 @@ describe("Concurrency wrapper (.concurrency())", () => {
   });
 
   /**
+   * @case A queued exchange abandoned by an outer step-scope timeout never runs the wrapped step
+   * @preconditions .timeout("40ms").concurrency({ max: 1 }) over a step that holds its slot for 150ms; two exchanges sent concurrently
+   * @expectedResult Both fail with RC5011; the wrapped step runs once, and the queued exchange ends with route:concurrency:rejected reason "abandoned" rather than being admitted past max once the deadline elapsed
+   */
+  test("an outer timeout abandoning a queued exchange does not admit it", async () => {
+    const rejected: { reason: string; scope: string }[] = [];
+    let runs = 0;
+
+    t = await testContext()
+      .on("route:concurrency:rejected", (p) => {
+        rejected.push(p.details as { reason: string; scope: string });
+      })
+      .routes(
+        craft()
+          .id("cc-step-abandon")
+          .from(direct())
+          .timeout("40ms")
+          .concurrency({ max: 1 })
+          .process(async (ex) => {
+            runs++;
+            await sleep(150);
+            return ex;
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.startAndWaitReady();
+    const results = await Promise.allSettled([
+      t.client.sendDirect("cc-step-abandon", 0),
+      t.client.sendDirect("cc-step-abandon", 1),
+    ]);
+    await sleep(200);
+
+    expect(
+      results.map((r) =>
+        r.status === "rejected" ? (r.reason as { rc?: string }).rc : "ok",
+      ),
+    ).toEqual(["RC5011", "RC5011"]);
+    expect(runs).toBe(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toMatchObject({ reason: "abandoned", scope: "step" });
+  });
+
+  /**
    * @case Reject mode fails over-limit exchanges fast with RC5026 instead of queueing
    * @preconditions .concurrency({ max: 1, mode: "reject" }) over a slow step with three concurrent exchanges
    * @expectedResult One exchange runs; the other two reject with RC5026 and emit route:concurrency:rejected reason "busy"
