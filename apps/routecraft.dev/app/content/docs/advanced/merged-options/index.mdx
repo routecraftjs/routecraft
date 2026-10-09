@@ -95,7 +95,7 @@ Under the hood, merged options travel through a **port**: a named, typed token o
                               └─────────────────┘
 ```
 
-A port's token is its identity, so two copies of the module that declares it in one process are refused at install ([`RC1103`](/docs/reference/errors#rc-1103)) rather than silently splitting the defaults in two.
+A port's identity is its name: the token's key is the registered symbol for it, so two copies of the module that declares it in one process (the ESM and CJS builds of one install, a global CLI beside a project's own copy) resolve as one port rather than silently splitting the defaults in two. Two tokens with one name but different keys in one application is [`RC1103`](/docs/reference/errors#rc-1103).
 
 ## Adding merged options to a custom adapter
 
