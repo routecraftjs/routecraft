@@ -79,7 +79,7 @@ Build a fresh context from your config instead of restarting a stopped one. The 
 Two plugins share an id
 
 **Why it happens**  
-Two installed plugins carry the same `id`. Every plugin id is installed once per application. A config key and an explicit plugin for the same feature count as two installations of one id: `deferral: {}` together with `plugins: [deferralPlugin()]` is the common case. The message names both positions. Two bundles that each bring their own single (non-repeatable) descriptor under one id the application does not list raise it too, naming both bundles: which one would serve the id is a guess the kernel does not make.
+Two installed plugins carry the same `id`. A single (non-repeatable) plugin id is installed once per application; repeatable descriptors under one id each install and are numbered. A config key and an explicit plugin for the same feature count as two installations of one id: `deferral: {}` together with `plugins: [deferralPlugin()]` is the common case. The message names both positions. Two bundles that each bring their own single (non-repeatable) descriptor under one id the application does not list raise it too, naming both bundles: which one would serve the id is a guess the kernel does not make.
 
 **Suggestion**  
 Keep one of the two. To replace a [default plugin](/docs/reference/plugins#default-plugins), list a plugin with its id: an application plugin with the same id takes the default's place without a fault. For two bundles bringing one id, list the plugin you want in `plugins`, or have both bundles bring one shared descriptor.
