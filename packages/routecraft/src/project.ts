@@ -53,9 +53,9 @@ type ListedPluginsOf<D> = D extends { readonly plugins: readonly (infer P)[] }
 /**
  * The plugin types a union of plugin types brings through `installs`,
  * transitively, the plugins themselves excluded. A brought single plugin
- * whose id is in `Held` is left out together with everything it would bring,
- * the way the application skips that whole subtree when it holds the id
- * itself; a repeatable one is a contribution instance and is kept whatever
+ * whose id may be in `Held` (any member of a union id) is left out together
+ * with everything it would bring, the way the application skips that whole
+ * subtree when it holds the id itself; a repeatable one is a contribution instance and is kept whatever
  * ids the application holds, as the application installs it.
  */
 type BroughtBy<P, Held extends string> = P extends {
@@ -64,9 +64,9 @@ type BroughtBy<P, Held extends string> = P extends {
   ? I extends { readonly id: infer Id extends string }
     ? I extends { readonly repeatable: true }
       ? I | BroughtBy<I, Held>
-      : Id extends Held
-        ? never
-        : I | BroughtBy<I, Held>
+      : [Extract<Id, Held>] extends [never]
+        ? I | BroughtBy<I, Held>
+        : never
     : never
   : never;
 

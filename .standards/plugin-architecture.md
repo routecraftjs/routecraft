@@ -40,7 +40,9 @@ not handed to plugins.
 
 ## 2. A plugin
 
-A plugin is a plain descriptor, built with `definePlugin()`:
+A plugin is a plain descriptor, built with `definePlugin()`. Only `id` is
+required; every other field is a capability the plugin adds, and a plugin
+that adds none of them is still a plugin:
 
 | Field                        | Declares                                                                                                                                                                                                                                                                                                                                                | Read                                |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |

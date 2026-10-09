@@ -752,6 +752,9 @@ describe("chain hooks", () => {
     expect(exitError).toMatchObject({ rc: "RC1115" });
     expect((exitError as Error).message).toContain('hook in "exit"');
     expect((exitError as Error).message).toContain("declares runs as string");
+    expect((exitError as Error).message).toContain(
+      "runs is an array of run kinds (normal, resume, debounce, errorChannel)",
+    );
 
     const attemptError = await refusal([
       plugin("test.wrapped", {
