@@ -1,0 +1,90 @@
+name: Restore base images
+description: >-
+  Loads the images a job builds from or pulls out of the Actions cache, and
+  pulls them from the registry only when the cache has no copy. A steady
+  run never contacts Docker Hub, whose anonymous pull quota is shared by
+  every repository on a runner's address; a miss pulls with the Docker Hub
+  credentials when the workflow passes them, anonymously otherwise.
+inputs:
+  images:
+    description: Image references to restore, one per line.
+    default: ""
+  dockerfiles:
+    description: >-
+      Dockerfiles whose FROM lines name the images to restore, one per
+      line. A stage alias or a reference built from a build argument is
+      skipped.
+    default: ""
+  dockerhub-username:
+    description: Docker Hub username for a pull on a cache miss; optional.
+    default: ""
+  dockerhub-token:
+    description: Docker Hub access token for a pull on a cache miss; optional.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - id: list
+      shell: bash
+      env:
+        IMAGES: ${{ inputs.images }}
+        DOCKERFILES: ${{ inputs.dockerfiles }}
+      run: |
+        set -euo pipefail
+        {
+          printf '%s\n' "$IMAGES"
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            awk 'toupper($1) == "FROM" {
+              if (toupper($3) == "AS") names[$4] = 1
+              if (!($2 in names) && index($2, "$") == 0) print $2
+            }' "$file"
+          done <<< "$DOCKERFILES"
+        } | sed '/^[[:space:]]*$/d' | sort -u > "$RUNNER_TEMP/base-images.txt"
+        if [ ! -s "$RUNNER_TEMP/base-images.txt" ]; then
+          echo "::error::No image to restore: pass images or dockerfiles."
+          exit 1
+        fi
+        echo "images=$(paste -sd' ' "$RUNNER_TEMP/base-images.txt")" >> "$GITHUB_OUTPUT"
+        echo "key=base-images-$(sha256sum "$RUNNER_TEMP/base-images.txt" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+    # An exact key only: the archive is the images of this job and nothing
+    # else, so a partial hit would restore another job's set.
+    - id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/base-images
+        key: ${{ steps.list.outputs.key }}
+
+    - id: load
+      shell: bash
+      env:
+        IMAGES: ${{ steps.list.outputs.images }}
+        DOCKERHUB_USERNAME: ${{ inputs.dockerhub-username }}
+        DOCKERHUB_TOKEN: ${{ inputs.dockerhub-token }}
+      run: |
+        set -euo pipefail
+        mkdir -p ~/.cache/base-images
+        logged_in=false
+        pulled=false
+        for image in $IMAGES; do
+          tar=~/.cache/base-images/$(printf '%s' "$image" | tr '/:@' '___').tar
+          if [ -f "$tar" ]; then
+            docker load -i "$tar"
+            continue
+          fi
+          if [ -n "$DOCKERHUB_TOKEN" ] && [ "$logged_in" = false ]; then
+            printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            logged_in=true
+          fi
+          docker pull "$image"
+          docker save -o "$tar" "$image"
+          pulled=true
+        done
+        echo "pulled=$pulled" >> "$GITHUB_OUTPUT"
+
+    - if: steps.load.outputs.pulled == 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/base-images
+        key: ${{ steps.list.outputs.key }}

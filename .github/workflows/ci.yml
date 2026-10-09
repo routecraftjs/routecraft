@@ -403,6 +403,13 @@ jobs:
           bun .github/scripts/security-reference-project.ts starter "$RUNNER_TEMP/ref-starter"
           bun .github/scripts/security-reference-project.ts adapters "$RUNNER_TEMP/ref-adapters"
 
+      - name: Restore the starter's base images
+        uses: ./.github/actions/base-images
+        with:
+          dockerfiles: ${{ runner.temp }}/ref-starter/Dockerfile
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build the starter image
         run: docker build -t routecraft-starter:scan "$RUNNER_TEMP/ref-starter"
 
@@ -487,6 +494,13 @@ jobs:
           path: ~/.cache/trivy/db
           key: trivy-db-${{ steps.trivy-db.outputs.day }}
           restore-keys: trivy-db-
+
+      - name: Restore the site's base images
+        uses: ./.github/actions/base-images
+        with:
+          dockerfiles: apps/routecraft.dev/Dockerfile
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build the site image
         run: docker build -f apps/routecraft.dev/Dockerfile -t routecraft-site:scan .
@@ -619,7 +633,7 @@ jobs:
       # The docker tier's smoke runs in the same job for the same reason the
       # unshare one does: a guarantee nobody checked must not look checked.
       # The runner ships a daemon; the probe fails loudly if it is absent,
-      # and the image is pulled here because the tier never pulls one.
+      # and the image is restored here because the tier never pulls one.
       - name: Check the runner has a Docker daemon
         run: |
           if ! docker info > /dev/null 2>&1; then
@@ -627,7 +641,13 @@ jobs:
             echo "::error::The suite is failed rather than skipped."
             exit 1
           fi
-          docker pull alpine:3.20
+
+      - name: Restore the smoke's image
+        uses: ./.github/actions/base-images
+        with:
+          images: alpine:3.20
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Run the isolation smoke
         run: bun run test:isolation
