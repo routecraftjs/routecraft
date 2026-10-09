@@ -7,7 +7,7 @@ import {
 } from "../authorization-refusal.ts";
 import type { Principal } from "../principal.ts";
 import { raisedHookRefusalOf, type RefusalKind } from "../kernel/hooks.ts";
-import { raisedInputValidationOf } from "./validation.ts";
+import { MAX_WIRE_ISSUES, raisedInputValidationOf } from "./validation.ts";
 
 /** One schema issue as a door shows it to a caller: where, and what. */
 export interface WireIssue {
@@ -26,11 +26,7 @@ export interface WireIssues {
   omitted: number;
 }
 
-/**
- * How many schema issues a door sends. A payload with thousands of bad array
- * items would otherwise produce an answer proportional to the damage.
- */
-export const MAX_WIRE_ISSUES = 20;
+export { MAX_WIRE_ISSUES } from "./validation.ts";
 
 /**
  * The longest path or message a wire issue carries. A path echoes the
@@ -194,7 +190,13 @@ export function callerRefusalOf(
     if (invalid === undefined || invalid.routeId !== origin.routeId) {
       return undefined;
     }
-    return { kind: "input", in: invalid.in, ...wireIssues(invalid.issues) };
+    const wire = wireIssues(invalid.issues);
+    return {
+      kind: "input",
+      in: invalid.in,
+      issues: wire.issues,
+      omitted: wire.omitted + invalid.omitted,
+    };
   }
   if (code === "RC5068") {
     const refused = raisedHookRefusalOf(error);

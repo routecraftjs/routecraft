@@ -463,6 +463,11 @@ export class HookTable {
         message: `${where} has no id. Every hook names itself, so hooks.order and hooks.disable can address it as "${pluginId}/<id>".`,
       });
     }
+    if (hook.runs !== undefined && !Array.isArray(hook.runs)) {
+      throw rcError("RC1115", undefined, {
+        message: `${where} declares runs as ${typeof hook.runs}; runs is an array of run kinds (normal, resume, debounce, errorChannel).`,
+      });
+    }
     if (slot === "perAttempt") {
       if (typeof hook.wrap !== "function") {
         throw rcError("RC1115", undefined, {
@@ -490,10 +495,10 @@ export class HookTable {
     if (
       ADMISSION_SLOTS.includes(slot) &&
       hook.runs !== undefined &&
-      (!Array.isArray(hook.runs) || !hook.runs.includes("normal"))
+      !hook.runs.includes("normal")
     ) {
       throw rcError("RC1115", undefined, {
-        message: `${where} must declare runs as an array that includes "normal". afterAuth and admitted see every admission, a resumed one included, as a normal run, and beforeAuth sees first runs only, so this hook would never run. Drop runs or include "normal".`,
+        message: `${where} declares runs [${hook.runs.join(", ")}] without "normal". afterAuth and admitted see every admission, a resumed one included, as a normal run, and beforeAuth sees first runs only, so this hook would never run. Drop runs or include "normal".`,
       });
     }
   }

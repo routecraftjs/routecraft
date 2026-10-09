@@ -739,6 +739,34 @@ describe("chain hooks", () => {
   });
 
   /**
+   * @case A hook whose runs is not an array
+   * @preconditions A hook in exit declaring runs: "resume" as a plain-JavaScript author might, and a perAttempt wrapper declaring runs: "normal"
+   * @expectedResult Each fails the build with RC1115 naming the slot, instead of a TypeError when the first exchange asks whether the hook runs
+   */
+  test("a hook whose runs is not an array fails the build with RC1115", async () => {
+    const exitError = await refusal([
+      plugin("test.string", {
+        exit: { phase: "observe", runs: "resume", run: () => undefined },
+      } as unknown as LooseHooks),
+    ]);
+    expect(exitError).toMatchObject({ rc: "RC1115" });
+    expect((exitError as Error).message).toContain('hook in "exit"');
+    expect((exitError as Error).message).toContain("declares runs as string");
+
+    const attemptError = await refusal([
+      plugin("test.wrapped", {
+        perAttempt: {
+          id: "wrap",
+          runs: "normal",
+          wrap: (proceed: () => Promise<unknown>) => proceed(),
+        },
+      } as unknown as LooseHooks),
+    ]);
+    expect(attemptError).toMatchObject({ rc: "RC1115" });
+    expect((attemptError as Error).message).toContain('hook in "perAttempt"');
+  });
+
+  /**
    * @case An admission-slot hook whose runs leaves normal out
    * @preconditions A hook in beforeAuth, in afterAuth and in admitted, each declaring runs: ["resume"]; a control in admitted declaring runs: ["normal", "resume"]
    * @expectedResult Each of the three fails the build with RC1115 naming its slot, since those slots see every admission, a resumed one included, as normal and the hook could never run; the control installs and runs on a normal exchange

@@ -90,6 +90,40 @@ describe("callerRefusalOf()", () => {
   });
 
   /**
+   * @case An .input() refusal with more issues than a door sends
+   * @preconditions Route "many" whose body schema returns 25 issues
+   * @expectedResult The refusal carries the first 20 issues and omitted 5, counted from the snapshot the validator bound rather than from the public cause
+   */
+  test("caps the snapshot at the wire limit and keeps the count left out", async () => {
+    const issues = Array.from({ length: 25 }, (_, i) => ({
+      message: `bad ${i}`,
+      path: [i],
+    }));
+    const schema: StandardSchemaV1<unknown> = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({ issues }),
+      },
+    };
+    t = await testContext()
+      .routes(
+        craft().id("many").input({ body: schema }).from(simple({})).to(noop()),
+      )
+      .build();
+    await t.test();
+    const error = t.errors[0];
+
+    const refusal = callerRefusalOf(error, {
+      routeId: "many",
+      principal: undefined,
+    });
+    expect(refusal).toMatchObject({ kind: "input", in: "body", omitted: 5 });
+    expect(refusal).toHaveProperty(["issues", "length"], 20);
+    expect(refusal).toHaveProperty(["issues", 19, "path"], "19");
+  });
+
+  /**
    * @case An .input() schema that fails without reporting any issue
    * @preconditions Route "broken" whose body schema returns `{ issues: [] }`
    * @expectedResult RC5065 whose cause carries no input detail, so it is not classified as a caller refusal

@@ -244,8 +244,18 @@ export function isInputValidationFailure(
 export interface RaisedInputValidation {
   readonly in: "body" | "headers";
   readonly routeId: string;
+  /** The first {@link MAX_WIRE_ISSUES} issues, which is all a door sends. */
   readonly issues: readonly StandardSchemaV1.Issue[];
+  /** How many issues the validator raised beyond `issues`. */
+  readonly omitted: number;
 }
+
+/**
+ * How many schema issues a door sends. A payload with thousands of bad array
+ * items would otherwise produce an answer proportional to the damage, and
+ * the snapshot a refusal binds stops at the same count.
+ */
+export const MAX_WIRE_ISSUES = 20;
 
 /**
  * The input failures the framework's validators raised, each bound to the
@@ -275,7 +285,10 @@ export function raisedInputValidation<E extends Error>(error: E): E {
       Object.freeze({
         in: invalid.in,
         routeId: invalid.routeId,
-        issues: Object.freeze(invalid.issues.map(snapshotIssue)),
+        issues: Object.freeze(
+          invalid.issues.slice(0, MAX_WIRE_ISSUES).map(snapshotIssue),
+        ),
+        omitted: Math.max(0, invalid.issues.length - MAX_WIRE_ISSUES),
       }),
     );
   }

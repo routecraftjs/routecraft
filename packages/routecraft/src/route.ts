@@ -907,11 +907,13 @@ export class DefaultRoute implements Route {
     };
     const walk = (steps: ReadonlyArray<Step<Adapter>>): void => {
       for (const step of steps) {
+        const seen = new Set<Step<Adapter>>();
         for (
           let wrapper: Step<Adapter> | undefined = step;
-          wrapper !== undefined;
+          wrapper !== undefined && !seen.has(wrapper);
           wrapper = wrappedOf(wrapper)
         ) {
+          seen.add(wrapper);
           const required = (wrapper as Partial<WrapperStep>).requiredPosition;
           if (required && this.context.lookup(required.port) === undefined) {
             const label = wrapper.label ?? String(wrapper.operation);
