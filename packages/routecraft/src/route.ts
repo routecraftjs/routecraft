@@ -73,7 +73,7 @@ import type {
 } from "./kernel/continuation/sites.ts";
 import { nestedStepsOf } from "./kernel/continuation/sites.ts";
 import { STEP_PLUGIN } from "./dsl-symbol.ts";
-import { WrapperStep } from "./operations/wrapper.ts";
+import type { WrapperStep } from "./operations/wrapper.ts";
 import { DeferralHeaders } from "./kernel/continuation/exchange-state.ts";
 import type { RouteEnablement } from "./enablement.ts";
 
@@ -899,14 +899,20 @@ export class DefaultRoute implements Route {
    * @throws RC1111 naming the method and the missing port
    */
   private assertStepPositions(): void {
+    // By shape rather than instanceof: a wrapper from the package's other
+    // build (ESM beside CJS) is a different class with the same protocol.
+    const wrappedOf = (step: Step<Adapter>): Step<Adapter> | undefined => {
+      const inner = (step as Partial<WrapperStep>).wrapped;
+      return typeof inner === "object" && inner !== null ? inner : undefined;
+    };
     const walk = (steps: ReadonlyArray<Step<Adapter>>): void => {
       for (const step of steps) {
         for (
-          let wrapper: Step<Adapter> = step;
-          wrapper instanceof WrapperStep;
-          wrapper = wrapper.wrapped
+          let wrapper: Step<Adapter> | undefined = step;
+          wrapper !== undefined;
+          wrapper = wrappedOf(wrapper)
         ) {
-          const required = wrapper.requiredPosition;
+          const required = (wrapper as Partial<WrapperStep>).requiredPosition;
           if (required && this.context.lookup(required.port) === undefined) {
             const label = wrapper.label ?? String(wrapper.operation);
             throw rcError("RC1111", undefined, {

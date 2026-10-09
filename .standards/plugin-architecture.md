@@ -377,7 +377,10 @@ A plugin step's definition is part of the tail hash: for `step(fn)` the
 callback's source is digested beside the factory arguments, so a redeploy
 that changes a callback in the tail refuses the resume with `RC5048`; a raw step is
 digested by its adapter's own properties and the factory arguments, so what
-defines it belongs on its adapter. It reaches storage only through
+defines it belongs on its adapter. The digest reads source, never closures:
+a value a callback captures from its surroundings is invisible to it, so
+anything that changes what the step does belongs in the factory arguments
+or on the adapter, where it is digested. It reaches storage only through
 `CONTINUATIONS`. The deferral plugin provides
 that port over the memory or SQLite store, mints and verifies resume tokens,
 sets the default deadline, calls `execution.sweep()` on its cadence, and

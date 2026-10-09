@@ -490,10 +490,10 @@ export class HookTable {
     if (
       ADMISSION_SLOTS.includes(slot) &&
       hook.runs !== undefined &&
-      !hook.runs.includes("normal")
+      (!Array.isArray(hook.runs) || !hook.runs.includes("normal"))
     ) {
       throw rcError("RC1115", undefined, {
-        message: `${where} declares runs [${hook.runs.join(", ")}] without "normal". afterAuth and admitted see every admission, a resumed one included, as a normal run, and beforeAuth sees first runs only, so this hook would never run. Drop runs or include "normal".`,
+        message: `${where} must declare runs as an array that includes "normal". afterAuth and admitted see every admission, a resumed one included, as a normal run, and beforeAuth sees first runs only, so this hook would never run. Drop runs or include "normal".`,
       });
     }
   }
