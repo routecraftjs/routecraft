@@ -127,7 +127,7 @@ The runtime object must agree with the declared type: expose only the slots the 
 
 ### Store keys: use `Symbol.for`
 
-Use `Symbol.for(...)` so the same key is shared across all copies of your package in a process (e.g., CLI `craft run` vs the version the route imports). Export the Symbol and use it in your `declare module` augmentation and in `getStore()`/`setStore()` calls. Do **not** use a local `Symbol("...")` -- that would create different keys per package/version and break lookups. A port is the opposite by design: its token is the identity, and a second copy of the package presenting its own token under a name the application holds is refused with `RC1103` at the lookup rather than tolerated. The check compares token and name only, so two identical copies of the declaring module are refused the same way: a duplicate-token identity mismatch is the fault, whether or not the two copies' contracts differ.
+Use `Symbol.for(...)` so the same key is shared across all copies of your package in a process (e.g., CLI `craft run` vs the version the route imports). Export the Symbol and use it in your `declare module` augmentation and in `getStore()`/`setStore()` calls. Do **not** use a local `Symbol("...")` -- that would create different keys per package/version and break lookups. A port token is keyed the same way: `port()` keys it by the registered symbol for its name, so two copies of the declaring module resolve as one port, and only a token built by hand under a port's name with a key of its own is refused with `RC1103`.
 
 ```ts
 export const EXAMPLE_STORE_KEY = Symbol.for("routecraft.adapter.example.store");

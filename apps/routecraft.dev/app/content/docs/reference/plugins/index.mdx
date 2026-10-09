@@ -162,7 +162,7 @@ A plugin that only closes what `bind` opened can ignore both. A plugin that stop
 
 ## Ports
 
-`port<T>(name)` declares a port. The name is `owner.capability@version` in lowercase dotted segments; anything else is `RC1103`. Call it once at module scope and export the token: the identity is the name, so two copies of the declaring module resolve as one port; two tokens with one name but different keys in one application is `RC1103`.
+`port<T>(name)` declares a port. The name is `owner.capability@version` in lowercase dotted segments; anything else is `RC1103`. Call it once at module scope and export the token: the identity is the name, so two copies of the declaring module resolve as one port; two tokens with one name but different keys in one application are `RC1103`.
 
 Adapters read a port at runtime through the context they run in, with `context.require(port)` or `context.lookup(port)`.
 
