@@ -549,11 +549,53 @@ describe("the kernel host: installs and repeatable", () => {
   });
 
   /**
-   * @case Several plugins bring the same single (non-repeatable) id
-   * @preconditions Two consumers each installing a fresh runtime descriptor with the id "test.runtime"; the runtime is a service, not a repeatable contribution
-   * @expectedResult One runtime binds, the first brought; no RC1101 for the brought copies
+   * @case Several plugins bring one single (non-repeatable) descriptor
+   * @preconditions Two consumers each installing the same runtime descriptor with the id "test.runtime"; the runtime is a service, not a repeatable contribution
+   * @expectedResult The runtime binds once; no RC1101 for the shared descriptor
    */
-  test("installs a brought id once", async () => {
+  test("installs a shared brought descriptor once", async () => {
+    const order: string[] = [];
+    const shared = runtime(order, "shared");
+    const consumer = (id: string): Plugin =>
+      definePlugin({ id, requires: [STORE], installs: [shared] });
+    t = await testContext()
+      .with({ plugins: [consumer("test.a"), consumer("test.b")] })
+      .build();
+    expect(order).toEqual(["runtime:shared"]);
+    expect(t.ctx.require(STORE)).toEqual({ kind: "shared" });
+  });
+
+  /**
+   * @case Two bundles bring different descriptors under one single id
+   * @preconditions Two consumers each installing a fresh runtime descriptor with the id "test.runtime", and the application listing neither
+   * @expectedResult RC1101 naming both bundles and the id, before any plugin binds
+   */
+  test("refuses competing brought descriptors the application has not chosen", async () => {
+    const order: string[] = [];
+    const consumer = (id: string, kind: string): Plugin =>
+      definePlugin({
+        id,
+        requires: [STORE],
+        installs: [runtime(order, kind)],
+      });
+    const error = await testContext()
+      .with({
+        plugins: [consumer("test.a", "first"), consumer("test.b", "second")],
+      })
+      .build()
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ rc: "RC1101" });
+    expect((error as Error).message).toContain('"test.a" and "test.b"');
+    expect((error as Error).message).toContain('"test.runtime"');
+    expect(order).toEqual([]);
+  });
+
+  /**
+   * @case Two bundles bring different descriptors under an id the application lists
+   * @preconditions The consumers of the previous case, and the application listing its own "test.runtime"
+   * @expectedResult The application's runtime is the one installed; the competing brought copies never bind and raise nothing
+   */
+  test("the application's choice settles competing brought descriptors", async () => {
     const order: string[] = [];
     const consumer = (id: string, kind: string): Plugin =>
       definePlugin({
@@ -563,11 +605,15 @@ describe("the kernel host: installs and repeatable", () => {
       });
     t = await testContext()
       .with({
-        plugins: [consumer("test.a", "first"), consumer("test.b", "second")],
+        plugins: [
+          consumer("test.a", "first"),
+          consumer("test.b", "second"),
+          runtime(order, "listed"),
+        ],
       })
       .build();
-    expect(order).toEqual(["runtime:first"]);
-    expect(t.ctx.require(STORE)).toEqual({ kind: "first" });
+    expect(order).toEqual(["runtime:listed"]);
+    expect(t.ctx.require(STORE)).toEqual({ kind: "listed" });
   });
 
   /**
@@ -720,12 +766,13 @@ describe("the kernel host: installs and repeatable", () => {
   test("numbers the installs of a repeatable plugin", async () => {
     const order: string[] = [];
     const bound: string[] = [];
+    const shared = runtime(order);
     const contribution = (n: number): Plugin =>
       definePlugin({
         id: "test.contribution",
         repeatable: true,
         requires: [STORE],
-        installs: [runtime(order)],
+        installs: [shared],
         bind(c) {
           order.push(`${c.id}:${n}`);
         },
@@ -762,12 +809,13 @@ describe("the kernel host: installs and repeatable", () => {
    */
   test("binds every contribution before a reader of the same port", async () => {
     const order: string[] = [];
+    const shared = runtime(order);
     const contribution = (n: number): Plugin =>
       definePlugin({
         id: "test.contribution",
         repeatable: true,
         requires: [STORE],
-        installs: [runtime(order)],
+        installs: [shared],
         bind() {
           order.push(`contribution:${n}`);
         },
@@ -841,6 +889,63 @@ describe("the kernel host: installs and repeatable", () => {
       })
       .build();
     expect(order).toEqual(["registry", "helper", "middle", "contributor:reg"]);
+  });
+
+  /**
+   * @case Two contributors each depend on a different helper that also uses the registry port
+   * @preconditions registry provides REG; helpers A and B each require REG and provide a port of their own; contributor X (repeatable) requires REG and A's port, contributor Y requires REG and B's port
+   * @expectedResult No RC1107: the declared graph is acyclic, so a contributor edge that would close a cycle (A before Y and B before X together) is left out; the plugins bind with every declared edge honoured
+   */
+  test("leaves out a contributor edge that would close a cycle", async () => {
+    const REG = port<string>("test.reg@1");
+    const A = port<string>("test.a@1");
+    const B = port<string>("test.b@1");
+    const order: string[] = [];
+    const helper = (id: string, provides: typeof A) =>
+      definePlugin({
+        id,
+        requires: [REG],
+        provides: [provides],
+        bind(c) {
+          order.push(id);
+          c.provide(provides, id);
+        },
+      });
+    const contributor = (needs: typeof A) =>
+      definePlugin({
+        id: "test.contributor",
+        repeatable: true,
+        requires: [REG, needs],
+        bind(c) {
+          order.push(`contributor:${c.require(needs)}`);
+        },
+      });
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.registry",
+            provides: [REG],
+            bind(c) {
+              order.push("registry");
+              c.provide(REG, "reg");
+            },
+          }),
+          helper("test.helper-a", A),
+          helper("test.helper-b", B),
+          contributor(A),
+          contributor(B),
+        ],
+      })
+      .build();
+    expect(order[0]).toBe("registry");
+    expect(order).toHaveLength(5);
+    expect(order.indexOf("test.helper-a")).toBeLessThan(
+      order.indexOf("contributor:test.helper-a"),
+    );
+    expect(order.indexOf("test.helper-b")).toBeLessThan(
+      order.indexOf("contributor:test.helper-b"),
+    );
   });
 
   /**

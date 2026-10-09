@@ -163,7 +163,7 @@ export const escalation = definePlugin({
 })
 ```
 
-- `port<T>("owner.capability@version")` is called once, at module scope, and exported. The identity is the name (`Symbol.for`), so two copies of the module that declares it, such as its ESM and CJS builds, resolve as one port; bump the version when the shape changes.
+- `port<T>("owner.capability@version")` is called once, at module scope, and exported. The identity is the name (`Symbol.for`), so two copies of the module that declares it, such as its ESM and CJS builds, resolve as one port; bump the version when the shape changes. Load one build of one install per process all the same: a refusal a door answers is bound in the copy that raised it, and the context warns at build when it finds two copies.
 - `requires` lists ports the plugin cannot run without; `optional` lists ports it uses when present and reads with `c.lookup(port)`. The kernel orders plugins so a provider binds before its consumers, whatever order the application lists them in.
 - `provides` lists ports the plugin hands over with `c.provide(port, value)` in `bind`. A declared port left unprovided is `RC1109`.
 

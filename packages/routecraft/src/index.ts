@@ -452,6 +452,8 @@ export {
   CacheWrapperStep,
   type CacheOptions,
   type ResolvedCacheOptions,
+  type BoundCacheOptions,
+  bindCacheProvider,
 } from "./operations/cache-wrapper.ts";
 export {
   type CacheProvider,

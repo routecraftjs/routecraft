@@ -72,8 +72,8 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `optional` | `Port[]` | Ports the plugin uses when present, read with `lookup()`. |
 | `provides` | `Port[]` | Ports the plugin provides in `bind`. Two providers of one port is `RC1105`. |
 | `replaces` | `Port[]` | Ports whose other provider this plugin displaces. Each must also be in `provides` (`RC1106`). The displaced plugin still binds. |
-| `installs` | `Plugin[]` | Plugins this one brings along, installed ahead of it and once per id, unless the application lists that id itself. |
-| `repeatable` | `boolean` | Several installs may coexist, named `id#1`, `id#2`, ... in list order. A repeatable plugin may not provide or replace a port, or declare hooks, points, steps or a facet. It binds ahead of every other plugin that uses the ports it uses, so a reader sees every contribution. |
+| `installs` | `Plugin[]` | Plugins this one brings along, installed ahead of it and once per id, unless the application lists that id itself. Two bundles bringing different descriptors under one id the application does not list is `RC1101`. |
+| `repeatable` | `boolean` | Several installs may coexist, named `id#1`, `id#2`, ... in list order. A repeatable plugin may not provide or replace a port, or declare hooks, points, steps or a facet. It binds ahead of every other plugin that uses the ports it uses, so a reader sees every contribution, unless that order would contradict the declared dependencies. |
 | `keepsAlive` | `boolean` | The plugin owns a lifetime past the routes (a listener, a subscription): when every route has completed, the application keeps running until stopped. |
 | `hooks` | `Hooks` | Hooks in the chain's [slots](#slots), or at a point another plugin declares. |
 | `points` | `{ name: string }[]` | Moments this plugin declares and invokes from its own steps, where other plugins add hooks. |
@@ -162,7 +162,7 @@ A plugin that only closes what `bind` opened can ignore both. A plugin that stop
 
 ## Ports
 
-`port<T>(name)` declares a port. The name is `owner.capability@version` in lowercase dotted segments; anything else is `RC1103`. Call it once at module scope and export the token: the identity is the name, so two copies of the declaring module resolve as one port; two tokens with one name but different keys in one application are `RC1103`.
+`port<T>(name)` declares a port. The name is `owner.capability@version` in lowercase dotted segments; anything else is `RC1103`. Call it once at module scope and export the token: the identity is the name, so two copies of the declaring module resolve as one port; two tokens with one name but different keys in one application are `RC1103`. Load one build of one install per process: ports resolve across copies, but the refusal a door answers is bound in the copy that raised it, and the context warns at build when it finds more than one copy.
 
 Adapters read a port at runtime through the context they run in, with `context.require(port)` or `context.lookup(port)`.
 
@@ -191,7 +191,7 @@ The ports the framework ships:
 | `SURFACES` | `routecraft.ai.surfaces@1` | `routecraft.ai.surfaces` (`@routecraft/ai`) |
 | `SHELL` | `routecraft.os.shell@1` | `routecraft.os.shell` (`@routecraft/os`) |
 
-`RESILIENCE`, `CACHE` and `ENFORCEMENT` fill the chain's route-scope positions. The default providers are exported as `resilienceProvider`, `cacheProvider` and `enforcementProvider`, so a replacement can delegate to them. A step-scope wrapper (`.retry()` and the rest called after `.from()`) resolves the same provider when the exchange runs, so a replacement fills both scopes (see [Slots](#slots)). A plugin that replaces a port is named once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.
+`RESILIENCE`, `CACHE` and `ENFORCEMENT` fill the chain's route-scope positions. The default providers are exported as `resilienceProvider`, `cacheProvider(fallback?)` and `enforcementProvider`, so a replacement can delegate to them; `cacheProvider` takes the provider a `.cache()` without one of its own runs against, a fresh in-memory one by default. A step-scope wrapper (`.retry()` and the rest called after `.from()`) resolves the same provider when the exchange runs, so a replacement fills both scopes (see [Slots](#slots)). A plugin that replaces a port is named once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.
 
 `AUTHORITY` decides who an exchange acts for and whether to trust it. It provides `mint(claims)`, `brand(principal)`, `isAuthentic(principal)`, `restore(record)`, `isRestored(principal)` and `read(exchange)`. `authorityOf(exchangeOrContext)` returns the application's authority. Every mint and every check goes through it, so a replacement decides both sides; `delegate()` and the ingress mounts take the authority explicitly rather than assuming the default. `defaultAuthority` is exported for a replacement that decorates it.
 

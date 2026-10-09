@@ -267,6 +267,14 @@ export function toSignalContext(ctx?: StepContext): StepSignalContext {
  * can abort abandoned work.
  */
 export interface StepContext extends StepSignalContext {
+  /**
+   * The exchange is a claimed continuation (a resume, or an admission the
+   * route already approved), so a position that sheds load queues it for
+   * its slot rather than refusing it: a refusal below the claim would spend
+   * the approval. Absent on a first run.
+   */
+  readonly mustWait?: true;
+
   takePending(predicate: (exchange: Exchange) => boolean): Exchange[];
 
   /**

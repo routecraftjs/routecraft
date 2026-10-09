@@ -127,7 +127,7 @@ export function stepPositionRun(
     exchange,
     signal: anySignal(route?.intakeSignal, abandon),
     ...(abandon ? { abandon } : {}),
-    mustWait: false,
+    mustWait: ctx.mustWait === true,
     forward: forwardOf(route, exchange),
     emit: (event, details) => context?.emit(event, details),
     attempt: (signal) =>

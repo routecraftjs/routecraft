@@ -28,6 +28,12 @@ import {
   simple,
   type StepContext,
   type StepOutcome,
+  CACHE,
+  bindCacheProvider,
+  cacheProvider,
+  definePlugin,
+  getExchangeContext,
+  port,
 } from "@routecraft/routecraft";
 
 /**
@@ -2493,5 +2499,104 @@ describe(".cache() default key identity", () => {
 
     expect(calls).toBe(2);
     expect(provider.size).toBe(0);
+  });
+});
+
+describe("the default cache provider is the application's own", () => {
+  const contexts: TestContext[] = [];
+
+  afterEach(async () => {
+    await Promise.all(contexts.splice(0).map((c) => c.stop()));
+  });
+
+  /**
+   * @case Two applications run one route id over one body with the default cache
+   * @preconditions One route definition with .cache() and no provider, installed in two contexts whose plugin provides a different value to the route; the same body dispatched to each
+   * @expectedResult Each application computes and serves its own value; a warm entry in one never answers the other
+   */
+  test("two applications never read each other's default cache entries", async () => {
+    const VALUE = port<string>("test.value@1");
+    const value = (v: string) =>
+      definePlugin({
+        id: "test.value",
+        provides: [VALUE],
+        bind(c) {
+          c.provide(VALUE, v);
+        },
+      });
+    const route = () =>
+      craft()
+        .id("cache-per-application")
+        .cache()
+        .from(direct())
+        .transform((_b, ex) => getExchangeContext(ex)!.require(VALUE));
+    const a = await testContext()
+      .with({ plugins: [value("A")] })
+      .routes(route())
+      .build();
+    const b = await testContext()
+      .with({ plugins: [value("B")] })
+      .routes(route())
+      .build();
+    contexts.push(a, b);
+    await Promise.all([a.startAndWaitReady(), b.startAndWaitReady()]);
+    expect(
+      await a.client.sendDirect<object, string>("cache-per-application", {}),
+    ).toBe("A");
+    expect(
+      await b.client.sendDirect<object, string>("cache-per-application", {}),
+    ).toBe("B");
+    expect(
+      await a.client.sendDirect<object, string>("cache-per-application", {}),
+    ).toBe("A");
+  });
+
+  /**
+   * @case A plugin replacing CACHE receives the call site's provider choice
+   * @preconditions A replacement that records whether the resolved options carry a provider, for a .cache() without one and a .cache({ provider })
+   * @expectedResult The options carry undefined for the first and the supplied provider for the second; bindCacheProvider settles the first on the fallback
+   */
+  test("hands a replacement the provider the call site supplied, or none", async () => {
+    const seen: Array<CacheProvider | undefined> = [];
+    const own = new MemoryCacheProvider();
+    const fallback = new MemoryCacheProvider();
+    const recording = definePlugin({
+      id: "test.recording-cache",
+      provides: [CACHE],
+      replaces: [CACHE],
+      bind(c) {
+        const positions = cacheProvider(fallback);
+        c.provide(CACHE, {
+          ...positions,
+          wrap(options) {
+            seen.push(options.provider);
+            expect(bindCacheProvider(options, fallback).provider).toBe(
+              options.provider ?? fallback,
+            );
+            return positions.wrap(options);
+          },
+        });
+      },
+    });
+    const t = await testContext()
+      .with({ plugins: [recording] })
+      .routes([
+        craft()
+          .id("unsupplied")
+          .from(direct())
+          .cache()
+          .transform(() => 1),
+        craft()
+          .id("supplied")
+          .from(direct())
+          .cache({ provider: own })
+          .transform(() => 2),
+      ])
+      .build();
+    contexts.push(t);
+    await t.startAndWaitReady();
+    await t.client.sendDirect("unsupplied", {});
+    await t.client.sendDirect("supplied", {});
+    expect(seen).toEqual([undefined, own]);
   });
 });

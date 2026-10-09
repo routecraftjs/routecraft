@@ -162,18 +162,23 @@ export function installedPlugins(plugins: readonly unknown[]): Plugin[] {
  *
  * A single plugin is a service: it is installed once per id, and an id the
  * application lists itself is never brought, so the application's own choice
- * wins. A repeatable plugin is a contribution instance: it is installed once
- * per descriptor, wherever it appears, so two bundles each bringing their own
- * instance of one id both land, in the order they are reached, while one
- * instance reached through two bundles (a diamond) lands once. An id the
- * application installs as a single plugin and a bundle brings as a repeatable
- * one is not suppressed here; it is `RC1101` when the installs are numbered.
+ * wins. One descriptor brought by two bundles (a diamond) lands once; two
+ * different descriptors brought under one id with neither listed is `RC1101`,
+ * since the application has not chosen. A repeatable plugin is a contribution
+ * instance: it is installed once per descriptor, wherever it appears, so two
+ * bundles each bringing their own instance of one id both land, in the order
+ * they are reached. An id the application installs as a single plugin and a
+ * bundle brings as a repeatable one is not suppressed here; it is `RC1101`
+ * when the installs are numbered.
+ *
+ * @throws RC1101 when two bundles bring different descriptors under one
+ *   single id the application does not list
  */
 function expand(listed: readonly Plugin[]): Plugin[] {
   const listedIds = new Set(
     listed.filter((plugin) => plugin.repeatable !== true).map((p) => p.id),
   );
-  const broughtIds = new Set<string>();
+  const brought = new Map<string, { plugin: Plugin; by: Plugin }>();
   const instances = new Set<Plugin>(
     listed.filter((plugin) => plugin.repeatable === true),
   );
@@ -185,8 +190,18 @@ function expand(listed: readonly Plugin[]): Plugin[] {
         if (instances.has(plugin)) continue;
         instances.add(plugin);
       } else {
-        if (listedIds.has(plugin.id) || broughtIds.has(plugin.id)) continue;
-        broughtIds.add(plugin.id);
+        if (listedIds.has(plugin.id)) continue;
+        const earlier = brought.get(plugin.id);
+        if (earlier) {
+          if (earlier.plugin === plugin) continue;
+          // Two descriptors under one service id, neither chosen by the
+          // application: which one serves it would be the list order, and
+          // the project type would promise the steps of both.
+          throw rcError("RC1101", undefined, {
+            message: `Plugins "${earlier.by.id}" and "${by.id}" each bring their own "${plugin.id}" and the application lists neither, so which one serves it would be a guess. List "${plugin.id}" in plugins to choose, or have both bring one shared descriptor.`,
+          });
+        }
+        brought.set(plugin.id, { plugin, by });
       }
       bring(plugin);
       result.push(plugin);
@@ -403,9 +418,10 @@ export class PluginHost {
    * also binds ahead of every other consumer of those ports: a plugin that
    * reads what was contributed (ACP building a route per registered agent)
    * then sees every contribution, wherever the application listed it. A
-   * consumer the contributor depends on, directly or through providers in
-   * between, is exempt: it must bind first, and the declared edges already
-   * say so.
+   * consumer the contributor already reaches, through the declared edges or
+   * through a contributor edge added before it, is exempt: it binds first and
+   * does not see that contribution, because the edge would close a cycle
+   * the declared graph does not have.
    */
   private order(installed: readonly InstalledPlugin[]): InstalledPlugin[] {
     const uses = (entry: InstalledPlugin): symbol[] => [
@@ -421,28 +437,27 @@ export class PluginHost {
       }
       dependsOn.set(entry, deps);
     }
-    const upstreamOf = (entry: InstalledPlugin): Set<InstalledPlugin> => {
-      const reached = new Set<InstalledPlugin>();
-      const pending = [...dependsOn.get(entry)!];
+    const reaches = (from: InstalledPlugin, to: InstalledPlugin): boolean => {
+      const seen = new Set<InstalledPlugin>();
+      const pending = [...dependsOn.get(from)!];
       for (let dep = pending.pop(); dep; dep = pending.pop()) {
-        if (reached.has(dep)) continue;
-        reached.add(dep);
+        if (dep === to) return true;
+        if (seen.has(dep)) continue;
+        seen.add(dep);
         pending.push(...dependsOn.get(dep)!);
       }
-      return reached;
+      return false;
     };
-    const contributors = installed
-      .filter((entry) => entry.plugin.repeatable)
-      .map((entry) => ({ entry, upstream: upstreamOf(entry) }));
+    const contributors = installed.filter((entry) => entry.plugin.repeatable);
     for (const entry of installed) {
       if (entry.plugin.repeatable) continue;
       const deps = dependsOn.get(entry)!;
       for (const key of uses(entry)) {
         if (this.provisions.get(key)?.provider === entry) continue;
         for (const contributor of contributors) {
-          if (!uses(contributor.entry).includes(key)) continue;
-          if (contributor.upstream.has(entry)) continue;
-          deps.add(contributor.entry);
+          if (!uses(contributor).includes(key)) continue;
+          if (reaches(contributor, entry)) continue;
+          deps.add(contributor);
         }
       }
     }

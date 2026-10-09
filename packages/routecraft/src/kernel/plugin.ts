@@ -185,7 +185,10 @@ export interface Plugin {
   /**
    * Plugins this one brings along. Each is installed with it, ahead of it
    * in list order, unless the application lists a plugin with the same id
-   * itself; however many plugins bring one id, it is installed once.
+   * itself; however many plugins bring one descriptor, it is installed once.
+   * Two bundles bringing different descriptors under one id the application
+   * does not list is `RC1101`: share one descriptor, or let the application
+   * list the id and choose.
    *
    * What lets a feature split into one runtime and the contributions that
    * feed it: every contribution brings the runtime, and the application

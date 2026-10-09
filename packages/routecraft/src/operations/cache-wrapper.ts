@@ -21,10 +21,7 @@ import {
   definitionFingerprint,
   stepDefinitionFingerprint,
 } from "../kernel/continuation/hash.ts";
-import {
-  type CacheProvider,
-  defaultMemoryCacheProvider,
-} from "./cache-provider.ts";
+import { type CacheProvider } from "./cache-provider.ts";
 import { positionFor } from "./position-run.ts";
 import { CACHE } from "../kernel/positions.ts";
 import type { CacheStep } from "../kernel/positions.ts";
@@ -141,14 +138,42 @@ export interface ResolvedCacheOptions<Current = unknown> {
   /** No custom `key` was supplied, so `key` is {@link defaultCacheKey}. */
   usesDefaultKey: boolean;
   ttl: number | undefined;
+  /**
+   * The provider the call site supplied, or `undefined` when it supplied
+   * none: the `CACHE` provider then uses its own, which the default plugin
+   * keeps per application.
+   */
+  provider: CacheProvider | undefined;
+}
+
+/**
+ * {@link ResolvedCacheOptions} with the provider settled: what a cache
+ * position runs with.
+ */
+export interface BoundCacheOptions<
+  Current = unknown,
+> extends ResolvedCacheOptions<Current> {
   provider: CacheProvider;
+}
+
+/**
+ * Settle the provider of resolved options on `fallback` when the call site
+ * supplied none.
+ */
+export function bindCacheProvider<Current = unknown>(
+  options: ResolvedCacheOptions<Current>,
+  fallback: CacheProvider,
+): BoundCacheOptions<Current> {
+  return options.provider
+    ? (options as BoundCacheOptions<Current>)
+    : { ...options, provider: fallback };
 }
 
 /**
  * Resolve a user-supplied {@link CacheOptions} into a fully populated
  * {@link ResolvedCacheOptions}, filling defaults: {@link defaultCacheKey}
- * for `key`, no TTL, and the module-level in-memory provider. A custom
- * `key` ignores the scope.
+ * for `key` and no TTL. A custom `key` ignores the scope. The provider is
+ * left as supplied; the `CACHE` provider fills it.
  *
  * @internal
  */
@@ -163,7 +188,7 @@ export function resolveCacheOptions<Current = unknown>(
       options.ttl === undefined
         ? undefined
         : parseDuration(options.ttl, "cache({ ttl })"),
-    provider: options.provider ?? defaultMemoryCacheProvider,
+    provider: options.provider,
   };
 }
 
@@ -464,7 +489,7 @@ export class CacheWrapperStep<
  *
  * @internal
  */
-export function cacheStepRun(options: ResolvedCacheOptions): CacheStep {
+export function cacheStepRun(options: BoundCacheOptions): CacheStep {
   return {
     async run(run) {
       const { exchange, key, routeId, stepLabel, scope } = run;

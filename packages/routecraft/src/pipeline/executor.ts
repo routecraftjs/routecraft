@@ -341,6 +341,9 @@ export async function runPipeline(
     // Handed to steps so cancellation-aware IO stops on expiry, not just
     // the scheduling loop.
     ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
+    // A claimed continuation stays claimed inside the tail: a step-scope
+    // bulkhead queues it the way the route-scope one does.
+    ...(deps.admissionMustWait ? { mustWait: true as const } : {}),
     takePending(predicate: (candidate: Exchange) => boolean): Exchange[] {
       const taken: Exchange[] = [];
       for (let i = 0; i < queue.length;) {
@@ -505,7 +508,7 @@ export async function runPipeline(
       // Cleared only on a settled step, so a thrown attempt keeps the state for its retry.
       clearResumeStepState(exchange);
 
-      switch (outcome.kind) {
+      switch (outcome?.kind) {
         case "continue":
           queue.push({ exchange: outcome.exchange, steps: remainingSteps });
           break;
@@ -547,6 +550,15 @@ export async function runPipeline(
           queue.push({ exchange: deferred, steps: [] });
           break;
         }
+        default:
+          // A kind this engine does not schedule (a plugin built against a
+          // later release, a misspelling) must not read as success with the
+          // tail silently skipped.
+          throw rcError("RC5032", undefined, {
+            message: `Step "${stepLabel}" returned an outcome of kind "${String(
+              (outcome as { kind?: unknown } | null | undefined)?.kind,
+            )}", which this engine cannot schedule. Return continue, complete, drop, branch, fanOut or defer.`,
+          });
       }
 
       // Emit route:step:completed event unless the step manages its own events
@@ -1398,6 +1410,7 @@ function nestedDeps(
     ...(opts.rethrowUnhandled ? { rethrowUnhandled: true } : {}),
     ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
     ...(deps.runKind ? { runKind: deps.runKind } : {}),
+    ...(deps.admissionMustWait ? { admissionMustWait: true } : {}),
     definition: { steps: segment },
   };
 }

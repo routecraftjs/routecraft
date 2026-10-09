@@ -178,8 +178,16 @@ interface AgentRun {
  * @internal
  */
 export function agentRuntimePlugin(): Plugin {
-  // Keyed by the plugin context: one descriptor can serve two applications
-  // in one process (a config reused across tests).
+  return (agentRuntime ??= createAgentRuntimePlugin());
+}
+
+// One descriptor per process: every bundle that brings the runtime brings
+// this one, so two bundles in one application never compete for its id.
+let agentRuntime: Plugin | undefined;
+
+function createAgentRuntimePlugin(): Plugin {
+  // Keyed by the plugin context: one descriptor serves two applications in
+  // one process (a config reused across tests).
   const runs = new WeakMap<PluginContext, AgentRun>();
   return {
     id: "routecraft.ai.agent",

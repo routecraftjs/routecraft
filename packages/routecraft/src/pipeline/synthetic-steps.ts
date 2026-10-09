@@ -16,7 +16,7 @@ import {
   PARSE_DROPPED_REASON,
 } from "../adapters/shared/parse.ts";
 import type { Adapter, Step } from "../types.ts";
-import type { ResolvedCacheOptions } from "../operations/cache-wrapper.ts";
+import type { BoundCacheOptions } from "../operations/cache-wrapper.ts";
 import {
   ThrottleController,
   throttleEmitHooks,
@@ -276,7 +276,7 @@ const CACHE_STORE_STEP_ADAPTER: Adapter = {
  * `cacheCheck` position with it.
  */
 export function buildCacheCheckStep(
-  cacheConfig: ResolvedCacheOptions,
+  cacheConfig: BoundCacheOptions,
 ): Step<Adapter> {
   return {
     operation: OperationType.PROCESS,
@@ -414,7 +414,7 @@ export function buildCacheCheckStep(
  * `cacheStore` position with it.
  */
 export function buildCacheStoreStep(
-  cacheConfig: ResolvedCacheOptions,
+  cacheConfig: BoundCacheOptions,
 ): Step<Adapter> {
   return {
     operation: OperationType.PROCESS,

@@ -93,6 +93,11 @@ loop, a subscription, or a retry-until-available is not bounded: begin it in
 - A `stop` or disposer that throws during the unwind is logged and does not
   replace the start error. The operator needs the cause of the failed boot,
   not whatever the cleanup hit on the way out.
+- The stop walk has one owner. A build that fails while a bind's
+  `c.execution.requestStop()` already has a shutdown in flight joins that
+  shutdown, and a `context:stopping` observer that calls `stop()` joins it
+  too, so a plugin's `stop` and its disposers run once however many exits
+  reach them.
 - A shutdown that arrives while a lifecycle hook is still awaiting WAITS for
   that hook before the stop walk runs, so the order a plugin observes is
   always `bind`/`start` entered, settled, then `stop`. The wait covers the

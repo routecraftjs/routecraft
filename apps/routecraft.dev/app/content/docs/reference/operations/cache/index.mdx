@@ -24,7 +24,7 @@ A step that turns a failure into a value is a success as far as a step-scope cac
 </Callout>
 
 ```ts skip="fragment: source, expensiveOperation, destination are illustrative"
-// Default: key derived from route, step, principal and body; process-wide in-memory provider
+// Default: key derived from route, step, principal and body; the application's in-memory provider
 craft()
   .id('document-processor')
   .from(source)
@@ -67,11 +67,11 @@ craft()
 **Options:**
 - `key` (optional) - Function to derive the cache key from the exchange. If omitted, the key combines the route (with a fingerprint of the cached pipeline at route scope, or the step's site at step scope), the principal, and a SHA-256 of `JSON.stringify(body)`; see [Cache key](#cache-key). Supply an explicit `key` when the body is `undefined` or not JSON-serialisable, or when a stable identity lives in headers. A custom key is used verbatim.
 - `ttl` (optional) - Time to live in milliseconds. After expiry, the next execution recomputes the value. When omitted, the provider's default expiry applies (the bundled in-memory provider keeps entries until LRU eviction).
-- `provider` (optional) - A `CacheProvider` implementation. Defaults to a process-wide `MemoryCacheProvider` backed by `lru-cache`. Pass a custom provider to plug in Redis, multi-tier, or file-backed stores.
+- `provider` (optional) - A `CacheProvider` implementation. Defaults to the application's own `MemoryCacheProvider` backed by `lru-cache`, one per context, created by the default `CACHE` plugin. Pass a custom provider to plug in Redis, multi-tier, or file-backed stores.
 
 **Memory is bounded by default.** The default `MemoryCacheProvider` caps the store at `max: 1000` entries and evicts the least-recently-used entry once full, so an unbounded key space cannot grow the cache without limit, with or without a `ttl`. Raise or lower the cap with your own instance (`new MemoryCacheProvider({ max: 10_000 })`); there is no unbounded setting.
 
-**The default provider is shared.** It is one process-wide LRU of 1000 entries used by every route and every caller, so the entries the default key keeps apart per route and per principal still compete for the same slots. Give a hot route its own provider so it cannot evict everyone else's entries.
+**The default provider is shared within an application.** It is one LRU of 1000 entries per context used by every route and every caller in it, so the entries the default key keeps apart per route and per principal still compete for the same slots. Give a hot route its own provider so it cannot evict everyone else's entries. Two applications in one process never read each other's entries; to share a store between them on purpose, pass the same provider to both.
 
 **Concurrency:** When multiple exchanges race against the same key, the provider's `getOrCompute` is responsible for deduplication. The bundled `MemoryCacheProvider` runs the wrapped step at most once per key per TTL window; concurrent waiters share the result.
 

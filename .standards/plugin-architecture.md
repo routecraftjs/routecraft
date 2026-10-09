@@ -55,7 +55,7 @@ that adds none of them is still a plugin:
 | `points`                     | moments it declares and invokes from its own steps                                                                                                                                                                                                                                                                                                      | before anything binds               |
 | `facet`                      | `(exchange) => view`: `ex.<namespace>`, computed on every read                                                                                                                                                                                                                                                                                          | static                              |
 | `steps`                      | step factories; each key becomes a builder method                                                                                                                                                                                                                                                                                                       | static                              |
-| `installs`                   | plugins it brings along: placed ahead of it; a single plugin is installed once per id and never when the application lists that id itself; a repeatable plugin is installed once per descriptor instance wherever it appears, so two bundles bringing their own instances of one id both install, and one instance brought by two bundles installs once | before anything binds               |
+| `installs`                   | plugins it brings along: placed ahead of it; a single plugin is installed once per id and never when the application lists that id itself, and two bundles bringing different descriptors under one id the application does not list is `RC1101`; a repeatable plugin is installed once per descriptor instance wherever it appears, so two bundles bringing their own instances of one id both install, and one instance brought by two bundles installs once | before anything binds               |
 | `repeatable`                 | several installs coexist (`id#1`, `id#2`, in list order), listed and brought alike, each distinct descriptor counting once; such a plugin contributes through another plugin's port and may not provide, replace, or declare hooks, points, steps or a facet                                                                                            | before anything binds               |
 | `hooks`                      | handlers and wrappers in the chain's slots, each with a phase                                                                                                                                                                                                                                                                                           | static, placed when routes compile  |
 | `keepsAlive`                 | the plugin owns a lifetime past the routes (a listener)                                                                                                                                                                                                                                                                                                 | at completion                       |
@@ -96,6 +96,12 @@ name under another key is `RC1103`, at install when a plugin declares it
 and at lookup when it is presented at runtime. A plugin requires a
 capability, never a plugin.
 
+One copy of the kernel per process is the supported configuration. Ports
+resolve across copies, but the bindings a door trusts for a refusal
+(`RC5068`, `RC5065`, `RC5049`, `RC5038`) are module-local, so a refusal
+raised by one copy is answered by a door of the other as a plain failure.
+The context warns at build when it finds more than one copy loaded.
+
 ### Lifecycle
 
 1. **Identity.** One plugin per id (`RC1101`), one per namespace (`RC1102`),
@@ -108,7 +114,10 @@ capability, never a plugin.
    list order. A repeatable plugin also binds ahead of every other consumer of
    the ports it uses, so a plugin reading what was contributed (ACP building a
    route per registered agent) sees every contribution wherever it was listed.
-   A cycle is `RC1107` with the edges.
+   A contributor that already reaches a consumer, through the declared edges
+   or a contributor edge added before it, binds after that consumer instead,
+   which then does not see its contribution: the edge would close a cycle the
+   declared graph does not have. A cycle is `RC1107` with the edges.
 4. **Bind**, in that order. `require` of an undeclared port is `RC1108`; a
    declared `provides` left unprovided after `bind`, or a `provide` of an
    undeclared port, is `RC1109`.
@@ -294,9 +303,10 @@ craft().id("orders").from(source).dedupe({ key: (o) => o.id }).to(sink);
   by literal id, and what all of those bring through `installs` unless the
   application already holds that id. A plugin typed with a plain `string`
   id displaces nothing and keeps nothing out, the way an unknown id does at
-  runtime; two brought single plugins with one id remain a union in the
-  types, where the application installs the first it meets (repeatable
-  descriptors each install). A step or facet of an uninstalled plugin is a
+  runtime; two different brought single plugins with one id are `RC1101` at
+  install unless the application lists the id, and then the listed one is
+  the type, so the union the types would otherwise carry never reaches a
+  running application (repeatable descriptors each install). A step or facet of an uninstalled plugin is a
   compile error; a plugin step's callables typed with `Exchange<Body>` see
   the route's facets, as the built-in callables do.
 - The root `craft()` export is typed by the catalogue `@routecraft/routecraft`
@@ -415,7 +425,7 @@ The rows the design left open, decided:
 
 | Code   | Fault                                                                                                                                                                                                                                             |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| RC1101 | two plugins share an id                                                                                                                                                                                                                           |
+| RC1101 | two plugins share an id, or two bundles bring different descriptors under one id the application has not listed |
 | RC1102 | two plugins share a namespace                                                                                                                                                                                                                     |
 | RC1103 | a port name is malformed, or two keys carry one port name                                                                                                                                                                                         |
 | RC1104 | a required port has no provider                                                                                                                                                                                                                   |

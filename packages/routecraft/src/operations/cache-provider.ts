@@ -113,9 +113,10 @@ export interface MemoryCacheProviderOptions {
  * Promise map for stampede protection.
  *
  * Two instances are independent stores; the framework does not share
- * state across `MemoryCacheProvider` instances. The module-level
- * `defaultMemoryCacheProvider` is shared by every `.cache()` call that
- * does not supply its own provider.
+ * state across `MemoryCacheProvider` instances. The default `CACHE` plugin
+ * keeps one per application for every `.cache()` call that does not supply
+ * its own provider, so two applications in one process never read each
+ * other's entries.
  *
  * Thread-safe within the JS event loop: `getOrCompute` reads, registers
  * an in-flight Promise, and resolves it atomically with respect to
@@ -221,14 +222,3 @@ export class MemoryCacheProvider implements CacheProvider {
     return this.#lru.size;
   }
 }
-
-/**
- * Process-wide default provider used by `.cache()` when the call site
- * does not supply its own. Sized at 1000 entries, no default TTL. Tests
- * that need isolation should pass their own provider via
- * `cache({ provider: new MemoryCacheProvider() })` rather than mutating
- * this one.
- *
- * @internal
- */
-export const defaultMemoryCacheProvider = new MemoryCacheProvider();

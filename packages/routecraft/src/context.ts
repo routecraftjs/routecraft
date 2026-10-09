@@ -45,6 +45,7 @@ import {
   type InstalledHook,
 } from "./kernel/hooks.ts";
 import type { Port } from "./kernel/port.ts";
+import { kernelCopies } from "./kernel/copies.ts";
 
 import type {
   EventDetailsMap,
@@ -126,6 +127,22 @@ type RouteBootOutcome = "started" | "failed" | "waiting" | "disabled";
  *   generic RC5003 surface, because RC5058 carries the polarity warning an
  *   operator needs and the docs page is written against that code.
  */
+let kernelCopiesWarned = false;
+
+/**
+ * Say once per copy when more than one copy of the kernel is loaded: ports
+ * resolve across copies, the refusal bindings a door trusts do not.
+ */
+function warnAboutKernelCopies(log: CraftContext["logger"]): void {
+  const copies = kernelCopies();
+  if (copies < 2 || kernelCopiesWarned) return;
+  kernelCopiesWarned = true;
+  log.warn(
+    { copies },
+    "More than one copy of @routecraft/routecraft is loaded in this process (the ESM and CJS builds of one install, or two installs). Ports resolve across copies, but a refusal raised by one copy is answered by a door of the other as a plain failure. Load one build of one install.",
+  );
+}
+
 function resolveShutdownTimeout(timeout: Duration | undefined): number {
   if (timeout === undefined) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
   try {
@@ -389,6 +406,8 @@ export class CraftContext {
 
   /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
   private shutdownPromise: Promise<ShutdownOutcome> | null = null;
+  /** The one plugin teardown walk, once something has started it. */
+  private teardownWalk: Promise<void> | null = null;
 
   /** Backing gate for {@link CraftContext.whenStarted}. */
   private startedGate: PromiseWithResolvers<void> | undefined;
@@ -422,6 +441,7 @@ export class CraftContext {
     this.hooksConfig = config?.hooks ?? {};
     this.logger = logger.child(childBindings(this));
     this.events = new EventBus(this.contextId, this.logger);
+    warnAboutKernelCopies(this.logger);
     if (config) {
       // Initialize store from config
       if (config.store) {
@@ -1624,8 +1644,13 @@ export class CraftContext {
         message: "The context was stopped before it finished starting.",
       }),
     );
-    this.shutdownPromise = this.performShutdown();
-    return this.shutdownPromise;
+    // Published before the walk starts: a `context:stopping` observer that
+    // calls stop() from inside the emit joins this shutdown instead of
+    // starting a second one.
+    const shutdown = Promise.withResolvers<ShutdownOutcome>();
+    this.shutdownPromise = shutdown.promise;
+    this.performShutdown().then(shutdown.resolve, shutdown.reject);
+    return shutdown.promise;
   }
 
   /**
@@ -1645,9 +1670,19 @@ export class CraftContext {
    * the rest still run, because the caller's original error is what the
    * operator needs and one plugin's cleanup must not strand another's.
    *
-   * @param partial - The context never finished starting.
+   * One walk per context: a second caller (a build that failed while a
+   * plugin's `requestStop()` is already shutting down, a stop requested
+   * from inside the walk) joins the walk in progress, so a plugin's `stop`
+   * and its disposers run once however many exits reach them.
    */
-  private async teardownPlugins(partial: boolean): Promise<void> {
+  private teardownPlugins(): Promise<void> {
+    return (this.teardownWalk ??= this.walkPluginTeardown(
+      !this.startCompleted,
+    ));
+  }
+
+  /** @param partial - The context never finished starting. */
+  private async walkPluginTeardown(partial: boolean): Promise<void> {
     const ordered = this.host?.ordered ?? [];
     for (let i = ordered.length - 1; i >= 0; i--) {
       const entry: InstalledPlugin = ordered[i]!;
@@ -1698,11 +1733,18 @@ export class CraftContext {
    * failure becomes a permanent one whose error names lock contention rather
    * than the real cause.
    *
+   * A bind that requested a stop before it threw already has a shutdown in
+   * flight, whose walk this joins; its outcome belongs to that caller.
+   *
    * @internal Called by `ContextBuilder.build()` on the failure path.
    */
   async unwindFailedBuild(): Promise<void> {
     this.hasStopped = true;
-    await this.teardownPlugins(true);
+    if (this.shutdownPromise) {
+      await this.shutdownPromise.catch(() => undefined);
+      return;
+    }
+    await this.teardownPlugins();
   }
 
   private async performShutdown(): Promise<ShutdownOutcome> {
@@ -1754,7 +1796,7 @@ export class CraftContext {
     // disposers). Unbounded on purpose: teardown releases
     // resources, and a plugin that wedges there is a different defect from
     // the one this deadline addresses.
-    await this.teardownPlugins(!this.startCompleted);
+    await this.teardownPlugins();
 
     this.logger.info({}, "Routecraft context stopped");
     this.emit("context:stopped", { forced, pending });

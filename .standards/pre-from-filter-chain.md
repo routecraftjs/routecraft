@@ -66,7 +66,9 @@ As of 0.8 (see [plugin-architecture.md](./plugin-architecture.md) section 3):
   executor that rethrows instead of failing the exchange, plus `signal`
   (intake or abandon), `abandon`, `mustWait`, `forward` and `emit`. The
   provider decides how often, and whether, the tail runs; the executor owns
-  what one run of it is. Gates (`authorize`, `throttle`) and the cache
+  what one run of it is. A step-scope run carries `mustWait` too, read from
+  the `StepContext` the executor hands a claimed continuation, so a bulkhead
+  after `.from()` queues a resumed exchange the way the route-scope one does. Gates (`authorize`, `throttle`) and the cache
   pair are ordinary steps the providers return.
 - **Plugin hooks sit in named slots between positions**: `beforeAuth`
   before `authorize`, `afterAuth` after it, `admitted` once `input` has

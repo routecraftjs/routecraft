@@ -1319,6 +1319,67 @@ describe("defer and resume", () => {
   });
 });
 
+describe("a claimed continuation at a step-scope bulkhead", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case Two claimed continuations contend for a rejecting step bulkhead
+   * @preconditions A route parking at .defer() ahead of .concurrency({ max: 1, mode: "reject" }) around its work; two exchanges parked; the first resumed and held inside the work while the second is resumed
+   * @expectedResult Both continuations complete and the work ran twice: the second queued for the slot instead of being refused, since a refusal below the claim would spend an approval, as the route-scope bulkhead already does
+   */
+  test("queues the second continuation instead of refusing it", async () => {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let calls = 0;
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("limited")
+          .from(direct())
+          .defer()
+          .concurrency({ max: 1, mode: "reject" })
+          .transform(async (body) => {
+            if (++calls === 1) {
+              entered.resolve();
+              await release.promise;
+            }
+            return body;
+          }),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+    const first = asDeferred(await t.client.sendDirect("limited", { n: 1 }));
+    const second = asDeferred(await t.client.sendDirect("limited", { n: 2 }));
+    const resumeFirst = t.client.sendDirect("answers", {
+      token: first.token,
+      result: null,
+    });
+    await entered.promise;
+    const resumeSecond = t.client.sendDirect("answers", {
+      token: second.token,
+      result: null,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    release.resolve();
+    const answers = (await Promise.all([resumeFirst, resumeSecond])) as Array<{
+      status: string;
+      continuation: { status: string };
+    }>;
+    expect(answers.map((a) => a.continuation.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    expect(calls).toBe(2);
+  });
+});
+
 describe("the deferral sequence guard", () => {
   let t: TestContext | undefined;
 

@@ -287,10 +287,11 @@ describe("pre-from filter chain assembly", () => {
       provides: [CACHE],
       replaces: [CACHE],
       bind(c) {
+        const positions = cacheProvider();
         c.provide(CACHE, {
-          ...cacheProvider,
+          ...positions,
           wrap(options) {
-            const position = cacheProvider.wrap(options);
+            const position = positions.wrap(options);
             return {
               run(run) {
                 keys.push(`${run.scope}:${run.stepLabel}:${run.key}`);

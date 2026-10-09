@@ -307,8 +307,11 @@ export function sessionsPlugin(config: AgentSessionsConfig = {}): Plugin {
  * @internal
  */
 export function defaultSessionsPlugin(): Plugin {
-  return sessionsPluginFor({}, false);
+  return (defaultSessions ??= sessionsPluginFor({}, false));
 }
+
+// One descriptor per process, so every runtime brings the same one.
+let defaultSessions: Plugin | undefined;
 
 function sessionsPluginFor(
   config: AgentSessionsConfig,

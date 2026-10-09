@@ -98,6 +98,8 @@ When the bulkhead rejects (reject mode, or a full `maxQueue`) it throws `RC5026`
 
 This differs from `.throttle()`'s reject (`RC5013`), which sits OUTSIDE retry and so can only be handled by `.error()`, never re-attempted by retry. The difference is a direct consequence of the bulkhead's innermost placement.
 
+A resumed continuation is never rejected. An exchange that re-enters the route through `.resume()` has already spent its approval, so a bulkhead in reject mode, or with a full `maxQueue`, queues it for a slot instead of refusing it, before `.from()` and after it alike. The wait is unbounded in time.
+
 ## `.concurrency()` vs `.throttle()`
 
 | | `.concurrency({ max })` | `.throttle({ rate, per })` |

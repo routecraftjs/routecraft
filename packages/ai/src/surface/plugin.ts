@@ -22,6 +22,13 @@ import { SURFACES, createSurfaceState } from "./state.ts";
  * @internal
  */
 export function surfacesPlugin(): Plugin {
+  return (surfaces ??= createSurfacesPlugin());
+}
+
+// One descriptor per process, so two bundles bringing it never compete.
+let surfaces: Plugin | undefined;
+
+function createSurfacesPlugin(): Plugin {
   return {
     id: "routecraft.ai.surfaces",
     provides: [SURFACES],
