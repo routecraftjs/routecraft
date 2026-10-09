@@ -33,14 +33,36 @@ export interface StopInfo {
   readonly started: boolean;
 }
 
+type Elements<A> = A extends ReadonlyArray<infer E> ? E : never;
+
+/**
+ * A route definition as a plugin reads it: the live definition, with its
+ * step lists read-only. At runtime every write through it is refused
+ * (`RC1110`), the fields included.
+ */
+export type RouteDefinitionView = Readonly<
+  Omit<RouteDefinition, "steps" | "deferSteps" | "reentrantDeferSteps">
+> & {
+  readonly steps: ReadonlyArray<Elements<RouteDefinition["steps"]>>;
+  readonly deferSteps?: ReadonlyArray<
+    Elements<NonNullable<RouteDefinition["deferSteps"]>>
+  >;
+  readonly reentrantDeferSteps?: ReadonlyArray<
+    Elements<NonNullable<RouteDefinition["reentrantDeferSteps"]>>
+  >;
+};
+
 /**
  * A read-only view of a registered route, for plugins that list or report
  * routes (ops, MCP, ACP). The live route object is not handed out: it carries
- * the context, and a plugin is not given the context.
+ * the context, and a plugin is not given the context. The definition is
+ * read-only down the graph, at the type and at runtime (a write is
+ * `RC1110`): the application compiled what it holds, so a step added
+ * through the view would run without having been checked.
  */
 export interface RouteView {
   readonly id: string;
-  readonly definition: Readonly<RouteDefinition>;
+  readonly definition: RouteDefinitionView;
   /** False while the route's `.enabled()` predicate holds it back. */
   readonly enabled: boolean;
   /** Why it is disabled, when it is. */
@@ -103,7 +125,11 @@ export interface Execution {
   sweep(options?: { readonly boot?: boolean }): Promise<number>;
   /** Discoverable capabilities of the enabled routes. */
   capabilities(): Capability[];
-  /** Resolves once every route signalled readiness and every start returned. */
+  /**
+   * Resolves once every route signalled readiness and every start returned.
+   * Never awaited from `bind` or `start`: the application is started only
+   * once every hook returned, so the wait would never end (`RC1118`).
+   */
   whenStarted(): Promise<void>;
   /**
    * Ask the application to stop. Never awaited from a lifecycle hook: the

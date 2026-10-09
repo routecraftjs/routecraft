@@ -978,6 +978,11 @@ async function runErrorSlot(
       if (isRecovery(result) && result.kind === "rethrow") {
         return undefined;
       }
+      if (isRecovery(result) && result.kind === "defer" && !handler.mayDefer) {
+        throw rcError("RC1115", undefined, {
+          message: `Error hook ${entry.id} answered recovery.defer() without declaring { mayDefer: true }. The declaration is what lets the application refuse to start without a deferral runtime; add it to the hook.`,
+        });
+      }
       // Inside the try: an escaping park failure would leave no terminal event.
       return await applyErrorDecision(deps, {
         exchange: args.exchange,

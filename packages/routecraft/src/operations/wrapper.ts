@@ -64,6 +64,8 @@ const NON_WRAPPABLE_OPERATIONS: ReadonlySet<OperationType> = new Set([
 export interface RequiredPosition {
   readonly port: AnyPort;
   readonly method: string;
+  /** The provider member the position is built from, when not `method`. */
+  readonly member?: string;
 }
 
 /**

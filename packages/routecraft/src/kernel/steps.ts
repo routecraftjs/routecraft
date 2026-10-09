@@ -1,5 +1,6 @@
 import { rcError } from "../error.ts";
 import { shippedPlugins } from "./defaults.ts";
+import { PROTOCOL_NAMES } from "./facets.ts";
 import { DefaultExchange, OperationType, type Exchange } from "../exchange.ts";
 import {
   toSignalContext,
@@ -317,6 +318,11 @@ export function catalogueOf(plugins: readonly unknown[]): StepCatalogue {
     };
     if (typeof id !== "string" || !steps) continue;
     for (const [name, factory] of Object.entries(steps)) {
+      if (PROTOCOL_NAMES.has(name)) {
+        throw rcError("RC1116", undefined, {
+          message: `Plugin "${id}" declares a step named "${name}", which the language reads off every object: await calls then, JSON.stringify calls toJSON. A builder with that method hangs or serialises wrong. Rename the step.`,
+        });
+      }
       const held = catalogue.get(name);
       if (held && held.plugin !== id) {
         throw rcError("RC1116", undefined, {

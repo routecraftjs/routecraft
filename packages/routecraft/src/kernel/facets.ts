@@ -25,7 +25,7 @@ const OWN_FIELDS: ReadonlySet<string> = new Set([
  * under `toJSON` would be read by `JSON.stringify`, so logging or persisting
  * such an exchange would throw the same way.
  */
-const PROTOCOL_NAMES: ReadonlySet<string> = new Set(["then", "toJSON"]);
+export const PROTOCOL_NAMES: ReadonlySet<string> = new Set(["then", "toJSON"]);
 
 /**
  * Whether a facet name is already something every exchange is: one of its

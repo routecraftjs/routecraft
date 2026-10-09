@@ -92,7 +92,7 @@ Every application installs these ahead of its own plugins:
 | `routecraft.principals` | `AUTHORITY`: minting, branding and reading principals |
 | `routecraft.auth` | the authorize position, the `.authenticate()` and `.delegate()` steps, and the `ex.auth` facet |
 
-An application plugin with the same id takes a default's place. A plugin that declares `replaces` for a default's port is selected over it, which is how you [replace a position](#replacing-a-position).
+An application plugin with the same id takes a default's place. A plugin that declares `replaces` for a default's port is selected over it, which is how you [replace a position](#replacing-a-position). Replacing selects a provider and never removes a plugin: the displaced one still binds, starts and stops, so one that owns a resource keeps it. To replace the listener, provide `WEB_INGRESS` and leave the `servers` key out; a displaced `servers` plugin with nothing mounted refuses to start.
 
 ## Lifecycle
 
@@ -220,7 +220,7 @@ The chain around every route has fixed **positions** that belong to the framewor
 | `beforeAuth` | before the authorize position |
 | `afterAuth` | after authorize, before the body is parsed and validated |
 | `admitted` | after `.input()` validation, before the resilience positions |
-| `perAttempt` | around every attempt, inside retry and outside timeout (wrappers) |
+| `perAttempt` | around every attempt of the route-scope chain, inside `.retry()` and outside `.timeout()` (wrappers); a `.retry()` after `.from()` is inside one attempt |
 | `exit` | over completed exchanges, after the pipeline and the cache store |
 
 A hook names a slot and a **phase**, never another plugin. Inside a slot every `observe` hook runs, then every `mutate` hook, then every `validate` hook. Within a phase, hooks run in the order the application lists the plugins.
@@ -299,7 +299,7 @@ export const sameTenant = definePlugin({
 })
 ```
 
-`routes` and `tags` scope a hook to some routes, by id or by tag; with neither it applies to every route. `exit` has no validate phase.
+`routes` and `tags` scope a hook to some routes, by id or by tag; with neither it applies to every route, the routes other plugins register and the targets of an `.error()` forward included. A validate hook that demands a principal with no selector refuses the route whose pipeline would have established one with `.authenticate()`, and the direct endpoint its error handler forwards to; scope such a hook by tag. `exit` has no validate phase.
 
 ### The `error` slot \{#the-error-slot}
 
@@ -513,7 +513,7 @@ export const adminRoutes = definePlugin({
 })
 ```
 
-`c.routes.list()` and `c.routes.get(id)` give read-only views of what is registered. During `bind` they show only routes other plugins registered, because the application's own routes are registered after every plugin has bound.
+`c.routes.list()` and `c.routes.get(id)` give read-only views of what is registered, read-only down the graph: a step pushed through the view is `RC1110`, because the application compiled the graph it holds. During `bind` they show only routes other plugins registered, because the application's own routes are registered after every plugin has bound.
 
 ## Setting global adapter defaults
 

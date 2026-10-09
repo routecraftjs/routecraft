@@ -1,5 +1,5 @@
 import { rcError } from "../../error.ts";
-import type { Capability } from "../../capabilities.ts";
+import { snapshotCapability, type Capability } from "../../capabilities.ts";
 import type { Exchange } from "../../exchange.ts";
 import type { DirectBaseOptions } from "./types.ts";
 import {
@@ -11,22 +11,6 @@ import {
 import { InMemoryDirectChannel } from "./shared.ts";
 
 export { DIRECT, type DirectRegistry };
-
-/**
- * Copy a capability, cloning the mutable `tags` array so neither the
- * registering adapter nor a `capabilities()` caller can mutate the
- * registry's copy (or vice versa) through a shared reference. Schemas
- * (`input` / `output`) are intentionally shared: they are live Standard
- * Schema objects, not data.
- *
- * @internal
- */
-export function snapshotCapability(capability: Capability): Capability {
-  return {
-    ...capability,
-    ...(capability.tags ? { tags: [...capability.tags] } : {}),
-  };
-}
 
 /**
  * Build an empty registry.

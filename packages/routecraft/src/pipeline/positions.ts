@@ -1,5 +1,5 @@
 import { rcError } from "../error.ts";
-import type { Port, PortLookup } from "../kernel/port.ts";
+import type { AnyPort, Port, PortLookup } from "../kernel/port.ts";
 import {
   CACHE,
   ENFORCEMENT,
@@ -44,6 +44,31 @@ type PositionFields = Pick<
 >;
 
 /**
+ * The provider of a position port has the member the position needs.
+ *
+ * A replacement that provides part of a port fails here, naming the plugin,
+ * rather than as a TypeError on a missing method at the first exchange.
+ *
+ * @throws RC1111
+ * @internal
+ */
+export function assertPositionMember(
+  provider: unknown,
+  port: AnyPort,
+  member: string,
+  context: PortLookup,
+  uses: string,
+): void {
+  if (typeof (provider as Record<string, unknown>)[member] === "function") {
+    return;
+  }
+  const by = context.providerOf?.(port);
+  throw rcError("RC1111", undefined, {
+    message: `${uses}, and the provider of "${port.name}"${by === undefined ? "" : ` (plugin "${by}")`} has no ${member}(). A plugin that replaces a port provides every member of it; delegate the rest to the shipped provider.`,
+  });
+}
+
+/**
  * Fill a route's configured positions from the providers its application
  * installed.
  *
@@ -55,13 +80,20 @@ export function compilePositions(
   definition: PositionFields,
   context: PortLookup,
 ): CompiledPositions {
-  const provider = <T>(target: Port<T>, method: string): T => {
+  const provider = <T>(target: Port<T>, method: string, member = method): T => {
     const found = context.lookup(target);
     if (found === undefined) {
       throw rcError("RC1111", undefined, {
         message: `Route "${definition.id}" uses .${method}(), and no installed plugin provides "${target.name}". Install a plugin that provides it, or remove .${method}() from the route.`,
       });
     }
+    assertPositionMember(
+      found,
+      target,
+      member,
+      context,
+      `Route "${definition.id}" uses .${method}()`,
+    );
     return found;
   };
 
@@ -101,8 +133,8 @@ export function compilePositions(
     ),
     ...(cache
       ? {
-          cacheCheck: provider(CACHE, "cache").check(cache),
-          cacheStore: provider(CACHE, "cache").store(cache),
+          cacheCheck: provider(CACHE, "cache", "check").check(cache),
+          cacheStore: provider(CACHE, "cache", "store").store(cache),
         }
       : {}),
   };

@@ -396,6 +396,12 @@
     "retryable": false
   },
   {
+    "code": "RC1118",
+    "category": "Definition",
+    "message": "Lifecycle hook awaits the start it is part of",
+    "retryable": false
+  },
+  {
     "code": "RC5018",
     "category": "Adapter",
     "message": "HTTP source request rejected",

@@ -16,7 +16,7 @@ import type { ExchangeHeaders } from "../../exchange";
 import { rcCodeOf } from "../../brand";
 import type { Principal } from "../../principal";
 import type { Capability } from "../../capabilities";
-import type { RouteDefinition } from "../../route";
+import type { RouteDefinitionView } from "../../kernel/plugin.ts";
 import { getAdapterLabel } from "../../types";
 import type { Adapter } from "../../types";
 import { isDeferred } from "../../kernel/continuation/deferred";
@@ -463,7 +463,7 @@ function detailRemote(route: RemoteRoute): OpsRouteDetail {
 }
 
 /** Source kinds a route declares, in declaration order. */
-function sourceKinds(definition: RouteDefinition): string[] {
+function sourceKinds(definition: RouteDefinitionView): string[] {
   return definition.sources.map(
     (source) => getAdapterLabel(source as Adapter) ?? "inline",
   );

@@ -62,6 +62,81 @@ if (expected.length === 0 || found.shipped === 0) {
 // packaging regression it exists to catch.
 const ENTRIES = { esm: "dist/index.js", cjs: "dist/index.cjs" };
 const mode = process.argv[2] ?? "esm";
+
+/**
+ * The two builds composed in one process: what a dependency graph that
+ * resolves the package once as ESM and once as CJS gets. Both are supported
+ * only one at a time, but the guards that keep a caller out must not read a
+ * foreign-build object as "not ours": the cache-versus-authenticate guard
+ * and the validate-hook refusal are structural (registered symbols), and
+ * this is where that is held against the shipped artifacts.
+ */
+if (mode === "mixed") {
+  // The two-copy warning and the refusal the probe expects are not build output.
+  process.env.LOG_LEVEL ??= "silent";
+  const { createRequire } = await import("node:module");
+  const esm = await import(pathToFileURL(join(pkgRoot, ENTRIES.esm)).href);
+  const cjs = createRequire(import.meta.url)(join(pkgRoot, ENTRIES.cjs));
+
+  const project = esm.defineProject({ plugins: [cjs.authPlugin()] });
+  const guarded = project
+    .craft()
+    .id("guarded")
+    .cache({ ttl: "1m" })
+    .from(esm.direct())
+    .authenticate(() => ({ scheme: "verify", subject: "s" }))
+    .to(esm.noop());
+  let refused;
+  try {
+    await new esm.ContextBuilder().with(project.config).routes(guarded).build();
+  } catch (error) {
+    refused = error.rc;
+  }
+  if (refused !== "RC5003") {
+    console.error(
+      `verify-dist: a route-scope .cache() beside the CJS build's .authenticate() built in the ESM host (got ${refused ?? "no refusal"}, expected RC5003). The guard must see the step by its mark, not its class.`,
+    );
+    process.exit(1);
+  }
+
+  const gate = esm.definePlugin({
+    id: "verify.gate",
+    hooks: {
+      admitted: {
+        id: "deny",
+        phase: "validate",
+        run: () => cjs.refuse("denied", { kind: "forbidden" }),
+      },
+    },
+  });
+  const { context, client } = await new esm.ContextBuilder()
+    .with({ plugins: [gate] })
+    .routes(esm.craft().id("deny").from(esm.direct()).to(esm.noop()))
+    .build();
+  const running = context.start();
+  running.catch(() => {});
+  let code;
+  try {
+    await context.whenStarted();
+    await client.sendDirect("deny", {});
+  } catch (error) {
+    code = error.rc;
+  } finally {
+    await context.stop();
+    await running;
+  }
+  if (code !== "RC5068") {
+    console.error(
+      `verify-dist: a validate hook returning the CJS build's refuse() in the ESM host failed with ${code ?? "no error"}, expected RC5068. The refusal must be read by its brand, not its module.`,
+    );
+    process.exit(1);
+  }
+  console.log(
+    "verify-dist: mixed ESM and CJS builds keep the guard and the refusal.",
+  );
+  process.exit(0);
+}
+
 const entry = ENTRIES[mode];
 if (entry === undefined) {
   console.error(

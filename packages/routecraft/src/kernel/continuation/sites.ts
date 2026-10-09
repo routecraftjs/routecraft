@@ -236,8 +236,11 @@ export interface NestedSteps {
   readonly predicate?: (exchange: Exchange) => boolean;
 }
 
-/** A step that carries nested sub-pipelines. @internal */
-interface NestingStep extends Step<Adapter> {
+/**
+ * A step that carries nested sub-pipelines and reports them through
+ * {@link NESTED_STEPS}, so the route's walks see inside it.
+ */
+export interface NestingStep extends Step<Adapter> {
   [NESTED_STEPS](): ReadonlyArray<NestedSteps>;
 }
 

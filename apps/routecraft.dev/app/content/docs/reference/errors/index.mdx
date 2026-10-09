@@ -228,6 +228,15 @@ Something installed as a plugin is not a valid descriptor: it has no dotted `id`
 **Suggestion**  
 Build the plugin with `definePlugin({ id, ... })`. The message names the plugin's position, or the plugin that brought it, and the field at fault. Every hook names itself with `id`, because `hooks.order` and `hooks.disable` address it as `pluginId/id` and a name that followed the function or its position would move under that config. A pre-0.8 plugin moves `apply` into `bind(c)` and `teardown` into `stop(c, info)`; see the [0.7 to 0.8 migration guide](/docs/migrating/0.7-to-0.8).
 
+## RC1118
+Lifecycle hook awaits the start it is part of
+
+**Why it happens**  
+A plugin's `bind` or `start` hook awaited `c.execution.whenStarted()`. The application reports started only once every `bind` and `start` hook has returned, so the hook was waiting on itself and the boot would never end. Raised at the call, so the hook fails instead of hanging.
+
+**Suggestion**  
+Return from the hook and await `whenStarted()` from the work it schedules (a timer, a task, a subscription), or begin that work in `start()`, which the kernel runs once every route has signalled readiness. A hook that needs another plugin started lists that plugin's port in `requires` or `optional`, which orders the starts.
+
 ## RC2001
 Invalid operation type
 

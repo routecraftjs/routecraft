@@ -66,19 +66,7 @@ export function registerRoute(
   return dispose;
 }
 
-/**
- * Sanitize endpoint name using URL encoding for reversible, collision-free keys.
- *
- * Uses `encodeURIComponent()` to ensure distinct endpoints like "a/b" and "a-b"
- * map to unique keys ("a%2Fb" vs "a-b"), preventing routing collisions.
- *
- * @param endpoint - Raw endpoint string
- * @returns URL-encoded endpoint string safe for use as Map key
- * @internal
- */
-export function sanitizeEndpoint(endpoint: string): string {
-  return encodeURIComponent(endpoint);
-}
+export { sanitizeEndpoint } from "../../kernel/direct.ts";
 
 /**
  * Default in-memory implementation of DirectChannel.

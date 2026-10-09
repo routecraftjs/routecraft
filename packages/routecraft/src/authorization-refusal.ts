@@ -93,6 +93,20 @@ interface RefusalOrigin {
 
 const refusals = new WeakMap<object, RefusalOrigin>();
 
+/**
+ * Bind an authorization refusal to the exchange it refuses, so a door
+ * answers the caller (401, 403, a tool error) instead of reporting a server
+ * fault. The route and the principal are read from the exchange at the
+ * raise site and kept apart from the error's public fields, so a handler
+ * that rethrows or widens the error cannot move the refusal onto another
+ * route or caller. The shipped gate binds every refusal it raises this way;
+ * an `ENFORCEMENT` replacement that raises its own binds them the same way,
+ * or composes `enforcementProvider`.
+ *
+ * @param exchange - The exchange the gate ran on
+ * @param error - The refusal, carrying one of the authorization codes
+ * @returns The same error, bound
+ */
 export function refusal(
   exchange: Exchange<unknown>,
   error: RoutecraftError,

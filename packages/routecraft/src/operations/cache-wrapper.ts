@@ -419,7 +419,7 @@ export class CacheWrapperStep<
   }
 
   override get requiredPosition(): RequiredPosition {
-    return { port: CACHE, method: "cache" };
+    return { port: CACHE, method: "cache", member: "wrap" };
   }
 
   /**
@@ -469,6 +469,7 @@ export class CacheWrapperStep<
       CACHE,
       "cache",
       (provider) => provider.wrap(this.#options),
+      { member: "wrap" },
     );
     return cache.run({
       routeId,

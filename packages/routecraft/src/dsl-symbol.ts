@@ -69,18 +69,47 @@ export const COLLECT_STEPS: unique symbol = Symbol.for(
 );
 
 /**
- * Symbol a step implements to expose the sub-pipelines it carries (choice
- * branches, multicast paths, dispatch targets) to framework-level walks of
- * a route's step tree, without widening the public `Step` contract or
- * making those step arrays writable from outside.
+ * The method a step implements to expose the sub-pipelines it carries
+ * (choice branches, multicast paths, dispatch targets, a plugin's own
+ * branch) to the walks of a route's step tree: which plugins the route
+ * uses, which positions it needs, the continuation digest, and where a
+ * `.defer()` may land. A step that runs steps of its own without
+ * answering it hides them from every one of those, so a route-scope
+ * `.cache()` beside an `.authenticate()` inside it, or an uninstalled
+ * plugin's step inside it, goes unrefused, and a park inside it is
+ * `RC5051`. A step-scope wrapper forwards it to the step it wraps.
  *
- * The one walk today is the defer-site resolver, which has to know both
- * that a sub-pipeline exists and whether it rejoins the main flow.
+ * A registered symbol, so a step built against the package's other build
+ * (ESM beside CJS) answers the same walk.
  *
- * @internal
+ * @example
+ * ```ts
+ * const branch: Step<Adapter> & NestingStep = {
+ *   operation: OperationType.PROCESS,
+ *   adapter: { adapterId: "acme.branch" },
+ *   async execute(exchange) {
+ *     return { kind: "branch", exchange, steps };
+ *   },
+ *   [NESTED_STEPS]: () => [{ steps, rejoins: true }],
+ * };
+ * ```
  */
 export const NESTED_STEPS: unique symbol = Symbol.for(
   "routecraft.step.nestedSteps",
+);
+
+/**
+ * The mark a step carries when it establishes the exchange's principal, as
+ * `.authenticate()` does. The builder refuses a route-scope `.cache()` on a
+ * route that reaches such a step (`RC5003`): a cache hit would answer
+ * before the step ran, with a key that never saw the identity. A step of
+ * yours that mints a principal carries the mark for the same reason.
+ *
+ * A registered symbol, so the shipped step from the package's other build
+ * (ESM beside CJS) is still seen by the guard.
+ */
+export const AUTHENTICATES: unique symbol = Symbol.for(
+  "routecraft.step.authenticates",
 );
 
 /**

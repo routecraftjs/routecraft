@@ -75,6 +75,9 @@ function invalidPlugin(where: string, why: string): never {
   });
 }
 
+/** Letters, digits, dots, dashes and underscores; "/" and "#" are the host's own separators. */
+const PLUGIN_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+
 function validateShape(plugin: unknown, where: string): Plugin {
   if (typeof plugin !== "object" || plugin === null) {
     invalidPlugin(where, "expected an object");
@@ -86,6 +89,12 @@ function validateShape(plugin: unknown, where: string): Plugin {
       typeof p.apply === "function"
         ? "it has apply(ctx), the pre-0.8 shape; declare an id and move apply into bind(c)"
         : "missing a non-empty string id",
+    );
+  }
+  if (!PLUGIN_ID.test(p.id)) {
+    invalidPlugin(
+      where,
+      `id "${p.id}" holds a character outside letters, digits, ".", "-" and "_"; "/" and "#" are the host's own separators (plugin/hook, id#n)`,
     );
   }
   for (const hook of ["bind", "start", "stop"] as const) {
@@ -263,8 +272,15 @@ function identify(plugins: readonly Plugin[]): Identified[] {
  * @internal Driven by `CraftContext`.
  */
 export class PluginHost {
-  /** Plugins in dependency order. */
+  /** Plugins in dependency order: the order they bind and start. */
   readonly ordered: readonly InstalledPlugin[];
+  /**
+   * Plugins in the order the application lists them, brought plugins
+   * expanded in place: the order their hooks run in a phase. Dependency
+   * order is for binding alone; a hook's precedence is what the
+   * application reads off its own list.
+   */
+  readonly listed: readonly InstalledPlugin[];
   private readonly provisions = new Map<symbol, Provision>();
   private frozen = false;
 
@@ -296,6 +312,7 @@ export class PluginHost {
         disposers: [],
       }),
     );
+    this.listed = installed;
     this.resolve(installed, ports);
     this.ordered = this.order(installed).map((entry, index) =>
       Object.assign(entry, { index }),
@@ -522,6 +539,11 @@ export class PluginHost {
   }
 
   /** Like {@link require}, but `undefined` when nobody provides it. */
+  /** The id of the plugin whose provision of a port is selected. */
+  providerOf(port: AnyPort): string | undefined {
+    return this.provisions.get(port.key)?.provider?.id;
+  }
+
   lookup<T>(port: Port<T>): T | undefined {
     const provision = this.provisions.get(port.key);
     if (provision === undefined) this.refuseForeignToken(port);
@@ -582,6 +604,7 @@ export class PluginHost {
       this.refuseWhenFrozen(id, what);
     const provisions = this.provisions;
     const isFrozen = (): boolean => this.frozen;
+    const given = new Set<symbol>();
     const context: PluginContext = {
       id,
       namespace: entry.namespace,
@@ -609,6 +632,17 @@ export class PluginHost {
           });
         }
         refuseWhenFrozen(`provide "${port.name}"`);
+        if (value === undefined) {
+          throw rcError("RC1109", undefined, {
+            message: `Plugin "${id}" provided "${port.name}" as undefined. A consumer's require() would hand out nothing; provide a value, or leave the port out of provides.`,
+          });
+        }
+        if (given.has(port.key)) {
+          throw rcError("RC1109", undefined, {
+            message: `Plugin "${id}" provided "${port.name}" twice. A port is provided once, in bind; a later value would reach no consumer that already read it.`,
+          });
+        }
+        given.add(port.key);
         const provision = provisions.get(port.key)!;
         // A displaced provider still binds and provides; its value is simply
         // not the one selected, so its own code keeps working unchanged.

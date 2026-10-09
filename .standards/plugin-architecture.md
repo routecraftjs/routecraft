@@ -34,6 +34,9 @@ and `config-applier.ts`, and fails on any edge into `plugins/`, `auth/` or
 those places. Where the kernel needs a plugin's service, the contract lives in
 the kernel and the plugin provides it: `kernel/direct.ts` declares `DIRECT`,
 and a route forwards from an error handler through `DIRECT.send()`.
+`DirectChannel.subscribe` still takes the `CraftContext`: the one place the
+context crosses into an interface a plugin may provide, so a `DIRECT`
+replacement's channels receive it.
 
 `CraftContext` stays the runtime host a route and an adapter run inside. It is
 not handed to plugins.
@@ -74,7 +77,7 @@ that adds none of them is still a plugin:
 | `provide(port, value)`                             | in `bind` only, a port this plugin declared in `provides`                                                                      |
 | `observe(event, handler)` / `emit(event, details)` | the event bus                                                                                                                  |
 | `onDispose(fn)`                                    | released at stop, LIFO, every one run even when another throws; also when this plugin's own `bind` throws after registering it |
-| `routes`                                           | `register(...definitions)` in `bind`; `list()`, `get(id)` and `hooksOf(id)` read views                                         |
+| `routes`                                           | `register(...definitions)` in `bind`; `list()`, `get(id)` and `hooksOf(id)` read views, read-only down the graph (a write is `RC1110`)                                         |
 | `execution`                                        | `deliver` (resolves `unknown`; the caller narrows), `resume`, `sweep`, `capabilities`, `whenStarted`, `requestStop`            |
 | `frozen`                                           | true once the last `bind` returned; a provider collecting contributions through its port refuses later ones with `RC1110`      |
 | `logger`, `id`, `namespace`                        |                                                                                                                                |
@@ -269,6 +272,10 @@ as kind `resume`. A hook in `beforeAuth`, `afterAuth` or `admitted` whose
 A `perAttempt` wrapper calls `proceed()` once. A second call is `RC1115`, and
 an attempt the wrapper started is settled before the slot settles even when
 the wrapper did not await it, so retry never runs two attempts at once.
+A wrapper surrounds the attempts of the route-scope chain: a `.retry()`
+placed after `.from()` is a step inside the route's work, so its attempts run
+inside one wrapper call. Wrappers run in plugin list order; `hooks.order` has
+no entry for `perAttempt`, which has no phases.
 
 ## 4. Steps, the project, and facets
 
@@ -330,6 +337,17 @@ the getter; the exchange's own fields (`id`, `headers`, `body`, `logger`,
 `registerDsl` and the `StepBuilderBase` augmentation are removed. The sugar
 `.log()`, `.debug()`, `.map()` and `.schema()` are ordinary builder methods.
 
+A raw step that runs steps of its own reports them through `NESTED_STEPS`
+(`NestingStep`, `NestedSteps`), a registered symbol the walks of a route's
+step tree read: plugin ownership (`RC1111` at start), the positions a route
+needs, the continuation digest and the defer-site resolver. A step that
+hides its nested steps hides them from all four, and a park inside it is
+`RC5051`; a step-scope wrapper forwards the protocol. A step that
+establishes the principal carries `AUTHENTICATES`, the registered mark the
+builder reads to refuse a route-scope `.cache()` above it (`RC5003`). Both
+are registered symbols rather than classes so the package's other build, or
+a step of yours, is seen the same way.
+
 ## 5. Where every first-party feature lives
 
 | Plugin                                                                   | Provides                                                             | Steps / hooks / facet                             |
@@ -372,7 +390,7 @@ is the replacement's obligation, and delegating to the exported default
 | Port            | The kernel still guarantees                                                                                                               | The replacement must guarantee                                                                                                                                                                                                                                                                                                              |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AUTHORITY`     | every mint, brand, restore and trust check goes through the one provider (`authorityOf`); restored principals come back through `restore` | `isAuthentic` is true only for what it minted or branded, and never for a `restore`d record (`keep()` and `delegate()` trust on `isAuthentic` alone); `restore` returns a new object `isRestored` recognises                                                                                                                                |
-| `ENFORCEMENT`   | the position runs where the chain puts it, and on the run kinds `CHAIN_SURVIVAL` allows                                                   | the refusal codes keep their meaning (`RC5012` no principal, `RC5023` not authentic, `RC5043` restored, `RC5015` role or predicate, `RC5038` scope, `RC5034`-`RC5036` actor); a door maps a refusal to the caller only when the shipped gate raised it, so a replacement composes `enforcementProvider`'s gate rather than throwing its own |
+| `ENFORCEMENT`   | the position runs where the chain puts it, and on the run kinds `CHAIN_SURVIVAL` allows                                                   | the refusal codes keep their meaning (`RC5012` no principal, `RC5023` not authentic, `RC5043` restored, `RC5015` role or predicate, `RC5038` scope, `RC5034`-`RC5036` actor); a door maps a refusal to the caller only when it was bound to the exchange at the raise site with `authorizationRefusal(exchange, error)`, which the shipped gate uses, so a replacement binds the refusals it raises itself or composes `enforcementProvider`'s gate |
 | `CACHE`         | check runs after `authorize` and `input`, store after the pipeline                                                                        | the default key carries the principal and the route, or one caller's cached body serves another                                                                                                                                                                                                                                             |
 | `CONTINUATIONS` | the door order, the compare-and-swap, the continuation hash, the outcome cache and expiry through the error channel                       | the signer refuses a forged or expired token, and the secret policy holds: no secret is `RC5040` outside a named `NODE_ENV`                                                                                                                                                                                                                 |
 
@@ -415,7 +433,7 @@ The rows the design left open, decided:
 | Door location                        | on the ingress route, `.resume(mapper, { authorize, elevate })`                                       | the door is where the token arrives; a deferred-route door would need a second ingress anyway                                 |
 | Default door policy                  | bearer, unchanged                                                                                     | changing it is a separate security decision with its own consumer impact                                                      |
 | Event names                          | unchanged, except the plugin lifecycle events                                                         | renaming every event buys nothing a payload field does not                                                                    |
-| Error codes                          | the existing `RC` numbering stays; kernel faults take `RC1101`-`RC1117` and `RC5068`                  |                                                                                                                               |
+| Error codes                          | the existing `RC` numbering stays; kernel faults take `RC1101`-`RC1118` and `RC5068`                  |                                                                                                                               |
 | Context error handlers (#818)        | become `error` slot hooks; `registerHandler` and the `handlers` config key are removed before release | one mechanism, not two                                                                                                        |
 | How the CLI finds the project        | `craft.config.ts` default-exports `defineProject(...)`; a plain config object still works             |                                                                                                                               |
 | Roles, actors, delegation            | stay on the principal, owned by the principals plugin                                                 | the spike's `subject` / `grants` / `lent` shape was a spike simplification                                                    |
@@ -442,6 +460,7 @@ The rows the design left open, decided:
 | RC1115 | a hook broke its phase                                                                                                                                                                                                                            |
 | RC1116 | two plugins declare one step, or a step shadows a builder method                                                                                                                                                                                  |
 | RC1117 | an invalid plugin descriptor: a missing plugin or hook id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what only a single install may: `provides`, `replaces`, `hooks`, `points`, `steps` or a `facet` |
+| RC1118 | a `bind` or `start` hook awaited `c.execution.whenStarted()`, which resolves only once every hook returned, so the hook was waiting on itself |
 | RC5068 | a `validate` hook refused the exchange                                                                                                                                                                                                            |
 
 ## Related

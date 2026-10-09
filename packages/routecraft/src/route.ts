@@ -60,6 +60,7 @@ import { buildSlotStep, routeTags } from "./kernel/hooks.ts";
 import {
   compilePositions,
   type CompiledPositions,
+  assertPositionMember,
 } from "./pipeline/positions.ts";
 import {
   detachedDefinition,
@@ -915,12 +916,21 @@ export class DefaultRoute implements Route {
         ) {
           seen.add(wrapper);
           const required = (wrapper as Partial<WrapperStep>).requiredPosition;
-          if (required && this.context.lookup(required.port) === undefined) {
-            const label = wrapper.label ?? String(wrapper.operation);
+          if (required === undefined) continue;
+          const label = wrapper.label ?? String(wrapper.operation);
+          const provider = this.context.lookup(required.port);
+          if (provider === undefined) {
             throw rcError("RC1111", undefined, {
               message: `Route "${this.definition.id}" uses .${required.method}() on step "${label}", and no installed plugin provides "${required.port.name}". Install a plugin that provides it, or remove .${required.method}() from the route.`,
             });
           }
+          assertPositionMember(
+            provider,
+            required.port,
+            required.member ?? required.method,
+            this.context,
+            `Route "${this.definition.id}" uses .${required.method}() on step "${label}"`,
+          );
         }
         for (const nested of nestedStepsOf(step)) walk(nested.steps);
       }

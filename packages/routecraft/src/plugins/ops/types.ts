@@ -6,6 +6,10 @@
  * fields may be added, never removed or repurposed.
  */
 
+import type {
+  HealthChange,
+  HealthStatus as KernelHealthStatus,
+} from "../../types.ts";
 import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth } from "../../adapters/http/types";
 import type { Deferred } from "../../kernel/continuation/deferred";
@@ -31,7 +35,7 @@ import type { RouteHookView } from "../../kernel/hooks.ts";
  * New signals map into these rather than extending them; their richer state
  * belongs in the per-component `details` map.
  */
-export type HealthStatus = "up" | "degraded" | "down" | "inactive";
+export type HealthStatus = KernelHealthStatus;
 
 /**
  * How widely a failure is felt, which decides whether readiness may carry it.
@@ -91,19 +95,7 @@ export type RouteLifecycle =
 /** A circuit breaker's position, mirroring routecraft's breaker events. */
 export type CircuitState = "open" | "half-open";
 
-/**
- * A component's status transition, as carried by `plugin:ops:health:changed`.
- *
- * Emitted as a component changes rather than derived by re-reading the whole
- * report, so an operator alerts on the transition instead of polling for it.
- */
-export interface HealthChange {
-  component: "context" | "route" | "indicator";
-  /** The component's name; the reserved id `context` for the serving lifecycle. */
-  name: string;
-  from: HealthStatus;
-  to: HealthStatus;
-}
+export type { HealthChange };
 
 /**
  * A value allowed in a component's `details` map.

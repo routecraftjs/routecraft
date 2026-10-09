@@ -7,6 +7,7 @@ import {
 } from "../exchange.ts";
 import type { PrincipalClaims } from "../auth/authenticate.ts";
 import { authorityOf } from "../kernel/authority.ts";
+import { AUTHENTICATES } from "../dsl-symbol.ts";
 
 /**
  * Resolve identity claims for the current exchange. Return claims to mint and
@@ -32,6 +33,7 @@ export type CallableAuthenticator<T = unknown> = (
 export class AuthenticateStep<T = unknown> implements Step<Adapter> {
   operation: OperationType = OperationType.HEADER;
   adapter: Adapter = {};
+  readonly [AUTHENTICATES] = true;
 
   constructor(private readonly resolve: CallableAuthenticator<T>) {}
 

@@ -6,7 +6,6 @@ import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
 import type { DeferRequest } from "./kernel/continuation/sites.ts";
 import type { PrincipalRef } from "./kernel/continuation/types.ts";
-import type { HealthChange } from "./plugins/ops/types.ts";
 
 /**
  * Base interface for all adapters (sources, destinations, transformers, filters, etc.).
@@ -1141,4 +1140,32 @@ export function forRoute<K extends RouteScopedEventName>(
     }
     return undefined;
   };
+}
+
+/**
+ * A component's health, as the ops surface reports it.
+ *
+ * - `up`: serving.
+ * - `degraded`: serving with a known problem.
+ * - `down`: not serving.
+ * - `inactive`: deliberately not serving, such as a route stopped cleanly or
+ *   an indicator muted for maintenance. Excluded from aggregation entirely.
+ *
+ * New signals map into these rather than extending them; their richer state
+ * belongs in the per-component `details` map.
+ */
+export type HealthStatus = "up" | "degraded" | "down" | "inactive";
+
+/**
+ * A component's status transition, as carried by `plugin:ops:health:changed`.
+ *
+ * Emitted as a component changes rather than derived by re-reading the whole
+ * report, so an operator alerts on the transition instead of polling for it.
+ */
+export interface HealthChange {
+  component: "context" | "route" | "indicator";
+  /** The component's name; the reserved id `context` for the serving lifecycle. */
+  name: string;
+  from: HealthStatus;
+  to: HealthStatus;
 }

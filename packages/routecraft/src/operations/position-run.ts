@@ -1,6 +1,7 @@
 import type { Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { Port } from "../kernel/port.ts";
+import { assertPositionMember } from "../pipeline/positions.ts";
 import {
   RESILIENCE,
   type Position,
@@ -51,7 +52,7 @@ export function positionFor<P, T>(
   port: Port<P>,
   method: string,
   build: (provider: P) => T,
-  options: { perRoute?: boolean } = {},
+  options: { perRoute?: boolean; member?: string } = {},
 ): T {
   const { context, route, stepLabel } = wrapperEventScope(exchange, step);
   if (context === undefined) {
@@ -65,6 +66,13 @@ export function positionFor<P, T>(
       message: `Step "${stepLabel}" is wrapped in .${method}(), and no installed plugin provides "${port.name}". Install a plugin that provides it, or remove .${method}() from the route.`,
     });
   }
+  assertPositionMember(
+    provider,
+    port,
+    options.member ?? method,
+    context,
+    `Step "${stepLabel}" is wrapped in .${method}()`,
+  );
   const key = options.perRoute ? (route ?? context) : context;
   let position = built.get(key);
   if (position === undefined) {

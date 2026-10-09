@@ -38,13 +38,14 @@ import { applicationPlugins } from "./kernel/defaults.ts";
 import { installFacet } from "./kernel/facets.ts";
 import type { Exchange } from "./exchange.ts";
 import type { Plugin, RouteView } from "./kernel/plugin.ts";
+import { readonlyView } from "./kernel/readonly.ts";
 import {
   HookTable,
   routeTags,
   type HooksConfig,
   type InstalledHook,
 } from "./kernel/hooks.ts";
-import type { Port } from "./kernel/port.ts";
+import type { AnyPort, Port } from "./kernel/port.ts";
 import { kernelCopies } from "./kernel/copies.ts";
 
 import type {
@@ -424,6 +425,8 @@ export class CraftContext {
    * waiting on it would deadlock the shutdown this ordering exists to serve.
    */
   private pluginHookInFlight: Promise<void> | undefined;
+  /** How many `bind` or `start` hooks are on the stack or awaiting. */
+  private lifecycleHooksRunning = 0;
 
   /** Latched by `stop()`. A stopped context refuses to start again. */
   private hasStopped = false;
@@ -554,7 +557,7 @@ export class CraftContext {
     host.freeze();
     try {
       this.hookTable = new HookTable(
-        host.ordered.map((entry) => entry.plugin),
+        host.listed.map((entry) => entry.plugin),
         this.hooksConfig,
         this.logger,
       );
@@ -650,7 +653,10 @@ export class CraftContext {
       const reason = this.enablement.disabled().get(route.definition.id);
       return {
         id: route.definition.id,
-        definition: route.definition,
+        definition: readonlyView(
+          route.definition,
+          `Route "${route.definition.id}"`,
+        ),
         enabled: reason === undefined,
         ...(reason !== undefined ? { disabledReason: reason } : {}),
       };
@@ -688,7 +694,14 @@ export class CraftContext {
         sweep: (options?: { readonly boot?: boolean }) =>
           this.sweepContinuations(options),
         capabilities: () => this.capabilities(),
-        whenStarted: () => this.whenStarted(),
+        whenStarted: () =>
+          this.lifecycleHooksRunning === 0
+            ? this.whenStarted()
+            : Promise.reject(
+                rcError("RC1118", undefined, {
+                  message: `A plugin's lifecycle hook awaited c.execution.whenStarted(). The application is started only once every bind and start returned, so the wait would never end. Return from the hook, and await whenStarted() from the work it schedules.`,
+                }),
+              ),
         requestStop: () => {
           void this.stop().catch(() => undefined);
         },
@@ -726,6 +739,11 @@ export class CraftContext {
    */
   lookup<T>(port: Port<T>): T | undefined {
     return this.host?.lookup(port);
+  }
+
+  /** The id of the plugin whose provision of a port is selected. */
+  providerOf(port: AnyPort): string | undefined {
+    return this.host?.providerOf(port);
   }
 
   /**
@@ -958,14 +976,21 @@ export class CraftContext {
    * @param hook The hook call together with the state it updates on success
    */
   private async runLifecycleHook(hook: () => Promise<void>): Promise<void> {
-    const inFlight = hook();
-    this.pluginHookInFlight = inFlight;
+    // Counted before the hook is entered: a hook that awaits whenStarted()
+    // on its first line is already inside when the check runs.
+    this.lifecycleHooksRunning += 1;
     try {
-      await inFlight;
-    } finally {
-      if (this.pluginHookInFlight === inFlight) {
-        this.pluginHookInFlight = undefined;
+      const inFlight = hook();
+      this.pluginHookInFlight = inFlight;
+      try {
+        await inFlight;
+      } finally {
+        if (this.pluginHookInFlight === inFlight) {
+          this.pluginHookInFlight = undefined;
+        }
       }
+    } finally {
+      this.lifecycleHooksRunning -= 1;
     }
   }
 

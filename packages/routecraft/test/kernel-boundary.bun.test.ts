@@ -32,6 +32,18 @@ function filesUnder(path: string): string[] {
   );
 }
 
+/** The file a resolved specifier names, or none for a module outside the tree. */
+function moduleFile(path: string): string | undefined {
+  for (const candidate of [path, `${path}.ts`, join(path, "index.ts")]) {
+    try {
+      if (statSync(candidate).isFile()) return candidate;
+    } catch {
+      // Not this spelling.
+    }
+  }
+  return undefined;
+}
+
 /** Every relative module a file imports or re-exports, type-only included. */
 function edgesOf(file: string): string[] {
   const source = readFileSync(file, "utf8");
@@ -50,20 +62,35 @@ function edgesOf(file: string): string[] {
  */
 describe("the kernel boundary", () => {
   /**
-   * @case No kernel module imports from a plugin's folder or auth, by value or by type
-   * @preconditions The kernel's files: kernel/, pipeline/, context.ts, route.ts, builder.ts, step-builder-base.ts, exchange.ts, project.ts, config-applier.ts
-   * @expectedResult No import or re-export specifier resolves under plugins/, auth/ or adapters/direct/
+   * @case No kernel module reaches a plugin's folder or auth through any chain of imports, by value or by type
+   * @preconditions The kernel's files: kernel/, pipeline/, context.ts, route.ts, builder.ts, step-builder-base.ts, exchange.ts, project.ts, config-applier.ts, and every module they import, transitively
+   * @expectedResult No import or re-export specifier on any such chain resolves under plugins/, auth/ or adapters/direct/
    */
-  test("the kernel imports no plugin", () => {
-    const crossings = KERNEL.flatMap(filesUnder).flatMap((file) =>
-      edgesOf(file)
-        .filter((target) =>
-          FORBIDDEN.some(
-            (folder) => target === folder || target.startsWith(`${folder}/`),
-          ),
-        )
-        .map((target) => `${relative(SRC, file)} -> ${target}`),
-    );
+  test("the kernel reaches no plugin, transitively", () => {
+    const forbidden = (target: string): boolean =>
+      FORBIDDEN.some(
+        (folder) => target === folder || target.startsWith(`${folder}/`),
+      );
+    const crossings: string[] = [];
+    const seen = new Set<string>();
+    const pending = KERNEL.flatMap(filesUnder).map((file) => ({
+      file,
+      via: [relative(SRC, file)],
+    }));
+    for (let next = pending.pop(); next; next = pending.pop()) {
+      if (seen.has(next.file)) continue;
+      seen.add(next.file);
+      for (const target of edgesOf(next.file)) {
+        if (forbidden(target)) {
+          crossings.push([...next.via, target].join(" -> "));
+          continue;
+        }
+        const file = moduleFile(join(SRC, target));
+        if (file !== undefined) {
+          pending.push({ file, via: [...next.via, target] });
+        }
+      }
+    }
 
     expect(crossings).toEqual([]);
   });

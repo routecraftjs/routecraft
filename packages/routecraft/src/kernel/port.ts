@@ -28,6 +28,8 @@ export type AnyPort = Pick<Port<never>, "name" | "key">;
 /** Anything a port is looked up on: a plugin context, or a context. */
 export interface PortLookup {
   lookup<T>(port: Port<T>): T | undefined;
+  /** The id of the plugin whose provision of a port was selected, when known. */
+  providerOf?(port: AnyPort): string | undefined;
 }
 
 const PORT_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+@[0-9]+$/;

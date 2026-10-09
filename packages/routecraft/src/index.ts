@@ -16,6 +16,7 @@ export {
   type SubjectMatcher,
 } from "./auth/authorize.ts";
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
+export { refusal as authorizationRefusal } from "./authorization-refusal.ts";
 export { delegate, type DelegateOptions } from "./auth/delegate.ts";
 export { isDevelopmentRuntime } from "./shared/runtime-env.ts";
 export {
@@ -75,6 +76,7 @@ export {
   type PluginLogger,
   type PluginRoutes,
   type RouteView,
+  type RouteDefinitionView,
   type StopInfo,
 } from "./kernel/plugin.ts";
 export {
@@ -966,3 +968,5 @@ export {
   type VCardPropertyOptions,
   type VCardParam,
 } from "./adapters/carddav/index.ts";
+export { NESTED_STEPS, AUTHENTICATES } from "./dsl-symbol.ts";
+export type { NestedSteps, NestingStep } from "./kernel/continuation/sites.ts";

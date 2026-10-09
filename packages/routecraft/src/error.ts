@@ -63,6 +63,7 @@ export interface ErrorCodeRegistry {
   RC1115: RCMeta;
   RC1116: RCMeta;
   RC1117: RCMeta;
+  RC1118: RCMeta;
   RC2001: RCMeta;
   RC2002: RCMeta;
   RC3001: RCMeta;
@@ -309,6 +310,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A plugin is a descriptor built with definePlugin({ id, ... }). The message names the field that is wrong: a missing plugin or hook id, the pre-0.8 apply() shape, a port list holding something other than ports, or a repeatable plugin declaring what only one install may.",
     docs: `${DOCS_BASE}#rc-1117`,
+    retryable: false,
+  },
+  RC1118: {
+    category: "Definition",
+    message: "Lifecycle hook awaits the start it is part of",
+    suggestion:
+      "A bind or start hook awaited c.execution.whenStarted(), which resolves only once every hook returned, so the hook would wait on itself. Return from the hook and await whenStarted() from the work it schedules (a timer, a task), or let the kernel start the plugin first and begin the work in start().",
+    docs: `${DOCS_BASE}#rc-1118`,
     retryable: false,
   },
   RC2001: {

@@ -43,7 +43,13 @@ const ADMISSION_SLOTS: readonly string[] = [
 export type Phase = "observe" | "mutate" | "validate";
 
 /** The kinds of run an exchange can be in. */
-export type RunKind = "normal" | "resume" | "debounce" | "errorChannel";
+export const RUN_KINDS = [
+  "normal",
+  "resume",
+  "debounce",
+  "errorChannel",
+] as const;
+export type RunKind = (typeof RUN_KINDS)[number];
 
 /** What a hook learns beside the exchange. */
 export interface HookInfo {
@@ -54,7 +60,12 @@ export interface HookInfo {
   readonly kind: RunKind;
 }
 
-declare const REFUSAL: unique symbol;
+/**
+ * The brand a refusal carries. Registered rather than module-local, so a
+ * hook written against the package's other build (ESM beside CJS) returns
+ * a refusal this host still reads as one, not as a contract breach.
+ */
+const REFUSAL: unique symbol = Symbol.for("routecraft.hook.refusal");
 
 /**
  * What a validate hook's refusal means to the caller, in a vocabulary no
@@ -84,8 +95,6 @@ export interface Refusal {
   readonly kind: RefusalKind;
 }
 
-const REFUSALS = new WeakSet<object>();
-
 /**
  * Refuse the exchange from a `validate` hook. The run fails with `RC5068`
  * naming the hook and the reason, and the failure reaches the `error` slot
@@ -101,8 +110,11 @@ export function refuse(
   reason: string,
   options: { readonly kind?: RefusalKind } = {},
 ): Refusal {
-  const refusal = { reason, kind: options.kind ?? "forbidden" } as Refusal;
-  REFUSALS.add(refusal);
+  const refusal: Refusal = {
+    [REFUSAL]: true,
+    reason,
+    kind: options.kind ?? "forbidden",
+  };
   return Object.freeze(refusal);
 }
 
@@ -182,7 +194,11 @@ export function raisedHookRefusalOf(
 }
 
 function isRefusal(value: unknown): value is Refusal {
-  return typeof value === "object" && value !== null && REFUSALS.has(value);
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { [REFUSAL]?: unknown })[REFUSAL] === true
+  );
 }
 
 /** What a `mutate` hook may return: the headers to set and the body to replace. */
@@ -417,6 +433,9 @@ export class HookTable {
     }
     for (const plugin of plugins) {
       const { points: atPoints, ...slots } = plugin.hooks ?? {};
+      // A hook's name addresses it in hooks.order and hooks.disable, so one
+      // name in two slots would make both answer to one entry.
+      const names = new Map<string, string>();
       for (const [point] of Object.entries(atPoints ?? {})) {
         if (!this.points.has(point)) {
           throw rcError("RC1112", undefined, {
@@ -437,6 +456,13 @@ export class HookTable {
           const h = hook as ExchangeHook & WrapperHook & ErrorHook;
           this.checkShape(plugin.id, slot, h);
           const id = `${plugin.id}/${h.id}`;
+          const elsewhere = names.get(id);
+          if (elsewhere !== undefined && elsewhere !== slot) {
+            throw rcError("RC1112", undefined, {
+              message: `Plugin "${plugin.id}" declares "${id}" in both "${elsewhere}" and "${slot}". A hook's name addresses one hook, in hooks.order and hooks.disable alike; give one of them another id.`,
+            });
+          }
+          names.set(id, slot);
           const list = this.bySlot.get(slot) ?? [];
           if (list.some((existing) => existing.id === id)) {
             throw rcError("RC1112", undefined, {
@@ -465,8 +491,15 @@ export class HookTable {
     }
     if (hook.runs !== undefined && !Array.isArray(hook.runs)) {
       throw rcError("RC1115", undefined, {
-        message: `${where} declares runs as ${typeof hook.runs}; runs is an array of run kinds (normal, resume, debounce, errorChannel).`,
+        message: `${where} declares runs as ${typeof hook.runs}; runs is an array of run kinds (${RUN_KINDS.join(", ")}).`,
       });
+    }
+    for (const run of hook.runs ?? []) {
+      if (!(RUN_KINDS as readonly string[]).includes(run)) {
+        throw rcError("RC1115", undefined, {
+          message: `${where} declares the run kind "${String(run)}", which is not one of ${RUN_KINDS.join(", ")}. The hook would never run.`,
+        });
+      }
     }
     if (slot === "perAttempt") {
       if (typeof hook.wrap !== "function") {

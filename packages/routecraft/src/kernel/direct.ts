@@ -108,3 +108,15 @@ export interface DirectRegistry {
 
 /** The direct endpoint registry of an application. */
 export const DIRECT = port<DirectRegistry>("routecraft.direct@1");
+
+/**
+ * The key an endpoint is held under: URL-encoded, so distinct endpoints
+ * such as "a/b" and "a-b" never share one ("a%2Fb" and "a-b").
+ *
+ * @param endpoint - The endpoint as written
+ * @returns The key
+ * @internal
+ */
+export function sanitizeEndpoint(endpoint: string): string {
+  return encodeURIComponent(endpoint);
+}

@@ -52,8 +52,8 @@ import {
   applyResolvedSites,
   nestedStepsOf,
 } from "./kernel/continuation/sites.ts";
-import { WrapperStep } from "./operations/wrapper.ts";
-import { AuthenticateStep } from "./operations/authenticate.ts";
+import type { WrapperStep } from "./operations/wrapper.ts";
+import { AUTHENTICATES } from "./dsl-symbol.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -504,13 +504,29 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
 
 /**
  * Whether any step in the tree, looking through wrapper stacks and into
- * nested sub-pipelines, is an `.authenticate()` step.
+ * nested sub-pipelines, establishes the principal.
+ *
+ * By mark and by shape rather than by class: the shipped step from the
+ * package's other build (ESM beside CJS) is another class with the same
+ * mark, and a class check would let a route-scope cache through on it.
  */
 function containsAuthenticate(steps: ReadonlyArray<Step<Adapter>>): boolean {
+  const wrappedOf = (step: Step<Adapter>): Step<Adapter> | undefined => {
+    const inner = (step as Partial<WrapperStep>).wrapped;
+    return typeof inner === "object" && inner !== null ? inner : undefined;
+  };
   return steps.some((step) => {
-    let innermost: Step<Adapter> = step;
-    while (innermost instanceof WrapperStep) innermost = innermost.wrapped;
-    if (innermost instanceof AuthenticateStep) return true;
+    const seen = new Set<Step<Adapter>>();
+    for (
+      let current: Step<Adapter> | undefined = step;
+      current !== undefined && !seen.has(current);
+      current = wrappedOf(current)
+    ) {
+      seen.add(current);
+      if ((current as { [AUTHENTICATES]?: unknown })[AUTHENTICATES] === true) {
+        return true;
+      }
+    }
     return nestedStepsOf(step).some((nested) =>
       containsAuthenticate(nested.steps),
     );

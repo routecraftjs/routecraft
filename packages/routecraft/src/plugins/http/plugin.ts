@@ -80,21 +80,27 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
     ...(openapiInfoOverride ?? {}),
   };
 
-  const unmounts: Array<() => void> = [];
-  const mountRuntimes = new Map<string, HttpMountRuntime>();
-  for (const mount of mountsResolved) {
-    mountRuntimes.set(mount.name, {
-      path: mount.path,
-      registry: new Map(),
-    });
-  }
+  // Mount tables and unmounts belong to the application that bound this
+  // descriptor: one descriptor may serve two contexts, and a table in the
+  // closure would hand one listener the other's routes and let one stop
+  // tear the other down.
+  const runtimes = new WeakMap<
+    PluginContext,
+    {
+      unmounts: Array<() => void>;
+      mountRuntimes: Map<string, HttpMountRuntime>;
+    }
+  >();
 
   // Built-ins (/health, /ready, /openapi.json) serve only from the "default"
   // mount when it owns the "/" catch-all, and report routes across every
   // mount ON THAT MOUNT'S SERVER only. Aggregating across servers would
   // publish an internal listener's route inventory and schemas through the
   // public listener's OpenAPI document.
-  const routesOnServer = (server: string): HttpRouteView => ({
+  const routesOnServer = (
+    mountRuntimes: ReadonlyMap<string, HttpMountRuntime>,
+    server: string,
+  ): HttpRouteView => ({
     get size() {
       let total = 0;
       for (const mount of mountsResolved) {
@@ -116,6 +122,15 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
     requires: [WEB_INGRESS],
     provides: [HTTP],
     async bind(c: PluginContext) {
+      const unmounts: Array<() => void> = [];
+      const mountRuntimes = new Map<string, HttpMountRuntime>();
+      for (const mount of mountsResolved) {
+        mountRuntimes.set(mount.name, {
+          path: mount.path,
+          registry: new Map(),
+        });
+      }
+      runtimes.set(c, { unmounts, mountRuntimes });
       c.provide(HTTP, { mounts: mountRuntimes });
 
       const onRequestCompleted: RequestCompletedHandler | undefined =
@@ -184,7 +199,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
         const walled = mountAuth.walled;
         const isDefaultRoot = mount.name === "default" && mount.path === "/";
         const authConfigured = walled;
-        const serverRoutes = routesOnServer(mount.server);
+        const serverRoutes = routesOnServer(mountRuntimes, mount.server);
 
         // Built-ins layering (default-root mount only). See the matrix in
         // HttpBuiltinOptions: /ready and /openapi.json gate on the mount
@@ -305,6 +320,9 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
       }
     },
     async stop(c: PluginContext) {
+      const runtime = runtimes.get(c);
+      if (runtime === undefined) return;
+      const { unmounts, mountRuntimes } = runtime;
       for (const unmount of unmounts.splice(0)) {
         try {
           unmount();

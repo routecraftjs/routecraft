@@ -123,6 +123,7 @@ make this mistake:
 |--------|----------|--------------|
 | Abort the boot with a reason | `throw` | the install or start unwinds through the stop walk and the error reaches the operator unchanged |
 | Request shutdown without failing the boot | `c.execution.requestStop()` | returns at once; the hook settles, the wait sees it settle, and the stop walk follows in its proper order |
+| Wait for the application to be ready | none from a hook | `c.execution.whenStarted()` from `bind` or `start` is refused with `RC1118`: it resolves only once every hook returned, so the hook would wait on itself; await it from the work the hook schedules |
 
 ```ts
 async start(c) {

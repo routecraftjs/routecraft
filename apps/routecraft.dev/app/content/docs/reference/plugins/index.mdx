@@ -71,7 +71,7 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `requires` | `Port[]` | Ports the plugin cannot run without. A missing provider is `RC1104`. |
 | `optional` | `Port[]` | Ports the plugin uses when present, read with `lookup()`. |
 | `provides` | `Port[]` | Ports the plugin provides in `bind`. Two providers of one port is `RC1105`. |
-| `replaces` | `Port[]` | Ports whose other provider this plugin displaces. Each must also be in `provides` (`RC1106`). The displaced plugin still binds. |
+| `replaces` | `Port[]` | Ports whose other provider this plugin displaces. Each must also be in `provides` (`RC1106`). The displaced plugin still binds, starts and stops: replacing a port selects a provider and never removes a plugin, so a displaced plugin that owns a resource (the `servers` listener) keeps it, and an application that wants it gone leaves its config key out. |
 | `installs` | `Plugin[]` | Plugins this one brings along, installed ahead of it and once per id, unless the application lists that id itself. Two bundles bringing different descriptors under one single id the application does not list is `RC1101`; repeatable descriptors under one id each install, numbered. |
 | `repeatable` | `boolean` | Several installs may coexist, named `id#1`, `id#2`, ... in list order. A repeatable plugin may not provide or replace a port, or declare hooks, points, steps or a facet. It binds ahead of every other plugin that uses the ports it uses, so a reader sees every contribution, unless that order would contradict the declared dependencies. |
 | `keepsAlive` | `boolean` | The plugin owns a lifetime past the routes (a listener, a subscription): when every route has completed, the application keeps running until stopped. |
@@ -99,7 +99,7 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `onDispose(fn)` | Register a release that runs at stop, after the plugin's own `stop`, in reverse registration order. Every one runs even when another throws, and they run when this plugin's own `bind` throws after registering them. |
 | `frozen` | True once the last `bind` returned. A plugin that collects contributions through its port refuses later ones with [`RC1110`](/docs/reference/errors#rc-1110). |
 | `routes.register(...definitions)` | Add routes. In `bind` only (`RC1110` afterwards). |
-| `routes.list()`, `routes.get(id)` | Read-only views of registered routes: `id`, `definition`, `enabled`, `disabledReason`. |
+| `routes.list()`, `routes.get(id)` | Read-only views of registered routes: `id`, `definition`, `enabled`, `disabledReason`. The definition is read-only down the graph, at the type and at runtime: a write through it is `RC1110`. |
 | `routes.hooksOf(id)` | The hooks that apply to a route in the order they run, each as `{ slot, point, phase?, plugin, id }`. Empty before the routes compile. |
 | `execution` | The verbs that drive the application, below. |
 
@@ -245,7 +245,7 @@ The resilience methods and `.cache()` placed after `.from()` are the same positi
 
 A slot runs observe, then mutate, then validate. `exit` has no validate phase. In the `error` slot the phases are `observe` and `mutate`, and `mutate` is the deciding phase: a hook answers with a recovery body, `recovery.drop()`, `recovery.defer(...)` or `recovery.rethrow()`, or `undefined` to pass, and the first answer decides. Inside a phase, hooks run in the order the application lists the plugins. When two mutate hooks write the same header in one slot, the later wins and the framework warns once per route naming both.
 
-`perAttempt` takes wrappers rather than phased hooks: `{ wrap(proceed, exchange, info) }`. A wrapper surrounds every attempt of the route's work, inside retry and outside timeout; it may time, trace or guard an attempt and may throw, but does not change the exchange.
+`perAttempt` takes wrappers rather than phased hooks: `{ wrap(proceed, exchange, info) }`. A wrapper surrounds every attempt of the route's work at route scope, inside the `.retry()` declared before `.from()` and outside `.timeout()`; it may time, trace or guard an attempt and may throw, but does not change the exchange. A `.retry()` placed after `.from()` is a step inside the route's work, so its attempts run inside one wrapper call. Wrappers run in plugin list order; `hooks.order` does not address `perAttempt`, which has no phases. An observe or mutate hook that throws in an exchange slot fails the exchange; in the `error` slot an observe hook that throws is logged and the rest of the slot still runs.
 
 ### Hook fields
 
@@ -277,7 +277,7 @@ The application settles conflicts in config, under `hooks`:
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `order` | `Record<"slot/phase", string[]>` | The exact order of one phase of one slot, by hook id (`pluginId/id`). Hooks it does not name run after the named ones, in plugin order. |
+| `order` | `Record<"slot/phase", string[]>` | The exact order of one phase of one slot, by hook id (`pluginId/id`). Hooks it does not name run after the named ones, in plugin list order. Not for `perAttempt`, which has no phases. |
 | `disable` | `string[]` | Hooks switched off, by id. Slots only; a position is never disabled. |
 
 A name in `order` or `disable` that matches no installed hook is `RC1112`.
@@ -294,7 +294,28 @@ Each entry of a plugin's `steps` becomes a builder method of that name. The entr
 | `StepMethods<S, This>` | An interface a plugin merges its method types into, under its namespace, for a method generic at the call site. The `steps` entry of the same name still provides the runtime. `BuilderState`, `Retyped` and `SetBody` are exported for writing these. |
 | `FacetTypes<S>` | An interface a plugin merges its facet type into, under its namespace, when the facet's type depends on the route's state. |
 
-A route that uses a plugin's step refuses to start unless the plugin is installed (`RC1111`). Two plugins declaring one step, or a step named after a builder method, is `RC1116`.
+A route that uses a plugin's step refuses to start unless the plugin is installed (`RC1111`). Two plugins declaring one step, or a step named after a builder method, is `RC1116`. So is a step named `then` or `toJSON`, which the language reads off every object.
+
+### Structural steps
+
+A raw step that runs steps of its own (a branch, a fan-out, a plugin's own sub-pipeline) reports them through the `NESTED_STEPS` protocol, so the walks of a route's step tree see inside it: which plugins the route uses (`RC1111` at start), which positions it needs, the continuation digest, and where a `.defer()` may land. A step that runs nested steps without reporting them hides them from every one of those, and a park inside it is `RC5051`.
+
+```ts skip="fragment: steps is the branch to run"
+const branch: Step<Adapter> & NestingStep = {
+  operation: OperationType.PROCESS,
+  adapter: { adapterId: "acme.branch", steps },
+  async execute(exchange) {
+    return { kind: "branch", exchange, steps };
+  },
+  [NESTED_STEPS]: () => [{ steps, rejoins: true }],
+};
+```
+
+`rejoins` says whether the branch flows back into the main pipeline (a `.choice()` branch does; a `.multicast()` path does not), which decides whether a `.defer()` inside it has a continuation. A step-scope wrapper forwards the protocol to the step it wraps.
+
+### Authenticating steps
+
+A step that establishes the exchange's principal carries the `AUTHENTICATES` mark, as `.authenticate()` does. The builder refuses a route-scope `.cache()` on a route that reaches a marked step (`RC5003`), because a cache hit would answer before the step ran with a key that never saw the identity. Both marks are registered symbols, so a step built against another build of the package is seen the same way.
 
 ## Facets
 
