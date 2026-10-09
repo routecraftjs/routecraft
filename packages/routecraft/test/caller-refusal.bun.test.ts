@@ -345,6 +345,116 @@ describe("callerRefusalOf()", () => {
     expect(callerRefusalOf(rcError("RC5065", forge()), origin)).toBeUndefined();
     expect(callerRefusalOf(rcError("RC5049", forge()), origin)).toBeUndefined();
   });
+
+  /**
+   * @case A genuine hook refusal whose public detail a handler replaced before rethrowing it
+   * @preconditions A validate hook refusing route "inner"; the caught RC5068 first has cause.refused replaced by a copy naming "outer", then its whole cause replaced by a hand-built detail naming "outer"
+   * @expectedResult Undefined for "outer" after each replacement, and the unchanged error still maps for "inner" with the hook's own reason: attribution reads the snapshot bound at the throw, never the public detail
+   */
+  test("a replaced hook detail cannot move a genuine refusal to another route", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.guard",
+            hooks: {
+              admitted: {
+                id: "deny",
+                phase: "validate",
+                routes: ["inner"],
+                run: () => refuse("internal policy", { kind: "forbidden" }),
+              },
+            },
+          }),
+        ],
+      })
+      .routes(craft().id("inner").from(direct()).to(noop()))
+      .build();
+    await t.startAndWaitReady();
+    const error = (await t.client
+      .sendDirect("inner", {})
+      .catch((e: unknown) => e)) as Error & { cause: unknown };
+    const outer = { routeId: "outer", principal: undefined };
+    const inner = { routeId: "inner", principal: undefined };
+    const cause = error.cause as { refused: Record<string, unknown> };
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+
+    cause.refused = { ...cause.refused, routeId: "outer", reason: "moved" };
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+
+    error.cause = Object.assign(new Error("moved"), {
+      refused: {
+        hook: "test.guard/deny",
+        slot: "admitted",
+        routeId: "outer",
+        kind: "invalid",
+        reason: "moved",
+      },
+    });
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+    expect(callerRefusalOf(error, inner)).toEqual({
+      kind: "refused",
+      as: "forbidden",
+      reason: "internal policy",
+    });
+  });
+
+  /**
+   * @case A genuine input refusal whose public detail a handler replaced, and whose schema issue it mutated, before rethrowing it
+   * @preconditions Route "inner" whose body schema returns one issue with a path segment object; the caught RC5065 has cause.invalid replaced by a copy naming "outer", the schema's own issue object has its message and path key rewritten, then the whole cause is replaced by a hand-built detail naming "outer"
+   * @expectedResult Undefined for "outer" throughout; the public detail shows the rewritten issue while the wire output for "inner" keeps the original message and path, because the door reads the snapshot taken at the throw
+   */
+  test("a replaced or mutated input detail cannot change a genuine refusal", async () => {
+    const issue = { message: "internal schema", path: [{ key: "id" }] };
+    const schema = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({ issues: [issue] }),
+      },
+    } as unknown as StandardSchemaV1;
+    t = await testContext()
+      .routes(
+        craft().id("inner").input({ body: schema }).from(direct()).to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+    const error = (await t.client
+      .sendDirect("inner", {})
+      .catch((e: unknown) => e)) as Error & { cause: unknown };
+    const outer = { routeId: "outer", principal: undefined };
+    const inner = { routeId: "inner", principal: undefined };
+    const cause = error.cause as {
+      invalid: { issues: readonly { message: string }[] } & Record<
+        string,
+        unknown
+      >;
+    };
+    const original = cause.invalid;
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+
+    cause.invalid = { ...cause.invalid, routeId: "outer" };
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+
+    issue.message = "rewritten";
+    issue.path[0]!.key = "other";
+    expect(original.issues[0]!.message).toBe("rewritten");
+
+    error.cause = Object.assign(new Error("moved"), {
+      invalid: {
+        in: "body",
+        issues: [{ message: "moved" }],
+        routeId: "outer",
+      },
+    });
+    expect(callerRefusalOf(error, outer)).toBeUndefined();
+    expect(callerRefusalOf(error, inner)).toEqual({
+      kind: "input",
+      in: "body",
+      issues: [{ path: "id", message: "internal schema" }],
+      omitted: 0,
+    });
+  });
 });
 
 describe("wireIssues()", () => {

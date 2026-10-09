@@ -701,6 +701,81 @@ describe("chain hooks", () => {
   });
 
   /**
+   * @case hooks.order naming one hook twice
+   * @preconditions Two observe hooks in beforeAuth; an order list naming one of them twice, and a valid order naming each once
+   * @expectedResult The repeated id fails the build with RC1112 naming the key and the id; under the valid order each hook runs exactly once per exchange
+   */
+  test("hooks.order naming a hook twice fails the build with RC1112", async () => {
+    const seen: string[] = [];
+    const plugins = () => [
+      plugin("test.a", { beforeAuth: recorder("a", seen, { id: "see" }) }),
+      plugin("test.b", { beforeAuth: recorder("b", seen, { id: "see" }) }),
+    ];
+
+    const error = await refusal(plugins(), {
+      order: {
+        "beforeAuth/observe": ["test.b/see", "test.a/see", "test.b/see"],
+      },
+    });
+    expect(error).toMatchObject({ rc: "RC1112" });
+    expect((error as Error).message).toContain(
+      'hooks.order["beforeAuth/observe"]',
+    );
+    expect((error as Error).message).toContain('"test.b/see" twice');
+
+    t = await testContext()
+      .with({
+        plugins: plugins(),
+        hooks: {
+          order: { "beforeAuth/observe": ["test.b/see", "test.a/see"] },
+        },
+      })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build();
+    await t.startAndWaitReady();
+    await t.client.sendDirect("work", {});
+
+    expect(seen).toEqual(["b", "a"]);
+  });
+
+  /**
+   * @case An admission-slot hook whose runs leaves normal out
+   * @preconditions A hook in beforeAuth, in afterAuth and in admitted, each declaring runs: ["resume"]; a control in admitted declaring runs: ["normal", "resume"]
+   * @expectedResult Each of the three fails the build with RC1115 naming its slot, since those slots see every admission, a resumed one included, as normal and the hook could never run; the control installs and runs on a normal exchange
+   */
+  test("an admission hook that leaves normal out of runs fails the build with RC1115", async () => {
+    for (const slot of ["beforeAuth", "afterAuth", "admitted"] as const) {
+      const error = await refusal([
+        plugin("test.never", {
+          [slot]: { phase: "observe", runs: ["resume"], run: () => undefined },
+        } as LooseHooks),
+      ]);
+      expect(error).toMatchObject({ rc: "RC1115" });
+      expect((error as Error).message).toContain(`hook in "${slot}"`);
+      expect((error as Error).message).toContain('include "normal"');
+    }
+
+    const seen: string[] = [];
+    t = await testContext()
+      .with({
+        plugins: [
+          plugin("test.both", {
+            admitted: {
+              ...recorder("admitted", seen),
+              runs: ["normal", "resume"],
+            },
+          }),
+        ],
+      })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build();
+    await t.startAndWaitReady();
+    await t.client.sendDirect("work", {});
+
+    expect(seen).toEqual(["admitted"]);
+  });
+
+  /**
    * @case hooks.disable removes one hook and leaves the rest of its slot
    * @preconditions Two observe hooks in beforeAuth, one disabled by id
    * @expectedResult Only the other runs

@@ -6,8 +6,8 @@ import {
   isAuthorizationRefusal,
 } from "../authorization-refusal.ts";
 import type { Principal } from "../principal.ts";
-import { isRaisedHookRefusal, type RefusalKind } from "../kernel/hooks.ts";
-import { isRaisedInputValidationFailure } from "./validation.ts";
+import { raisedHookRefusalOf, type RefusalKind } from "../kernel/hooks.ts";
+import { raisedInputValidationOf } from "./validation.ts";
 
 /** One schema issue as a door shows it to a caller: where, and what. */
 export interface WireIssue {
@@ -150,20 +150,24 @@ export interface CallerRefusalOrigin {
  * cause of a route failure is whatever its steps threw, hostnames, file
  * paths and upstream response text included.
  *
- * Attribution is by origin, never by code:
+ * Attribution is by origin, never by code, and the origin is read from a
+ * snapshot the raising site bound to the error, never from the error's
+ * public `cause`. A handler between the raising site and the door can
+ * replace `cause`, replace the nested detail, copy the detail under a new
+ * error or mutate a schema issue, and none of it moves the refusal onto
+ * another route or changes what reaches the caller:
  *
- * - `RC5065` and `RC5049` map only when they carry the
- *   `InputValidationFailure` detail and were themselves raised by a framework
- *   validator, for the dispatched route. One without it was thrown by something other than
- *   `.input()` or the resume door, one a step built by hand is that step's
- *   failure whatever shape it gave it, and one naming another route came up
- *   through `direct()`, so none of them is the caller's.
- * - `RC5068` maps only when it carries the `HookRefusal` detail and the error
- *   itself was raised by the kernel for a validate hook on the dispatched
- *   route, for the same reasons. A hook refusing as
- *   `unauthenticated` on a door that reads no credential is answered as
- *   `forbidden`: a challenge would send the caller after a credential the
- *   door never reads.
+ * - `RC5065` and `RC5049` map only when a framework validator (`.input()`,
+ *   the resume door) raised them and bound an input snapshot naming the
+ *   dispatched route. One without a snapshot was thrown by something else,
+ *   one a step built by hand is that step's failure whatever shape it gave
+ *   it, and one naming another route came up through `direct()`, so none of
+ *   them is the caller's. The issues the door sends are the snapshot's.
+ * - `RC5068` maps only when the kernel raised it for a validate hook and
+ *   bound a hook snapshot naming the dispatched route, for the same reasons.
+ *   A hook refusing as `unauthenticated` on a door that reads no credential
+ *   is answered as `forbidden`: a challenge would send the caller after a
+ *   credential the door never reads.
  * - The authorization codes map only when {@link isAuthorizationRefusal}
  *   says `authorize()` raised them on the dispatched route about the
  *   principal the door admitted. The same codes come out of adapters for an
@@ -185,23 +189,17 @@ export function callerRefusalOf(
 ): CallerRefusal | undefined {
   const code = rcCodeOf(error);
   if (code === "RC5065" || code === "RC5049") {
-    if (
-      !isRaisedInputValidationFailure(error) ||
-      error.cause.invalid.routeId !== origin.routeId
-    ) {
+    const invalid = raisedInputValidationOf(error);
+    if (invalid === undefined || invalid.routeId !== origin.routeId) {
       return undefined;
     }
-    const { invalid } = error.cause;
     return { kind: "input", in: invalid.in, ...wireIssues(invalid.issues) };
   }
   if (code === "RC5068") {
-    if (
-      !isRaisedHookRefusal(error) ||
-      error.cause.refused.routeId !== origin.routeId
-    ) {
+    const refused = raisedHookRefusalOf(error);
+    if (refused === undefined || refused.routeId !== origin.routeId) {
       return undefined;
     }
-    const { refused } = error.cause;
     const as =
       refused.kind === "unauthenticated" && origin.credentialCouldHelp !== true
         ? "forbidden"

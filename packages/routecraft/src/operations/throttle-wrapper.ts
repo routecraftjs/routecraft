@@ -5,7 +5,7 @@ import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
-import { WrapperStep } from "./wrapper.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
@@ -550,6 +550,10 @@ export class ThrottleWrapperStep<
 
   protected override describeOptions(): unknown {
     return this.#options;
+  }
+
+  override get requiredPosition(): RequiredPosition {
+    return { port: RESILIENCE, method: "throttle" };
   }
 
   protected override async runInner(

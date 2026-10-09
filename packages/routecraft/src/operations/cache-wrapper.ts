@@ -15,7 +15,7 @@ import { hashExchangeBody } from "./hash-body.ts";
 import { principalIdentity } from "./principal-identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
-import { WrapperStep } from "./wrapper.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import { nestedStepsOf } from "../kernel/continuation/sites.ts";
 import {
   definitionFingerprint,
@@ -397,6 +397,10 @@ export class CacheWrapperStep<
    *
    * @internal
    */
+  override get requiredPosition(): RequiredPosition {
+    return { port: CACHE, method: "cache" };
+  }
+
   assignSite(site: string): void {
     this.#site = site;
   }

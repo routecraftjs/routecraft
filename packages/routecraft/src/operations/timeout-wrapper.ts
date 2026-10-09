@@ -1,9 +1,9 @@
 import type { Exchange } from "../exchange.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
-import { WrapperStep } from "./wrapper.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { runStepPosition } from "./position-run.ts";
-import type { Position } from "../kernel/positions.ts";
+import { RESILIENCE, type Position } from "../kernel/positions.ts";
 
 /**
  * Route-scope `.timeout()` config. This is the shape stored on
@@ -120,6 +120,10 @@ export class TimeoutWrapperStep<
 
   protected override describeOptions(): unknown {
     return this.#options;
+  }
+
+  override get requiredPosition(): RequiredPosition {
+    return { port: RESILIENCE, method: "timeout" };
   }
 
   protected override runInner(

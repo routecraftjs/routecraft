@@ -17,7 +17,7 @@ declare const PORT_TYPE: unique symbol;
 export interface Port<T> {
   /** `owner.capability@version`, e.g. `routecraft.continuations@1`. */
   readonly name: string;
-  /** Identity. Two tokens with one name in one application is `RC1103`. */
+  /** Identity: the registered symbol for `name`, so one name is one port. */
   readonly key: symbol;
   readonly [PORT_TYPE]?: (value: T) => T;
 }
@@ -35,11 +35,14 @@ const PORT_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+@[0-9]+$/;
 /**
  * Declare a port.
  *
- * Call it once, at module scope, and export the result: the token is the
- * identity, so a second `port()` call with the same name is a different port
- * and the kernel refuses an application holding both (`RC1103`). That
- * refusal is what catches two copies of one contract module in a process,
- * the classic silent failure of plugin systems.
+ * Call it once, at module scope, and export the result. The identity is the
+ * name: the token's key is `Symbol.for(name)`, so two copies of the module
+ * declaring a port (the ESM and CJS builds of one package, a global CLI
+ * beside a project's own install) mint tokens that resolve as one port. The
+ * version segment is what makes that safe: two copies that agree on the name
+ * agree on the contract, and a shape change ships under a new version. A
+ * token with the name of a port but a key `port()` did not mint is refused
+ * with `RC1103`.
  *
  * @param name - `owner.capability@version`
  * @returns A frozen token
@@ -58,5 +61,5 @@ export function port<T>(name: string): Port<T> {
       message: `Port name "${name}" must be an owner and a capability as lowercase dotted segments, followed by @ and a version, e.g. "acme.approvals@1".`,
     });
   }
-  return Object.freeze({ name, key: Symbol(name) });
+  return Object.freeze({ name, key: Symbol.for(name) });
 }

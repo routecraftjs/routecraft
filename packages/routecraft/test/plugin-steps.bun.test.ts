@@ -6,9 +6,11 @@ import {
   definePlugin,
   defineProject,
   direct,
+  MemoryDeferralStore,
   noop,
   otherwise,
   port,
+  rcCodeOf,
   step,
   when,
   type Body,
@@ -523,5 +525,92 @@ describe("plugin step fingerprints", () => {
     expect(continuationTailHash(tail(undefined), schema)).not.toBe(
       continuationTailHash(tail(null), schema),
     );
+  });
+});
+
+describe("plugin step continuations across a restart", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  const store = new MemoryDeferralStore();
+  const secret = "test-secret-0123456789012345678901234567";
+
+  // The digest hashes a callback's source text, so the two implementations
+  // differ in a literal, not in captured state.
+  const payingToA = () => step<unknown, string>(() => "bank-A");
+  const payingToB = () => step<unknown, string>(() => "bank-B");
+
+  /**
+   * One application: a route that parks before `.pay()`, and a route that
+   * revives a parked exchange from its token.
+   */
+  async function boot(pay: () => ReturnType<typeof step<unknown, string>>) {
+    const project = defineProject({
+      plugins: [definePlugin({ id: "test.payment", steps: { pay } })],
+      deferral: { store, secret },
+    });
+    const booted = await testContext()
+      .with(project.config)
+      .routes([
+        project.craft().id("work").from(direct()).defer().pay(),
+        craft()
+          .id("answer")
+          .from<{ readonly token: string }>(direct())
+          .resume((ex) => ({ token: ex.body.token, result: undefined })),
+      ])
+      .build();
+    await booted.startAndWaitReady();
+    return booted;
+  }
+
+  async function park(): Promise<string> {
+    const first = await boot(payingToA);
+    try {
+      const parked = (await first.client.sendDirect("work", {})) as {
+        readonly token: string;
+      };
+      return parked.token;
+    } finally {
+      await first.stop();
+    }
+  }
+
+  /**
+   * @case The step's callback changes between parking and resuming
+   * @preconditions An exchange parked before .pay() built with a callback returning "bank-A"; the process restarts with the same plugin id, method name and arguments but a callback returning "bank-B"
+   * @expectedResult The resume is refused with RC5048 before the new implementation runs
+   */
+  test("a changed callback refuses the resume", async () => {
+    const token = await park();
+    t = await boot(payingToB);
+
+    const refused = await t.client.sendDirect("answer", { token }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(rcCodeOf(refused)).toBe("RC5048");
+  });
+
+  /**
+   * @case The step's callback is unchanged across the restart
+   * @preconditions An exchange parked before .pay() built with a callback returning "bank-A"; the process restarts with the same callback
+   * @expectedResult The resume completes and the parked exchange runs the step
+   */
+  test("an unchanged callback resumes", async () => {
+    const token = await park();
+    t = await boot(payingToA);
+
+    const ack = (await t.client.sendDirect("answer", { token })) as {
+      readonly continuation?: {
+        readonly status?: string;
+        readonly body?: unknown;
+      };
+    };
+    expect(ack.continuation?.status).toBe("completed");
+    expect(ack.continuation?.body).toBe("bank-A");
   });
 });

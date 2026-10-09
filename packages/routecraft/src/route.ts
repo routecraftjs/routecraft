@@ -73,6 +73,7 @@ import type {
 } from "./kernel/continuation/sites.ts";
 import { nestedStepsOf } from "./kernel/continuation/sites.ts";
 import { STEP_PLUGIN } from "./dsl-symbol.ts";
+import { WrapperStep } from "./operations/wrapper.ts";
 import { DeferralHeaders } from "./kernel/continuation/exchange-state.ts";
 import type { RouteEnablement } from "./enablement.ts";
 
@@ -886,6 +887,37 @@ export class DefaultRoute implements Route {
   compile(): void {
     this.positions();
     this.assertStepPlugins();
+    this.assertStepPositions();
+  }
+
+  /**
+   * Every step-scope wrapper in the route, branches and wrapper stacks
+   * included, has a provider for the port it resolves at run time. The
+   * position itself stays unbuilt until an exchange reaches the wrapper
+   * (see `WrapperStep.requiredPosition`); only the provider is checked here.
+   *
+   * @throws RC1111 naming the method and the missing port
+   */
+  private assertStepPositions(): void {
+    const walk = (steps: ReadonlyArray<Step<Adapter>>): void => {
+      for (const step of steps) {
+        for (
+          let wrapper: Step<Adapter> = step;
+          wrapper instanceof WrapperStep;
+          wrapper = wrapper.wrapped
+        ) {
+          const required = wrapper.requiredPosition;
+          if (required && this.context.lookup(required.port) === undefined) {
+            const label = wrapper.label ?? String(wrapper.operation);
+            throw rcError("RC1111", undefined, {
+              message: `Route "${this.definition.id}" uses .${required.method}() on step "${label}", and no installed plugin provides "${required.port.name}". Install a plugin that provides it, or remove .${required.method}() from the route.`,
+            });
+          }
+        }
+        for (const nested of nestedStepsOf(step)) walk(nested.steps);
+      }
+    };
+    walk(this.definition.steps);
   }
 
   /**

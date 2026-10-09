@@ -38,11 +38,30 @@ export interface TypedStep<In, Out> extends Step<Adapter> {
 export type StepFactory = (...args: never[]) => Step<Adapter>;
 
 /**
+ * The adapter of a function-form {@link step}: the callback it was built
+ * with, kept where the continuation digest reads a step's definition.
+ */
+interface CallbackAdapter<In, Out> extends Adapter {
+  readonly execute: (
+    exchange: Exchange<In>,
+    ctx: StepSignalContext,
+  ) => Out | Promise<Out>;
+}
+
+/**
  * Build a typed step.
  *
  * The function form replaces the body with what it returns. The step form
  * wraps a step written against {@link Step} directly, for one that drops,
  * branches or defers rather than continuing.
+ *
+ * A step's definition is part of the continuation digest: a deferred
+ * exchange resumes only into the step it was parked under. The function
+ * form keeps its callback on the adapter, so the callback's source is in
+ * the digest and a changed callback refuses the resume (`RC5048`). A raw
+ * step is fingerprinted by its adapter's own properties and the factory
+ * arguments the builder records, so what defines a raw step belongs on its
+ * adapter: a callback or option held elsewhere is invisible to the digest.
  *
  * @template In - The body the step accepts; the method exists only on a
  *   route whose body is assignable to it
@@ -61,9 +80,13 @@ export function step<In, Out>(
     | ((exchange: Exchange<In>, ctx: StepSignalContext) => Out | Promise<Out>),
 ): TypedStep<In, Out> {
   if (typeof impl !== "function") return impl;
+  const adapter: CallbackAdapter<In, Out> = {
+    adapterId: "routecraft.step",
+    execute: impl,
+  };
   return {
     operation: OperationType.PROCESS,
-    adapter: { adapterId: "routecraft.step" },
+    adapter,
     async execute(exchange, ctx) {
       const body = await impl(exchange as Exchange<In>, toSignalContext(ctx));
       return {
@@ -115,32 +138,46 @@ declare const FACET_TYPES: unique symbol;
 
 type Depth = [never, 0, 1, 2, 3, 4];
 
-/** Whether {@link Body} appears in `T`, a few levels deep. */
-type HasBody<T, D extends number = 4> = [D] extends [never]
+/**
+ * Whether `T` holds something {@link Subst} rewrites, a few levels deep: a
+ * {@link Body} placeholder, or an exchange, which a plugin step's callable
+ * sees with the route's facets on it.
+ */
+type NeedsSubst<T, D extends number = 4> = [D] extends [never]
   ? false
   : 0 extends 1 & T
     ? false
     : T extends Body
       ? true
-      : T extends (...args: infer A) => infer R
-        ? true extends HasBody<A[number], Depth[D]> | HasBody<R, Depth[D]>
-          ? true
-          : false
-        : T extends object
-          ? true extends { [K in keyof T]-?: HasBody<T[K], Depth[D]> }[keyof T]
+      : T extends Exchange<unknown>
+        ? true
+        : T extends (...args: infer A) => infer R
+          ? true extends
+              NeedsSubst<A[number], Depth[D]> | NeedsSubst<R, Depth[D]>
             ? true
             : false
-          : false;
+          : T extends object
+            ? true extends {
+                [K in keyof T]-?: NeedsSubst<T[K], Depth[D]>;
+              }[keyof T]
+              ? true
+              : false
+            : false;
 
 /**
- * `T` with every {@link Body} replaced by `B`, a few levels deep. A type
- * with no placeholder in it is returned as it is, so an output like `Date`
- * or `Order & { gross: number }` keeps its identity.
+ * `T` with every {@link Body} replaced by `B` and every `Exchange` given the
+ * facets `F`, a few levels deep. A type with neither in it is returned as
+ * it is, so an output like `Date` or `Order & { gross: number }` keeps its
+ * identity.
+ *
+ * @template F - What an exchange in `T` gains: the route's facets for a
+ *   step's arguments, where its callables read `ex.<namespace>`, and
+ *   nothing for its output, which is a body
  */
-type Subst<T, B, D extends number = 4> =
-  true extends HasBody<T, D> ? SubstIn<T, B, D> : T;
+type Subst<T, B, F = unknown, D extends number = 4> =
+  true extends NeedsSubst<T, D> ? SubstIn<T, B, F, D> : T;
 
-type SubstIn<T, B, D extends number> = [D] extends [never]
+type SubstIn<T, B, F, D extends number> = [D] extends [never]
   ? T
   : 0 extends 1 & T
     ? T
@@ -148,13 +185,13 @@ type SubstIn<T, B, D extends number> = [D] extends [never]
       ? // `Body & { ref: string }` keeps what it adds to the body.
         [Body] extends [T]
         ? B
-        : B & Subst<Omit<T, typeof BODY>, B, Depth[D]>
+        : B & Subst<Omit<T, typeof BODY>, B, F, Depth[D]>
       : T extends Exchange<infer X>
-        ? Exchange<Subst<X, B, Depth[D]>>
+        ? Exchange<Subst<X, B, F, Depth[D]>> & F
         : T extends (...args: infer A) => infer R
-          ? (...args: Subst<A, B, Depth[D]>) => Subst<R, B, Depth[D]>
+          ? (...args: Subst<A, B, F, Depth[D]>) => Subst<R, B, F, Depth[D]>
           : T extends object
-            ? { [K in keyof T]: Subst<T[K], B, Depth[D]> }
+            ? { [K in keyof T]: Subst<T[K], B, F, Depth[D]> }
             : T;
 
 type UnionToIntersection<U> = (
@@ -181,7 +218,7 @@ type StepMethod<F, S extends BuilderState, This> = F extends (
 ) => TypedStep<infer In, infer Out>
   ? S["body"] extends Subst<In, S["body"]>
     ? (
-        ...args: Subst<A, S["body"]>
+        ...args: Subst<A, S["body"], FacetsOf<S>>
       ) => Retyped<This, SetBody<S, Subst<Out, S["body"]>>>
     : never
   : never;

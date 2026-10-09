@@ -27,6 +27,17 @@ export type Slot = (typeof SLOTS)[number];
 /** The slots that take exchange hooks, as opposed to wrappers or error hooks. */
 export type ExchangeSlot = "beforeAuth" | "afterAuth" | "admitted" | "exit";
 
+/**
+ * The slots that run on admission, which only a first run and an admission
+ * resume reach, and which `buildSlotStep` always runs as kind `normal`: a
+ * hook there whose `runs` leaves `normal` out can never run.
+ */
+const ADMISSION_SLOTS: readonly string[] = [
+  "beforeAuth",
+  "afterAuth",
+  "admitted",
+];
+
 /** What a hook does, which decides when it runs inside its slot. */
 export type Phase = "observe" | "mutate" | "validate";
 
@@ -116,13 +127,23 @@ export interface HookRefusal extends Error {
 const KNOWN_KINDS: ReadonlySet<string> = new Set(REFUSAL_KINDS);
 
 /**
- * The `RC5068` errors this module raised. Membership cannot be read back or
- * copied onto another object, so a step throwing an `RC5068` with a
- * hand-built detail cannot dress its own failure up as the caller's; and it
- * is on the error rather than its cause, so a detail lifted out of a genuine
- * refusal and replayed under a new error buys nothing either.
+ * What a door trusts about a hook refusal: the detail as the kernel raised
+ * it, frozen at the throw site and bound to the error in {@link RAISED}.
+ * The public `cause.refused` stays for diagnostics; this is what
+ * attribution and the wire read.
+ *
+ * @internal
  */
-const RAISED = new WeakSet<object>();
+export type RaisedHookRefusal = HookRefusal["refused"];
+
+/**
+ * The `RC5068` errors this module raised, each bound to the detail it was
+ * raised with. The binding is private and the detail frozen, so neither a
+ * hand-built detail, a detail lifted out of a genuine refusal and replayed
+ * under a new error, a replaced `cause` nor a replaced `cause.refused` can
+ * move a refusal onto another route.
+ */
+const RAISED = new WeakMap<Error, RaisedHookRefusal>();
 
 /**
  * Whether `value` (an `RC5068` error's `cause`) carries the
@@ -146,19 +167,17 @@ export function isHookRefusal(value: unknown): value is HookRefusal {
 }
 
 /**
- * Whether `error` is an `RC5068` the kernel raised for a validate hook,
- * carrying its {@link HookRefusal} detail, as opposed to the same shape
- * built by a step. What a door maps to the caller; {@link isHookRefusal}
- * reads the detail off any error.
+ * The trusted detail of an `RC5068` the kernel raised for a validate hook,
+ * or `undefined` for the same shape built by a step or carried by any other
+ * error. What a door maps to the caller; {@link isHookRefusal} reads the
+ * public detail off any error.
  *
  * @internal
  */
-export function isRaisedHookRefusal(
+export function raisedHookRefusalOf(
   error: unknown,
-): error is Error & { cause: HookRefusal } {
-  return (
-    error instanceof Error && RAISED.has(error) && isHookRefusal(error.cause)
-  );
+): RaisedHookRefusal | undefined {
+  return error instanceof Error ? RAISED.get(error) : undefined;
 }
 
 function isRefusal(value: unknown): value is Refusal {
@@ -186,8 +205,9 @@ interface HookBase {
   readonly tags?: readonly string[];
   /**
    * The kinds of run this hook applies to. Defaults to `normal` only.
-   * `beforeAuth`, `afterAuth` and `admitted` see admitted traffic only, so
-   * there a run kind other than `normal` never matches.
+   * `beforeAuth`, `afterAuth` and `admitted` see every admission, a resumed
+   * one included, as `normal`, so a `runs` there that leaves `normal` out
+   * could never match and is refused at install (`RC1115`).
    */
   readonly runs?: readonly RunKind[];
 }
@@ -465,6 +485,15 @@ export class HookTable {
         message: `${where} declares phase "${String(hook.phase)}"; "${slot}" takes ${allowed.join(", ")}.`,
       });
     }
+    if (
+      ADMISSION_SLOTS.includes(slot) &&
+      hook.runs !== undefined &&
+      !hook.runs.includes("normal")
+    ) {
+      throw rcError("RC1115", undefined, {
+        message: `${where} declares runs [${hook.runs.join(", ")}] without "normal". ${ADMISSION_SLOTS.join(", ")} see every admission, a resumed one included, as a normal run, so this hook would never run. Drop runs or include "normal".`,
+      });
+    }
   }
 
   private checkConfig(): void {
@@ -489,6 +518,7 @@ export class HookTable {
           message: `hooks.order key "${key}" must be "slot/phase", e.g. "beforeAuth/mutate".`,
         });
       }
+      const named = new Set<string>();
       for (const id of ids) {
         const entry = (this.bySlot.get(slot) ?? []).find((e) => e.id === id);
         if (!entry || (entry.hook as { phase?: string }).phase !== phase) {
@@ -496,6 +526,12 @@ export class HookTable {
             message: `hooks.order["${key}"] names "${id}", which is not a ${phase} hook in "${slot}".`,
           });
         }
+        if (named.has(id)) {
+          throw rcError("RC1112", undefined, {
+            message: `hooks.order["${key}"] names "${id}" twice. A hook runs once per exchange; name it once.`,
+          });
+        }
+        named.add(id);
       }
     }
   }
@@ -727,22 +763,18 @@ export async function runExchangeHooks(
     if (hook.phase === "validate") {
       if (result === undefined) continue;
       if (isRefusal(result)) {
-        const detail = new Error(result.reason) as Error & {
-          refused: HookRefusal["refused"];
-        };
-        // Frozen so a handler between the hook and the door cannot re-point
-        // the refusal at another route before rethrowing it.
-        detail.refused = Object.freeze({
+        const refused: RaisedHookRefusal = Object.freeze({
           hook: entry.id,
           slot: info.slot,
           routeId: info.routeId,
           kind: result.kind,
           reason: result.reason,
         });
+        const detail = Object.assign(new Error(result.reason), { refused });
         const refusal = rcError("RC5068", detail, {
           message: `${entry.id} refused the exchange in "${info.slot}" (${result.kind}): ${result.reason}`,
         });
-        RAISED.add(refusal);
+        RAISED.set(refusal, refused);
         throw refusal;
       }
       throw rcError("RC1115", undefined, {

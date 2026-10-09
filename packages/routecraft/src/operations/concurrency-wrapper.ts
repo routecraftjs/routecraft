@@ -4,13 +4,13 @@ import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
 import type { RouteKey } from "../kernel/positions.ts";
-import { WrapperStep } from "./wrapper.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import { SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 import { Semaphore } from "./semaphore.ts";
 import { runStepPosition } from "./position-run.ts";
-import type { Position } from "../kernel/positions.ts";
+import { RESILIENCE, type Position } from "../kernel/positions.ts";
 
 /**
  * Options for the `.concurrency()` wrapper (step scope and route scope).
@@ -520,6 +520,10 @@ export class ConcurrencyWrapperStep<
 
   protected override describeOptions(): unknown {
     return this.#options;
+  }
+
+  override get requiredPosition(): RequiredPosition {
+    return { port: RESILIENCE, method: "concurrency" };
   }
 
   protected override runInner(

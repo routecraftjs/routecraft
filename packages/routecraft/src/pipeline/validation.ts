@@ -234,43 +234,79 @@ export function isInputValidationFailure(
 }
 
 /**
- * The input failures the framework's validators raised. Membership cannot be
- * read back or copied onto another object, so a step throwing an `RC5065`
- * or `RC5049` with a hand-built detail cannot dress its own failure up as
- * the caller's.
+ * What a door trusts about an input refusal: the detail as the validator
+ * raised it, copied into plain frozen records at the throw site and bound
+ * to the error in {@link RAISED}. The public `cause.invalid` stays for
+ * diagnostics; this is what attribution and the wire read.
+ *
+ * @internal
  */
-const RAISED = new WeakSet<object>();
+export interface RaisedInputValidation {
+  readonly in: "body" | "headers";
+  readonly routeId: string;
+  readonly issues: readonly StandardSchemaV1.Issue[];
+}
 
 /**
- * Mark an `RC5065` or `RC5049` a framework validator raised, so a door may
- * answer it as the caller's. The mark is on the error, never on its cause:
- * a detail lifted out of a genuine refusal and replayed under a new error
- * is that new error's own failure.
+ * The input failures the framework's validators raised, each bound to the
+ * detail it was raised with. The binding is private and the snapshot is a
+ * copy, so neither a hand-built detail, a detail lifted out of a genuine
+ * refusal and replayed under a new error, a replaced `cause`, a replaced
+ * `cause.invalid` nor a schema issue mutated after the throw can move a
+ * refusal onto another route or change what reaches the caller.
+ */
+const RAISED = new WeakMap<Error, RaisedInputValidation>();
+
+/**
+ * Bind an `RC5065` or `RC5049` a framework validator raised to a snapshot
+ * of its {@link InputValidationFailure} detail, so a door may answer it as
+ * the caller's. Called at the throw site, where `error.cause` is the
+ * validator's own object; an error whose cause carries no detail (a schema
+ * that failed without issues, a resume with no ingress route) gets no
+ * binding and stays the instance's.
  *
  * @internal
  */
 export function raisedInputValidation<E extends Error>(error: E): E {
-  RAISED.add(error);
+  if (isInputValidationFailure(error.cause)) {
+    const { invalid } = error.cause;
+    RAISED.set(
+      error,
+      Object.freeze({
+        in: invalid.in,
+        routeId: invalid.routeId,
+        issues: Object.freeze(invalid.issues.map(snapshotIssue)),
+      }),
+    );
+  }
   return error;
 }
 
 /**
- * Whether `error` is an `RC5065` or `RC5049` a framework validator raised
- * (`.input()`, the resume door) carrying its {@link InputValidationFailure}
- * detail, as opposed to the same shape built by a step. What a door maps to
- * the caller; {@link isInputValidationFailure} reads the detail off any
+ * The trusted detail of an `RC5065` or `RC5049` a framework validator
+ * raised (`.input()`, the resume door), or `undefined` for the same shape
+ * built by a step or carried by any other error. What a door maps to the
+ * caller; {@link isInputValidationFailure} reads the public detail off any
  * error.
  *
  * @internal
  */
-export function isRaisedInputValidationFailure(
+export function raisedInputValidationOf(
   error: unknown,
-): error is Error & { cause: InputValidationFailure } {
-  return (
-    error instanceof Error &&
-    RAISED.has(error) &&
-    isInputValidationFailure(error.cause)
+): RaisedInputValidation | undefined {
+  return error instanceof Error ? RAISED.get(error) : undefined;
+}
+
+/** A plain frozen copy of one issue: the message, and the path segment by segment. */
+function snapshotIssue(issue: StandardSchemaV1.Issue): StandardSchemaV1.Issue {
+  const message = typeof issue.message === "string" ? issue.message : "invalid";
+  if (issue.path === undefined) return Object.freeze({ message });
+  const path = issue.path.map((segment) =>
+    typeof segment === "object" && segment !== null
+      ? Object.freeze({ key: segment.key })
+      : segment,
   );
+  return Object.freeze({ message, path: Object.freeze(path) });
 }
 
 function isValidationDetail(detail: unknown): boolean {
@@ -431,8 +467,8 @@ export function inputValidationFailure(
 ): Error {
   const cause = new Error(message);
   if (issues.length === 0) return cause;
-  // Frozen so a handler between the validator and the door cannot re-point
-  // the refusal at another route before rethrowing it.
+  // Frozen so a diagnostic reads the detail as the validator raised it; the
+  // door trusts the snapshot raisedInputValidation() binds, not this.
   return Object.assign(cause, {
     invalid: Object.freeze({
       in: part,

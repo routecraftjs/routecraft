@@ -29,4 +29,9 @@ export const route = project
   .defer()
   .julietKeep((order) => order.id)
   .authenticate(() => undefined)
+  .delegate((ex) => {
+    void ex.auth.principal;
+    void ex.echo.name;
+    return undefined;
+  })
   .to(noop());

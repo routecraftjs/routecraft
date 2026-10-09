@@ -158,23 +158,44 @@ export function installedPlugins(plugins: readonly unknown[]): Plugin[] {
 
 /**
  * The listed plugins with everything they bring along, each brought plugin
- * placed ahead of the first plugin that brings it. An id the application
- * lists itself is never brought: the application's own choice wins.
+ * placed ahead of the first plugin that brings it.
+ *
+ * A single plugin is a service: it is installed once per id, and an id the
+ * application lists itself is never brought, so the application's own choice
+ * wins. A repeatable plugin is a contribution instance: it is installed once
+ * per descriptor, wherever it appears, so two bundles each bringing their own
+ * instance of one id both land, in the order they are reached, while one
+ * instance reached through two bundles (a diamond) lands once. An id the
+ * application installs as a single plugin and a bundle brings as a repeatable
+ * one is not suppressed here; it is `RC1101` when the installs are numbered.
  */
 function expand(listed: readonly Plugin[]): Plugin[] {
-  const listedIds = new Set(listed.map((plugin) => plugin.id));
-  const brought = new Set<string>();
+  const listedIds = new Set(
+    listed.filter((plugin) => plugin.repeatable !== true).map((p) => p.id),
+  );
+  const broughtIds = new Set<string>();
+  const instances = new Set<Plugin>(
+    listed.filter((plugin) => plugin.repeatable === true),
+  );
   const result: Plugin[] = [];
   const bring = (by: Plugin): void => {
     for (const raw of by.installs ?? []) {
       const plugin = validateShape(raw, `installed by "${by.id}"`);
-      if (listedIds.has(plugin.id) || brought.has(plugin.id)) continue;
-      brought.add(plugin.id);
+      if (plugin.repeatable === true) {
+        if (instances.has(plugin)) continue;
+        instances.add(plugin);
+      } else {
+        if (listedIds.has(plugin.id) || broughtIds.has(plugin.id)) continue;
+        broughtIds.add(plugin.id);
+      }
       bring(plugin);
       result.push(plugin);
     }
   };
+  const placed = new Set<Plugin>();
   for (const plugin of listed) {
+    if (plugin.repeatable === true && placed.has(plugin)) continue;
+    placed.add(plugin);
     bring(plugin);
     result.push(plugin);
   }
@@ -306,7 +327,7 @@ export class PluginHost {
           const known = byName.get(port.name);
           if (known && known.key !== port.key) {
             throw rcError("RC1103", undefined, {
-              message: `Two different tokens are named "${port.name}" (one reached through "${plugin.id}"). Two copies of the module declaring this port are loaded; deduplicate the dependency so every plugin shares one.`,
+              message: `Two different tokens are named "${port.name}" (one reached through "${plugin.id}"). A token port() minted carries the registered symbol for its name, so one of these was built by hand; declare the port with port() and share the exported token.`,
             });
           }
           byName.set(port.name, port);
@@ -381,7 +402,10 @@ export class PluginHost {
    * A repeatable plugin only contributes through the ports it uses, so it
    * also binds ahead of every other consumer of those ports: a plugin that
    * reads what was contributed (ACP building a route per registered agent)
-   * then sees every contribution, wherever the application listed it.
+   * then sees every contribution, wherever the application listed it. A
+   * consumer the contributor depends on, directly or through providers in
+   * between, is exempt: it must bind first, and the declared edges already
+   * say so.
    */
   private order(installed: readonly InstalledPlugin[]): InstalledPlugin[] {
     const uses = (entry: InstalledPlugin): symbol[] => [
@@ -397,16 +421,28 @@ export class PluginHost {
       }
       dependsOn.set(entry, deps);
     }
-    const contributors = installed.filter((entry) => entry.plugin.repeatable);
+    const upstreamOf = (entry: InstalledPlugin): Set<InstalledPlugin> => {
+      const reached = new Set<InstalledPlugin>();
+      const pending = [...dependsOn.get(entry)!];
+      for (let dep = pending.pop(); dep; dep = pending.pop()) {
+        if (reached.has(dep)) continue;
+        reached.add(dep);
+        pending.push(...dependsOn.get(dep)!);
+      }
+      return reached;
+    };
+    const contributors = installed
+      .filter((entry) => entry.plugin.repeatable)
+      .map((entry) => ({ entry, upstream: upstreamOf(entry) }));
     for (const entry of installed) {
       if (entry.plugin.repeatable) continue;
       const deps = dependsOn.get(entry)!;
       for (const key of uses(entry)) {
         if (this.provisions.get(key)?.provider === entry) continue;
         for (const contributor of contributors) {
-          if (!uses(contributor).includes(key)) continue;
-          if (dependsOn.get(contributor)!.has(entry)) continue;
-          deps.add(contributor);
+          if (!uses(contributor.entry).includes(key)) continue;
+          if (contributor.upstream.has(entry)) continue;
+          deps.add(contributor.entry);
         }
       }
     }
@@ -478,10 +514,11 @@ export class PluginHost {
   }
 
   /**
-   * A token this application never saw, under a name it did: a second copy
-   * of the module declaring the port is loaded, and its adapters and steps
-   * would otherwise fail somewhere unrelated (an `RC1104`, an `RC5052`, a
-   * `lookup` that quietly drops configuration).
+   * A token this application never saw, under a name it did. A token
+   * `port()` minted carries the registered symbol for its name, so only a
+   * hand-built token reaches here, and it would otherwise fail somewhere
+   * unrelated (an `RC1104`, an `RC5052`, a `lookup` that quietly drops
+   * configuration).
    *
    * @throws RC1103
    */
@@ -489,7 +526,7 @@ export class PluginHost {
     for (const known of this.provisions.keys()) {
       if (known !== port.key && known.description === port.name) {
         throw rcError("RC1103", undefined, {
-          message: `"${port.name}" was asked for through a token this application does not hold, while it holds another token of that name. Two copies of the module declaring this port are loaded (a global CLI beside a project's own install, or two versions in one dependency tree); deduplicate the dependency so every plugin, adapter and route shares one.`,
+          message: `"${port.name}" was asked for through a token this application does not hold, while it holds the token of that name. The token was built by hand rather than minted by port(); declare the port with port() and share the exported token.`,
         });
       }
     }

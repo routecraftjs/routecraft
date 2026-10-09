@@ -193,9 +193,9 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
   },
   RC1103: {
     category: "Definition",
-    message: "Port name invalid or claimed by two tokens",
+    message: "Port name invalid, or a token not minted by port()",
     suggestion:
-      "A port is named owner.capability@version and declared once with port(). Two different tokens with one name means two copies of the module that declares it are loaded; deduplicate that dependency so every plugin shares one copy.",
+      "A port is named owner.capability@version and declared with port(), whose token is the registered symbol for the name, so two copies of the declaring module resolve as one port. A second token with that name was built by hand; declare the port with port() and share the exported token.",
     docs: `${DOCS_BASE}#rc-1103`,
     retryable: false,
   },

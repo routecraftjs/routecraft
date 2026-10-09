@@ -123,7 +123,13 @@ events). `runStepPosition` resolves a `Position` from `RESILIENCE` and
 runs it with a `PositionRun` whose `attempt` is the wrapped step and whose
 `scope` is `"step"`; the cache wrapper resolves its position from `CACHE`
 through `positionFor` and runs it with a `CacheRun`, that port's own run
-shape. That is what makes one plugin replacing a port fill both scopes:
+shape. A step-scope wrapper declares the port it depends on through
+`WrapperStep.requiredPosition`; the route checks at start that a provider
+for it is installed (`RC1111` otherwise, nested sub-pipelines and wrapper
+stacks included) and resolves the provider on first use, so the position's
+state stays per application. A wrapper that resolves no provider (`.error()`,
+`.delay()`) returns `undefined`. That is what makes one plugin replacing a
+port fill both scopes:
 
 ```ts
 import { runStepPosition } from "./position-run.ts";

@@ -308,7 +308,7 @@
   {
     "code": "RC1103",
     "category": "Definition",
-    "message": "Port name invalid or claimed by two tokens",
+    "message": "Port name invalid, or a token not minted by port()",
     "retryable": false
   },
   {

@@ -1,4 +1,4 @@
-# Plugin Architecture
+| RC1103 | a port name is malformed, or a hand-built token carries a port's name |# Plugin Architecture
 
 Routecraft is a small kernel and a set of plugins. Every feature we ship is a
 plugin that reaches the kernel through the same sockets a third party uses,
@@ -53,8 +53,8 @@ A plugin is a plain descriptor, built with `definePlugin()`:
 | `points` | moments it declares and invokes from its own steps | before anything binds |
 | `facet` | `(exchange) => view`: `ex.<namespace>`, computed on every read | static |
 | `steps` | step factories; each key becomes a builder method | static |
-| `installs` | plugins it brings along: placed ahead of it, installed once per id, and never when the application lists that id itself | before anything binds |
-| `repeatable` | several installs coexist (`id#1`, `id#2`, in list order); such a plugin contributes through another plugin's port and may not provide, replace, or declare hooks, points, steps or a facet | before anything binds |
+| `installs` | plugins it brings along: placed ahead of it; a single plugin is installed once per id and never when the application lists that id itself; a repeatable plugin is installed once per descriptor instance wherever it appears, so two bundles bringing their own instances of one id both install, and one instance brought by two bundles installs once | before anything binds |
+| `repeatable` | several installs coexist (`id#1`, `id#2`, in list order), listed and brought alike, each distinct descriptor counting once; such a plugin contributes through another plugin's port and may not provide, replace, or declare hooks, points, steps or a facet | before anything binds |
 | `hooks` | handlers and wrappers in the chain's slots, each with a phase | static, placed when routes compile |
 | `keepsAlive` | the plugin owns a lifetime past the routes (a listener) | at completion |
 | `bind(c)` | requires, provides, observes, registers routes | in dependency order |
@@ -85,18 +85,19 @@ key crosses a plugin boundary.
 
 ### Ports
 
-`port<T>("name@version")` returns a token. Two different tokens with one name
-in one application is `RC1103`, which is how two copies of a contract module in
-one process are caught: at install, when two installed plugins declare them,
-and at lookup, when a token the application never saw is presented under a
-name it holds (an adapter from a second copy of the package asking the first
-copy's application). The second case would otherwise be an adapter silently
-dropping its configuration. A plugin requires a capability, never a plugin.
+`port<T>("name@version")` returns a token. The identity is the name: the
+token's key is `Symbol.for(name)`, so two copies of a contract module in one
+process (the ESM and CJS builds of one package, a global CLI beside a
+project's install) resolve as one port. The version segment carries the
+contract: a shape change ships under a new version. A token carrying a port's
+name under a key `port()` did not mint is `RC1103`, at install when a plugin
+declares it and at lookup when it is presented at runtime. A plugin requires a
+capability, never a plugin.
 
 ### Lifecycle
 
 1. **Identity.** One plugin per id (`RC1101`), one per namespace (`RC1102`),
-   one token per port name (`RC1103`).
+   one key per port name, the one `port()` mints (`RC1103`).
 2. **Resolution.** Every required port resolves to one provider (`RC1104`). Two
    providers neither of which declares `replaces` is `RC1105`, naming both. A
    `replaces` for a port the plugin does not also `provides`, or two plugins
@@ -226,7 +227,8 @@ hooks: {
 }
 ```
 
-A name in `order` or `disable` that matches no hook is `RC1112`. `disable`
+A name in `order` or `disable` that matches no hook is `RC1112`. A name
+repeated in one `order` list is `RC1112` too: a hook runs once per exchange. `disable`
 applies to slots; a position is never switched off.
 
 ### Survival
@@ -249,7 +251,9 @@ so it runs `afterAuth` and `admitted` around the `authorize` it re-runs.
 `beforeAuth` ran on the first run and does not run again. Those two slots
 see the admission as kind `normal`, so a hook keeping the default `runs`
 guards it, while the `error` slot, points and `perAttempt` see the same run
-as kind `resume`.
+as kind `resume`. A hook in `beforeAuth`, `afterAuth` or `admitted` whose
+`runs` leaves `normal` out could never run, so it is refused at install
+(`RC1115`).
 
 A `perAttempt` wrapper calls `proceed()` once. A second call is `RC1115`, and
 an attempt the wrapper started is settled before the slot settles even when
@@ -282,9 +286,16 @@ craft().id("orders").from(source).dedupe({ key: (o) => o.id }).to(sink);
   It composes the plugins exactly as the application does (the defaults
   first, then the config-key plugins and the listed ones, each brought
   plugin placed ahead of the first plugin that brings it), so its
-  `craft` has exactly the installed steps; its types are the listed plugins,
-  the defaults and each set key's `ConfigKeyPlugins` entry. A step or facet
-  of an uninstalled plugin is a compile error.
+  `craft` has exactly the installed steps. Its types are the listed plugins,
+  the plugin each set config key brings that declares itself in
+  `ConfigKeyPlugins`, the defaults no listed or config-key plugin displaces
+  by literal id, and what all of those bring through `installs` unless the
+  application already holds that id. A plugin typed with a plain `string`
+  id displaces nothing and keeps nothing out, the way an unknown id does at
+  runtime; two brought plugins with one id remain a union in the types,
+  where the application installs the first it meets. A step or facet of an
+  uninstalled plugin is a compile error; a plugin step's callables see the
+  route's facets, as the built-in callables do.
 - The root `craft()` export is typed by the catalogue `@routecraft/routecraft`
   ships. A route using an uninstalled plugin's step refuses to start
   (`RC1111`); reading an uninstalled plugin's facet fails with `RC1111` at
@@ -361,7 +372,12 @@ the application's own config never mentions.
 The kernel owns park, resume and sweep (`kernel/continuation/`): the record
 write, the site and tail hash, the door order, the compare-and-swap, the
 outcome cache, expiry through the error channel, claim healing and retention.
-It reaches storage only through `CONTINUATIONS`. The deferral plugin provides
+A plugin step's definition is part of the tail hash: for `step(fn)` the
+callback's source is digested beside the factory arguments, so a redeploy
+that changes the callback refuses the resume with `RC5048`; a raw step is
+digested by its adapter's own properties and the factory arguments, so what
+defines it belongs on its adapter. It reaches storage only through
+`CONTINUATIONS`. The deferral plugin provides
 that port over the memory or SQLite store, mints and verifies resume tokens,
 sets the default deadline, calls `execution.sweep()` on its cadence, and
 contributes `.defer()`, `.resume()`, the `ex.deferral` facet and the

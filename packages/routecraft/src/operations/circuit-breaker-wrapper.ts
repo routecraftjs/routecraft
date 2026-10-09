@@ -5,13 +5,13 @@ import type { CraftContext } from "../context.ts";
 import type { ForwardFn, Route } from "../route.ts";
 import type { RouteKey } from "../kernel/positions.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
-import { WrapperStep } from "./wrapper.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
 import { defaultRetryOn } from "./retry-wrapper.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 import { runStepPosition } from "./position-run.ts";
-import type { Position } from "../kernel/positions.ts";
+import { RESILIENCE, type Position } from "../kernel/positions.ts";
 
 /**
  * The three states of a circuit breaker.
@@ -562,6 +562,10 @@ export class CircuitBreakerWrapperStep<
 
   protected override describeOptions(): unknown {
     return this.#options;
+  }
+
+  override get requiredPosition(): RequiredPosition {
+    return { port: RESILIENCE, method: "circuitBreaker" };
   }
 
   protected override runInner(

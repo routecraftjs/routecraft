@@ -2,12 +2,12 @@ import type { Exchange } from "../exchange.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
-import { WrapperStep } from "./wrapper.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
 import { runStepPosition } from "./position-run.ts";
-import type { Position } from "../kernel/positions.ts";
+import { RESILIENCE, type Position } from "../kernel/positions.ts";
 
 /**
  * Options for the `.retry()` wrapper (step scope and route scope).
@@ -282,6 +282,10 @@ export class RetryWrapperStep<
 
   protected override describeOptions(): unknown {
     return this.#options;
+  }
+
+  override get requiredPosition(): RequiredPosition {
+    return { port: RESILIENCE, method: "retry" };
   }
 
   protected override runInner(

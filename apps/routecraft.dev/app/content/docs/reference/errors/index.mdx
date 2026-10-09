@@ -94,13 +94,13 @@ Two installed plugins resolve to the same namespace. A namespace is the prefix a
 Give one of the two plugins an explicit `namespace`.
 
 ## RC1103
-Port name invalid or claimed by two tokens
+Port name invalid, or a token not minted by port()
 
 **Why it happens**  
-A port name is not of the form `owner.capability@version`, or two different `port()` tokens with the same name are present in one application: two were declared by installed plugins, or a lookup presented a token the application never saw under a name it holds. Either way two copies of the module that declares the port are loaded, so a provider and its consumer hold different tokens for what looks like one contract. The lookup case is what a `craft run` over a file that resolves its own copy of the package hits, where the silent outcome would be an adapter dropping its configuration.
+A port name is not of the form `owner.capability@version`, or a token carrying a port's name under a key `port()` did not mint is present in one application: declared by an installed plugin, or presented at a lookup. A `port()` token's key is the registered symbol for its name, so two copies of the module that declares the port (the ESM and CJS builds of one package, a global CLI beside a project's install) resolve as one port; only a hand-built `{ name, key }` object misses.
 
 **Suggestion**  
-Name the port `owner.capability@1` and declare it once, at module scope, with `port()`. For a duplicate, deduplicate the dependency that declares it so every plugin shares one copy.
+Name the port `owner.capability@1` and declare it with `port()` at module scope; export that token and share it, instead of building one by hand. Ship a shape change under a new version segment.
 
 ## RC1104
 Required port has no provider

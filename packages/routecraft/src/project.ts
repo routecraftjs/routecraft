@@ -51,45 +51,66 @@ type ListedPluginsOf<D> = D extends { readonly plugins: readonly (infer P)[] }
   : never;
 
 /**
- * A plugin type with every plugin its `installs` bring, transitively, the
- * way the application expands them.
+ * The plugin types a union of plugin types brings through `installs`,
+ * transitively, the plugins themselves excluded.
  */
-type WithInstalls<P> =
-  | P
-  | (P extends { readonly installs: readonly (infer I)[] }
-      ? WithInstalls<I>
-      : never);
+type BroughtBy<P> = P extends { readonly installs: readonly (infer I)[] }
+  ? I | BroughtBy<I>
+  : never;
 
-/** The ids of a union of plugin types. */
-type IdOf<P> = P extends { readonly id: infer I extends string } ? I : never;
+/**
+ * The literal ids of a union of plugin types. A plugin typed with a plain
+ * `string` id contributes none, the way an unknown id displaces nothing at
+ * runtime: it neither displaces a default nor keeps a brought plugin out.
+ */
+type LiteralIdOf<P> = P extends { readonly id: infer I extends string }
+  ? string extends I
+    ? never
+    : I
+  : never;
+
+/** The plugin types a definition lists and its config keys install. */
+type ConfiguredPluginsOf<D> = ListedPluginsOf<D> | ConfigKeyPluginsOf<D>;
 
 /**
  * The default plugin types the definition does not displace: a listed or
- * config-key plugin with a default's id is installed in its place. Only a
- * literal id can displace; a plugin typed with a plain `string` id displaces
- * nothing, the way an unknown id displaces nothing at runtime.
+ * config-key plugin with a default's id is installed in its place.
  */
-type DefaultPluginsFor<D> =
-  string extends IdOf<ListedPluginsOf<D> | ConfigKeyPluginsOf<D>>
-    ? DefaultPlugins
-    : Exclude<
-        DefaultPlugins,
-        { readonly id: IdOf<ListedPluginsOf<D> | ConfigKeyPluginsOf<D>> }
-      >;
+type DefaultPluginsFor<D> = Exclude<
+  DefaultPlugins,
+  { readonly id: LiteralIdOf<ConfiguredPluginsOf<D>> }
+>;
 
-/** Every plugin type a definition installs: what its routes are typed by. */
+/**
+ * The plugin types the application itself holds before anything is brought:
+ * listed, from config keys, and the defaults those do not displace.
+ */
+type HeldPluginsOf<D> = ConfiguredPluginsOf<D> | DefaultPluginsFor<D>;
+
+/**
+ * Every plugin type a definition installs: what its routes are typed by.
+ * The plugins the application holds, then what those bring through
+ * `installs`, minus any brought plugin whose id the application already
+ * holds, since the application's choice wins over a brought one at runtime.
+ * Two brought plugins with one id stay a union here, where the application
+ * installs the first it meets.
+ */
 type InstalledPluginsOf<D> =
-  | WithInstalls<ListedPluginsOf<D> | ConfigKeyPluginsOf<D>>
-  | DefaultPluginsFor<D>;
+  | HeldPluginsOf<D>
+  | Exclude<
+      BroughtBy<HeldPluginsOf<D>>,
+      { readonly id: LiteralIdOf<HeldPluginsOf<D>> }
+    >;
 
 /**
  * Declare a project: its plugins and configuration, and the `craft()` its
  * routes are built with. `craft.config.ts` default-exports it.
  *
  * The routes are typed by what the application will install: the listed
- * plugins and what their `installs` bring, the plugin each set config key
- * brings that declares itself in `ConfigKeyPlugins`, and the defaults none
- * of those displace by id.
+ * plugins, the plugin each set config key brings that declares itself in
+ * `ConfigKeyPlugins`, the defaults none of those displace by id, and what
+ * all of them bring through `installs` unless the application already holds
+ * that id.
  *
  * @param definition - The configuration, with the plugins the project
  *   installs in `plugins`. A key `CraftConfig` does not have is a compile

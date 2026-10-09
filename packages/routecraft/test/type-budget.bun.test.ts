@@ -81,4 +81,26 @@ describe("the type budget of plugin steps", () => {
     },
     { timeout: 120_000 },
   );
+
+  /**
+   * @case A plugin the application does not install is absent from its routes
+   * @preconditions The overrides fixture lists a replacement for a plugin a bundle brings, and displaces the default auth plugin beside a service typed as the plain Plugin
+   * @expectedResult tsc reports the brought plugin's method and the displaced default's method as missing by name, and the replacement's method compiles
+   */
+  test(
+    "a plugin the application does not install has no methods",
+    async () => {
+      const overrides = await tsc("tsconfig.overrides.json");
+
+      expect(overrides.output).toContain("Property 'obsolete' does not exist");
+      expect(overrides.output).toContain(
+        "Property 'authenticate' does not exist",
+      );
+      expect(overrides.output).not.toContain(
+        "Property 'current' does not exist",
+      );
+      expect(overrides.output).not.toContain("excessively deep");
+    },
+    { timeout: 120_000 },
+  );
 });

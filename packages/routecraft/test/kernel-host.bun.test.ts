@@ -8,6 +8,7 @@ import {
   noop,
   port,
   type Plugin,
+  type Port,
 } from "../src/index.ts";
 
 interface Store {
@@ -134,29 +135,61 @@ describe("the kernel host", () => {
 
   /**
    * @case Two port tokens share a name
-   * @preconditions A second port("test.store@1") call, as a duplicated contract module would make
-   * @expectedResult RC1103
+   * @preconditions A second port("test.store@1") call, as the ESM and CJS builds of one contract module would make; a provider declares STORE and a consumer requires the copy
+   * @expectedResult The copy resolves as the same port: the consumer binds after the provider and reads its value, and the context answers through either token
    */
-  test("refuses two tokens with one port name", async () => {
+  test("resolves two tokens of one port name as one port", async () => {
     const copy = port<Store>("test.store@1");
+    let seen: Store | undefined;
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.consumer",
+            requires: [copy],
+            bind(c) {
+              seen = c.require(copy);
+            },
+          }),
+          definePlugin({
+            id: "test.provider",
+            provides: [STORE],
+            bind: (c) => c.provide(STORE, { kind: "a" }),
+          }),
+        ],
+      })
+      .build();
+    expect(copy).not.toBe(STORE);
+    expect(seen).toEqual({ kind: "a" });
+    expect(t.ctx.lookup(copy)).toEqual({ kind: "a" });
+    expect(t.ctx.require(STORE)).toEqual({ kind: "a" });
+  });
+
+  /**
+   * @case A hand-built token carries a port's name under a key port() did not mint
+   * @preconditions A provider of STORE, and a consumer requiring { name: "test.store@1", key: Symbol(...) }
+   * @expectedResult RC1103 at install, before either binds
+   */
+  test("refuses a hand-built token with a port's name at install", async () => {
+    const forged: Port<Store> = { name: STORE.name, key: Symbol(STORE.name) };
     const error = await refusal([
       definePlugin({
         id: "test.provider",
         provides: [STORE],
         bind: (c) => c.provide(STORE, { kind: "a" }),
       }),
-      definePlugin({ id: "test.consumer", requires: [copy] }),
+      definePlugin({ id: "test.consumer", requires: [forged] }),
     ]);
     expect(error).toMatchObject({ rc: "RC1103" });
   });
 
   /**
-   * @case A token of a known name the application never saw is looked up at runtime
-   * @preconditions A provider of STORE installed; a second port token with the same name, as a second copy of the declaring module would mint
-   * @expectedResult lookup and require through the foreign token throw RC1103 naming the two-copies cause, rather than an RC1104 or a silent undefined
+   * @case A hand-built token of a provided port's name is looked up at runtime
+   * @preconditions A provider of STORE installed; a token { name: "test.store@1", key: Symbol(...) } the application never saw
+   * @expectedResult lookup and require through the forged token throw RC1103 rather than an RC1104 or a silent undefined, while the port() token still answers
    */
-  test("refuses a foreign token of a provided port's name at runtime", async () => {
-    const copy = port<Store>("test.store@1");
+  test("refuses a hand-built token of a provided port's name at runtime", async () => {
+    const forged: Port<Store> = { name: STORE.name, key: Symbol(STORE.name) };
     t = await testContext()
       .with({
         plugins: [
@@ -169,10 +202,10 @@ describe("the kernel host", () => {
       })
       .build();
 
-    expect(() => t!.ctx.lookup(copy)).toThrow(
+    expect(() => t!.ctx.lookup(forged)).toThrow(
       expect.objectContaining({ rc: "RC1103" }),
     );
-    expect(() => t!.ctx.require(copy)).toThrow(
+    expect(() => t!.ctx.require(forged)).toThrow(
       expect.objectContaining({ rc: "RC1103" }),
     );
     expect(t.ctx.lookup(STORE)).toEqual({ kind: "a" });
@@ -516,8 +549,8 @@ describe("the kernel host: installs and repeatable", () => {
   });
 
   /**
-   * @case Several plugins bring the same id
-   * @preconditions Two consumers each installing a fresh runtime descriptor with the id "test.runtime"
+   * @case Several plugins bring the same single (non-repeatable) id
+   * @preconditions Two consumers each installing a fresh runtime descriptor with the id "test.runtime"; the runtime is a service, not a repeatable contribution
    * @expectedResult One runtime binds, the first brought; no RC1101 for the brought copies
    */
   test("installs a brought id once", async () => {
@@ -558,6 +591,109 @@ describe("the kernel host: installs and repeatable", () => {
       .build();
     expect(order).toEqual(["runtime:listed"]);
     expect(t.ctx.require(STORE)).toEqual({ kind: "listed" });
+  });
+
+  /** A repeatable contribution to STORE, recording its name when it binds. */
+  function contribution(order: string[], name: string): Plugin {
+    return definePlugin({
+      id: "test.contribution",
+      repeatable: true,
+      requires: [STORE],
+      bind() {
+        order.push(`contribution:${name}`);
+      },
+    });
+  }
+
+  /**
+   * @case Two bundles each bring their own instance of one repeatable id
+   * @preconditions "test.a" installs contribution A and "test.b" installs contribution B, both repeatable under "test.contribution"; the runtime they need is listed
+   * @expectedResult Both contributions bind, A before B, numbered #1 and #2; neither is discarded as a duplicate of the other
+   */
+  test("installs every brought instance of a repeatable plugin", async () => {
+    const order: string[] = [];
+    const bound: string[] = [];
+    const bundle = (id: string, name: string): Plugin =>
+      definePlugin({ id, installs: [contribution(order, name)] });
+    t = await testContext()
+      .with({
+        on: {
+          "plugin:bound": ({ details }) => {
+            const { pluginId } = details as { pluginId: string };
+            if (pluginId.startsWith("test.contribution")) bound.push(pluginId);
+          },
+        },
+        plugins: [runtime(order), bundle("test.a", "A"), bundle("test.b", "B")],
+      })
+      .build();
+    expect(order).toEqual([
+      "runtime:brought",
+      "contribution:A",
+      "contribution:B",
+    ]);
+    expect(bound).toEqual(["test.contribution#1", "test.contribution#2"]);
+  });
+
+  /**
+   * @case One repeatable instance is reached through two bundles
+   * @preconditions One contribution descriptor installed by both "test.a" and "test.b" (a diamond)
+   * @expectedResult The instance binds once, ahead of the first bundle that brings it
+   */
+  test("installs a repeatable instance brought twice once", async () => {
+    const order: string[] = [];
+    const shared = contribution(order, "shared");
+    t = await testContext()
+      .with({
+        plugins: [
+          runtime(order),
+          definePlugin({ id: "test.a", installs: [shared] }),
+          definePlugin({ id: "test.b", installs: [shared] }),
+        ],
+      })
+      .build();
+    expect(order).toEqual(["runtime:brought", "contribution:shared"]);
+  });
+
+  /**
+   * @case The application lists a repeatable instance a bundle also brings
+   * @preconditions One contribution descriptor listed by the application after a bundle that installs the same object, beside a second instance the bundle brings
+   * @expectedResult The listed instance binds once, at its listed position; the bundle's other instance still binds
+   */
+  test("does not bring a repeatable instance the application lists", async () => {
+    const order: string[] = [];
+    const listed = contribution(order, "listed");
+    t = await testContext()
+      .with({
+        plugins: [
+          runtime(order),
+          definePlugin({
+            id: "test.a",
+            installs: [listed, contribution(order, "other")],
+          }),
+          listed,
+        ],
+      })
+      .build();
+    expect(order).toEqual([
+      "runtime:brought",
+      "contribution:other",
+      "contribution:listed",
+    ]);
+  });
+
+  /**
+   * @case The application lists an id as a single plugin and a bundle brings it as a repeatable one
+   * @preconditions A plain "test.contribution" listed, and a bundle installing a repeatable "test.contribution"
+   * @expectedResult RC1101 naming the id, rather than the brought contribution being dropped as a duplicate of the listed plugin
+   */
+  test("refuses a brought repeatable id the application installs single", async () => {
+    const error = await refusal([
+      runtime([]),
+      definePlugin({ id: "test.contribution", requires: [STORE] }),
+      definePlugin({ id: "test.a", installs: [contribution([], "A")] }),
+    ]);
+    expect(error).toMatchObject({ rc: "RC1101" });
+    expect(String(error)).toContain("test.contribution");
   });
 
   /**
@@ -652,6 +788,59 @@ describe("the kernel host: installs and repeatable", () => {
       "contribution:2",
       "reader",
     ]);
+  });
+
+  /**
+   * @case A consumer of a contributed port sits upstream of the contributor through a provider in between
+   * @preconditions registry provides REG; helper uses REG optionally and provides AUX; middle requires AUX and provides MID; a repeatable contributor requires REG and MID
+   * @expectedResult No RC1107: helper is not made to wait for the contributor that needs it through middle, and the plugins bind registry, helper, middle, contributor
+   */
+  test("exempts a consumer the contributor reaches through a provider", async () => {
+    const REG = port<string>("test.reg@1");
+    const AUX = port<string>("test.aux@1");
+    const MID = port<string>("test.mid@1");
+    const order: string[] = [];
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.contributor",
+            repeatable: true,
+            requires: [REG, MID],
+            bind(c) {
+              order.push(`contributor:${c.require(REG)}`);
+            },
+          }),
+          definePlugin({
+            id: "test.middle",
+            requires: [AUX],
+            provides: [MID],
+            bind(c) {
+              order.push("middle");
+              c.provide(MID, "mid");
+            },
+          }),
+          definePlugin({
+            id: "test.helper",
+            optional: [REG],
+            provides: [AUX],
+            bind(c) {
+              order.push("helper");
+              c.provide(AUX, "aux");
+            },
+          }),
+          definePlugin({
+            id: "test.registry",
+            provides: [REG],
+            bind(c) {
+              order.push("registry");
+              c.provide(REG, "reg");
+            },
+          }),
+        ],
+      })
+      .build();
+    expect(order).toEqual(["registry", "helper", "middle", "contributor:reg"]);
   });
 
   /**

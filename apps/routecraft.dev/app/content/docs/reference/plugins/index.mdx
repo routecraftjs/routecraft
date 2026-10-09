@@ -126,7 +126,7 @@ The stages an application goes through, and the fault each one raises:
 
 | Stage | What happens | Faults |
 | --- | --- | --- |
-| 1. Identity | One plugin per id, one per namespace, one token per port name. | [`RC1101`](/docs/reference/errors#rc-1101), [`RC1102`](/docs/reference/errors#rc-1102), [`RC1103`](/docs/reference/errors#rc-1103) |
+| 1. Identity | One plugin per id, one per namespace, one key per port name, the one `port()` mints. | [`RC1101`](/docs/reference/errors#rc-1101), [`RC1102`](/docs/reference/errors#rc-1102), [`RC1103`](/docs/reference/errors#rc-1103) |
 | 2. Resolution | Every required port resolves to exactly one provider. | [`RC1104`](/docs/reference/errors#rc-1104), [`RC1105`](/docs/reference/errors#rc-1105), [`RC1106`](/docs/reference/errors#rc-1106) |
 | 3. Order | A topological sort over `requires` and `optional`; a repeatable plugin binds ahead of every other consumer of the ports it uses; ties keep list order. Default plugins come first. | [`RC1107`](/docs/reference/errors#rc-1107) |
 | 4. Bind | Each plugin's `bind` runs in that order and must provide what it declared. | [`RC1108`](/docs/reference/errors#rc-1108), [`RC1109`](/docs/reference/errors#rc-1109) |
@@ -162,7 +162,7 @@ A plugin that only closes what `bind` opened can ignore both. A plugin that stop
 
 ## Ports
 
-`port<T>(name)` declares a port. The name is `owner.capability@version` in lowercase dotted segments; anything else is `RC1103`. Call it once at module scope and export the token: the token is the identity, and two tokens with one name in one application is `RC1103`.
+`port<T>(name)` declares a port. The name is `owner.capability@version` in lowercase dotted segments; anything else is `RC1103`. Call it once at module scope and export the token: the identity is the name, so two copies of the declaring module resolve as one port; a hand-built token under a port's name is `RC1103`.
 
 Adapters read a port at runtime through the context they run in, with `context.require(port)` or `context.lookup(port)`.
 
