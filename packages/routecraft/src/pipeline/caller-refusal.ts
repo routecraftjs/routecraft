@@ -153,9 +153,10 @@ export interface CallerRefusalOrigin {
  * Attribution is by origin, never by code, and the origin is read from a
  * snapshot the raising site bound to the error, never from the error's
  * public `cause`. A handler between the raising site and the door can
- * replace `cause`, replace the nested detail, copy the detail under a new
- * error or mutate a schema issue, and none of it moves the refusal onto
- * another route or changes what reaches the caller:
+ * replace `cause`, replace the nested detail or mutate a schema issue, and
+ * none of it moves the refusal onto another route or changes what reaches
+ * the caller; a detail copied under a new error carries no binding, so that
+ * error maps as nothing at all:
  *
  * - `RC5065` and `RC5049` map only when a framework validator (`.input()`,
  *   the resume door) raised them and bound an input snapshot naming the

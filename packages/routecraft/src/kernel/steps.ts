@@ -139,9 +139,13 @@ declare const FACET_TYPES: unique symbol;
 type Depth = [never, 0, 1, 2, 3, 4];
 
 /**
- * Whether `T` holds something {@link Subst} rewrites, a few levels deep: a
- * {@link Body} placeholder, or an exchange, which a plugin step's callable
- * sees with the route's facets on it.
+ * Whether a {@link Body} placeholder appears in `T`, a few levels deep.
+ *
+ * Only the placeholder triggers a rewrite. A rewritten function type loses
+ * its own type parameters, so a generic callback with no placeholder in it
+ * (`<T>(ex: Exchange<T>) => T`) is left exactly as declared; the facets are
+ * added to an exchange only where the rewrite happens anyway, which is the
+ * documented way to write a plugin step's callable (`Exchange<Body>`).
  */
 type NeedsSubst<T, D extends number = 4> = [D] extends [never]
   ? false
@@ -149,20 +153,17 @@ type NeedsSubst<T, D extends number = 4> = [D] extends [never]
     ? false
     : T extends Body
       ? true
-      : T extends Exchange<unknown>
-        ? true
-        : T extends (...args: infer A) => infer R
-          ? true extends
-              NeedsSubst<A[number], Depth[D]> | NeedsSubst<R, Depth[D]>
+      : T extends (...args: infer A) => infer R
+        ? true extends NeedsSubst<A[number], Depth[D]> | NeedsSubst<R, Depth[D]>
+          ? true
+          : false
+        : T extends object
+          ? true extends {
+              [K in keyof T]-?: NeedsSubst<T[K], Depth[D]>;
+            }[keyof T]
             ? true
             : false
-          : T extends object
-            ? true extends {
-                [K in keyof T]-?: NeedsSubst<T[K], Depth[D]>;
-              }[keyof T]
-              ? true
-              : false
-            : false;
+          : false;
 
 /**
  * `T` with every {@link Body} replaced by `B` and every `Exchange` given the

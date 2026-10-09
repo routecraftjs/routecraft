@@ -193,9 +193,9 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
   },
   RC1103: {
     category: "Definition",
-    message: "Port name invalid, or a token not minted by port()",
+    message: "Port name invalid, or two keys under one port name",
     suggestion:
-      "A port is named owner.capability@version and declared with port(), whose token is the registered symbol for the name, so two copies of the declaring module resolve as one port. A second token with that name was built by hand; declare the port with port() and share the exported token.",
+      "A port is named owner.capability@version and declared with port(), whose token's key is the registered symbol for the name, so two copies of the declaring module resolve as one port. A token carrying that name under another key was built by hand; declare the port with port() and share the exported token.",
     docs: `${DOCS_BASE}#rc-1103`,
     retryable: false,
   },

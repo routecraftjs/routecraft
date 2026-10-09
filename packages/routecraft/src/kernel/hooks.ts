@@ -28,9 +28,10 @@ export type Slot = (typeof SLOTS)[number];
 export type ExchangeSlot = "beforeAuth" | "afterAuth" | "admitted" | "exit";
 
 /**
- * The slots that run on admission, which only a first run and an admission
- * resume reach, and which `buildSlotStep` always runs as kind `normal`: a
- * hook there whose `runs` leaves `normal` out can never run.
+ * The slots that run on admission, which `buildSlotStep` always runs as
+ * kind `normal`: `afterAuth` and `admitted` on a first run and on an
+ * admission resume, `beforeAuth` on a first run only. A hook there whose
+ * `runs` leaves `normal` out can never run.
  */
 const ADMISSION_SLOTS: readonly string[] = [
   "beforeAuth",
@@ -205,9 +206,10 @@ interface HookBase {
   readonly tags?: readonly string[];
   /**
    * The kinds of run this hook applies to. Defaults to `normal` only.
-   * `beforeAuth`, `afterAuth` and `admitted` see every admission, a resumed
-   * one included, as `normal`, so a `runs` there that leaves `normal` out
-   * could never match and is refused at install (`RC1115`).
+   * `afterAuth` and `admitted` see every admission, a resumed one included,
+   * as `normal`, and `beforeAuth` sees first runs only, so a `runs` in any
+   * of the three that leaves `normal` out could never match and is refused
+   * at install (`RC1115`).
    */
   readonly runs?: readonly RunKind[];
 }
@@ -491,7 +493,7 @@ export class HookTable {
       !hook.runs.includes("normal")
     ) {
       throw rcError("RC1115", undefined, {
-        message: `${where} declares runs [${hook.runs.join(", ")}] without "normal". ${ADMISSION_SLOTS.join(", ")} see every admission, a resumed one included, as a normal run, so this hook would never run. Drop runs or include "normal".`,
+        message: `${where} declares runs [${hook.runs.join(", ")}] without "normal". afterAuth and admitted see every admission, a resumed one included, as a normal run, and beforeAuth sees first runs only, so this hook would never run. Drop runs or include "normal".`,
       });
     }
   }

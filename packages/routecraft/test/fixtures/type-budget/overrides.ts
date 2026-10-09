@@ -7,13 +7,19 @@ import {
 } from "../../../src/index.ts";
 
 /**
- * Two plugins the application does not install: a brought plugin whose id
- * the application lists itself, and the default auth plugin displaced by a
- * listed plugin of its id beside a service typed as the plain `Plugin`.
+ * Three plugins the application does not install: a brought plugin whose id
+ * the application lists itself, the plugin that brought one would have
+ * brought in turn, and the default auth plugin displaced by a listed plugin
+ * of its id beside a service typed as the plain `Plugin`.
  */
 
+const nested = definePlugin({
+  id: "budget.nested",
+  steps: { nested: () => step<number, number>((ex) => ex.body) },
+});
 const bundled = definePlugin({
   id: "budget.feature",
+  installs: [nested],
   steps: { obsolete: () => step<number, number>((ex) => ex.body) },
 });
 const bundle = definePlugin({ id: "budget.bundle", installs: [bundled] });
@@ -34,6 +40,12 @@ export const obsolete = replaced
   .id("obsolete")
   .from<number>(direct())
   .obsolete();
+
+export const suppressed = replaced
+  .craft()
+  .id("suppressed")
+  .from<number>(direct())
+  .nested();
 
 const service: Plugin = { id: "budget.service", bind() {} };
 const ownAuth = definePlugin({ id: "routecraft.auth" });

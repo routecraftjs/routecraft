@@ -52,10 +52,18 @@ type ListedPluginsOf<D> = D extends { readonly plugins: readonly (infer P)[] }
 
 /**
  * The plugin types a union of plugin types brings through `installs`,
- * transitively, the plugins themselves excluded.
+ * transitively, the plugins themselves excluded. A brought plugin whose id
+ * is in `Held` is left out together with everything it would bring, the way
+ * the application skips that whole subtree when it holds the id itself.
  */
-type BroughtBy<P> = P extends { readonly installs: readonly (infer I)[] }
-  ? I | BroughtBy<I>
+type BroughtBy<P, Held extends string> = P extends {
+  readonly installs: readonly (infer I)[];
+}
+  ? I extends { readonly id: infer Id extends string }
+    ? Id extends Held
+      ? never
+      : I | BroughtBy<I, Held>
+    : never
   : never;
 
 /**
@@ -90,17 +98,13 @@ type HeldPluginsOf<D> = ConfiguredPluginsOf<D> | DefaultPluginsFor<D>;
 /**
  * Every plugin type a definition installs: what its routes are typed by.
  * The plugins the application holds, then what those bring through
- * `installs`, minus any brought plugin whose id the application already
- * holds, since the application's choice wins over a brought one at runtime.
- * Two brought plugins with one id stay a union here, where the application
- * installs the first it meets.
+ * `installs`, without any brought plugin whose id the application already
+ * holds or anything that plugin would bring, since the application's choice
+ * wins over a brought one at runtime. Two brought plugins with one id stay a
+ * union here, where the application installs the first it meets.
  */
 type InstalledPluginsOf<D> =
-  | HeldPluginsOf<D>
-  | Exclude<
-      BroughtBy<HeldPluginsOf<D>>,
-      { readonly id: LiteralIdOf<HeldPluginsOf<D>> }
-    >;
+  HeldPluginsOf<D> | BroughtBy<HeldPluginsOf<D>, LiteralIdOf<HeldPluginsOf<D>>>;
 
 /**
  * Declare a project: its plugins and configuration, and the `craft()` its

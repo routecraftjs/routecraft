@@ -84,8 +84,8 @@ describe("the type budget of plugin steps", () => {
 
   /**
    * @case A plugin the application does not install is absent from its routes
-   * @preconditions The overrides fixture lists a replacement for a plugin a bundle brings, and displaces the default auth plugin beside a service typed as the plain Plugin
-   * @expectedResult tsc reports the brought plugin's method and the displaced default's method as missing by name, and the replacement's method compiles
+   * @preconditions The overrides fixture lists a replacement for a plugin a bundle brings, which itself brings a third plugin, and displaces the default auth plugin beside a service typed as the plain Plugin
+   * @expectedResult tsc reports the brought plugin's method, the method of the plugin it would have brought, and the displaced default's method as missing by name, and the replacement's method compiles
    */
   test(
     "a plugin the application does not install has no methods",
@@ -96,7 +96,8 @@ describe("the type budget of plugin steps", () => {
       expect(overrides.output).toContain(
         "Property 'authenticate' does not exist",
       );
-      expect(overrides.output.match(/error TS/g)).toHaveLength(2);
+      expect(overrides.output).toContain("Property 'nested' does not exist");
+      expect(overrides.output.match(/error TS/g)).toHaveLength(3);
     },
     { timeout: 120_000 },
   );
