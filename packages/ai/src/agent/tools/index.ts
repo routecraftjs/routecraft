@@ -10,6 +10,7 @@ export {
   type LazyFn,
   type LazyFnKind,
   type FnEntry,
+  type RegisteredFn,
 } from "./types.ts";
 export {
   isToolSelection,

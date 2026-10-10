@@ -85,4 +85,25 @@ describe("fn() type safety", () => {
       handler: async (input) => input.missing,
     });
   });
+
+  /**
+   * @case A handler annotated narrower than its schema's output is rejected, written by hand or through fn()
+   * @preconditions A schema whose q is optional; an annotated FnOptions and a fn() call, each with a handler that declares (input: { q: string })
+   * @expectedResult Both are compile errors, because the handler is a property checked contravariantly; the erasure lives only on the registry's RegisteredFn
+   */
+  test("a handler narrower than the schema output does not compile", () => {
+    const annotated: FnOptions<{ q?: string | undefined }> = {
+      description: "Reads q",
+      input: z.object({ q: z.string().optional() }),
+      // @ts-expect-error q may be absent, so a handler that requires it is unsound
+      handler: async (input: { q: string }) => input.q.length,
+    };
+    fn({
+      description: "Reads q",
+      input: z.object({ q: z.string().optional() }),
+      // @ts-expect-error q may be absent, so a handler that requires it is unsound
+      handler: async (input: { q: string }) => input.q.length,
+    });
+    expectTypeOf(annotated).toMatchTypeOf<FnEntry>();
+  });
 });

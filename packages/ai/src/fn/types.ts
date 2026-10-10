@@ -206,13 +206,12 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
    * Handler called after schema validation with the (possibly coerced)
    * input and a minimal handler context.
    *
-   * A method signature rather than a function-typed property: a typed fn
-   * has to be assignable to the `FnOptions<unknown>` a heterogeneous
-   * `functions` record holds, which a property's contravariant parameter
-   * forbids. The registry validates against `input` before it calls, which
-   * is what keeps the looser check sound.
+   * A function-typed property, so its parameter is checked contravariantly:
+   * a handler annotated narrower than what `input` produces does not
+   * compile. The heterogeneous `functions` record holds the erased
+   * `RegisteredFn` instead, which every typed fn is assignable to.
    */
-  handler(input: TIn, ctx: FnHandlerContext): Promise<TOut> | TOut;
+  handler: (input: TIn, ctx: FnHandlerContext) => Promise<TOut> | TOut;
 
   /**
    * Tags surfaced on `ToolsCatalog.fns[].tags` for the builder form

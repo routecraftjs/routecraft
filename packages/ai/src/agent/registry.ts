@@ -1,5 +1,4 @@
 import { rcError } from "@routecraft/routecraft";
-import type { FnOptions } from "../fn/types.ts";
 import { validateFnOptions } from "../fn/fn.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import {
@@ -22,7 +21,7 @@ import type {
 } from "./tools/policy.ts";
 import type { ReidentifyHook } from "./session/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
-import { isLazyFn, type FnEntry } from "./tools/types.ts";
+import { isLazyFn, type FnEntry, type RegisteredFn } from "./tools/types.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 
 /**
@@ -37,7 +36,7 @@ export class AgentRegistryImpl implements AgentRegistry {
   readonly functions = new Map<string, FnEntry>();
   readonly toolPolicies: AgentToolPolicy[] = [];
   /** Resolved deferred functions by id, filled when the runtime starts. */
-  readonly resolvedFunctions = new Map<string, FnOptions>();
+  readonly resolvedFunctions = new Map<string, RegisteredFn>();
   #defaults: AgentDefaultOptions | undefined;
   #reidentify: ReidentifyHook | undefined;
 
@@ -113,7 +112,7 @@ export class AgentRegistryImpl implements AgentRegistry {
     return this.runtime;
   }
 
-  resolvedFunction(id: string): FnOptions | undefined {
+  resolvedFunction(id: string): RegisteredFn | undefined {
     return this.resolvedFunctions.get(id);
   }
 }
@@ -137,7 +136,7 @@ export function validateReidentify(
   if (raw === undefined) return undefined;
   if (typeof raw !== "function") {
     throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "reidentify" must be a function (parked: Principal) => Principal | undefined, or a promise of one.`,
+      message: `agentPlugin: "reidentify" must be a function (parked: Principal, { signal }) => Principal | undefined, or a promise of one.`,
     });
   }
   return raw;

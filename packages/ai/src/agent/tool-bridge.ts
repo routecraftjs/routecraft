@@ -12,6 +12,7 @@ import { makeFnHandlerContext } from "../fn/handler-context.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
 import { isDeferError, isDeferSentinel } from "./defer.ts";
 import { isDownstreamDeferred } from "./downstream-deferred.ts";
+import { errorMessage, errorName } from "./error-text.ts";
 import {
   DEFERRED_TOOL_PLACEHOLDER,
   type AgentDeferSignalRecord,
@@ -361,24 +362,4 @@ export async function buildVercelTools(
     });
   }
   return out;
-}
-
-/**
- * Non-sensitive error classifier for tool/block error events. The error
- * message and stack may echo the rejected tool input, so they stay inside
- * the `_snapshot` envelope; the name alone (e.g. `TypeError`, `CraftError`)
- * is safe to persist unconditionally and is enough for dashboards to
- * distinguish failure classes.
- *
- * @internal
- */
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  const message = (err as { message?: unknown } | null)?.message;
-  return typeof message === "string" ? message : String(err);
-}
-
-function errorName(err: unknown): string {
-  if (err instanceof Error) return err.name || "Error";
-  return typeof err;
 }

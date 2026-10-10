@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
+import FakeTimers from "@sinonjs/fake-timers";
 import { z } from "zod";
 import {
   HeadersKeys,
@@ -9,12 +18,15 @@ import {
   noop,
   principalOf,
   rcCodeOf,
+  type Deferral,
   type Duration,
   type Principal,
   type RouteDefinition,
+  type SerializedOutcome,
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
+  AgentHeadersKeys,
   agent,
   agentPlugin,
   directTool,
@@ -26,7 +38,9 @@ import {
   type ToolsItem,
 } from "../src/index.ts";
 import { AgentSessionRuntime } from "../src/agent/session/index.ts";
-import { recordsFor } from "./helpers/session-stores.ts";
+import { REIDENTIFY_TIMEOUT_MS } from "../src/agent/session/runtime.ts";
+import { AgentSessionStore } from "../src/agent/session/store.ts";
+import { recordsFor, updateRecord } from "./helpers/session-stores.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 import { sleep, until } from "./helpers/until.ts";
@@ -50,6 +64,8 @@ type Decision = z.infer<typeof Decision>;
 
 /** The resume token execution one minted, captured before the park. */
 let token = "";
+/** The two-stage route's second token, minted by execution two before it parks again. */
+let secondToken = "";
 /** How often the parked route's continuation ran. */
 let actionRuns = 0;
 /** The slow route is held here until the test lets it finish. */
@@ -112,6 +128,26 @@ function routes(
         });
         return { stdout, cmd: body.cmd };
       })
+      .to(noop())
+      .build(),
+    ...craft()
+      .id("twostage")
+      .description("Ask two humans in turn before acting")
+      .input({ body: Ask })
+      .from(direct())
+      .process((ex) => {
+        token = ex.deferral.token;
+        return ex;
+      })
+      .defer({ schema: Decision, ttl })
+      .process((ex) => {
+        secondToken = ex.deferral.token;
+        return ex;
+      })
+      .defer({ schema: Decision, ttl })
+      .transform((_body, ex) => ({
+        approved: (ex.deferral.result as Decision).verdict === "approve",
+      }))
       .to(noop())
       .build(),
     ...craft().id("answers").from(direct()).resume().build(),
@@ -222,7 +258,7 @@ async function parkFromTurn(
   const reply = await send(t, { session: "s", message: "go" }, principal);
   const receipt = reply.toolCalls?.[0]?.output as BackgroundToolHandle;
   expect(receipt.status).toBe("running");
-  expect(receipt.handle).toMatch(/^park:[0-9a-f-]{36}$/);
+  expect(receipt.handle).toMatch(/^[a-z]+:[0-9a-f-]{36}$/);
   // The park is recorded once the dispatch resolves, after the reply.
   await until(
     async () =>
@@ -386,12 +422,13 @@ describe("background tools over a parking route", () => {
   /**
    * @case The park expires before anyone answers
    * @preconditions The parked route's ttl is one millisecond; a late answer arrives at the resume ingress, which is what retires an overdue deferral and fires route:exchange:expired with no exchange snapshot
-   * @expectedResult The handle settles as failed with RC5047, found through the deferralId the park recorded on the session record, and the revived turn reads the expiry
+   * @expectedResult The handle settles as failed with RC5047, found through the handle and session on the expired deferral's stored headers without listing the session store, and the revived turn reads the expiry
    */
   test("an expired park settles the handle with RC5047", async () => {
     t = await contextWith({ store: store!, ttl: "1ms" }).build();
     await t.startAndWaitReady();
     const receipt = await parkFromTurn(t, "direct__park");
+    const listings = spyOn(recordsFor(store!), "keys");
     await sleep(5);
     llm.script.push({ text: "asking again" });
     const late = await answer(t, { verdict: "approve" }).catch(
@@ -404,6 +441,8 @@ describe("background tools over a parking route", () => {
     expect(text).toContain('"direct__park" failed');
     expect(text).toContain(`Handle: ${receipt.handle}`);
     expect(text).toContain("RC5047");
+    expect(listings).not.toHaveBeenCalled();
+    listings.mockRestore();
     expect(actionRuns).toBe(0);
     expect(await summaryOf(t, "s")).toMatchObject({ background: 0, inbox: 0 });
   });
@@ -568,14 +607,15 @@ describe("the tool's shape follows the route's shape", () => {
   });
 
   /**
-   * @case background in tools([...]) applies to Direct(...) references only
-   * @preconditions tools([{ name: "ask", background: true }]) where ask is a registered fn
+   * @case background in tools([...]) applies to Direct(...) references only, for a caller the type does not stop
+   * @preconditions tools([{ name: "ask", background: true }]) where ask is a registered fn, past the compile error the typed form raises
    * @expectedResult The dispatch is refused with RC5003 naming the fn, before any model call
    */
   test("background on a registered fn binding is refused", async () => {
     t = await contextWith({
       store: store!,
       functions: { ask: directTool("park") },
+      // @ts-expect-error background is typed on a Direct(...) name only
       tools: [{ name: "ask", background: true }],
     }).build();
     await t.startAndWaitReady();
@@ -837,5 +877,453 @@ describe("whose principal runs a revived continuation", () => {
       );
     expect(rcCodeOf(outcome)).toBe("RC5003");
     expect(String((outcome as Error).message)).toContain("reidentify");
+  });
+});
+
+/** A deferral store whose reads of the ids in `failing` throw, as a store outage would. */
+class FlakyDeferralStore extends MemoryDeferralStore {
+  readonly failing = new Set<string>();
+  failedReads = 0;
+
+  override async get(id: string): Promise<Deferral | undefined> {
+    if (this.failing.has(id)) {
+      this.failedReads++;
+      throw new Error("deferral store unavailable");
+    }
+    return super.get(id);
+  }
+}
+
+describe("a restart reconciles a parked call against its deferral", () => {
+  let t: TestContext | undefined;
+  const carol: Principal = { kind: "custom", scheme: "test", subject: "carol" };
+  const approved: SerializedOutcome = {
+    status: "completed",
+    body: { approved: true },
+    at: new Date(),
+  };
+
+  beforeEach(() => {
+    llm.reset();
+    token = "";
+    actionRuns = 0;
+    release = undefined;
+    store = new MemoryDeferralStore();
+  });
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /** Park on a first context and stop it; the deferral the call parked on is what a restart finds. */
+  async function parkThenStop(
+    principal?: Principal,
+  ): Promise<{ receipt: BackgroundToolHandle; deferralId: string }> {
+    t = await contextWith({ store: store! }).build();
+    await t.startAndWaitReady();
+    const receipt = await parkFromTurn(t, "direct__park", principal);
+    const deferralId = (await recordOf(store!, "s")).background[0]!.deferralId!;
+    await t.stop();
+    t = undefined;
+    return { receipt, deferralId };
+  }
+
+  /** Resume the park while no process watches, recording how execution two ended when it got that far. */
+  async function resumeOffline(
+    deferralId: string,
+    continuation?: SerializedOutcome,
+  ): Promise<void> {
+    await store!.markResumed(deferralId, { at: new Date() });
+    if (continuation) await store!.recordContinuation(deferralId, continuation);
+  }
+
+  /** Settle the park as the sweeper or a cancellation would while no process watches. */
+  async function retireOffline(
+    deferralId: string,
+    kind: "expired" | "denied",
+    reason?: string,
+  ): Promise<void> {
+    const claim = await store!.claimExpiry(deferralId, new Date());
+    if (!claim.won) throw new Error("the claim was lost");
+    if (kind === "expired") await store!.markExpired(deferralId, claim.claim);
+    else await store!.markDenied(deferralId, claim.claim, reason);
+  }
+
+  /**
+   * @case Every way a park can have ended while no process watched is delivered at the next boot
+   * @preconditions A first context parks the call and stops; the deferral record is then resumed with a recorded outcome, resumed with none, expired, denied, or gone; a second context boots over the same stores
+   * @expectedResult The boot retires the call and revives the session; a recorded outcome is delivered as execution two would have delivered it, an expiry as RC5047, a denial as RC5050 with its reason, and a resume with no outcome or a missing record as a lost run
+   */
+  test.each([
+    [
+      "resumed and completed",
+      (id: string) => resumeOffline(id, approved),
+      ['"direct__park" finished', '"approved":true'],
+    ],
+    [
+      "resumed and failed",
+      (id: string) =>
+        resumeOffline(id, {
+          status: "failed",
+          error: { rc: "RC5048", message: "the continuation changed" },
+          at: new Date(),
+        }),
+      ['"direct__park" failed', "RC5048", "the continuation changed"],
+    ],
+    [
+      "resumed and dropped",
+      (id: string) =>
+        resumeOffline(id, {
+          status: "dropped",
+          reason: "the approver withdrew",
+          at: new Date(),
+        }),
+      ['"direct__park" failed', "the approver withdrew"],
+    ],
+    [
+      "resumed with no recorded outcome",
+      (id: string) => resumeOffline(id),
+      ['"direct__park" failed', "The run was lost"],
+    ],
+    [
+      "expired",
+      (id: string) => retireOffline(id, "expired"),
+      ['"direct__park" failed', "RC5047"],
+    ],
+    [
+      "denied",
+      (id: string) =>
+        retireOffline(id, "denied", "the route changed after the park"),
+      ['"direct__park" failed', "RC5050", "the route changed after the park"],
+    ],
+    [
+      "gone from the store",
+      () =>
+        updateRecord(
+          new AgentSessionStore(recordsFor(store!), store!),
+          "s",
+          "max",
+          (r) => ({
+            ...r,
+            background: r.background.map((b) => ({
+              ...b,
+              deferralId: "purged",
+            })),
+          }),
+        ),
+      ['"direct__park" failed', "The run was lost"],
+    ],
+  ] as const)(
+    "a park %s while no process watched is delivered at boot",
+    async (_name, stage, expected) => {
+      const { receipt, deferralId } = await parkThenStop();
+      await stage(deferralId);
+      llm.script.push({ text: "caught up" });
+      t = await contextWith({ store: store! }).build();
+      await t.startAndWaitReady();
+      await until(() => llm.calls.length === 2);
+      await t.ctx.getRouteById("chat")!.drain();
+      const text = lastUserOf(llm.calls[1]!)[0]!.text;
+      expect(text).toContain(`Handle: ${receipt.handle}`);
+      for (const fragment of expected) expect(text).toContain(fragment);
+      expect(await summaryOf(t, "s")).toMatchObject({
+        background: 0,
+        inbox: 0,
+      });
+    },
+  );
+
+  /**
+   * @case A decision reconciled at boot is somebody else's decision, so the boot revival re-identifies first
+   * @preconditions The turn that parked ran under a principal; the park was resumed and completed while no process watched; the second context has no reidentify hook
+   * @expectedResult The boot retires the call into the inbox, refuses the revival on route:agent:session:revival:refused naming the missing hook, and runs no turn; the continuation stays stored
+   */
+  test("a settlement reconciled at boot re-identifies before it revives", async () => {
+    const { deferralId } = await parkThenStop(carol);
+    await resumeOffline(deferralId, approved);
+    t = await contextWith({ store: store! }).build();
+    const refused: unknown[] = [];
+    t.ctx.on("route:agent:session:revival:refused", ({ details }) => {
+      refused.push(details);
+    });
+    await t.startAndWaitReady();
+    await until(() => refused.length === 1);
+    expect(refused[0]).toMatchObject({
+      session: "s",
+      reason: expect.stringContaining("no reidentify hook is registered"),
+    });
+    expect(llm.calls).toHaveLength(1);
+    expect(await summaryOf(t, "s")).toMatchObject({
+      background: 0,
+      inbox: 1,
+      deferred: true,
+    });
+  });
+
+  /**
+   * @case A turn that finds its predecessor cut short reconciles the parked call before it runs
+   * @preconditions The previous process died mid-turn with no continuation stored, so the boot leaves the session to its next turn; the park was resumed and completed meanwhile; the boot's read of that deferral fails, so the boot keeps the call
+   * @expectedResult The boot reports nothing lost; the next message's turn reads the deferral, retires the call, and the model sees the decision beside the message in the same turn
+   */
+  test("a turn that restores a session reconciles its parked calls", async () => {
+    const flaky = new FlakyDeferralStore();
+    store = flaky;
+    const { receipt, deferralId } = await parkThenStop();
+    await resumeOffline(deferralId, approved);
+    await updateRecord(
+      new AgentSessionStore(recordsFor(flaky), flaky),
+      "s",
+      "max",
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
+      ({ deferral: _deferral, ...rest }) => ({
+        ...rest,
+        turn: { exchangeId: "gone", startedAt: new Date().toISOString() },
+      }),
+    );
+    flaky.failing.add(deferralId);
+    t = await contextWith({ store: flaky }).build();
+    await t.startAndWaitReady();
+    await until(() => flaky.failedReads > 0);
+    flaky.failing.delete(deferralId);
+    expect(await summaryOf(t, "s")).toMatchObject({
+      background: 1,
+      inbox: 0,
+      turn: "stale",
+    });
+    llm.script.push({ text: "caught up" });
+    const reply = await send(t, { session: "s", message: "any news?" });
+    expect(reply.text).toBe("caught up");
+    const parts = lastUserOf(llm.calls[1]!).map((p) => p.text);
+    expect(
+      parts.some(
+        (p) =>
+          p.includes(`Handle: ${receipt.handle}`) &&
+          p.includes('"approved":true'),
+      ),
+    ).toBe(true);
+    expect(parts.some((p) => p.includes("any news?"))).toBe(true);
+    expect(await summaryOf(t, "s")).toMatchObject({ background: 0, inbox: 0 });
+  });
+});
+
+describe("a live settlement follows the park it is about", () => {
+  let t: TestContext | undefined;
+
+  beforeEach(() => {
+    llm.reset();
+    token = "";
+    secondToken = "";
+    actionRuns = 0;
+    release = undefined;
+    store = new MemoryDeferralStore();
+  });
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case A denied park settles the handle as failed
+   * @preconditions A call parked; its deferral is denied, which emits neither resumed nor expired
+   * @expectedResult settleDenied retires the call with RC5050 and the reason, read through the handle on the parked exchange's headers, and the revived turn reads it
+   */
+  test("a denied park settles the handle with RC5050 naming the reason", async () => {
+    t = await contextWith({ store: store! }).build();
+    await t.startAndWaitReady();
+    const receipt = await parkFromTurn(t, "direct__park");
+    const deferralId = (await recordOf(store!, "s")).background[0]!.deferralId!;
+    llm.script.push({ text: "noted" });
+    await AgentSessionRuntime.for(t.ctx).settleDenied(
+      deferralId,
+      "the route changed after the park",
+    );
+    await until(() => llm.calls.length === 2);
+    await t.ctx.getRouteById("chat")!.drain();
+    const text = lastUserOf(llm.calls[1]!)[0]!.text;
+    expect(text).toContain('"direct__park" failed');
+    expect(text).toContain(`Handle: ${receipt.handle}`);
+    expect(text).toContain("RC5050");
+    expect(text).toContain("the route changed after the park");
+    expect(await summaryOf(t, "s")).toMatchObject({ background: 0 });
+  });
+
+  /**
+   * @case Execution one's own deferred event, landing after a fast resume, is not read as a re-park
+   * @preconditions A call parked; route:exchange:resumed for that deferral lands first, then route:exchange:deferred carrying the same deferral id, then execution two's route:exchange:completed
+   * @expectedResult The completed run still settles the handle with its body, because the deferred event naming the deferral it resumed from is ignored
+   */
+  test("a deferred event naming the resumed deferral is not a re-park", async () => {
+    t = await contextWith({ store: store! }).build();
+    await t.startAndWaitReady();
+    const receipt = await parkFromTurn(t, "direct__park");
+    const deferralId = (await recordOf(store!, "s")).background[0]!.deferralId!;
+    const scope = {
+      routeId: "park",
+      exchangeId: "fast-resume",
+      correlationId: "fast-resume",
+    };
+    t.ctx.emit("route:exchange:resumed", { ...scope, deferralId, position: 2 });
+    t.ctx.emit("route:exchange:deferred", {
+      ...scope,
+      deferralId,
+      position: 2,
+    });
+    llm.script.push({ text: "approved, proceeding" });
+    t.ctx.emit("route:exchange:completed", {
+      ...scope,
+      duration: 1,
+      exchange: {
+        id: "fast-resume",
+        headers: {
+          [AgentHeadersKeys.BACKGROUND_HANDLE]: receipt.handle,
+          [AgentHeadersKeys.BACKGROUND_SESSION]: "s",
+        },
+        body: { approved: true },
+      },
+    });
+    await until(() => llm.calls.length === 2);
+    await t.ctx.getRouteById("chat")!.drain();
+    const text = lastUserOf(llm.calls[1]!)[0]!.text;
+    expect(text).toContain('"direct__park" finished');
+    expect(text).toContain('"approved":true');
+    expect(await summaryOf(t, "s")).toMatchObject({ background: 0 });
+  });
+
+  /**
+   * @case A continuation that parks again keeps the handle open and moves it to the new park
+   * @preconditions A two-stage route: the first answer resumes it into a second .defer()
+   * @expectedResult No turn runs on the first answer; the session record names the second deferral, read off that deferral's stored headers; the second answer settles the handle with the final body
+   */
+  test("a continuation that parks again moves the call to the new park", async () => {
+    t = await contextWith({
+      store: store!,
+      tools: ["Direct(twostage)"],
+    }).build();
+    await t.startAndWaitReady();
+    const receipt = await parkFromTurn(t, "direct__twostage");
+    const first = (await recordOf(store!, "s")).background[0]!.deferralId!;
+    await answer(t, { verdict: "approve" });
+    await until(async () => {
+      const now = (await recordOf(store!, "s")).background[0]?.deferralId;
+      return now !== undefined && now !== first;
+    });
+    expect(llm.calls).toHaveLength(1);
+    expect(secondToken.length).toBeGreaterThan(0);
+    llm.script.push({ text: "both approved" });
+    await t.client.sendDirect("answers", {
+      token: secondToken,
+      result: { verdict: "approve" },
+    });
+    await until(() => llm.calls.length === 2);
+    await t.ctx.getRouteById("chat")!.drain();
+    const text = lastUserOf(llm.calls[1]!)[0]!.text;
+    expect(text).toContain('"direct__twostage" finished');
+    expect(text).toContain(`Handle: ${receipt.handle}`);
+    expect(text).toContain('"approved":true');
+  });
+});
+
+describe("a reidentify hook is bounded", () => {
+  let t: TestContext | undefined;
+  const dave: Principal = { kind: "custom", scheme: "test", subject: "dave" };
+
+  beforeEach(() => {
+    llm.reset();
+    token = "";
+    actionRuns = 0;
+    release = undefined;
+    store = new MemoryDeferralStore();
+  });
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /** A context whose hook never settles, recording the signal it was handed. */
+  async function hungHook(): Promise<{
+    signal: () => AbortSignal | undefined;
+  }> {
+    let signal: AbortSignal | undefined;
+    t = await contextWith({
+      store: store!,
+      reidentify: (_parked, options) => {
+        signal = options.signal;
+        return new Promise<undefined>(() => undefined);
+      },
+    }).build();
+    await t.startAndWaitReady();
+    return { signal: () => signal };
+  }
+
+  /** Park under dave and answer, which starts the revival the hook gates. */
+  async function settle(context: TestContext): Promise<unknown[]> {
+    const refused: unknown[] = [];
+    context.ctx.on("route:agent:session:revival:refused", ({ details }) => {
+      refused.push(details);
+    });
+    await parkFromTurn(context, "direct__park", dave);
+    await answer(context, { verdict: "approve" });
+    return refused;
+  }
+
+  /**
+   * @case A hook that never settles refuses the revival at the bound
+   * @preconditions The hook returns a promise that never settles; fake timers advance past REIDENTIFY_TIMEOUT_MS once it is called
+   * @expectedResult The signal handed to the hook aborts, the revival is refused with a reason naming the bound, the session is no longer held as reviving, and the settlement waits in the inbox
+   */
+  test("a hung hook is refused at the bound", async () => {
+    const hook = await hungHook();
+    const clock = FakeTimers.install({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldAdvanceTime: true,
+    });
+    try {
+      const refused = await settle(t!);
+      await until(() => hook.signal() !== undefined);
+      expect(refused).toHaveLength(0);
+      clock.tick(REIDENTIFY_TIMEOUT_MS);
+      await until(() => refused.length === 1);
+      expect(hook.signal()!.aborted).toBe(true);
+      expect(refused[0]).toMatchObject({
+        session: "s",
+        reason: expect.stringContaining(
+          `did not settle within ${REIDENTIFY_TIMEOUT_MS}ms`,
+        ),
+      });
+    } finally {
+      clock.uninstall();
+    }
+    const runtime = AgentSessionRuntime.for(t!.ctx) as unknown as {
+      reviving: Set<string>;
+    };
+    await until(() => runtime.reviving.size === 0);
+    expect(llm.calls).toHaveLength(1);
+    expect(await summaryOf(t!, "s")).toMatchObject({
+      inbox: 1,
+      deferred: true,
+    });
+  });
+
+  /**
+   * @case Stopping the application does not wait on a hook that never settles
+   * @preconditions The hook returns a promise that never settles and is running when the context stops
+   * @expectedResult stop() returns, the signal handed to the hook has aborted, and the revival was refused naming the stop
+   */
+  test("stop() returns while a hung hook is running", async () => {
+    const hook = await hungHook();
+    const refused = await settle(t!);
+    await until(() => hook.signal() !== undefined);
+    expect(hook.signal()!.aborted).toBe(false);
+    await t!.stop();
+    t = undefined;
+    expect(hook.signal()!.aborted).toBe(true);
+    expect(refused).toEqual([
+      expect.objectContaining({
+        reason: expect.stringContaining("runtime stopped"),
+      }),
+    ]);
   });
 });

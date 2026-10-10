@@ -1,9 +1,8 @@
 import { port } from "@routecraft/routecraft";
-import type { FnOptions } from "../fn/types.ts";
 import type { AgentSessionRuntime } from "./session/runtime.ts";
 import type { ReidentifyHook } from "./session/types.ts";
 import type { AgentToolPolicy } from "./tools/policy.ts";
-import type { FnEntry } from "./tools/types.ts";
+import type { FnEntry, RegisteredFn } from "./tools/types.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 
 /**
@@ -69,7 +68,7 @@ export interface AgentRegistry {
    * `undefined` before the runtime started, or for a function that is not
    * deferred.
    */
-  resolvedFunction(id: string): FnOptions | undefined;
+  resolvedFunction(id: string): RegisteredFn | undefined;
 }
 
 /** The agent registry the agent runtime plugin provides. */

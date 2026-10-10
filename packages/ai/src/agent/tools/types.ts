@@ -4,9 +4,10 @@ import {
   type Capability,
   type CraftContext,
   type ExchangeHeaders,
-  type PluginLogger,
+  type Tag,
 } from "@routecraft/routecraft";
-import type { FnOptions } from "../../fn/types.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { FnHandlerContext } from "../../fn/types.ts";
 import { AgentSessionRuntime } from "../session/runtime.ts";
 
 /**
@@ -34,7 +35,7 @@ export const FN_BACKGROUND = Symbol.for("routecraft.ai.fn.background");
  *
  * @internal
  */
-export function isBackgroundFn(fn: FnOptions): boolean {
+export function isBackgroundFn(fn: RegisteredFn): boolean {
   return (fn as { [FN_BACKGROUND]?: unknown })[FN_BACKGROUND] === true;
 }
 
@@ -69,14 +70,14 @@ export interface LazyFn {
    */
   readonly targetId: string;
   /**
-   * Resolve to a concrete `FnOptions`. Throws `RC5003` with a clear
+   * Resolve to a concrete {@link RegisteredFn}. Throws `RC5003` with a clear
    * message if the underlying registry entry is missing or incomplete.
    *
    * @param ctx - Live context (registries populated)
    * @param fnId - The fn id this descriptor was registered as (used in
    *   error messages so the user can find the offending config entry)
    */
-  readonly resolve: (host: ToolHost, fnId: string) => FnOptions;
+  readonly resolve: (host: ToolHost, fnId: string) => RegisteredFn;
 }
 
 /**
@@ -88,7 +89,6 @@ export interface LazyFn {
  * @internal
  */
 export interface ToolHost {
-  readonly logger: PluginLogger;
   /** Discoverable capabilities of the enabled routes. */
   capabilities(): Capability[];
   /** Whether a route with this id is registered at all. */
@@ -117,7 +117,6 @@ export interface ToolHost {
  */
 export function toolHostOf(ctx: CraftContext): ToolHost {
   return {
-    logger: ctx.logger,
     capabilities: () => ctx.capabilities(),
     hasRoute: (routeId) => ctx.getRouteById(routeId) !== undefined,
     canDefer: (routeId) => {
@@ -146,11 +145,26 @@ export function isLazyFn(value: unknown): value is LazyFn {
 }
 
 /**
- * What the fn registry actually holds. Eagerly authored fns are stored
- * as `FnOptions`; entries from `directTool` are stored as `LazyFn`
- * and resolved on first agent dispatch.
+ * A fn as the heterogeneous registry holds it: its input type erased, so
+ * fns over unrelated schemas share one record. Every `FnOptions<TIn, TOut>`
+ * is assignable to it, because a handler that accepts some `TIn` accepts
+ * `never`. Nothing calls the handler through this type; the one place that
+ * turns it back into something callable is the tool resolution, after
+ * which the bridge validates against `input` before the call.
  */
-export type FnEntry = FnOptions | LazyFn;
+export interface RegisteredFn {
+  readonly description: string;
+  readonly input: StandardSchemaV1;
+  readonly handler: (input: never, ctx: FnHandlerContext) => unknown;
+  tags?: Tag[];
+}
+
+/**
+ * What the fn registry actually holds. Eagerly authored fns are stored
+ * as {@link RegisteredFn}; entries from `directTool` are stored as
+ * `LazyFn` and resolved on first agent dispatch.
+ */
+export type FnEntry = RegisteredFn | LazyFn;
 
 /**
  * The declared shape of a registered tool, whichever way it was authored.
@@ -177,8 +191,8 @@ export function resolveFnOptions(
   host: ToolHost,
   fnId: string,
   entry: FnEntry,
-  memo: Map<string, FnOptions>,
-): FnOptions {
+  memo: Map<string, RegisteredFn>,
+): RegisteredFn {
   if (!isLazyFn(entry)) return entry;
   const cached = memo.get(fnId);
   if (cached) return cached;

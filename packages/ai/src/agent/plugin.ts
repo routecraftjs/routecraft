@@ -124,6 +124,10 @@ export interface AgentPluginOptions {
    * either way. One hook per application; a second install setting it
    * throws at context init.
    *
+   * Bounded at 30 seconds and by the application stopping, either of
+   * which refuses the revival; `options.signal` aborts at both, for the
+   * hook to pass to its own I/O.
+   *
    * @see {@link ReidentifyHook}
    */
   reidentify?: ReidentifyHook;
@@ -262,7 +266,6 @@ function createAgentRuntimePlugin(): Plugin {
         runtime,
       );
       const tools: ToolHost = {
-        logger: c.logger,
         capabilities: () => c.execution.capabilities(),
         hasRoute: (routeId) => c.routes.get(routeId) !== undefined,
         canDefer: (routeId) => c.routes.canDefer(routeId),
@@ -317,9 +320,11 @@ function createAgentRuntimePlugin(): Plugin {
 
 /**
  * What a previous process left in sessions is driven from here, after the
- * routes are live: background calls it was waiting on become lost results
- * and the stored continuations they were for are revived, so a lost build
- * reaches the model as a turn rather than waiting for a message. Begun and
+ * routes are live: a background call whose route never parked becomes a
+ * lost result, a parked one is reconciled against its deferral record
+ * (kept while it waits, settled from what it recorded otherwise), and the
+ * stored continuations they were for are revived, so the outcome reaches
+ * the model as a turn rather than waiting for a message. Begun and
  * returned rather than awaited, because it reads every session the store
  * holds; an application with no continuations store has nothing to drive.
  */

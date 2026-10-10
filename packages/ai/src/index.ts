@@ -262,6 +262,7 @@ export {
   type LazyFn,
   type LazyFnKind,
   type FnEntry,
+  type RegisteredFn,
   type ResolvedTool,
   type BackgroundToolHandle,
   type ToolBuilderOverrides,

@@ -110,9 +110,11 @@ export type AgentInboxMessage =
  * `deferralId` is set once the dispatched route answered with a `Deferred`
  * acknowledgment: the route parked, and the call is settled by execution
  * two rather than by the dispatch. It is the link a restart keeps, which
- * is why it lives on the record. A parked call is never reported lost by a
- * boot, because the park is durable and its decision will still arrive;
- * an expiry is what retires it.
+ * is why it lives on the record: a boot reconciles the call against that
+ * deferral record, so it keeps waiting while the record does, settles from
+ * the recorded outcome of a decision, an expiry or a denial that landed
+ * while no process watched, and is reported lost only when execution two
+ * died before recording an outcome or the record is gone.
  */
 export interface AgentBackgroundCall {
   readonly handle: string;
@@ -151,9 +153,15 @@ export interface AgentBackgroundCall {
  *
  * The refused settlement is still written to the session inbox, so the
  * outcome is recorded; no turn runs until something else wakes the session.
+ *
+ * Bounded: a hook that has not settled within 30 seconds, or by the time the
+ * application stops, refuses the revival, because the session cannot be woken
+ * while it runs. `options.signal` fires at either point, so a hook doing I/O
+ * passes it on (to `fetch`, a driver call) and stops waiting with it.
  */
 export type ReidentifyHook = (
   parked: Principal,
+  options: { readonly signal: AbortSignal },
 ) => Principal | undefined | Promise<Principal | undefined>;
 
 /**

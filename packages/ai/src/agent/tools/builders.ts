@@ -8,11 +8,7 @@ import {
   type Principal,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type {
-  FnHandlerContext,
-  FnOptions,
-  ReadonlyPrincipal,
-} from "../../fn/types.ts";
+import type { FnHandlerContext, ReadonlyPrincipal } from "../../fn/types.ts";
 import { authorityOfHandler } from "../../fn/handler-context.ts";
 import { errorOf, outcomeOfResult } from "../session/runtime.ts";
 import { isDownstreamDeferred } from "../downstream-deferred.ts";
@@ -21,6 +17,7 @@ import {
   LAZY_FN_BRAND,
   FN_BACKGROUND,
   type LazyFn,
+  type RegisteredFn,
   type ToolHost,
 } from "./types.ts";
 
@@ -166,7 +163,7 @@ export function directTool<TIn = unknown>(
     [LAZY_FN_BRAND]: true,
     kind: "direct",
     targetId: routeId,
-    resolve(host, fnId): FnOptions {
+    resolve(host, fnId): RegisteredFn {
       const route = readDirectRoute(host, routeId, fnId);
       const description = overrides?.description ?? route.description;
       if (typeof description !== "string" || description.trim() === "") {
@@ -189,31 +186,25 @@ export function directTool<TIn = unknown>(
           message: `directTool: route "${routeId}" can park (a .defer(), a defer-capable step, or an error-slot hook that may park it), so its dispatch may answer with a Deferred acknowledgment in place of a result; a synchronous tool over it would tell the model the call completed. Drop background: false on it (referenced as fn "${fnId}").`,
         });
       }
-      if (overrides?.background ?? parks) {
-        const handler = ((input, hctx) =>
-          dispatchBackground(
-            host,
-            hctx,
-            routeId,
-            fnId,
-            input,
-          )) as FnOptions["handler"];
-        return {
-          description: `${description}${BACKGROUND_DESCRIPTION_SUFFIX}`,
-          input,
-          ...(tags && tags.length > 0 ? { tags: [...tags] } : {}),
-          handler,
-          [FN_BACKGROUND]: true,
-        } as FnOptions;
-      }
-      const handler = ((input, hctx) =>
-        dispatchDirect(host, hctx, routeId, input)) as FnOptions["handler"];
-      return {
-        description,
+      const fields = {
         input,
         ...(tags && tags.length > 0 ? { tags: [...tags] } : {}),
-        handler,
-      } as FnOptions;
+      };
+      if (overrides?.background ?? parks) {
+        const background: RegisteredFn = {
+          ...fields,
+          description: `${description}${BACKGROUND_DESCRIPTION_SUFFIX}`,
+          handler: (body: TIn, hctx: FnHandlerContext) =>
+            dispatchBackground(host, hctx, routeId, fnId, body),
+        };
+        return Object.assign(background, { [FN_BACKGROUND]: true });
+      }
+      return {
+        ...fields,
+        description,
+        handler: (body: TIn, hctx: FnHandlerContext) =>
+          dispatchDirect(host, hctx, routeId, body),
+      };
     },
   };
 }
@@ -290,26 +281,17 @@ async function dispatchBackground<TIn>(
     [AgentHeadersKeys.BACKGROUND_HANDLE]: handle,
     [AgentHeadersKeys.BACKGROUND_SESSION]: key,
   } as ExchangeHeaders;
-  // The settlement writes the session record, and that write can fail
-  // (a store outage, a compare-and-swap that never wins); a failure here
-  // is logged, because the model is waiting on a result that is now lost
-  // and nothing else will say so.
-  const report = (work: Promise<unknown>): void => {
-    work.catch((err: unknown) => {
-      host.logger.error(
-        { err, agent: session.agent, session: key, handle, tool: toolName },
-        "Background tool result could not be delivered to the session inbox",
-      );
-    });
-  };
+  const about = { agent: session.agent, session: key, handle, tool: toolName };
+  const report = (work: Promise<unknown>): void => runtime.track(work, about);
   // Deliberately not awaited: the turn continues, and the settlement is
   // the runtime's business.
   void host.deliver(routeId, input, headers).then(
     (result) => {
-      if (parkedOn(result) !== undefined) {
-        // Only the id is read: the acknowledgment carries a live resume
-        // token, and the model must never hold its own park's token.
-        report(runtime.parkBackground(key, handle, parkedOn(result)!));
+      // Only the id is read: the acknowledgment carries a live resume
+      // token, and the model must never hold its own park's token.
+      const deferralId = parkedOn(result);
+      if (deferralId !== undefined) {
+        report(runtime.parkBackground(key, handle, deferralId));
         return;
       }
       report(

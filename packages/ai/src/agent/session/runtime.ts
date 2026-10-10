@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   CONTINUATIONS,
   HeadersKeys,
+  anySignal,
   authorityOf,
   decodeCursor,
   deferredPrincipal,
@@ -32,6 +33,7 @@ import type { LlmPromptPart } from "../../llm/types.ts";
 import { dispatchIdentityFrom } from "../run.ts";
 import { assertOverridesAdvertised } from "../advertised.ts";
 import { isDownstreamDeferred } from "../downstream-deferred.ts";
+import { errorMessage, errorName } from "../error-text.ts";
 import { AGENTS } from "../port.ts";
 import { ADAPTER_AGENT_SESSIONS } from "../store.ts";
 import type { ThreadMessage } from "../deferral-state.ts";
@@ -266,6 +268,14 @@ export class AgentSessionRuntime {
   private readonly revivals = new Set<Promise<unknown>>();
   /** Set at teardown, so the boot drive starts no further revival. */
   private stopping = false;
+  /** Aborted at teardown, so a `reidentify` hook still running does not hold `stop()`. */
+  private readonly halt = new AbortController();
+  /**
+   * Background calls this process dispatched and has not yet settled. Live
+   * here even when the record says nothing has parked them, so a boot drive
+   * still walking the store does not report them lost.
+   */
+  private readonly startedHere = new Set<string>();
 
   constructor(
     private readonly host: SessionHost,
@@ -339,8 +349,8 @@ export class AgentSessionRuntime {
    * resumed run, which inherits the headers under its own id, settles
    * nothing. A continuation that parks again keeps the handle open and
    * moves the recorded deferral to the new park. An expiry carries no
-   * snapshot, so it maps back through the deferral id the park recorded
-   * on the session record.
+   * snapshot, so it reads the handle and the session off the deferral
+   * record's stored headers, which still exist when the event fires.
    */
   private listen(): void {
     this.host.observe("route:exchange:resumed", ({ details }) => {
@@ -358,33 +368,28 @@ export class AgentSessionRuntime {
       }));
     });
     this.host.observe("route:exchange:dropped", ({ details }) => {
-      this.settleResumed(details.exchangeId, details.exchange, () => ({
-        status: "failed",
-        error: {
-          name: "Dropped",
-          message: `The route dropped the exchange instead of completing it: ${details.reason}.`,
-        },
-      }));
+      this.settleResumed(details.exchangeId, details.exchange, () =>
+        droppedOutcome(details.reason),
+      );
     });
     this.host.observe("route:exchange:deferred", ({ details }) => {
       const prior = this.resumedRuns.get(details.exchangeId);
-      if (prior === undefined) return;
+      // Execution one's own terminal event: core runs the notify hook after
+      // the store write and before this event, so a fast resume can land
+      // first. A real re-park always mints a new id.
+      if (prior === undefined || prior === details.deferralId) return;
       this.resumedRuns.delete(details.exchangeId);
-      this.track(this.reparkBackground(prior, details.deferralId), {
+      this.track(this.reparkBackground(details.deferralId), {
         deferralId: prior,
         next: details.deferralId,
       });
     });
     this.host.observe("route:exchange:expired", ({ details }) => {
       this.track(
-        this.settleBackgroundByDeferral(details.deferralId, {
-          status: "failed",
-          error: {
-            rc: "RC5047",
-            name: "RoutecraftError",
-            message: `The route parked for a decision that never came: deferral "${details.deferralId}" expired at ${details.expiresAt.toISOString()}. Ask again if it is still needed.`,
-          },
-        }),
+        this.settleParked(
+          details.deferralId,
+          expiredOutcome(details.deferralId, details.expiresAt),
+        ),
         { deferralId: details.deferralId },
       );
     });
@@ -397,25 +402,53 @@ export class AgentSessionRuntime {
     outcome: () => BackgroundRunOutcome,
   ): void {
     if (!this.resumedRuns.delete(exchangeId)) return;
-    const handle = snapshot?.headers[AgentHeadersKeys.BACKGROUND_HANDLE];
-    const session = snapshot?.headers[AgentHeadersKeys.BACKGROUND_SESSION];
-    if (typeof handle !== "string" || typeof session !== "string") return;
-    this.track(this.settleBackground(session, { handle, ...outcome() }), {
-      session,
-      handle,
-    });
+    const call = snapshot && backgroundCallOf(snapshot.headers);
+    if (!call) return;
+    this.track(
+      this.settleBackground(call.session, {
+        handle: call.handle,
+        ...outcome(),
+      }),
+      call,
+    );
   }
 
   /**
-   * The settlement writes the session record, and that write can fail (a
-   * store outage, a compare-and-swap that never wins); a failure is logged,
-   * because the model is waiting on a result that is now lost and nothing
-   * else will say so.
+   * Settle the call parked on a deferral that was denied, which emits
+   * neither `resumed` nor `expired`: a redeploy that changed the route after
+   * the park (`RC5048`), an operator's cancellation. The continuation will
+   * never run, so the call fails with `RC5050` naming the reason.
+   *
+   * Registered on `route:exchange:denied`.
+   *
+   * @internal
    */
-  private track(settlement: Promise<unknown>, about: object): void {
+  settleDenied(
+    deferralId: string,
+    reason: string | undefined,
+  ): Promise<{ depth: number; running: boolean } | undefined> {
+    return this.settleParked(deferralId, deniedOutcome(deferralId, reason));
+  }
+
+  /**
+   * Observe a background settlement nobody awaits. The settlement writes the
+   * session record, and that write can fail (a store outage, a
+   * compare-and-swap that never wins); a failure is logged, because the
+   * model is waiting on a result that is now lost and nothing else will say
+   * so. The one place that line is written, whether the settlement came
+   * from the dispatch or from the bus.
+   *
+   * @param bindings What identifies the call in the log line: the session,
+   *   and the handle, tool and agent where the caller knows them.
+   * @internal
+   */
+  track(
+    settlement: Promise<unknown>,
+    bindings: Readonly<Record<string, unknown>>,
+  ): void {
     settlement.catch((err: unknown) => {
       this.host.logger.error(
-        { err, ...about },
+        { err, ...bindings },
         "Background tool result could not be delivered to the session inbox",
       );
     });
@@ -427,12 +460,22 @@ export class AgentSessionRuntime {
    */
   async stop(): Promise<void> {
     this.stopping = true;
+    this.halt.abort();
     // A caller waiting on a revival's start would otherwise sit out the
     // revival bound; woken now, it reads the latch and answers queued.
     for (const waiters of [...this.starters.values()]) {
       for (const notify of [...waiters]) notify();
     }
     await Promise.allSettled([...this.revivals]);
+  }
+
+  /**
+   * Whether a background call is lost to a restart: its route never parked,
+   * so only the process that dispatched it could settle it, and that is not
+   * this one.
+   */
+  private lostHere(call: AgentBackgroundCall): boolean {
+    return !isParked(call) && !this.startedHere.has(call.handle);
   }
 
   /** Whether this process is running a turn for the session. */
@@ -665,7 +708,7 @@ export class AgentSessionRuntime {
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
     if (running) this.postedDuring.add(key);
-    else this.deliverIdle(key, record);
+    else this.deliverIdle(key, record, "append");
     return { depth: record.inbox.length, running };
   }
 
@@ -687,10 +730,20 @@ export class AgentSessionRuntime {
     // exchange that started the call, which by then may have finished its
     // turn, or run on a process that is gone.
     const origin = turn ? identityOf(turn.exchange) : undefined;
-    const record = await this.write(key, agent, (r) => ({
-      ...r,
-      background: [...r.background, { ...call, ...(origin ? { origin } : {}) }],
-    }));
+    this.startedHere.add(call.handle);
+    let record: AgentSessionRecord;
+    try {
+      record = await this.write(key, agent, (r) => ({
+        ...r,
+        background: [
+          ...r.background,
+          { ...call, ...(origin ? { origin } : {}) },
+        ],
+      }));
+    } catch (err: unknown) {
+      this.startedHere.delete(call.handle);
+      throw err;
+    }
     if (origin) {
       this.emitAt(origin, "route:agent:session:background:started", {
         agentName: record.agent,
@@ -729,18 +782,7 @@ export class AgentSessionRuntime {
       await this.settleBackground(key, { handle, ...unlinkedParkOutcome() });
       return;
     }
-    const record = await this.store.load(key);
-    if (!record) return;
-    await this.write(key, record.agent, (r) =>
-      r.background.some((b) => b.handle === handle)
-        ? {
-            ...r,
-            background: r.background.map((b) =>
-              b.handle === handle ? { ...b, deferralId } : b,
-            ),
-          }
-        : r,
-    );
+    await this.recordPark(key, handle, deferralId);
   }
 
   /**
@@ -762,22 +804,7 @@ export class AgentSessionRuntime {
     const current = await this.store.load(key);
     const call = current?.background.find((b) => b.handle === outcome.handle);
     if (!current || !call) return undefined;
-    // The record is plain JSON, and a route may answer with anything: a
-    // result the store cannot hold is delivered as a failure naming the
-    // reason rather than refused at the write, which would leave the call
-    // in `background` for good.
-    const delivered: Pick<
-      Extract<AgentInboxMessage, { kind: "background" }>,
-      "status" | "result" | "error"
-    > = outcome.status === "completed"
-      ? encodeResult(outcome.result)
-      : {
-          status: "failed",
-          error: {
-            ...(outcome.error.rc !== undefined ? { rc: outcome.error.rc } : {}),
-            message: outcome.error.message,
-          },
-        };
+    const at = new Date().toISOString();
     let settled = false;
     const record = await this.write(key, current.agent, (r) => {
       settled = r.background.some((b) => b.handle === outcome.handle);
@@ -785,105 +812,159 @@ export class AgentSessionRuntime {
       return {
         ...r,
         background: r.background.filter((b) => b.handle !== outcome.handle),
-        inbox: [
-          ...r.inbox,
-          {
-            kind: "background",
-            id: randomUUID(),
-            at: new Date().toISOString(),
-            handle: outcome.handle,
-            tool: call.tool,
-            by: call.by,
-            ...delivered,
-          },
-        ],
+        inbox: [...r.inbox, settlementEntry(call, outcome, at)],
       };
     });
     if (!settled) return undefined;
-    if (call.origin) {
-      const started = Date.parse(call.startedAt);
-      const duration = Number.isNaN(started) ? 0 : Date.now() - started;
-      if (outcome.status === "completed") {
-        this.emitAt(call.origin, "route:agent:session:background:completed", {
-          agentName: record.agent,
-          session: key,
-          handle: outcome.handle,
-          toolName: call.tool,
-          duration,
-        });
-      } else {
-        this.emitAt(call.origin, "route:agent:session:background:failed", {
-          agentName: record.agent,
-          session: key,
-          handle: outcome.handle,
-          toolName: call.tool,
-          errorName: outcome.error.name,
-          duration,
-        });
-      }
-    }
+    this.startedHere.delete(outcome.handle);
+    this.announceSettled(key, record.agent, call, outcome);
     const running = this.isRunning(key);
     // Landing after the running turn read the inbox for its boundary and
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
     if (running) this.postedDuring.add(key);
-    else this.deliverIdle(key, record, true);
+    else this.deliverIdle(key, record, "settlement");
     return { depth: record.inbox.length, running };
   }
 
   /**
-   * Settle the background call that parked on a deferral, found by the id
-   * the park recorded. What an expiry maps through: `route:exchange:expired`
-   * carries no exchange snapshot, so the headers are not there to read. One
-   * read per session the store holds, which an expiry is rare enough to
-   * afford; a deferral no call parked on settles nothing.
+   * Settle the background call parked on a deferral, named by the handle
+   * and the session on the parked exchange's stored headers: an expiry and
+   * a denial carry no exchange snapshot, and the record still exists when
+   * either is announced. One read; a deferral whose exchange carries no
+   * handle settles nothing.
    */
-  async settleBackgroundByDeferral(
+  private async settleParked(
     deferralId: string,
     outcome: BackgroundRunOutcome,
   ): Promise<{ depth: number; running: boolean } | undefined> {
-    const parked = await this.findParked(deferralId);
-    if (!parked) return undefined;
-    return this.settleBackground(parked.key, {
+    const stored = await this.host.continuations()?.store.get(deferralId);
+    const call = stored && backgroundCallOf(stored.exchange.headers);
+    if (!call) return undefined;
+    return this.settleBackground(call.session, {
       ...outcome,
-      handle: parked.call.handle,
+      handle: call.handle,
     });
   }
 
   /**
    * Move a parked call to the deferral its continuation parked on again,
-   * so a second expiry still finds it. The same walk as an expiry's, and
-   * as rare: a continuation that parks twice is a two-stage approval.
+   * read off that deferral's stored headers, so a boot after the second
+   * park reconciles against the record that is still waiting.
    */
-  private async reparkBackground(
-    deferralId: string,
-    next: string,
-  ): Promise<void> {
-    const parked = await this.findParked(deferralId);
-    if (!parked) return;
-    await this.parkBackground(parked.key, parked.call.handle, next);
+  private async reparkBackground(next: string): Promise<void> {
+    const stored = await this.host.continuations()?.store.get(next);
+    const call = stored && backgroundCallOf(stored.exchange.headers);
+    if (!call) return;
+    await this.recordPark(call.session, call.handle, next);
   }
 
-  /** The session and call parked on a deferral, by the id the park recorded. */
-  private async findParked(
+  /** Name the deferral a call parked on beside its handle, when the call is still open. */
+  private async recordPark(
+    key: AgentSessionKey,
+    handle: string,
     deferralId: string,
-  ): Promise<{ key: AgentSessionKey; call: AgentBackgroundCall } | undefined> {
-    for (const key of await this.store.list()) {
-      const record = await this.store.load(key);
-      const call = record?.background.find((b) => b.deferralId === deferralId);
-      if (call) return { key, call };
-    }
-    return undefined;
+  ): Promise<void> {
+    const record = await this.store.load(key);
+    if (!record) return;
+    await this.write(key, record.agent, (r) =>
+      r.background.some((b) => b.handle === handle)
+        ? {
+            ...r,
+            background: r.background.map((b) =>
+              b.handle === handle ? { ...b, deferralId } : b,
+            ),
+          }
+        : r,
+    );
   }
 
   /**
-   * Drive what a previous process left: for every session with a stored
-   * continuation, report the background calls it was waiting on as lost
-   * (no process is running them) and revive the continuation so the loss
-   * reaches the model as a turn rather than waiting for a message nobody
-   * may send. A session with no continuation is left for its next message,
-   * which restores it the same way. Bounded by the index; one read per
-   * session and writes only where something was outstanding.
+   * What became of each parked call while no process was watching it, read
+   * from the deferral it parked on: still `waiting` keeps it; `resumed`
+   * settles it from the continuation's recorded outcome, or reports it lost
+   * when execution two died before recording one; `expired` fails it with
+   * `RC5047`, `denied` with `RC5050` and the stored reason; a record that is
+   * gone reports it lost. A continuation that parked again keeps it too:
+   * the new park is not named on the old record, and its own events settle
+   * the call by handle.
+   *
+   * A call whose execution two this process is running is kept, and a
+   * deferral the store cannot read right now is kept for the next boot
+   * rather than reported lost on a transient fault.
+   *
+   * @returns A verdict per handle to retire; a call absent from it is kept
+   */
+  private async reconcileParked(
+    key: AgentSessionKey,
+    calls: readonly AgentBackgroundCall[],
+  ): Promise<ReadonlyMap<string, ParkVerdict>> {
+    const verdicts = new Map<string, ParkVerdict>();
+    const store = this.host.continuations()?.store;
+    if (!store) return verdicts;
+    const running = new Set(this.resumedRuns.values());
+    for (const call of calls) {
+      const deferralId = call.deferralId;
+      if (deferralId === undefined || running.has(deferralId)) continue;
+      let parked: Deferral | undefined;
+      try {
+        parked = await store.get(deferralId);
+      } catch (err: unknown) {
+        this.host.logger.warn(
+          { err, session: key, handle: call.handle, deferralId },
+          "Parked background call could not be reconciled with its deferral; the next boot retries",
+        );
+        continue;
+      }
+      const verdict = parkVerdict(deferralId, parked);
+      if (verdict !== undefined) verdicts.set(call.handle, verdict);
+    }
+    return verdicts;
+  }
+
+  /** Announce a call a reconciliation retired with an outcome, as a live settlement would. */
+  private announceSettled(
+    key: AgentSessionKey,
+    agent: string,
+    call: AgentBackgroundCall,
+    outcome: BackgroundRunOutcome,
+  ): void {
+    if (!call.origin) return;
+    const started = Date.parse(call.startedAt);
+    const duration = Number.isNaN(started) ? 0 : Date.now() - started;
+    if (outcome.status === "completed") {
+      this.emitAt(call.origin, "route:agent:session:background:completed", {
+        agentName: agent,
+        session: key,
+        handle: call.handle,
+        toolName: call.tool,
+        duration,
+      });
+    } else {
+      this.emitAt(call.origin, "route:agent:session:background:failed", {
+        agentName: agent,
+        session: key,
+        handle: call.handle,
+        toolName: call.tool,
+        errorName: outcome.error.name,
+        duration,
+      });
+    }
+  }
+
+  /**
+   * Drive what a previous process left. Every parked call is reconciled
+   * against its deferral record ({@link reconcileParked}), so a decision,
+   * an expiry or a denial that landed while no process watched is delivered
+   * rather than waited on for ever. For every session with a stored
+   * continuation, the background calls that never parked are reported lost
+   * (no process is running them) and the continuation is revived, so the
+   * outcome reaches the model as a turn rather than waiting for a message
+   * nobody may send; a revival that carries a settlement re-identifies the
+   * parked principal first, as a live settlement does. A session with no
+   * continuation is left for its next message, which restores it the same
+   * way. Bounded by the index; one read per session, one per parked call,
+   * and writes only where something was outstanding.
    */
   async driveBoot(): Promise<{ revived: number; lostBackground: number }> {
     let revived = 0;
@@ -940,25 +1021,81 @@ export class AgentSessionRuntime {
           );
         }
       }
-      if (record?.deferral === undefined) continue;
+      if (record === undefined) continue;
+      const parked = record.background.filter(isParked);
+      const verdicts =
+        parked.length > 0 && !this.active.has(key)
+          ? await this.reconcileParked(key, parked)
+          : NO_VERDICTS;
+      const lostHere = (call: AgentBackgroundCall): boolean =>
+        this.lostHere(call);
+      const restore =
+        record.deferral !== undefined &&
+        (record.turn !== undefined || record.background.some(lostHere));
       let next = record;
-      const lost = record.background.filter(isLost).length;
-      if (record.turn !== undefined || lost > 0) {
+      let settledAtBoot = false;
+      if (verdicts.size > 0 || restore) {
+        let retired: readonly RetiredCall[] = [];
+        let lost = 0;
+        next = await this.write(key, record.agent, (r) => {
+          retired = [];
+          lost = 0;
+          // A turn that started here meanwhile owns the record, its marker
+          // and its calls included.
+          if (this.active.has(key)) return r;
+          const reconciled = retireReconciled(
+            r,
+            verdicts,
+            new Date().toISOString(),
+          );
+          retired = reconciled.retired;
+          lost = retired.filter((x) => x.verdict === "lost").length;
+          let out = reconciled.record;
+          // A session with no continuation is restored by its next turn,
+          // which emits `restored` on the exchange that runs it.
+          if (
+            out.deferral !== undefined &&
+            (out.turn !== undefined || out.background.some(lostHere))
+          ) {
+            lost += out.background.filter(lostHere).length;
+            out = restoreAfterRestart(out, lostHere);
+          }
+          return out;
+        });
         lostBackground += lost;
-        next = await this.write(key, record.agent, restoreAfterRestart);
-        this.host.logger.info(
-          { agent: record.agent, session: key, lostBackground: lost },
-          "Agent session restored at boot: its previous process is gone",
-        );
+        for (const { call, verdict } of retired) {
+          this.startedHere.delete(call.handle);
+          if (verdict !== "lost") {
+            this.announceSettled(key, next.agent, call, verdict);
+          }
+        }
+        if (lost > 0 || retired.length > 0 || restore) {
+          this.host.logger.info(
+            {
+              agent: record.agent,
+              session: key,
+              lostBackground: lost,
+              reconciled: retired.length,
+            },
+            "Agent session restored at boot: its previous process is gone",
+          );
+        }
+        settledAtBoot = retired.some((x) => x.verdict !== "lost");
       }
+      if (next.deferral === undefined) continue;
       // Read again after the awaits above: a stop that landed during them
       // must not have a revival started under it.
       if (this.stopping) break;
       if (next.inbox.length > 0) {
-        this.revive(key, next.agent, next.deferral!);
+        this.revive(
+          key,
+          next.agent,
+          next.deferral,
+          settledAtBoot ? "settlement" : "restart",
+        );
         revived += 1;
       } else if (next.background.length === 0) {
-        await this.releaseDeferral(key, next.agent, next.deferral!);
+        await this.releaseDeferral(key, next.agent, next.deferral);
       }
     }
     return { revived, lostBackground };
@@ -1238,16 +1375,42 @@ export class AgentSessionRuntime {
       let lostBackground = 0;
       let stale = false;
       let empty = false;
-      const started = await this.write(key, req.agent, (r) => {
+      let retired: readonly RetiredCall[] = [];
+      let verdicts: ReadonlyMap<string, ParkVerdict> | undefined;
+      const lostHere = (call: AgentBackgroundCall): boolean =>
+        this.lostHere(call);
+      const unreconciled: { calls: AgentBackgroundCall[] | undefined } = {
+        calls: undefined,
+      };
+      const mutate = (r: AgentSessionRecord): AgentSessionRecord => {
+        unreconciled.calls = undefined;
+        lostBackground = 0;
+        stale = false;
+        empty = false;
+        retired = [];
         let next = r;
         if (r.turn !== undefined) {
           // A marker this process did not set: the previous process died
           // mid-turn. The transcript it persisted is kept, every tool call
-          // it left open is closed as interrupted, and each background call
-          // it was waiting on is reported lost rather than silently dropped.
+          // it left open is closed as interrupted, each background call
+          // whose route never parked is reported lost rather than silently
+          // dropped, and each parked one is reconciled against its deferral,
+          // which is read outside this synchronous mutation.
+          if (verdicts === undefined && r.background.some(isParked)) {
+            unreconciled.calls = r.background.filter(isParked);
+            return r;
+          }
           stale = true;
-          lostBackground = r.background.filter(isLost).length;
-          next = restoreAfterRestart(r);
+          const reconciled = retireReconciled(
+            r,
+            verdicts ?? NO_VERDICTS,
+            new Date().toISOString(),
+          );
+          retired = reconciled.retired;
+          lostBackground =
+            reconciled.record.background.filter(lostHere).length +
+            retired.filter((x) => x.verdict === "lost").length;
+          next = restoreAfterRestart(reconciled.record, lostHere);
         }
         // Core has settled the continuation this exchange revives; the
         // record stops naming it, and a fresh one is stored at this turn's
@@ -1279,7 +1442,18 @@ export class AgentSessionRuntime {
             startedAt: new Date().toISOString(),
           },
         };
-      });
+      };
+      let started = await this.write(key, req.agent, mutate);
+      if (unreconciled.calls !== undefined) {
+        verdicts = await this.reconcileParked(key, unreconciled.calls);
+        started = await this.write(key, req.agent, mutate);
+      }
+      for (const { call, verdict } of retired) {
+        this.startedHere.delete(call.handle);
+        if (verdict !== "lost") {
+          this.announceSettled(key, started.agent, call, verdict);
+        }
+      }
       if (req.revived !== undefined) {
         this.emit(exchange, "route:agent:session:revived", {
           agentName: req.agent,
@@ -1394,7 +1568,10 @@ export class AgentSessionRuntime {
       ) {
         if (boundary.deferral !== undefined) {
           this.active.delete(k);
-          this.revive(key, req.agent, boundary.deferral, { k, req });
+          this.revive(key, req.agent, boundary.deferral, "boundary", {
+            k,
+            req,
+          });
         } else {
           this.followUpInProcess(k, req);
         }
@@ -1509,13 +1686,16 @@ export class AgentSessionRuntime {
    * store refused) is logged and the record stops naming the deferral; the
    * queued messages then run in process when a caller is waiting on them,
    * and otherwise wait for the next message.
+   *
+   * @param wake - What woke the session; a `settlement` re-identifies the
+   *   parked principal before the revival ({@link reidentify}).
    */
   private revive<T>(
     key: AgentSessionKey,
     agent: string,
     deferral: AgentSessionDeferral,
+    wake: Wake,
     fallback?: { k: string; req: AgentTurnRequest<T> },
-    reidentify = false,
   ): void {
     const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
@@ -1523,9 +1703,10 @@ export class AgentSessionRuntime {
     if (!deferralRuntime) return;
     this.reviving.add(k);
     const run = (async () => {
-      const options = reidentify
-        ? await this.reidentify(key, agent, deferral, deferralRuntime)
-        : {};
+      const options =
+        wake === "settlement"
+          ? await this.reidentify(key, agent, deferral, deferralRuntime)
+          : {};
       // Refused: the continuation stays stored for whatever wakes the
       // session next, and no turn runs in the parked identity's name.
       if (options === undefined) return;
@@ -1572,6 +1753,10 @@ export class AgentSessionRuntime {
    * identity, scopes included; anything else, including no hook at all,
    * refuses the revival. An exchange that parked without a principal is
    * revived as it always was.
+   *
+   * The hook is bounded by {@link REIDENTIFY_TIMEOUT_MS} and by the runtime
+   * stopping, and is handed the signal that carries both so it can cancel
+   * its own I/O; whichever fires first refuses the revival.
    *
    * A refusal is logged and announced on `route:agent:session:revival:refused`
    * with its reason, and leaves the continuation stored: the settlement is
@@ -1622,11 +1807,23 @@ export class AgentSessionRuntime {
         "no reidentify hook is registered; agentPlugin({ reidentify }) re-verifies the parked identity from live state",
       );
     }
+    // Bounded: an unsettled hook would hold the session in `reviving`,
+    // refusing every later wake of it, and hold `stop()` with it.
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), REIDENTIFY_TIMEOUT_MS);
+    const signal = anySignal(this.halt.signal, deadline.signal);
     let live: Principal | undefined;
     try {
-      live = await hook(parked);
+      live = await settleOrAbort(() => hook(parked, { signal }), signal);
     } catch (err: unknown) {
-      return refuse("the reidentify hook threw", err);
+      if (err !== HOOK_ABORTED) return refuse("the reidentify hook threw", err);
+      return refuse(
+        this.halt.signal.aborted
+          ? "the reidentify hook had not settled when the runtime stopped"
+          : `the reidentify hook did not settle within ${REIDENTIFY_TIMEOUT_MS}ms`,
+      );
+    } finally {
+      clearTimeout(timer);
     }
     if (live === undefined) return refuse("the reidentify hook declined");
     const deviation = reidentificationDeviation(parked, live, authority);
@@ -1642,13 +1839,13 @@ export class AgentSessionRuntime {
    * otherwise the turn is started in process on the last request this
    * process ran for the session, as a boundary without a deferral would.
    *
-   * `reidentify` is set by a background settlement, which is the one wake
-   * that happens on somebody else's decision; see {@link reidentify}.
+   * A `settlement` wake is the one that happens on somebody else's
+   * decision; see {@link reidentify}.
    */
   private deliverIdle(
     key: AgentSessionKey,
     record: AgentSessionRecord,
-    reidentify = false,
+    wake: "append" | "settlement",
   ): void {
     // Once shutdown began the append stays in the record for the next
     // process: a turn started now would run on a context being drained.
@@ -1660,8 +1857,8 @@ export class AgentSessionRuntime {
         key,
         record.agent,
         record.deferral,
+        wake,
         last ? { k, req: last } : undefined,
-        reidentify,
       );
     } else if (record.inbox.length > 0 && last && !this.active.has(k)) {
       this.followUpInProcess(k, last);
@@ -1800,7 +1997,12 @@ function unlinkedParkOutcome(): BackgroundRunOutcome {
   };
 }
 
-/** A failed run's error, as the inbox carries it. @internal */
+/**
+ * A failed run's error, as the inbox carries it: the same text the tool
+ * bridge renders for a foreground tool that threw.
+ *
+ * @internal
+ */
 export function errorOf(err: unknown): {
   readonly rc?: string;
   readonly message: string;
@@ -1809,14 +2011,203 @@ export function errorOf(err: unknown): {
   const rc = rcCodeOf(err);
   return {
     ...(rc !== undefined ? { rc } : {}),
-    message: err instanceof Error ? err.message : String(err),
-    name: err instanceof Error ? err.name || "Error" : typeof err,
+    message: errorMessage(err),
+    name: errorName(err),
   };
 }
 
-/** A background call a restart loses: one whose route has not parked. */
-function isLost(call: AgentBackgroundCall): boolean {
-  return call.deferralId === undefined;
+/** A background call whose route parked, so a restart reconciles it rather than losing it. */
+function isParked(call: AgentBackgroundCall): boolean {
+  return call.deferralId !== undefined;
+}
+
+/** The handle and session a background dispatch put on its exchange, when it carries both. */
+function backgroundCallOf(
+  headers: Readonly<Record<string, unknown>>,
+): { readonly session: string; readonly handle: string } | undefined {
+  const handle = headers[AgentHeadersKeys.BACKGROUND_HANDLE];
+  const session = headers[AgentHeadersKeys.BACKGROUND_SESSION];
+  return typeof handle === "string" && typeof session === "string"
+    ? { session, handle }
+    : undefined;
+}
+
+/** The failure a park that expired before its decision delivers. */
+function expiredOutcome(
+  deferralId: string,
+  expiresAt: Date,
+): BackgroundRunOutcome {
+  return {
+    status: "failed",
+    error: {
+      rc: "RC5047",
+      name: "RoutecraftError",
+      message: `The route parked for a decision that never came: deferral "${deferralId}" expired at ${expiresAt.toISOString()}. Ask again if it is still needed.`,
+    },
+  };
+}
+
+/** The failure a park that was denied delivers: its continuation will never run. */
+function deniedOutcome(
+  deferralId: string,
+  reason: string | undefined,
+): BackgroundRunOutcome {
+  return {
+    status: "failed",
+    error: {
+      rc: "RC5050",
+      name: "RoutecraftError",
+      message: `The route parked, and its deferral "${deferralId}" was denied${reason ? `: ${reason}` : ""}. Its continuation will not run; start it again if it is still needed.`,
+    },
+  };
+}
+
+/** The failure a run the route dropped delivers. */
+function droppedOutcome(reason: string): BackgroundRunOutcome {
+  return {
+    status: "failed",
+    error: {
+      name: "Dropped",
+      message: `The route dropped the exchange instead of completing it: ${reason}.`,
+    },
+  };
+}
+
+/**
+ * What a reconciliation does with a parked call: settle it with an outcome,
+ * or report it lost the way a call that never parked is.
+ */
+type ParkVerdict = BackgroundRunOutcome | "lost";
+
+const NO_VERDICTS: ReadonlyMap<string, ParkVerdict> = new Map();
+
+/** A call a reconciliation took off the record, and what it was retired with. */
+interface RetiredCall {
+  readonly call: AgentBackgroundCall;
+  readonly verdict: ParkVerdict;
+}
+
+/**
+ * The verdict a deferral record gives the call parked on it, or `undefined`
+ * to keep waiting. See {@link AgentSessionRuntime.reconcileParked}.
+ */
+function parkVerdict(
+  deferralId: string,
+  parked: Deferral | undefined,
+): ParkVerdict | undefined {
+  if (parked === undefined) return "lost";
+  const outcome = parked.outcome;
+  if (parked.state === "waiting" || outcome === undefined) return undefined;
+  if (outcome.kind === "expired") {
+    return expiredOutcome(deferralId, parked.expiresAt ?? outcome.at);
+  }
+  if (outcome.kind === "denied")
+    return deniedOutcome(deferralId, outcome.reason);
+  const run = parked.continuation;
+  // Resumed, and execution two died before recording how it ended.
+  if (run === undefined) return "lost";
+  switch (run.status) {
+    case "completed":
+      return outcomeOfResult(run.body);
+    case "failed":
+      return {
+        status: "failed",
+        error: {
+          ...(run.error?.rc !== undefined ? { rc: run.error.rc } : {}),
+          name: run.error?.rc !== undefined ? "RoutecraftError" : "Error",
+          message: run.error?.message ?? "the continuation failed",
+        },
+      };
+    case "dropped":
+      return droppedOutcome(run.reason ?? "dropped by the route");
+    case "deferred":
+      return undefined;
+  }
+}
+
+/** The inbox entry that delivers a background call's outcome. */
+function settlementEntry(
+  call: AgentBackgroundCall,
+  outcome: BackgroundRunOutcome,
+  at: string,
+): AgentInboxMessage {
+  // The record is plain JSON, and a route may answer with anything: a
+  // result the store cannot hold is delivered as a failure naming the
+  // reason rather than refused at the write, which would leave the call
+  // in `background` for good.
+  const delivered: Pick<
+    Extract<AgentInboxMessage, { kind: "background" }>,
+    "status" | "result" | "error"
+  > = outcome.status === "completed"
+    ? encodeResult(outcome.result)
+    : {
+        status: "failed",
+        error: {
+          ...(outcome.error.rc !== undefined ? { rc: outcome.error.rc } : {}),
+          message: outcome.error.message,
+        },
+      };
+  return {
+    kind: "background",
+    id: randomUUID(),
+    at,
+    handle: call.handle,
+    tool: call.tool,
+    by: call.by,
+    ...delivered,
+  };
+}
+
+/** The inbox entry that reports a background call no process is running any more. */
+function lostEntry(call: AgentBackgroundCall, at: string): AgentInboxMessage {
+  return {
+    kind: "background",
+    id: randomUUID(),
+    handle: call.handle,
+    tool: call.tool,
+    by: call.by,
+    status: "failed",
+    error: {
+      message: `The run was lost: the process restarted before it finished (started ${call.startedAt}). Start it again if it is still needed.`,
+    },
+    at,
+  };
+}
+
+/**
+ * Retire every call a verdict names, delivering each outcome to the inbox
+ * in the same write. A call the record no longer holds was settled live
+ * meanwhile, and is not delivered twice.
+ */
+function retireReconciled(
+  record: AgentSessionRecord,
+  verdicts: ReadonlyMap<string, ParkVerdict>,
+  at: string,
+): { record: AgentSessionRecord; retired: readonly RetiredCall[] } {
+  if (verdicts.size === 0) return { record, retired: [] };
+  const retired: RetiredCall[] = [];
+  const kept: AgentBackgroundCall[] = [];
+  for (const call of record.background) {
+    const verdict = verdicts.get(call.handle);
+    if (verdict === undefined) kept.push(call);
+    else retired.push({ call, verdict });
+  }
+  if (retired.length === 0) return { record, retired };
+  return {
+    record: {
+      ...record,
+      background: kept,
+      inbox: [
+        ...record.inbox,
+        ...retired.map(({ call, verdict }) =>
+          verdict === "lost"
+            ? lostEntry(call, at)
+            : settlementEntry(call, verdict, at),
+        ),
+      ],
+    },
+    retired,
+  };
 }
 
 type SessionEventName =
@@ -1878,6 +2269,50 @@ function withoutDeferring(record: AgentSessionRecord): AgentSessionRecord {
 }
 
 /**
+ * How long a `reidentify` hook may take before the revival it gates is
+ * refused. Generous for a directory lookup, and still a bound: the session
+ * cannot be woken while the hook runs.
+ *
+ * @internal
+ */
+export const REIDENTIFY_TIMEOUT_MS = 30_000;
+
+/**
+ * What woke a stored continuation: a message appended to an idle session,
+ * a background settlement, the boundary of a turn that ran here, or a boot
+ * driving what a previous process left. Only a settlement is somebody
+ * else's decision, so only a settlement re-identifies the parked principal.
+ */
+type Wake = "append" | "settlement" | "boundary" | "restart";
+
+/** What {@link settleOrAbort} rejects with when the signal wins, so an abort is never read as a throw. */
+const HOOK_ABORTED: unique symbol = Symbol("routecraft.ai.reidentify.aborted");
+
+/**
+ * Run an application hook bounded by a signal: core's race for `elevate`,
+ * which it does not export. The listener is removed on every path, and the
+ * hook is invoked inside the race so a synchronous throw rejects it.
+ *
+ * @throws {@link HOOK_ABORTED} when the signal fires first
+ */
+async function settleOrAbort<T>(
+  run: () => T | Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) throw HOOK_ABORTED;
+  let onAbort: (() => void) | undefined;
+  const bound = new Promise<never>((_, reject) => {
+    onAbort = () => reject(HOOK_ABORTED);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([bound, (async () => run())()]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/**
  * How long a caller waiting on a queued message gives the boundary's
  * revival to reach this runtime before starting the turn itself.
  */
@@ -1925,28 +2360,20 @@ function encodeResult(
  * What a record cut short by a restart becomes at the next turn start.
  * See {@link AgentSessionRuntime.execute}.
  */
-function restoreAfterRestart(record: AgentSessionRecord): AgentSessionRecord {
+function restoreAfterRestart(
+  record: AgentSessionRecord,
+  isLost: (call: AgentBackgroundCall) => boolean,
+): AgentSessionRecord {
   const at = new Date().toISOString();
-  // A parked call is kept: the park is durable, and its decision, or its
-  // expiry, settles it on this process as it would have on the last one.
-  const lost: AgentInboxMessage[] = record.background
-    .filter(isLost)
-    .map((call) => ({
-      kind: "background",
-      id: randomUUID(),
-      handle: call.handle,
-      tool: call.tool,
-      by: call.by,
-      status: "failed",
-      error: {
-        message: `The run was lost: the process restarted before it finished (started ${call.startedAt}). Start it again if it is still needed.`,
-      },
-      at,
-    }));
+  // A parked call is kept here: the park is durable, and it was reconciled
+  // against its deferral before this runs.
   return {
     ...withoutTurn(record),
     messages: closeUnansweredToolCalls(record.messages),
-    inbox: [...record.inbox, ...lost],
+    inbox: [
+      ...record.inbox,
+      ...record.background.filter(isLost).map((call) => lostEntry(call, at)),
+    ],
     background: record.background.filter((call) => !isLost(call)),
   };
 }

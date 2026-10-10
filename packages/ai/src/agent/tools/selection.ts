@@ -14,6 +14,7 @@ import {
   resolveFnOptions,
   toolHostOf,
   type FnEntry,
+  type RegisteredFn,
 } from "./types.ts";
 import {
   describeToolNameViolation,
@@ -126,14 +127,23 @@ export type { ToolGuard } from "../../fn/types.ts";
  *   `directTool(routeId, { background })` is; the tool keeps the
  *   `direct__<routeId>` name either way. A route that can park is
  *   background without it, and `false` on such a route is refused.
+ *   The type admits `background` on a `Direct(...)` name only; a caller
+ *   that builds the item from an untyped value meets the same rule as an
+ *   `RC5003` at the first dispatch.
  */
 export type ToolsItem =
   | string
   | {
-      name: string;
+      name: `Direct(${string})`;
       guard?: ToolGuard;
       description?: string;
       background?: boolean;
+    }
+  | {
+      name: string;
+      guard?: ToolGuard;
+      description?: string;
+      background?: never;
     };
 
 /**
@@ -796,12 +806,17 @@ function declaredFn(
   ctx: CraftContext,
   name: string,
   entry: FnEntry,
-): FnOptions {
+): RegisteredFn {
   // Resolved once at start for every registered deferred function; a
   // dispatch before that (a context never started) resolves for itself.
   return (
     ctx.lookup(AGENTS)?.resolvedFunction(name) ??
-    resolveFnOptions(toolHostOf(ctx), name, entry, new Map<string, FnOptions>())
+    resolveFnOptions(
+      toolHostOf(ctx),
+      name,
+      entry,
+      new Map<string, RegisteredFn>(),
+    )
   );
 }
 
@@ -843,20 +858,27 @@ function resolveFnEntry(
   return toResolvedTool(name, entry, guard, { kind: "fn", id: name });
 }
 
+/**
+ * Turn a registered fn into a tool the bridge can call: the one place the
+ * erased handler becomes callable with `unknown`. Sound because the bridge
+ * validates the model's input against `fn.input` before every call, and
+ * `fn.input` is the schema whose output typed that handler; the input the
+ * handler receives is therefore exactly what it was written for.
+ */
 function toResolvedTool(
   name: string,
-  fn: FnOptions,
+  fn: RegisteredFn,
   guard: ToolGuard | undefined,
   source: AgentToolSource,
 ): ResolvedTool {
   return {
     name,
     description: fn.description,
-    input: fn.input as StandardSchemaV1<unknown, unknown>,
+    input: fn.input,
     ...(fn.tags && fn.tags.length > 0 ? { tags: fn.tags } : {}),
     ...(guard ? { guard } : {}),
     source,
-    handler: fn.handler as FnOptions["handler"],
+    handler: fn.handler as ResolvedTool["handler"],
     ...(isBackgroundFn(fn) ? { background: true as const } : {}),
   };
 }

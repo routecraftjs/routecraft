@@ -193,8 +193,12 @@ declare module "@routecraft/routecraft" {
     };
     /**
      * A turn started on a session whose previous turn was cut short by a
-     * restart: its partial transcript was kept, its inbox was intact, and
-     * every background call it was waiting on was reported lost.
+     * restart: its partial transcript was kept and its inbox was intact.
+     * A background call whose route never parked was reported lost; a
+     * parked call was reconciled against its deferral record, kept while
+     * that record is still waiting and settled from the outcome it
+     * recorded otherwise. `lostBackground` counts the calls reported lost,
+     * including a parked call whose execution two died unrecorded.
      */
     "route:agent:session:restored": ExchangeScoped & {
       agentName: string;
