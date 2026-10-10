@@ -1,8 +1,10 @@
 import { describe, expectTypeOf, test } from "bun:test";
 import { z } from "zod";
-import { craft, simple } from "@routecraft/routecraft";
+import { craft, mail, simple } from "@routecraft/routecraft";
 import { agent } from "../src/agent/agent.ts";
 import { embedding } from "../src/embedding/embedding.ts";
+import type { EmbeddingResult } from "../src/embedding/types.ts";
+import type { AgentResult } from "../src/agent/types.ts";
 import { llm } from "../src/llm/llm.ts";
 import type {
   LlmPromptPart,
@@ -11,6 +13,7 @@ import type {
 } from "../src/llm/types.ts";
 import type { UserContent } from "ai";
 import type { Enricher } from "@routecraft/routecraft";
+import { expectBodyOf } from "../../routecraft/test/helpers/types.ts";
 
 /**
  * Type-level tests: llm() return type narrows when an `output` schema is provided.
@@ -92,6 +95,65 @@ describe("LLM adapter type safety", () => {
       .enrich(
         embedding<Body>("openai:text-embedding-3-small", {
           using: (exchange) => exchange.body.content,
+        }),
+      );
+  });
+
+  /**
+   * @case A route input type flows into AI callbacks through `.to()` without generics
+   * @preconditions `.input({ body })` precedes `.to(llm())`, `.to(agent())` and `.to(embedding())` with no type arguments
+   * @expectedResult Each callback reads the declared body fields without a cast, and the result replaces the body (#694)
+   */
+  test("route input type flows into to() callbacks without generics", () => {
+    const body = z.object({ content: z.string(), text: z.string() });
+    const source = simple({ content: "hello", text: "hello" });
+
+    const viaLlm = craft()
+      .input({ body })
+      .from(source)
+      .to(
+        llm("ollama:my-model", {
+          user: (exchange) => exchange.body.content,
+        }),
+      );
+    expectBodyOf(viaLlm).toEqualTypeOf<LlmResult>();
+
+    const viaAgent = craft()
+      .input({ body })
+      .from(source)
+      .to(
+        agent({
+          model: "ollama:my-model",
+          system: (exchange) => `Summarise ${exchange.body.text}`,
+          user: (exchange) => exchange.body.content,
+        }),
+      );
+    expectBodyOf(viaAgent).toEqualTypeOf<AgentResult>();
+
+    const viaEmbedding = craft()
+      .input({ body })
+      .from(source)
+      .to(
+        embedding("openai:text-embedding-3-small", {
+          using: (exchange) => exchange.body.content,
+        }),
+      );
+    expectBodyOf(viaEmbedding).toEqualTypeOf<EmbeddingResult>();
+  });
+
+  /**
+   * @case A typed source body flows into an agent callback through `.to()`
+   * @preconditions `.from(mail(...))` precedes `.to(agent({ user: (ex) => ex.body.text }))` with no type argument
+   * @expectedResult The callback reads the mail body's `text` field without a cast
+   */
+  test("a mail source body flows into to(agent()) without generics", () => {
+    craft()
+      .from(mail("INBOX", { unseen: true }))
+      .to(
+        agent({
+          model: "ollama:my-model",
+          system: "triage",
+          user: (exchange) => exchange.body.text ?? "",
         }),
       );
   });

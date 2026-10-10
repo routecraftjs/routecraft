@@ -696,14 +696,22 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * follow their inferred return type: `(ex) => void` is a send,
    * `(ex) => R` replaces the body with `R`.
    *
+   * The Enricher overload comes before the Destination one on purpose: a
+   * generic factory such as `llm(..., { user: (ex) => ... })` infers its
+   * body type from the contextual type of the first overload tried, and
+   * its callback parameters are fixed on that attempt, so `Destination`
+   * first would leave every pull-in callback at `Exchange<unknown>`. The
+   * `send?: never` member keeps dual-role adapters out of this overload so
+   * they still resolve as a send.
+   *
    * @param target - Destination, Enricher, or callable
    * @returns The subclass builder re-typed to the step's output body
    * @template R - Fetched result body type for pull-in targets
    */
-  to(destination: Destination<S["body"]>): Retyped<this, S>;
   to<R>(
-    enricher: Enricher<S["body"], R>,
+    enricher: Enricher<S["body"], R> & { send?: never },
   ): Retyped<this, SetBody<S, FetchedBody<S["body"], R>>>;
+  to(destination: Destination<S["body"]>): Retyped<this, S>;
   to<R = void>(
     fn: (exchange: ExchangeOf<S>, ctx?: SendContext) => Promise<R> | R,
   ): Retyped<this, SetBody<S, R extends void ? S["body"] : R>>;

@@ -141,7 +141,7 @@ craft()
   .id('max')
   .input({ body: MaxMessage })
   .from(direct())
-  .to(agent<MaxMessage>('max', {
+  .to(agent('max', {
     session: (ex) => ex.body.session,
     interrupt: (ex) => ex.body.interrupt === true,
   }))

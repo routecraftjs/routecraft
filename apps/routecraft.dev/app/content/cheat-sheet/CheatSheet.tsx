@@ -422,8 +422,7 @@ craft()
   .id('text-in')
   .input({ body: z.object({ text: z.string() }) })
   .from(direct())
-  // explicit body type at .to() until #694
-  .to(llm<undefined, { text: string }>('anthropic:claude-sonnet-4-6', {
+  .to(llm('anthropic:claude-sonnet-4-6', {
     system: 'Summarize concisely',
     user: ex => ex.body.text,
     temperature: 0.2,
@@ -452,8 +451,7 @@ craft()
   .id('assistant')
   .input({ body: z.object({ message: z.string() }) })
   .from(direct())
-  // explicit body type at .to() until #694
-  .to(agent<{ message: string }>({
+  .to(agent({
     model: 'anthropic:claude-sonnet-4-6',
     system: 'You are a helpful assistant.',
     user: ex => ex.body.message,

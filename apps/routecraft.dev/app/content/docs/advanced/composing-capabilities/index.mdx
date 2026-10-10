@@ -98,11 +98,8 @@ export default craft()
   .id('route-job')
   .input({ body: z.object({ priority: z.enum(['high', 'normal']) }) })
   .from(http({ path: '/jobs', method: 'POST' }))
-  // TypeScript cannot infer the body type here yet, so it is given explicitly
-  .to(direct<{ priority: string }, unknown>((exchange) => `jobs-${exchange.body.priority}`))
+  .to(direct((exchange) => `jobs-${exchange.body.priority}`))
 ```
-
-The explicit type arguments on `direct()` work around an open issue with its overloads ([#726](https://github.com/routecraftjs/routecraft/issues/726)).
 
 ```ts skip="fragment: processUrgent is illustrative"
 // capabilities/jobs-high/route.ts
