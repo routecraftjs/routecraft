@@ -1023,7 +1023,7 @@ export class DefaultRoute implements Route {
   trackTask(promise: Promise<unknown>): void {
     const handledPromise = promise.catch((err: unknown) => {
       const msg = isRoutecraftError(err)
-        ? (err as { meta: { message: string } }).meta.message
+        ? err.meta.message
         : err instanceof Error
           ? err.message
           : "Background task failed";

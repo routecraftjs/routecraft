@@ -1,3 +1,4 @@
+import { rcCodeOf } from "../../brand.ts";
 /**
  * How a source adapter handles a parse failure on an individual item.
  *
@@ -76,9 +77,5 @@ export const PARSE_DROPPED_REASON = "parse-failed";
  * Mirrors the `isMailParseError` helper in the mail adapter.
  */
 export function isParseError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { rc?: unknown }).rc === "RC5016"
-  );
+  return rcCodeOf(err) === "RC5016";
 }

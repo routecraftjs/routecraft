@@ -147,7 +147,7 @@ type McpToolCallResult = {
  */
 function toolErrorLogMessage(error: unknown): string {
   return isRoutecraftError(error)
-    ? (error as unknown as { meta: { message: string } }).meta.message
+    ? error.meta.message
     : error instanceof Error
       ? error.message
       : String(error);
@@ -487,7 +487,7 @@ export class McpServer {
       this.logExposedToolsOnce();
     } catch (error) {
       const msg = isRoutecraftError(error)
-        ? (error as unknown as { meta: { message: string } }).meta.message
+        ? error.meta.message
         : error instanceof Error
           ? error.message
           : "Failed to start MCP server";
@@ -1080,7 +1080,7 @@ export class McpServer {
       this.host.logger.info({}, "MCP server stopped");
     } catch (error) {
       const msg = isRoutecraftError(error)
-        ? (error as unknown as { meta: { message: string } }).meta.message
+        ? error.meta.message
         : error instanceof Error
           ? error.message
           : "Error stopping MCP server";

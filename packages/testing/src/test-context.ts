@@ -142,11 +142,7 @@ export class TestContext {
         ? DEFAULT_ROUTES_READY_TIMEOUT_MS
         : parseDuration(options.routesReadyTimeout, "routesReadyTimeout");
     const pushError = (err: unknown) => {
-      this.errors.push(
-        isRoutecraftError(err)
-          ? (err as RoutecraftError)
-          : rcError("RC9901", err),
-      );
+      this.errors.push(isRoutecraftError(err) ? err : rcError("RC9901", err));
     };
     ctx.on("context:error", (payload) => {
       pushError(payload.details.error);

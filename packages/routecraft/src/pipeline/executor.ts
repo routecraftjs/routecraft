@@ -25,8 +25,7 @@ import { DeferralHeaders } from "../kernel/continuation/exchange-state.ts";
 import { insufficientAuthorityOf } from "../authorization-refusal.ts";
 import { parseDuration } from "../shared/duration.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
-import { rcError, RoutecraftError } from "../error.ts";
-import { isRoutecraftError } from "../brand.ts";
+import { processError, rcError, type RoutecraftError } from "../error.ts";
 import {
   type Adapter,
   type Step,
@@ -1729,20 +1728,4 @@ function buildPerAttemptSegmentStep(
       return segmentResultToOutcome(result);
     },
   };
-}
-
-/**
- * Normalize an operation error into a RoutecraftError.
- * If the error is already a RoutecraftError, it is returned unchanged.
- *
- * @param error - The thrown value (Error or RoutecraftError)
- * @returns A RoutecraftError (existing or RC5001-wrapped)
- * @private
- */
-export function processError(error: unknown): RoutecraftError {
-  if (isRoutecraftError(error)) {
-    return error as RoutecraftError;
-  }
-  const msg = error instanceof Error ? error.message : String(error);
-  return rcError("RC5001", error, { message: msg });
 }

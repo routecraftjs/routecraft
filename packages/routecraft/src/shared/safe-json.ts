@@ -77,14 +77,14 @@ export function safeStringify(
         // are the same guards `logger.ts` already discriminates these three
         // types with, so the two readers cannot disagree about what an
         // exchange looks like.
-        if (isExchange(val)) return { exchangeId: (val as { id: string }).id };
+        if (isExchange(val)) return { exchangeId: val.id };
         if (isRoute(val)) {
           return {
-            routeId: (val as { definition: { id: string } }).definition.id,
+            routeId: val.definition.id,
           };
         }
         if (isCraftContext(val)) {
-          return { contextId: (val as { contextId: string }).contextId };
+          return { contextId: val.contextId };
         }
         if (val !== null && typeof val === "object") {
           if (ancestors.includes(val)) return "[Circular]";

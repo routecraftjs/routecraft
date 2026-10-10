@@ -170,8 +170,7 @@ Prefer structural matchers over regex. Routecraft errors carry stable `rc` codes
 ```ts
 expect(rcError).toMatchObject({ rc: "RC5003" });
 // or
-expect(isRoutecraftError(err)).toBe(true);
-expect((err as RoutecraftError).rc).toBe("RC5003");
+expect(rcCodeOf(err)).toBe("RC5003");
 ```
 
 When asserting on the error message, use a tight regex anchored to the actionable phrase, not the full sentence (which is more likely to be reworded).

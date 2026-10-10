@@ -1,5 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, expectTypeOf, test } from "bun:test";
 import {
+  type AnyRouteBuilder,
+  type CraftContext,
+  type Exchange,
+  type Route,
+  type RouteDefinition,
+  type Project,
+  type RoutecraftError,
   craft,
   simple,
   isCraftContext,
@@ -8,6 +15,8 @@ import {
   isRouteDefinition,
   isRoutecraftError,
   isExchange,
+  isProject,
+  rcCodeOf,
   rcError,
 } from "@routecraft/routecraft";
 import { testContext } from "@routecraft/testing";
@@ -120,5 +129,43 @@ describe("Brand type guards (cross-instance identity)", () => {
     expect(isExchange(captured)).toBe(true);
     expect(isExchange({})).toBe(false);
     await t.stop();
+  });
+
+  /**
+   * @case The guards narrow, so a caller reads the branded fields without a cast
+   * @preconditions A RoutecraftError built by rcError, checked through isRoutecraftError
+   * @expectedResult `rc` and `meta.message` are readable on the narrowed value, and
+   *   rcCodeOf agrees with the field it reads
+   */
+  test("isRoutecraftError narrows to RoutecraftError", () => {
+    const err: unknown = rcError("RC5001", undefined, { message: "boom" });
+    if (!isRoutecraftError(err)) throw new Error("expected a RoutecraftError");
+    expect(err.rc).toBe("RC5001");
+    expect(err.meta.message).toBe("boom");
+    expect(rcCodeOf(err)).toBe(err.rc);
+  });
+
+  /**
+   * @case Each guard narrows its argument to the type its brand stands for
+   * @preconditions An `unknown` value checked by each of the seven guards in turn
+   * @expectedResult The true branch is typed as the branded class or contract, so a
+   *   caller reads its fields without a cast; a regression to `boolean` fails to compile
+   */
+  test("the guards narrow to their branded types", () => {
+    const value: unknown = undefined;
+    if (isCraftContext(value))
+      expectTypeOf(value).toEqualTypeOf<CraftContext>();
+    if (isRoute(value)) expectTypeOf(value).toEqualTypeOf<Route>();
+    if (isRouteBuilder(value))
+      expectTypeOf(value).toEqualTypeOf<AnyRouteBuilder>();
+    if (isRouteDefinition(value)) {
+      expectTypeOf(value).toEqualTypeOf<RouteDefinition>();
+    }
+    if (isRoutecraftError(value)) {
+      expectTypeOf(value).toEqualTypeOf<RoutecraftError>();
+    }
+    if (isExchange(value)) expectTypeOf(value).toEqualTypeOf<Exchange>();
+    if (isProject(value)) expectTypeOf(value).toEqualTypeOf<Project<unknown>>();
+    expect(isExchange(value)).toBe(false);
   });
 });

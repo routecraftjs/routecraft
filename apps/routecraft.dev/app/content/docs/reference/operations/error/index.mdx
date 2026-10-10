@@ -46,12 +46,12 @@ craft()
   .process(mightFail)
   .to(destination)
 
-// Rethrow critical errors to context level
+// Rethrow errors a retry cannot heal to context level
 craft()
   .id('rethrow-critical')
   .error((error) => {
-    if (error instanceof RoutecraftError && error.code === 'CRITICAL') throw error;
-    // Non-critical errors are swallowed
+    if (isRoutecraftError(error) && !error.retryable) throw error;
+    // Anything that may heal on a retry is swallowed
   })
   .from(source())
   .process(mightFail)

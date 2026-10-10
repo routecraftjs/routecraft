@@ -7,7 +7,8 @@
 
 import type { CraftContext } from "../../context.ts";
 import { port } from "../../kernel/port.ts";
-import { rcError, RoutecraftError } from "../../error.ts";
+import { isRoutecraftError } from "../../brand.ts";
+import { rcError } from "../../error.ts";
 import type { CarddavClientManager } from "./client-manager.ts";
 
 /** Default CardDAV server for iCloud Contacts. */
@@ -172,7 +173,7 @@ export function selectAddressBook(
 
 /** Map a thrown driver error (login, network) to a RoutecraftError. */
 export function throwCarddavError(error: unknown, operation: string): never {
-  if (error instanceof RoutecraftError) throw error;
+  if (isRoutecraftError(error)) throw error;
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
   const cause = error instanceof Error ? error : undefined;

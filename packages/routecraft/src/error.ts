@@ -1,4 +1,4 @@
-import { BRAND, setBrand } from "./brand.ts";
+import { BRAND, isRoutecraftError, setBrand } from "./brand.ts";
 
 /**
  * Well-known error categories used by core codes. Ecosystem packages may
@@ -1156,4 +1156,20 @@ export function getErrorMeta(rc: string): RCMeta {
  */
 export function getRegisteredErrorCodes(): ReadonlyMap<string, RCMeta> {
   return new Map(getErrorRegistry().codes);
+}
+
+/**
+ * Normalize an operation error into a RoutecraftError.
+ * If the error is already a RoutecraftError, it is returned unchanged.
+ *
+ * @param error - The thrown value (Error or RoutecraftError)
+ * @returns A RoutecraftError (existing or RC5001-wrapped)
+ * @private
+ */
+export function processError(error: unknown): RoutecraftError {
+  if (isRoutecraftError(error)) {
+    return error;
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  return rcError("RC5001", error, { message: msg });
 }

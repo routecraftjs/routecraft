@@ -48,12 +48,7 @@ By default, `retry` checks the error's `retryable` property:
 
 ```ts skip="fragment: the predicate on its own, not a statement"
 // Default retryOn logic
-(error) => {
-  if (error instanceof RoutecraftError && error.retryable === false) {
-    return false;
-  }
-  return true;
-}
+(error) => (isRoutecraftError(error) ? error.retryable !== false : true)
 ```
 
 This means:
@@ -78,7 +73,7 @@ craft()
 craft()
   .id('retry-timeout-only')
   .from(source)
-  .retry({ maxAttempts: 3, retryOn: (e) => (e as RoutecraftError).rc === 'RC5011' })
+  .retry({ maxAttempts: 3, retryOn: (e) => rcCodeOf(e) === 'RC5011' })
   .timeout(5000)
   .process(slowOp)
   .to(destination)

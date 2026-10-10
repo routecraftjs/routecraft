@@ -113,10 +113,10 @@ export function collectRoutes(defaultExport: unknown): CollectRoutesResult {
     };
   }
   if (isRouteBuilder(defaultExport)) {
-    return { ok: true, routes: [defaultExport as AnyRouteBuilder] };
+    return { ok: true, routes: [defaultExport] };
   }
   if (isRouteDefinition(defaultExport)) {
-    return { ok: true, routes: [defaultExport as RouteDefinition] };
+    return { ok: true, routes: [defaultExport] };
   }
   if (Array.isArray(defaultExport)) {
     if (
