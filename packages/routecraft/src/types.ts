@@ -628,8 +628,8 @@ export interface EventDetailsMap {
   };
   /**
    * A deferral stopped being resumable because its `ttl` elapsed. Fires
-   * when a late resume discovers it, and (once the sweeper lands) when the
-   * sweeper reaches it first. The deferred route's error channel receives
+   * when a late resume discovers it, or when the sweeper reaches it first.
+   * The deferred route's error channel receives
    * `RC5047` alongside, which is where a re-ask belongs.
    */
   "route:exchange:expired": ExchangeScoped & {

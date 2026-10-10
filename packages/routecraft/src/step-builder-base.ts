@@ -465,8 +465,9 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    *   route) and the principal's issuer and subject (with its actor chain),
    *   then a SHA-256 of
    *   `JSON.stringify(body)` (see {@link CacheOptions.key}; a bodiless
-   *   exchange needs an explicit `key`, used verbatim); no TTL;
-   *   process-wide in-memory provider.
+   *   exchange needs an explicit `key`, used verbatim); no TTL; the
+   *   application's own in-memory provider, unless a plugin replaces
+   *   `CACHE`.
    */
   cache(options: CacheOptions<S["body"]> = {}): this {
     this.pendingStepWrappers.push(

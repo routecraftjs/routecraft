@@ -36,12 +36,13 @@ import type { AcpPluginOptions } from "./types.ts";
  * });
  * ```
  *
- * The `acp` key is the first-party form and applies after `agent` in any
- * key order. As a plugin in `plugins`, **order matters, and it is
- * checked.** The plugin builds one route per agent when it applies, so it
- * has to apply after the `agentPlugin()` that registers them. A context
- * whose registry is empty at that moment fails the build with a message
- * saying so, rather than serving a protocol with nothing behind it.
+ * The `acp` key is the first-party form; `acpPlugin()` is the same thing
+ * for `plugins`. Either serves every agent the application registers,
+ * whichever order the keys or the plugins are written in: the plugin
+ * requires the {@link AGENTS} port, so every agent contribution binds
+ * before it reads the registry. An application that registers no agent at
+ * all fails the build with a message saying so, rather than serving a
+ * protocol with nothing behind it.
  *
  * Every agent the context holds is advertised to every credential holder.
  * There is no per-agent visibility rule: agents are not what carries the
