@@ -13,7 +13,7 @@ import type {
 } from "../src/llm/types.ts";
 import type { UserContent } from "ai";
 import type { Enricher } from "@routecraft/routecraft";
-import { expectBodyOf } from "../../routecraft/test/helpers/types.ts";
+import { expectBodyOf } from "./helpers/types.ts";
 
 /**
  * Type-level tests: llm() return type narrows when an `output` schema is provided.
