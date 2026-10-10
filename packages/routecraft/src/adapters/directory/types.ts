@@ -52,15 +52,17 @@ export interface DirectoryEntry {
  * be listed mid-route (a listing is a read, like the file adapter's fetch).
  * `recursive`, `includeDirs`, and the deterministic ordering behave
  * identically in either role; `chunked` is a source-only emission shape.
+ *
+ * @template T - Body type of the exchange a dynamic `path` resolves against
  */
-export interface DirectoryOptions {
+export interface DirectoryOptions<T = unknown> {
   /**
    * Directory to scan: a path string, or a function that returns one.
    * The source role requires a static string (a source is not per-exchange);
    * the enricher role also accepts the function form, which receives the
    * exchange when the scan runs.
    */
-  path: string | ((exchange: Exchange) => string);
+  path: string | ((exchange: Exchange<T>) => string);
   /**
    * Descend into subdirectories. When false, only the immediate children of
    * `path` are emitted. Default: false.

@@ -20,13 +20,13 @@ import { scanDirectory } from "./scan.ts";
  * `recursive`, `includeDirs`, symlink handling, and the deterministic sort
  * order are identical to the source: both delegate to {@link scanDirectory}.
  */
-export class DirectoryEnricherAdapter implements Enricher<
-  unknown,
+export class DirectoryEnricherAdapter<T = unknown> implements Enricher<
+  T,
   DirectoryEntry[]
 > {
   readonly adapterId = "routecraft.adapter.directory";
 
-  constructor(private readonly options: DirectoryOptions) {}
+  constructor(private readonly options: DirectoryOptions<T>) {}
 
   /**
    * Fetch implementation: scan the resolved path and return the sorted
@@ -34,10 +34,7 @@ export class DirectoryEnricherAdapter implements Enricher<
    * found`, `not a directory`, `permission denied`), matching the source's
    * error mapping.
    */
-  fetch: CallableEnricher<unknown, DirectoryEntry[]> = async (
-    exchange,
-    ctx,
-  ) => {
+  fetch: CallableEnricher<T, DirectoryEntry[]> = async (exchange, ctx) => {
     const { path: dir, recursive = false, includeDirs = false } = this.options;
 
     // Resolve the path (static or dynamic).

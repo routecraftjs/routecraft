@@ -1,12 +1,15 @@
 import type { Exchange } from "../../exchange.ts";
 
-export interface FileOptions {
+/**
+ * @template T - Body type of the exchange a dynamic `path` resolves against
+ */
+export interface FileOptions<T = unknown> {
   /**
    * File path string or function that returns the path.
    * The function form receives the exchange (send/fetch roles only; the
    * source role needs a static string because no exchange exists yet).
    */
-  path: string | ((exchange: Exchange) => string);
+  path: string | ((exchange: Exchange<T>) => string);
   /**
    * Text encoding. Default: 'utf-8'
    */

@@ -10,13 +10,13 @@ import { throwFileError } from "../shared/fs-errors.ts";
  * (function) paths are supported because the exchange is available when the
  * read runs.
  */
-export class FileEnricherAdapter implements Enricher<unknown, string> {
+export class FileEnricherAdapter<T = unknown> implements Enricher<T, string> {
   readonly adapterId = "routecraft.adapter.file";
 
-  constructor(private readonly options: FileOptions) {}
+  constructor(private readonly options: FileOptions<T>) {}
 
   /** Fetch implementation: read the resolved path and return the content. */
-  fetch: CallableEnricher<unknown, string> = async (exchange) => {
+  fetch: CallableEnricher<T, string> = async (exchange) => {
     const { path: filePath, encoding = "utf-8" } = this.options;
     const resolvedPath =
       typeof filePath === "function" ? filePath(exchange) : filePath;

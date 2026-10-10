@@ -1,5 +1,44 @@
 import { isStandardSchema, rcError } from "@routecraft/routecraft";
-import type { FnOptions } from "./types.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { FnDefinition, FnOptions } from "./types.ts";
+
+/**
+ * Author a fn whose handler is typed by its own input schema.
+ *
+ * `agentPlugin({ functions })` holds fns of unrelated shapes in one record,
+ * so an entry written as a bare object literal, or annotated `FnOptions`,
+ * hands its handler `unknown`. Wrapping the entry in `fn()` gives it an
+ * inference boundary of its own: the schema's output type (after any
+ * `.transform()`) is the handler's input type, with nothing to annotate.
+ *
+ * Runtime behaviour is unchanged; the value is returned as given.
+ *
+ * @example
+ * ```ts
+ * agentPlugin({
+ *   functions: {
+ *     sendSlackMessage: fn({
+ *       description: "Post a message to a Slack channel",
+ *       input: z.object({ channel: z.string(), text: z.string() }),
+ *       handler: async (input, ctx) => {
+ *         ctx.logger.info({ channel: input.channel }, "Posting to Slack");
+ *         return { ok: true };
+ *       },
+ *     }),
+ *   },
+ * });
+ * ```
+ *
+ * @param definition - Description, input schema, handler and optional tags
+ * @returns The same object, typed as `FnOptions` of the schema's output
+ * @template S - The input schema
+ * @template TOut - Handler return type
+ */
+export function fn<S extends StandardSchemaV1, TOut>(
+  definition: FnDefinition<S, TOut>,
+): FnOptions<StandardSchemaV1.InferOutput<S>, TOut> {
+  return definition;
+}
 
 /**
  * Validate a fn's config shape. Run at context init (not at authoring

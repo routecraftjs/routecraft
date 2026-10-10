@@ -19,12 +19,14 @@ import { scanDirectory } from "./scan.ts";
  * order) lives in {@link scanDirectory}, shared with the enricher role so
  * every role lists the same tree identically.
  */
-export class DirectorySourceAdapter implements Source<
+export class DirectorySourceAdapter<T = unknown> implements Source<
   DirectoryEntry | DirectoryEntry[]
 > {
   readonly adapterId = "routecraft.adapter.directory";
 
-  constructor(private readonly options: DirectoryOptions) {}
+  // Generic only so the factory can hand both roles one options object;
+  // the source honours a static string path alone.
+  constructor(private readonly options: DirectoryOptions<T>) {}
 
   /**
    * Source implementation: scan the directory and emit the listing. Reads the

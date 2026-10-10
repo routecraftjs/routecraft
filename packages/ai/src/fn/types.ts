@@ -205,8 +205,14 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
   /**
    * Handler called after schema validation with the (possibly coerced)
    * input and a minimal handler context.
+   *
+   * A method signature rather than a function-typed property: a typed fn
+   * has to be assignable to the `FnOptions<unknown>` a heterogeneous
+   * `functions` record holds, which a property's contravariant parameter
+   * forbids. The registry validates against `input` before it calls, which
+   * is what keeps the looser check sound.
    */
-  handler: (input: TIn, ctx: FnHandlerContext) => Promise<TOut> | TOut;
+  handler(input: TIn, ctx: FnHandlerContext): Promise<TOut> | TOut;
 
   /**
    * Tags surfaced on `ToolsCatalog.fns[].tags` for the builder form
@@ -220,6 +226,22 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
    * match by exact value.
    */
   tags?: Tag[];
+}
+
+/**
+ * What {@link fn} takes: {@link FnOptions} with the input schema kept as
+ * its own type parameter, so the handler's input is the schema's output
+ * type rather than the `unknown` an annotation site collapses it to.
+ *
+ * @template S - The input schema
+ * @template TOut - Handler return type
+ */
+export interface FnDefinition<
+  S extends StandardSchemaV1 = StandardSchemaV1,
+  TOut = unknown,
+> extends Omit<FnOptions<StandardSchemaV1.InferOutput<S>, TOut>, "input"> {
+  /** Standard Schema for the fn's input; its output type is what the handler sees. */
+  input: S;
 }
 
 /**

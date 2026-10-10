@@ -285,8 +285,8 @@ Two `agentPlugin` installs that each supply `defaultOptions.blocks` merge additi
 
 Functions are an agent-only concept: there is no public dispatch API for fns outside the agent tool loop. If you want to call a "named processor" from a route, write `.process(...)` inline.
 
-```ts expect-error="FnOptions.handler is typed (input: unknown), so reading a field off input does not compile and annotating the parameter is not assignable either. The example is the shape we want; the type is what has to change."
-import { agentPlugin } from '@routecraft/ai'
+```ts
+import { agentPlugin, fn } from '@routecraft/ai'
 import { z } from 'zod'
 
 agentPlugin({
@@ -296,25 +296,27 @@ agentPlugin({
       input: z.object({}),
       handler: async () => new Date().toISOString(),
     },
-    sendSlackMessage: {
+    sendSlackMessage: fn({
       description: 'Post a message to a Slack channel',
       input: z.object({ channel: z.string(), text: z.string() }),
       handler: async (input, ctx) => {
         ctx.logger.info({ channel: input.channel }, 'Posting to Slack')
         return { ok: true }
       },
-    },
+    }),
   },
 })
 ```
+
+Wrap an entry in `fn()` whenever its handler reads the input: the record holds functions of unrelated shapes, so a bare object literal hands its handler `unknown`, while `fn()` types the handler by the entry's own schema (its output type, after any `.transform()`). An entry that ignores its input, like `CurrentTime`, can stay a bare literal. `fn()` returns the object it was given.
 
 **Options:**
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `functions` | `Record<string, FnOptions>` | No | Functions keyed by id. Duplicate ids across installs throw at context init. Defaults to `{}`. |
+| `functions` | `Record<string, FnOptions>` | No | Functions keyed by id, each a bare `FnOptions` literal or `fn({ ... })`. Duplicate ids across installs throw at context init. Defaults to `{}`. |
 
-**Entry shape (`FnOptions`):**
+**Entry shape (`FnOptions`, what `fn()` returns):**
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
@@ -329,16 +331,15 @@ agentPlugin({
 There is no public `invokeFn` helper. Agents are the only legitimate dispatcher for registered fns. To exercise a fn's input schema and handler in isolation in tests, use `testFn` from `@routecraft/testing`:
 
 ```ts
+import { fn } from '@routecraft/ai'
 import { testFn } from '@routecraft/testing'
 import { z } from 'zod'
 
-const greetInput = z.object({ name: z.string() })
-
-const greet = {
+const greet = fn({
   description: 'Greets someone',
-  input: greetInput,
-  handler: async (input: z.infer<typeof greetInput>) => `hello ${input.name}`,
-}
+  input: z.object({ name: z.string() }),
+  handler: async (input) => `hello ${input.name}`,
+})
 
 const out = await testFn(greet, { name: 'alice' })
 // out === 'hello alice'
@@ -661,14 +662,14 @@ Two ways for a handler to wait on a human, chosen by how long the wait is:
 
 A blocking tool handler:
 
-```ts skip="fragment: not a complete statement on its own"
-{
+```ts skip="fragment: pollUntilReply is illustrative"
+fn({
   description: "Ask a human for approval via email; wait up to 15 min.",
   input: z.object({ question: z.string() }),
   handler: async (input) => {
     return await pollUntilReply(input.question, { timeoutMs: 15 * 60 * 1000 })
   },
-}
+})
 ```
 
 The durable form replaces the blocking await with `return ctx.defer({ schema: Approval, ttl: "72h" })` and consumes the payload when the run resumes; `ctx.deferralId` and `ctx.deferral.token` are populated before the handler runs, so the approval request can carry a working resume link. `DeferError` remains available as a throw-form escape hatch, with a documented footgun: a handler that wraps its work in `try/catch` silently swallows a thrown deferral. Both require the exchange to be route-bound and, at deferral time, a [`deferral`](/docs/reference/configuration#deferral) block on the context.

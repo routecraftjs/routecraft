@@ -17,7 +17,7 @@ One limit before the rest: an agent dispatched with a [session](/docs/reference/
 ```ts skip="fragment: sendApprovalRequest, Approval are illustrative"
 agentPlugin({
   functions: {
-    askApproval: {
+    askApproval: fn({
       description: "Ask a human for approval",
       input: z.object({ question: z.string() }),
       handler: async (input, ctx) => {
@@ -33,7 +33,7 @@ agentPlugin({
           meta: { requires: ["payouts:approve"], fourEyes: true },
         })
       },
-    },
+    }),
   },
 })
 ```

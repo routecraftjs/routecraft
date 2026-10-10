@@ -7,7 +7,7 @@ title: file
 </Lead>
 
 ```ts skip="signature: a type signature, not a statement"
-file(options: FileOptions): FileAdapter // Source<string> & Destination<unknown> & Enricher<unknown, string>
+file<T = unknown>(options: FileOptions<T>): FileAdapter<T> // Source<string> & Destination<T> & Enricher<T, string>
 ```
 
 Read and write plain text files. For structured data, use `json` or `csv` adapters. One factory, one type; the operation keyword selects the role: `.from()` reads, `.to()` writes, `.enrich()` reads mid-route.

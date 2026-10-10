@@ -11,10 +11,12 @@ import { FileEnricherAdapter } from "./enricher.ts";
  * Combined file adapter type: all three roles on one honest type. The
  * operation keyword selects the role (`.from()` subscribes, `.to()` sends,
  * `.enrich()` fetches).
+ *
+ * @template T - Body type the send and fetch roles receive
  */
-export type FileAdapter = Source<string> &
-  Destination<unknown> &
-  Enricher<unknown, string> & { readonly adapterId: string };
+export type FileAdapter<T = unknown> = Source<string> &
+  Destination<T> &
+  Enricher<T, string> & { readonly adapterId: string };
 
 /**
  * Creates a file adapter for plain text files. One factory, one type; the
@@ -32,6 +34,8 @@ export type FileAdapter = Source<string> &
  *
  * @param options - File path, encoding, createDirs, append/delete, chunked
  * @returns The combined Source + Destination + Enricher adapter
+ * @template T - Body type a dynamic `path` callback reads; inferred from
+ *   the route at `.to()` / `.enrich()`
  *
  * @example
  * ```typescript
@@ -57,10 +61,10 @@ export type FileAdapter = Source<string> &
  * }))
  * ```
  */
-export function file(options: FileOptions): FileAdapter {
-  const source = new FileSourceAdapter(options);
-  const destination = new FileDestinationAdapter(options);
-  const enricher = new FileEnricherAdapter(options);
+export function file<T = unknown>(options: FileOptions<T>): FileAdapter<T> {
+  const source = new FileSourceAdapter<T>(options);
+  const destination = new FileDestinationAdapter<T>(options);
+  const enricher = new FileEnricherAdapter<T>(options);
   return tagAdapter(
     {
       adapterId: "routecraft.adapter.file",

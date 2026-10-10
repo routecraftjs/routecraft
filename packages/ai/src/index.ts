@@ -226,10 +226,12 @@ export type {
 } from "./agent/index.ts";
 
 // Fn primitive: ad-hoc in-process functions registered via
-// `agentPlugin({ functions: { id: {...} } })`. Consumed exclusively by
+// `agentPlugin({ functions: { id: fn({...}) } })`. Consumed exclusively by
 // the agent tool loop (follow-up story); not directly invocable from
 // user code. For tests, use `testFn` from `@routecraft/testing`.
+export { fn } from "./fn/index.ts";
 export type {
+  FnDefinition,
   FnHandlerContext,
   FnOptions,
   FnRegistry,
