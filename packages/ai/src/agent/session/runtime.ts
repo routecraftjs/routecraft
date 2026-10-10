@@ -1,28 +1,41 @@
 import { randomUUID } from "node:crypto";
 import {
   CONTINUATIONS,
+  HeadersKeys,
+  authorityOf,
   decodeCursor,
+  deferredPrincipal,
   getExchangeRoute,
+  rcCodeOf,
   rcError,
+  reidentificationDeviation,
   reviveDeferral,
   takePage,
+  type Authority,
   type CraftContext,
   type CursorScope,
+  type Deferral,
   type DeferralRuntime,
   type EventDetailsMap,
+  type EventHandler,
   type EventName,
   type Exchange,
+  type ExchangeScoped,
   type OpsPage,
   type PluginLogger,
+  type Principal,
   type ResumeAcknowledgment,
   type ResumeRequest,
+  type RevivalOptions,
 } from "@routecraft/routecraft";
 import type { LlmPromptPart } from "../../llm/types.ts";
 import { dispatchIdentityFrom } from "../run.ts";
 import { assertOverridesAdvertised } from "../advertised.ts";
+import { isDownstreamDeferred } from "../downstream-deferred.ts";
 import { AGENTS } from "../port.ts";
 import { ADAPTER_AGENT_SESSIONS } from "../store.ts";
 import type { ThreadMessage } from "../deferral-state.ts";
+import { AgentHeadersKeys } from "../tools/headers.ts";
 import type { AgentRegisteredOptions, AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { BoundedMap, SESSION_MEMORY_BOUND } from "./bounded.ts";
@@ -38,6 +51,7 @@ import type {
   AgentSessionRecord,
   AgentSessionScope,
   AgentSessionSummary,
+  ReidentifyHook,
 } from "./types.ts";
 
 /**
@@ -50,12 +64,24 @@ import type {
 export interface SessionHost {
   readonly logger: PluginLogger;
   emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
+  /** Subscribe to an event for the application's lifetime. */
+  observe<K extends EventName>(event: K, handler: EventHandler<K>): void;
   /** The continuations store, which holds a turn between messages. */
   continuations(): DeferralRuntime | undefined;
-  /** Revive a stored continuation by its token. */
-  resume(request: ResumeRequest): Promise<ResumeAcknowledgment>;
+  /**
+   * Revive a stored continuation by its token, as the parked principal
+   * re-verified live when `options.reidentified` carries one.
+   */
+  resume(
+    request: ResumeRequest,
+    options?: RevivalOptions,
+  ): Promise<ResumeAcknowledgment>;
   /** A registered agent, for the overrides it advertises. */
   agent(name: string): AgentRegisteredOptions | undefined;
+  /** The application's authority, which brands principals and reads them. */
+  authority(): Authority;
+  /** The application's re-identification hook, when one is registered. */
+  reidentify(): ReidentifyHook | undefined;
 }
 
 /**
@@ -67,9 +93,14 @@ export function sessionHostOf(context: CraftContext): SessionHost {
   return {
     logger: context.logger,
     emit: (event, details) => context.emit(event, details),
+    observe: (event, handler) => {
+      context.on(event, handler);
+    },
     continuations: () => context.lookup(CONTINUATIONS),
-    resume: (request) => reviveDeferral(context, request),
+    resume: (request, options) => reviveDeferral(context, request, options),
     agent: (name) => context.lookup(AGENTS)?.agents.get(name),
+    authority: () => authorityOf(context),
+    reidentify: () => context.lookup(AGENTS)?.reidentify,
   };
 }
 
@@ -210,8 +241,13 @@ export function noContinuationsStore(): Error {
  */
 export class AgentSessionRuntime {
   private readonly active = new Map<string, ActiveTurn>();
-  /** The exchange each in-flight background call was started from. */
-  private readonly backgroundOrigins = new Map<string, Exchange<unknown>>();
+  /**
+   * The deferral each revived exchange this process is running came from,
+   * by exchange id, from `route:exchange:resumed` until the run's terminal
+   * event. What tells a terminal event apart as execution two of a parked
+   * background call, and as that run's own rather than a split child's.
+   */
+  private readonly resumedRuns = new Map<string, string>();
   /** Sessions whose stored continuation is being revived right now. */
   private readonly reviving = new Set<string>();
   /** Callers waiting for the next turn to start on a session. */
@@ -282,8 +318,107 @@ export class AgentSessionRuntime {
       host,
       new AgentSessionStore(store.store, deferral.store),
     );
+    runtime.listen();
     store.retain(runtime);
     return runtime;
+  }
+
+  /**
+   * Settle a parked background call from the event bus. The dispatch that
+   * started the call resolves with execution one's body, and for a route
+   * that parks that body is the `Deferred` acknowledgment, not the result:
+   * the run that carries the result is execution two, which only the bus
+   * reports. The handle and the session ride the exchange's headers and
+   * survive the park with them, so execution two's terminal event names
+   * the handle it was dispatched under on whichever process runs it.
+   *
+   * Only a resumed run is read here. `route:exchange:resumed` fires on the
+   * process that runs the continuation, just ahead of its `started`, and
+   * names the exchange, so a terminal event is matched on that id: a run
+   * that did not park is settled by its dispatch, and a split child of a
+   * resumed run, which inherits the headers under its own id, settles
+   * nothing. A continuation that parks again keeps the handle open and
+   * moves the recorded deferral to the new park. An expiry carries no
+   * snapshot, so it maps back through the deferral id the park recorded
+   * on the session record.
+   */
+  private listen(): void {
+    this.host.observe("route:exchange:resumed", ({ details }) => {
+      this.resumedRuns.set(details.exchangeId, details.deferralId);
+    });
+    this.host.observe("route:exchange:completed", ({ details }) => {
+      this.settleResumed(details.exchangeId, details.exchange, () =>
+        outcomeOfResult(details.exchange?.body),
+      );
+    });
+    this.host.observe("route:exchange:failed", ({ details }) => {
+      this.settleResumed(details.exchangeId, details.exchange, () => ({
+        status: "failed",
+        error: errorOf(details.error),
+      }));
+    });
+    this.host.observe("route:exchange:dropped", ({ details }) => {
+      this.settleResumed(details.exchangeId, details.exchange, () => ({
+        status: "failed",
+        error: {
+          name: "Dropped",
+          message: `The route dropped the exchange instead of completing it: ${details.reason}.`,
+        },
+      }));
+    });
+    this.host.observe("route:exchange:deferred", ({ details }) => {
+      const prior = this.resumedRuns.get(details.exchangeId);
+      if (prior === undefined) return;
+      this.resumedRuns.delete(details.exchangeId);
+      this.track(this.reparkBackground(prior, details.deferralId), {
+        deferralId: prior,
+        next: details.deferralId,
+      });
+    });
+    this.host.observe("route:exchange:expired", ({ details }) => {
+      this.track(
+        this.settleBackgroundByDeferral(details.deferralId, {
+          status: "failed",
+          error: {
+            rc: "RC5047",
+            name: "RoutecraftError",
+            message: `The route parked for a decision that never came: deferral "${details.deferralId}" expired at ${details.expiresAt.toISOString()}. Ask again if it is still needed.`,
+          },
+        }),
+        { deferralId: details.deferralId },
+      );
+    });
+  }
+
+  /** Settle the handle a resumed run's terminal event names, when it names one. */
+  private settleResumed(
+    exchangeId: string,
+    snapshot: { headers: Record<string, unknown> } | undefined,
+    outcome: () => BackgroundRunOutcome,
+  ): void {
+    if (!this.resumedRuns.delete(exchangeId)) return;
+    const handle = snapshot?.headers[AgentHeadersKeys.BACKGROUND_HANDLE];
+    const session = snapshot?.headers[AgentHeadersKeys.BACKGROUND_SESSION];
+    if (typeof handle !== "string" || typeof session !== "string") return;
+    this.track(this.settleBackground(session, { handle, ...outcome() }), {
+      session,
+      handle,
+    });
+  }
+
+  /**
+   * The settlement writes the session record, and that write can fail (a
+   * store outage, a compare-and-swap that never wins); a failure is logged,
+   * because the model is waiting on a result that is now lost and nothing
+   * else will say so.
+   */
+  private track(settlement: Promise<unknown>, about: object): void {
+    settlement.catch((err: unknown) => {
+      this.host.logger.error(
+        { err, ...about },
+        "Background tool result could not be delivered to the session inbox",
+      );
+    });
   }
 
   /**
@@ -548,15 +683,16 @@ export class AgentSessionRuntime {
     // while the write is awaited, and the origin is that turn's whatever
     // it does next.
     const turn = this.active.get(key);
+    // Written on the record so the settlement is attributed to the
+    // exchange that started the call, which by then may have finished its
+    // turn, or run on a process that is gone.
+    const origin = turn ? identityOf(turn.exchange) : undefined;
     const record = await this.write(key, agent, (r) => ({
       ...r,
-      background: [...r.background, call],
+      background: [...r.background, { ...call, ...(origin ? { origin } : {}) }],
     }));
-    // Remembered so the settlement can be attributed to the exchange that
-    // started the call, which by then may have finished its turn.
-    if (turn) this.backgroundOrigins.set(call.handle, turn.exchange);
-    if (turn) {
-      this.emit(turn.exchange, "route:agent:session:background:started", {
+    if (origin) {
+      this.emitAt(origin, "route:agent:session:background:started", {
         agentName: record.agent,
         session: key,
         handle: call.handle,
@@ -566,22 +702,66 @@ export class AgentSessionRuntime {
   }
 
   /**
+   * Record that a background call's dispatch answered with a `Deferred`
+   * acknowledgment, so the call stays open until execution two settles it
+   * and an expiry can find it.
+   *
+   * The link is the handle on the parked exchange's stored headers, not
+   * the acknowledgment: the route that parked is the one whose execution
+   * two will carry the handle, whether it is the dispatched route or one
+   * it forwarded to with the headers. A deferral whose exchange does not
+   * carry the handle is a park this handle cannot track (a route that
+   * completed with another route's acknowledgment as its body), and the
+   * call settles as failed with `AI1006` rather than waiting for a run
+   * that will never name it. A handle execution two already settled is
+   * left alone: a decision can land before the acknowledgment that
+   * announced the park is even read.
+   */
+  async parkBackground(
+    key: AgentSessionKey,
+    handle: string,
+    deferralId: string,
+  ): Promise<void> {
+    const parked = await this.host.continuations()?.store.get(deferralId);
+    if (
+      parked?.exchange.headers[AgentHeadersKeys.BACKGROUND_HANDLE] !== handle
+    ) {
+      await this.settleBackground(key, { handle, ...unlinkedParkOutcome() });
+      return;
+    }
+    const record = await this.store.load(key);
+    if (!record) return;
+    await this.write(key, record.agent, (r) =>
+      r.background.some((b) => b.handle === handle)
+        ? {
+            ...r,
+            background: r.background.map((b) =>
+              b.handle === handle ? { ...b, deferralId } : b,
+            ),
+          }
+        : r,
+    );
+  }
+
+  /**
    * Retire a background call and deliver its outcome to the inbox in one
    * write, so a crash between the two cannot lose the result while
    * forgetting the call. A running turn sees it at its boundary; an idle
    * session's stored continuation is revived so the completion starts the
    * next turn on its own, which is what a build finishing is for.
+   *
+   * Settles at most once: a handle the record no longer holds answers
+   * `undefined` and writes nothing, so the event that ended the run and a
+   * dispatch that rejected without one can both report it, and whichever
+   * lands first is the settlement.
    */
   async settleBackground(
     key: AgentSessionKey,
-    agent: string,
     outcome: BackgroundOutcome,
-  ): Promise<{ depth: number; running: boolean }> {
-    const { duration, ...entry } = outcome;
-    // Taken before the write, so a write that fails does not leave the
-    // origin behind for a settlement that will never come again.
-    const origin = this.backgroundOrigins.get(entry.handle);
-    this.backgroundOrigins.delete(entry.handle);
+  ): Promise<{ depth: number; running: boolean } | undefined> {
+    const current = await this.store.load(key);
+    const call = current?.background.find((b) => b.handle === outcome.handle);
+    if (!current || !call) return undefined;
     // The record is plain JSON, and a route may answer with anything: a
     // result the store cannot hold is delivered as a failure naming the
     // reason rather than refused at the write, which would leave the call
@@ -589,47 +769,55 @@ export class AgentSessionRuntime {
     const delivered: Pick<
       Extract<AgentInboxMessage, { kind: "background" }>,
       "status" | "result" | "error"
-    > = entry.status === "completed"
-      ? encodeResult(entry.result)
+    > = outcome.status === "completed"
+      ? encodeResult(outcome.result)
       : {
           status: "failed",
           error: {
-            ...(entry.error.rc !== undefined ? { rc: entry.error.rc } : {}),
-            message: entry.error.message,
+            ...(outcome.error.rc !== undefined ? { rc: outcome.error.rc } : {}),
+            message: outcome.error.message,
           },
         };
-    const record = await this.write(key, agent, (r) => ({
-      ...r,
-      background: r.background.filter((b) => b.handle !== entry.handle),
-      inbox: [
-        ...r.inbox,
-        {
-          kind: "background",
-          id: randomUUID(),
-          at: new Date().toISOString(),
-          handle: entry.handle,
-          tool: entry.tool,
-          by: entry.by,
-          ...delivered,
-        },
-      ],
-    }));
-    if (origin) {
-      if (entry.status === "completed") {
-        this.emit(origin, "route:agent:session:background:completed", {
+    let settled = false;
+    const record = await this.write(key, current.agent, (r) => {
+      settled = r.background.some((b) => b.handle === outcome.handle);
+      if (!settled) return r;
+      return {
+        ...r,
+        background: r.background.filter((b) => b.handle !== outcome.handle),
+        inbox: [
+          ...r.inbox,
+          {
+            kind: "background",
+            id: randomUUID(),
+            at: new Date().toISOString(),
+            handle: outcome.handle,
+            tool: call.tool,
+            by: call.by,
+            ...delivered,
+          },
+        ],
+      };
+    });
+    if (!settled) return undefined;
+    if (call.origin) {
+      const started = Date.parse(call.startedAt);
+      const duration = Number.isNaN(started) ? 0 : Date.now() - started;
+      if (outcome.status === "completed") {
+        this.emitAt(call.origin, "route:agent:session:background:completed", {
           agentName: record.agent,
           session: key,
-          handle: entry.handle,
-          toolName: entry.tool,
+          handle: outcome.handle,
+          toolName: call.tool,
           duration,
         });
       } else {
-        this.emit(origin, "route:agent:session:background:failed", {
+        this.emitAt(call.origin, "route:agent:session:background:failed", {
           agentName: record.agent,
           session: key,
-          handle: entry.handle,
-          toolName: entry.tool,
-          errorName: entry.error.name,
+          handle: outcome.handle,
+          toolName: call.tool,
+          errorName: outcome.error.name,
           duration,
         });
       }
@@ -639,8 +827,53 @@ export class AgentSessionRuntime {
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
     if (running) this.postedDuring.add(key);
-    else this.deliverIdle(key, record);
+    else this.deliverIdle(key, record, true);
     return { depth: record.inbox.length, running };
+  }
+
+  /**
+   * Settle the background call that parked on a deferral, found by the id
+   * the park recorded. What an expiry maps through: `route:exchange:expired`
+   * carries no exchange snapshot, so the headers are not there to read. One
+   * read per session the store holds, which an expiry is rare enough to
+   * afford; a deferral no call parked on settles nothing.
+   */
+  async settleBackgroundByDeferral(
+    deferralId: string,
+    outcome: BackgroundRunOutcome,
+  ): Promise<{ depth: number; running: boolean } | undefined> {
+    const parked = await this.findParked(deferralId);
+    if (!parked) return undefined;
+    return this.settleBackground(parked.key, {
+      ...outcome,
+      handle: parked.call.handle,
+    });
+  }
+
+  /**
+   * Move a parked call to the deferral its continuation parked on again,
+   * so a second expiry still finds it. The same walk as an expiry's, and
+   * as rare: a continuation that parks twice is a two-stage approval.
+   */
+  private async reparkBackground(
+    deferralId: string,
+    next: string,
+  ): Promise<void> {
+    const parked = await this.findParked(deferralId);
+    if (!parked) return;
+    await this.parkBackground(parked.key, parked.call.handle, next);
+  }
+
+  /** The session and call parked on a deferral, by the id the park recorded. */
+  private async findParked(
+    deferralId: string,
+  ): Promise<{ key: AgentSessionKey; call: AgentBackgroundCall } | undefined> {
+    for (const key of await this.store.list()) {
+      const record = await this.store.load(key);
+      const call = record?.background.find((b) => b.deferralId === deferralId);
+      if (call) return { key, call };
+    }
+    return undefined;
   }
 
   /**
@@ -709,15 +942,12 @@ export class AgentSessionRuntime {
       }
       if (record?.deferral === undefined) continue;
       let next = record;
-      if (record.turn !== undefined || record.background.length > 0) {
-        lostBackground += record.background.length;
+      const lost = record.background.filter(isLost).length;
+      if (record.turn !== undefined || lost > 0) {
+        lostBackground += lost;
         next = await this.write(key, record.agent, restoreAfterRestart);
         this.host.logger.info(
-          {
-            agent: record.agent,
-            session: key,
-            lostBackground: record.background.length,
-          },
+          { agent: record.agent, session: key, lostBackground: lost },
           "Agent session restored at boot: its previous process is gone",
         );
       }
@@ -1016,7 +1246,7 @@ export class AgentSessionRuntime {
           // it left open is closed as interrupted, and each background call
           // it was waiting on is reported lost rather than silently dropped.
           stale = true;
-          lostBackground = r.background.length;
+          lostBackground = r.background.filter(isLost).length;
           next = restoreAfterRestart(r);
         }
         // Core has settled the continuation this exchange revives; the
@@ -1285,15 +1515,26 @@ export class AgentSessionRuntime {
     agent: string,
     deferral: AgentSessionDeferral,
     fallback?: { k: string; req: AgentTurnRequest<T> },
+    reidentify = false,
   ): void {
     const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
     const deferralRuntime = this.host.continuations();
     if (!deferralRuntime) return;
     this.reviving.add(k);
-    const token = deferralRuntime.signer.mint(deferral.deferralId, new Date());
-    const run = this.host
-      .resume({ token, result: undefined })
+    const run = (async () => {
+      const options = reidentify
+        ? await this.reidentify(key, agent, deferral, deferralRuntime)
+        : {};
+      // Refused: the continuation stays stored for whatever wakes the
+      // session next, and no turn runs in the parked identity's name.
+      if (options === undefined) return;
+      const token = deferralRuntime.signer.mint(
+        deferral.deferralId,
+        new Date(),
+      );
+      await this.host.resume({ token, result: undefined }, options);
+    })()
       .catch(async (err: unknown) => {
         this.host.logger.error(
           {
@@ -1321,12 +1562,94 @@ export class AgentSessionRuntime {
   }
 
   /**
+   * Decide whose principal a revival on a background settlement runs under.
+   *
+   * The stored continuation replays a principal read back from a record,
+   * which no gate trusts: run restored, every authorized tool call the
+   * revived turn made would be refused, so waking the agent would achieve
+   * nothing. The application's `reidentify` hook re-verifies the identity
+   * from live state instead, and the framework holds it to the SAME
+   * identity, scopes included; anything else, including no hook at all,
+   * refuses the revival. An exchange that parked without a principal is
+   * revived as it always was.
+   *
+   * A refusal is logged and announced on `route:agent:session:revival:refused`
+   * with its reason, and leaves the continuation stored: the settlement is
+   * in the inbox, and the session sees it when something else wakes it.
+   *
+   * @returns The revival options, or `undefined` when the revival is refused
+   */
+  private async reidentify(
+    key: AgentSessionKey,
+    agent: string,
+    deferral: AgentSessionDeferral,
+    runtime: DeferralRuntime,
+  ): Promise<RevivalOptions | undefined> {
+    const stored = await runtime.store.get(deferral.deferralId);
+    // A record that is gone is reported by the resume, as it always was.
+    if (!stored) return {};
+    const authority = this.host.authority();
+    const parked = deferredPrincipal(stored, authority);
+    if (parked === undefined) return {};
+    const refuse = (reason: string, err?: unknown): undefined => {
+      this.host.logger.warn(
+        {
+          agent,
+          session: key,
+          deferralId: deferral.deferralId,
+          routeId: deferral.routeId,
+          subject: parked.subject,
+          reason,
+          ...(err !== undefined ? { err } : {}),
+        },
+        "Agent session revival refused: the parked principal could not be re-identified",
+      );
+      this.emitAt(
+        storedIdentity(stored),
+        "route:agent:session:revival:refused",
+        {
+          agentName: agent,
+          session: key,
+          deferralId: deferral.deferralId,
+          reason,
+        },
+      );
+      return undefined;
+    };
+    const hook = this.host.reidentify();
+    if (hook === undefined) {
+      return refuse(
+        "no reidentify hook is registered; agentPlugin({ reidentify }) re-verifies the parked identity from live state",
+      );
+    }
+    let live: Principal | undefined;
+    try {
+      live = await hook(parked);
+    } catch (err: unknown) {
+      return refuse("the reidentify hook threw", err);
+    }
+    if (live === undefined) return refuse("the reidentify hook declined");
+    const deviation = reidentificationDeviation(parked, live, authority);
+    if (deviation !== undefined) {
+      return refuse(`the reidentify hook ${deviation}`);
+    }
+    return { reidentified: live };
+  }
+
+  /**
    * An append that landed on an idle session must not wait for another
    * caller: the stored continuation is revived when there is one, and
    * otherwise the turn is started in process on the last request this
    * process ran for the session, as a boundary without a deferral would.
+   *
+   * `reidentify` is set by a background settlement, which is the one wake
+   * that happens on somebody else's decision; see {@link reidentify}.
    */
-  private deliverIdle(key: AgentSessionKey, record: AgentSessionRecord): void {
+  private deliverIdle(
+    key: AgentSessionKey,
+    record: AgentSessionRecord,
+    reidentify = false,
+  ): void {
     // Once shutdown began the append stays in the record for the next
     // process: a turn started now would run on a context being drained.
     if (this.stopping) return;
@@ -1338,6 +1661,7 @@ export class AgentSessionRuntime {
         record.agent,
         record.deferral,
         last ? { k, req: last } : undefined,
+        reidentify,
       );
     } else if (record.inbox.length > 0 && last && !this.active.has(k)) {
       this.followUpInProcess(k, last);
@@ -1368,25 +1692,60 @@ export class AgentSessionRuntime {
     name: K,
     details: SessionEventDetails<K>,
   ): void {
-    const identity = dispatchIdentityFrom(
-      exchange,
-      getExchangeRoute(exchange)?.definition.id,
-    );
+    const identity = identityOf(exchange);
     if (!identity) return;
+    this.emitAt(identity, name, details);
+  }
+
+  private emitAt<K extends SessionEventName>(
+    identity: ExchangeScoped,
+    name: K,
+    details: SessionEventDetails<K>,
+  ): void {
     // The generic cannot be narrowed per arm inside one method; each
     // caller's `details` is checked against its own event above.
     this.host.emit(name, { ...identity, ...details } as EventDetailsMap[K]);
   }
 }
 
-/** How a background call ended, as the tool reports it to the runtime. @internal */
+/** The identity events about an exchange's turn are scoped to, when it has a route. */
+function identityOf(exchange: Exchange<unknown>): ExchangeScoped | undefined {
+  return dispatchIdentityFrom(
+    exchange,
+    getExchangeRoute(exchange)?.definition.id,
+  );
+}
+
+/**
+ * The identity a stored deferral's events are scoped to, read straight off
+ * the stored headers the way core scopes `route:exchange:expired`, so a
+ * consumer correlating a refusal with the park sees the same ids on both.
+ */
+function storedIdentity(deferral: Deferral): ExchangeScoped {
+  const header = (key: string): string => {
+    const value = deferral.exchange.headers[key];
+    return typeof value === "string" ? value : deferral.id;
+  };
+  return {
+    routeId: deferral.routeId,
+    exchangeId: header(HeadersKeys.ID),
+    correlationId: header(HeadersKeys.CORRELATION_ID),
+  };
+}
+
+/**
+ * How a background call ended, as the run that settles it reports it. The
+ * tool, the caller and the start time are read from the call the record
+ * holds, so whatever delivers the outcome needs only the handle.
+ *
+ * @internal
+ */
 export type BackgroundOutcome = {
   readonly handle: string;
-  readonly tool: string;
-  /** The subject whose turn started the call, or `null`. */
-  readonly by: string | null;
-  readonly duration: number;
-} & (
+} & BackgroundRunOutcome;
+
+/** How the run behind a background call ended. @internal */
+export type BackgroundRunOutcome =
   | { readonly status: "completed"; readonly result: unknown }
   | {
       readonly status: "failed";
@@ -1395,8 +1754,70 @@ export type BackgroundOutcome = {
         readonly message: string;
         readonly name: string;
       };
-    }
-);
+    };
+
+/**
+ * The outcome a completed run delivers for its body.
+ *
+ * A body that is itself a `Deferred` acknowledgment, on a run that did not
+ * park, is a continuation that completed with another route's receipt:
+ * that park is not linked to this handle, and its live token must not
+ * reach the inbox, so delivery fails with `AI1006` and the park stays
+ * pending in the application's own flow. A body that throws while being
+ * inspected is retired without forwarding either it or an accessor's
+ * possibly sensitive error.
+ *
+ * @internal
+ */
+export function outcomeOfResult(body: unknown): BackgroundRunOutcome {
+  let deferred: boolean;
+  try {
+    deferred = isDownstreamDeferred(body);
+  } catch {
+    return {
+      status: "failed",
+      error: {
+        name: "Error",
+        message:
+          "The background result could not be stored because it could not be inspected safely.",
+      },
+    };
+  }
+  if (deferred) return unlinkedParkOutcome();
+  return { status: "completed", result: body };
+}
+
+/** The failure a park this handle cannot track is delivered as. */
+function unlinkedParkOutcome(): BackgroundRunOutcome {
+  return {
+    status: "failed",
+    error: {
+      rc: "AI1006",
+      name: "RoutecraftError",
+      message:
+        "The route answered with another route's deferral acknowledgment, which this background handle cannot track. The action is still awaiting approval, not cancelled or completed. Do not retry it; use the application's approval flow to resolve the pending action.",
+    },
+  };
+}
+
+/** A failed run's error, as the inbox carries it. @internal */
+export function errorOf(err: unknown): {
+  readonly rc?: string;
+  readonly message: string;
+  readonly name: string;
+} {
+  const rc = rcCodeOf(err);
+  return {
+    ...(rc !== undefined ? { rc } : {}),
+    message: err instanceof Error ? err.message : String(err),
+    name: err instanceof Error ? err.name || "Error" : typeof err,
+  };
+}
+
+/** A background call a restart loses: one whose route has not parked. */
+function isLost(call: AgentBackgroundCall): boolean {
+  return call.deferralId === undefined;
+}
 
 type SessionEventName =
   | "route:agent:session:queued"
@@ -1404,6 +1825,7 @@ type SessionEventName =
   | "route:agent:session:restored"
   | "route:agent:session:deferred"
   | "route:agent:session:revived"
+  | "route:agent:session:revival:refused"
   | "route:agent:session:background:started"
   | "route:agent:session:background:completed"
   | "route:agent:session:background:failed";
@@ -1505,22 +1927,26 @@ function encodeResult(
  */
 function restoreAfterRestart(record: AgentSessionRecord): AgentSessionRecord {
   const at = new Date().toISOString();
-  const lost: AgentInboxMessage[] = record.background.map((call) => ({
-    kind: "background",
-    id: randomUUID(),
-    handle: call.handle,
-    tool: call.tool,
-    by: call.by,
-    status: "failed",
-    error: {
-      message: `The run was lost: the process restarted before it finished (started ${call.startedAt}). Start it again if it is still needed.`,
-    },
-    at,
-  }));
+  // A parked call is kept: the park is durable, and its decision, or its
+  // expiry, settles it on this process as it would have on the last one.
+  const lost: AgentInboxMessage[] = record.background
+    .filter(isLost)
+    .map((call) => ({
+      kind: "background",
+      id: randomUUID(),
+      handle: call.handle,
+      tool: call.tool,
+      by: call.by,
+      status: "failed",
+      error: {
+        message: `The run was lost: the process restarted before it finished (started ${call.startedAt}). Start it again if it is still needed.`,
+      },
+      at,
+    }));
   return {
     ...withoutTurn(record),
     messages: closeUnansweredToolCalls(record.messages),
     inbox: [...record.inbox, ...lost],
-    background: [],
+    background: record.background.filter((call) => !isLost(call)),
   };
 }

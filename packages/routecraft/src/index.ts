@@ -860,6 +860,8 @@ export {
   // @routecraft/ai stores and revives an agent session's continuation
   // through them, and a package cannot reach a deep import of core.
   deferAside,
+  deferredPrincipal,
+  reidentificationDeviation,
   reviveDeferral,
   routeCanDefer,
   stepStateFingerprint,
@@ -878,6 +880,7 @@ export type {
   ResumeAuthorizerInput,
   ResumeElevator,
   ResumeRequest,
+  RevivalOptions,
   Deferred,
   DeferralRecordView,
   DeferralAffordance,

@@ -22,6 +22,7 @@ import {
   type ResumeAuthorizer,
   type ResumeElevator,
   checkCallBinding,
+  checkReidentified,
   deferredPrincipal,
   recordView,
   runAuthorizer,
@@ -109,6 +110,15 @@ export interface ResumeDoor {
   readonly elevate?: ResumeElevator;
   /** The principal this ingress route verified live, if any. */
   readonly principal?: Principal;
+  /**
+   * The parked identity re-verified live by a plugin that drives this
+   * revival on its own behalf, with no door. Applied as the continuation's
+   * principal once the claim is won, and only when it is the SAME identity
+   * the exchange parked with: compared as `elevate` compares, with `scopes`
+   * included, and refused with `RC5056` on any difference or on a restored
+   * principal. See {@link RevivalOptions.reidentified}.
+   */
+  readonly reidentified?: Principal;
   /** The ingress step's abort signal, which is what bounds an async hook. */
   readonly signal?: AbortSignal;
   /**
@@ -118,6 +128,30 @@ export interface ResumeDoor {
    * where no caller is waiting for an answer.
    */
   readonly routeId?: string;
+}
+
+/**
+ * What a plugin resuming a parked exchange on its own behalf may add to the
+ * request. The request is the untrusted half of a resume (a mapper shapes
+ * it from a transport payload); these options are the trusted half, so
+ * they travel beside it rather than inside it.
+ */
+export interface RevivalOptions {
+  /**
+   * Run the continuation as this principal: the identity the exchange
+   * parked with, re-verified from live state now. A plugin that revives a
+   * stored exchange replays a principal read back from a record, which no
+   * gate trusts, so the continuation would be refused wherever it is
+   * authorized; this is how the plugin hands it a live one instead.
+   *
+   * It must be the same identity, not a different one and not the same one
+   * with more or less authority: everything a resume door's `elevate`
+   * compares is compared here, with `scopes` added on the subject and on
+   * every actor. A restored principal, or any difference in either
+   * direction, refuses the revival with `RC5056` before the record is
+   * claimed, so the park stays exactly as it was.
+   */
+  readonly reidentified?: Principal;
 }
 
 /**
@@ -264,6 +298,10 @@ export async function reviveDeferral(
         authority,
       )
     : undefined;
+  // Checked above the lifecycle disclosure and the claim, as the hooks are.
+  const reidentified = door.reidentified
+    ? checkReidentified(door.reidentified, hookInput, context.logger, authority)
+    : undefined;
 
   if (!resumable(deferral)) {
     return unresumable(deferral);
@@ -395,7 +433,8 @@ export async function reviveDeferral(
       result: payload,
       resumedAt,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
-      ...(elevated ? { elevated } : {}),
+      ...(reidentified ? { elevated: reidentified } : {}),
+      ...(elevated && !reidentified ? { elevated } : {}),
     });
     // Internals, not headers: step state must not re-serialize into a second deferral.
     if (site.site.reentrant && deferral.stepState !== undefined) {
@@ -799,9 +838,10 @@ function rehydrate(
     resumedAt: Date;
     resumedBy?: PrincipalRef;
     /**
-     * What the door's `elevate` hook re-minted, already checked against the
-     * identity rule. Replaces the restored principal, which is what lets the
-     * continuation re-run `.authorize()` and pass.
+     * What the door's `elevate` hook re-minted, or what a plugin-driven
+     * revival re-identified, already checked against its identity rule.
+     * Replaces the restored principal, which is what lets the continuation
+     * re-run `.authorize()` and pass.
      */
     elevated?: Principal;
   },

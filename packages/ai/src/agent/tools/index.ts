@@ -1,9 +1,9 @@
 export {
-  AgentHeadersKeys,
   directTool,
   type BackgroundToolHandle,
   type ToolBuilderOverrides,
 } from "./builders.ts";
+export { AgentHeadersKeys } from "./headers.ts";
 export {
   LAZY_FN_BRAND,
   isLazyFn,

@@ -669,6 +669,7 @@ export class PluginHost {
         list: () => env.routes.list(),
         get: (routeId) => env.routes.get(routeId),
         hooksOf: (routeId) => env.routes.hooksOf(routeId),
+        canDefer: (routeId) => env.routes.canDefer(routeId),
       },
       execution: env.execution,
       get frozen() {

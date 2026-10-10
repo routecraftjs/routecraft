@@ -1,7 +1,9 @@
 import {
+  AUTHORITY,
   CONTINUATIONS,
   OPS,
   REMOTES,
+  authorityOf,
   parsePageQuery,
   type Plugin,
   type PluginContext,
@@ -12,6 +14,7 @@ import { AgentSessionRuntime } from "./session/runtime.ts";
 import type {
   AgentSessionScope,
   AgentSessionSummary,
+  ReidentifyHook,
 } from "./session/types.ts";
 import { defaultSessionsPlugin } from "./session/config.ts";
 import { SESSION_STORE } from "./session/port.ts";
@@ -19,6 +22,7 @@ import { AGENTS, type AgentContribution } from "./port.ts";
 import {
   AgentRegistryImpl,
   validatePluginDefaults,
+  validateReidentify,
   validateToolPolicy,
 } from "./registry.ts";
 import type { AgentToolPolicy } from "./tools/policy.ts";
@@ -99,6 +103,30 @@ export interface AgentPluginOptions {
    * @see {@link AgentToolPolicy} for semantics and examples.
    */
   toolPolicy?: AgentToolPolicy;
+
+  /**
+   * Re-verify, from live state, the identity a parked exchange carried
+   * before a stored session continuation revives on a background
+   * settlement.
+   *
+   * A background tool over a route that parks settles its handle with
+   * execution two's outcome, which is somebody else's decision; the
+   * revival it starts replays a principal read back from a record, which
+   * no gate trusts. This hook is where the application looks the person
+   * up again (its roster, its directory) and returns a live-branded
+   * principal for the SAME identity, or `undefined` to refuse. The
+   * framework refuses on its own when the answer is not live, or differs
+   * from the parked principal on any compared field, `scopes` included.
+   *
+   * Without it, a revival over a principal-bearing exchange is refused:
+   * the settlement is still in the inbox, and the session sees it when
+   * something else wakes it. An anonymously dispatched agent revives
+   * either way. One hook per application; a second install setting it
+   * throws at context init.
+   *
+   * @see {@link ReidentifyHook}
+   */
+  reidentify?: ReidentifyHook;
 }
 
 /**
@@ -139,6 +167,7 @@ export interface AgentPluginOptions {
 export function agentPlugin(options: AgentPluginOptions = {}): Plugin {
   const defaultOptions = validatePluginDefaults(options.defaultOptions);
   const toolPolicy = validateToolPolicy(options.toolPolicy);
+  const reidentify = validateReidentify(options.reidentify);
   const contribution: AgentContribution = {
     ...(options.agents !== undefined ? { agents: options.agents } : {}),
     ...(options.functions !== undefined
@@ -146,6 +175,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): Plugin {
       : {}),
     ...(defaultOptions !== undefined ? { defaultOptions } : {}),
     ...(toolPolicy !== undefined ? { toolPolicy } : {}),
+    ...(reidentify !== undefined ? { reidentify } : {}),
   };
   return {
     id: "routecraft.ai.agent.contribution",
@@ -195,7 +225,7 @@ function createAgentRuntimePlugin(): Plugin {
     requires: [SESSION_STORE],
     // REMOTES orders the remotes plugin first, so its imported routes are
     // capabilities by the time start() resolves directTool references.
-    optional: [CONTINUATIONS, OPS, REMOTES],
+    optional: [AUTHORITY, CONTINUATIONS, OPS, REMOTES],
     installs: [defaultSessionsPlugin()],
     bind(c: PluginContext) {
       // Opened here rather than on first use, so it is retained on the store
@@ -207,9 +237,15 @@ function createAgentRuntimePlugin(): Plugin {
               {
                 logger: c.logger,
                 emit: (event, details) => c.emit(event, details),
+                observe: (event, handler) => {
+                  c.observe(event, handler);
+                },
                 continuations: () => c.lookup(CONTINUATIONS),
-                resume: (request) => c.execution.resume(request),
+                resume: (request, options) =>
+                  c.execution.resume(request, options),
                 agent: (name) => registry.agents.get(name),
+                authority: () => authorityOf(c),
+                reidentify: () => registry.reidentify,
               },
               c.require(SESSION_STORE),
             );
@@ -229,6 +265,7 @@ function createAgentRuntimePlugin(): Plugin {
         logger: c.logger,
         capabilities: () => c.execution.capabilities(),
         hasRoute: (routeId) => c.routes.get(routeId) !== undefined,
+        canDefer: (routeId) => c.routes.canDefer(routeId),
         deliver: (endpoint, body, headers) =>
           c.execution.deliver(endpoint, body, headers),
         sessions: () => registry.sessions(),

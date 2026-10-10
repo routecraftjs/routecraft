@@ -13,6 +13,7 @@ export { DeferError, isDeferError } from "./defer.ts";
 export type { AgentDeferOptions, AgentDeferSentinel } from "./defer.ts";
 export type { AgentStepState, ThreadMessage } from "./deferral-state.ts";
 export type {
+  AgentBackgroundCall,
   AgentInboxMessage,
   AgentSessionKey,
   AgentSessionOutcome,
@@ -20,6 +21,7 @@ export type {
   AgentSessionScope,
   AgentSessionsConfig,
   AgentSessionSummary,
+  ReidentifyHook,
   ResolvedSessionStore,
   SessionCasResult,
   SessionStore,

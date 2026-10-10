@@ -77,7 +77,7 @@ A route with a reachable defer therefore has output type `Output | Deferred`. Ea
 | `cron()`, `simple()`, file | nothing on the wire, a log line only; completion is simply deferred |
 | queue sources | ack, never nack: the work is deferred in the deferral store, and a redelivery would ask the approver twice |
 
-The route's real output flows to its destinations on execution two, not back to the original transport.
+The route's real output flows to its destinations on execution two, not back to the original transport. One caller is settled from execution two rather than from the acknowledgment: an agent's [background tool](/docs/reference/plugins/agentplugin#background-tools) over this route keeps its handle open through the park, and the run that carries the decision settles it with that run's outcome, so a decline reaches the model as an ordinary background message rather than as a receipt.
 
 ## Everything else is existing grammar
 

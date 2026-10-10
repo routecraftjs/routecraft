@@ -63,6 +63,13 @@ export type {
   ResumeElevator,
   DeferralRecordView,
 } from "../../kernel/continuation/door.ts";
+// `deferredPrincipal` is @internal and re-exported on purpose: a plugin that
+// revives a parked exchange under a re-verified identity has to read the
+// identity it parked with first, and a package cannot reach a deep import.
+export {
+  deferredPrincipal,
+  reidentificationDeviation,
+} from "../../kernel/continuation/door.ts";
 
 export {
   DATE_TAG,
@@ -109,6 +116,7 @@ export type { DeferralAffordance } from "../../kernel/continuation/exchange-stat
 export type {
   ResumeAcknowledgment,
   ResumeRequest,
+  RevivalOptions,
 } from "../../kernel/continuation/resume.ts";
 
 // The in-process halves of deferral and resume, for a tier that stores a

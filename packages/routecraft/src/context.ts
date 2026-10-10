@@ -22,10 +22,14 @@ import {
   CONTINUATIONS_REMEDY,
 } from "./kernel/continuation/port.ts";
 import { ContinuationSweeper } from "./kernel/continuation/sweep.ts";
-import { applyResolvedSites } from "./kernel/continuation/sites.ts";
+import {
+  applyResolvedSites,
+  routeCanDefer,
+} from "./kernel/continuation/sites.ts";
 import {
   reviveDeferral,
   type ResumeRequest,
+  type RevivalOptions,
 } from "./kernel/continuation/resume.ts";
 import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
@@ -683,6 +687,10 @@ export class CraftContext {
           if (!route || !this.hooks) return [];
           return this.hooks.describeRoute(id, routeTags(route.definition));
         },
+        canDefer: (id: string) => {
+          const route = this.getRouteById(id);
+          return route !== undefined && routeCanDefer(route.definition, this);
+        },
       },
       execution: {
         deliver: (
@@ -690,7 +698,8 @@ export class CraftContext {
           body: unknown,
           headers?: Parameters<CraftClient["sendDirect"]>[2],
         ) => client.sendDirect(endpoint, body, headers),
-        resume: (request: ResumeRequest) => reviveDeferral(this, request),
+        resume: (request: ResumeRequest, options?: RevivalOptions) =>
+          reviveDeferral(this, request, options),
         sweep: (options?: { readonly boot?: boolean }) =>
           this.sweepContinuations(options),
         capabilities: () => this.capabilities(),

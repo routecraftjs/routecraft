@@ -114,17 +114,27 @@ export type { ToolGuard } from "../../fn/types.ts";
  *   / `mcp__server` / `mcp__server__*` forms resolve against
  *   the MCP plugin's tool registry (populated by `defineConfig.mcp` /
  *   `mcpPlugin({ clients })`).
- * - `{ name, guard?, description? }`: same lookup, with optional
- *   per-binding overrides. The `description` override applies only to
- *   THIS binding (the registry entry stays the source of truth, so
- *   other agents binding the same fn see the canonical description).
+ * - `{ name, guard?, description?, background? }`: same lookup, with
+ *   optional per-binding overrides. The `description` override applies
+ *   only to THIS binding (the registry entry stays the source of truth,
+ *   so other agents binding the same fn see the canonical description).
  *   Use this when an agent's calling context calls for a different
  *   framing of the tool than the registered description provides.
  *   For an MCP whole-server ref (`{ name: "MCP(server)", guard }`) the
- *   guard is attached to every expanded tool.
+ *   guard is attached to every expanded tool. `background` is how a
+ *   `Direct(<routeId>)` binding awaits its route, as
+ *   `directTool(routeId, { background })` is; the tool keeps the
+ *   `direct__<routeId>` name either way. A route that can park is
+ *   background without it, and `false` on such a route is refused.
  */
 export type ToolsItem =
-  string | { name: string; guard?: ToolGuard; description?: string };
+  | string
+  | {
+      name: string;
+      guard?: ToolGuard;
+      description?: string;
+      background?: boolean;
+    };
 
 /**
  * Read-only snapshot of every tool registered in the live context,
@@ -354,7 +364,15 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
         }
         if (item === null || typeof item !== "object" || !("name" in item)) {
           throw rcError("RC5003", undefined, {
-            message: `tools(): each item must be a string or { name, guard?, description? }.`,
+            message: `tools(): each item must be a string or { name, guard?, description?, background? }.`,
+          });
+        }
+        if (
+          item.background !== undefined &&
+          typeof item.background !== "boolean"
+        ) {
+          throw rcError("RC5003", undefined, {
+            message: `tools(): { name: "${item.name}", background } must be a boolean when present.`,
           });
         }
         if (typeof item.name !== "string" || item.name.trim() === "") {
@@ -398,7 +416,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
           });
         }
-        const base = resolveByName(ctx, item.name, item.guard);
+        const base = resolveByName(ctx, item.name, item.guard, item.background);
         // Per-binding description override. The registry entry is
         // never mutated, so other agents binding the same fn still
         // see the canonical description.
@@ -534,6 +552,7 @@ function resolveByName(
   ctx: CraftContext,
   name: string,
   guard: ToolGuard | undefined,
+  background?: boolean,
 ): ResolvedTool {
   if (typeof name !== "string" || name.trim() === "") {
     throw rcError("RC5003", undefined, {
@@ -543,6 +562,13 @@ function resolveByName(
   const fnRegistry = ctx.lookup(AGENTS)?.functions;
   const fnEntry = fnRegistry?.get(name);
   if (fnEntry) {
+    // A registered fn already decided how it awaits its route; the
+    // binding may narrow what the model sees, not how the call returns.
+    if (background !== undefined) {
+      throw rcError("RC5003", undefined, {
+        message: `tools(): { name: "${name}", background } applies to a Direct(<routeId>) reference only. "${name}" is a registered fn; set background on its directTool(...) registration instead.`,
+      });
+    }
     return resolveFnEntry(ctx, name, fnEntry, guard);
   }
 
@@ -558,7 +584,12 @@ function resolveByName(
         message: `tools(): "${name}" has an empty route id; use "Direct(<routeId>)".`,
       });
     }
-    return resolveDirect(ctx, name, routeId, guard);
+    return resolveDirect(ctx, name, routeId, guard, background);
+  }
+  if (background !== undefined) {
+    throw rcError("RC5003", undefined, {
+      message: `tools(): { name: "${name}", background } applies to a Direct(<routeId>) reference only.`,
+    });
   }
 
   const known = listKnownNames(ctx);
@@ -617,6 +648,7 @@ function resolveDirect(
   ref: string,
   routeId: string,
   guard: ToolGuard | undefined,
+  background?: boolean,
 ): ResolvedTool {
   const remote = remoteOf(ctx, routeId);
   const qualifiedBy = `${remote ?? ""}:`;
@@ -625,7 +657,10 @@ function resolveDirect(
       ? `${REMOTE_TOOL_PREFIX}${remote}${TOOL_NAME_SEPARATOR}${routeId.slice(qualifiedBy.length)}`
       : `${DIRECT_TOOL_PREFIX}${routeId}`;
   assertValidDirectToolName(ref, routeId, toolName);
-  const wrapper = directTool(routeId);
+  const wrapper = directTool(
+    routeId,
+    background !== undefined ? { background } : undefined,
+  );
   const fn = wrapper.resolve(toolHostOf(ctx), toolName);
   return toResolvedTool(toolName, fn, guard, directSource(routeId, remote));
 }

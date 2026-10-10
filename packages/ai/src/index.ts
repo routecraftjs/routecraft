@@ -211,6 +211,8 @@ export type {
   AgentInterruptSource,
   AgentSessionSource,
   AgentSessionSummary,
+  AgentBackgroundCall,
+  ReidentifyHook,
   ResolvedSessionStore,
   SessionCasResult,
   SessionStore,

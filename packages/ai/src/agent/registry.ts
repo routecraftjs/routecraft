@@ -20,6 +20,7 @@ import type {
   AgentToolPolicyKind,
   AgentToolRule,
 } from "./tools/policy.ts";
+import type { ReidentifyHook } from "./session/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
 import { isLazyFn, type FnEntry } from "./tools/types.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
@@ -38,6 +39,7 @@ export class AgentRegistryImpl implements AgentRegistry {
   /** Resolved deferred functions by id, filled when the runtime starts. */
   readonly resolvedFunctions = new Map<string, FnOptions>();
   #defaults: AgentDefaultOptions | undefined;
+  #reidentify: ReidentifyHook | undefined;
 
   /**
    * @param frozen - Whether the application froze, read on every contribution
@@ -51,6 +53,10 @@ export class AgentRegistryImpl implements AgentRegistry {
 
   get defaults(): AgentDefaultOptions | undefined {
     return this.#defaults;
+  }
+
+  get reidentify(): ReidentifyHook | undefined {
+    return this.#reidentify;
   }
 
   contribute(contribution: AgentContribution): void {
@@ -85,10 +91,17 @@ export class AgentRegistryImpl implements AgentRegistry {
         ? this.#defaults
         : mergePluginDefaults(this.#defaults, defaults);
     const toolPolicy = validateToolPolicy(contribution.toolPolicy);
+    const reidentify = validateReidentify(contribution.reidentify);
+    if (reidentify !== undefined && this.#reidentify !== undefined) {
+      throw rcError("RC5003", undefined, {
+        message: `agentPlugin: "reidentify" is already set on this context. One hook re-verifies a parked identity for the whole application; register it on one install.`,
+      });
+    }
 
     for (const [id, entry] of agents) this.agents.set(id, entry);
     for (const [id, entry] of functions) this.functions.set(id, entry);
     this.#defaults = merged;
+    if (reidentify !== undefined) this.#reidentify = reidentify;
     // Appended, never merged. Policies compose with AND at evaluation
     // time, so two contributions that disagree narrow rather than
     // conflict, and neither needs to know about the other.
@@ -112,8 +125,22 @@ function describeContribution(contribution: AgentContribution): string {
     ...Object.keys(contribution.functions ?? {}).map((id) => `fn "${id}"`),
     ...(contribution.defaultOptions !== undefined ? ["defaultOptions"] : []),
     ...(contribution.toolPolicy !== undefined ? ["toolPolicy"] : []),
+    ...(contribution.reidentify !== undefined ? ["reidentify"] : []),
   ];
   return parts.length === 0 ? "empty" : parts.join(", ");
+}
+
+/** @internal */
+export function validateReidentify(
+  raw: ReidentifyHook | undefined,
+): ReidentifyHook | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "function") {
+    throw rcError("RC5003", undefined, {
+      message: `agentPlugin: "reidentify" must be a function (parked: Principal) => Principal | undefined, or a promise of one.`,
+    });
+  }
+  return raw;
 }
 
 function validateRegisteredAgent(

@@ -226,6 +226,21 @@ declare module "@routecraft/routecraft" {
       session: string;
       deferralId: string;
     };
+    /**
+     * A stored continuation was NOT revived on a background settlement,
+     * because the identity the parked exchange carried could not be
+     * re-verified: no `agentPlugin({ reidentify })` hook is registered, the
+     * hook declined or threw, or it answered with a principal that is not
+     * live or is not the same identity. The settlement is in the inbox;
+     * no turn runs until something else wakes the session. Scoped to the
+     * parked exchange, as core's `route:exchange:expired` is.
+     */
+    "route:agent:session:revival:refused": ExchangeScoped & {
+      agentName: string;
+      session: string;
+      deferralId: string;
+      reason: string;
+    };
     /** A background tool dispatched its route and returned a handle to the model. */
     "route:agent:session:background:started": ExchangeScoped & {
       agentName: string;

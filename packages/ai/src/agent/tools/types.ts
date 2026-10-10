@@ -1,5 +1,6 @@
 import {
   CraftClient,
+  routeCanDefer,
   type Capability,
   type CraftContext,
   type ExchangeHeaders,
@@ -92,6 +93,13 @@ export interface ToolHost {
   capabilities(): Capability[];
   /** Whether a route with this id is registered at all. */
   hasRoute(routeId: string): boolean;
+  /**
+   * Whether an exchange on this route can park, so a tool over it is
+   * background by shape: the dispatch answers with an acknowledgment and
+   * the result arrives from execution two. False for a route this
+   * application does not hold, a remote's included.
+   */
+  canDefer(routeId: string): boolean;
   /** Send a body to a direct endpoint and resolve with its reply. */
   deliver(
     endpoint: string,
@@ -112,6 +120,10 @@ export function toolHostOf(ctx: CraftContext): ToolHost {
     logger: ctx.logger,
     capabilities: () => ctx.capabilities(),
     hasRoute: (routeId) => ctx.getRouteById(routeId) !== undefined,
+    canDefer: (routeId) => {
+      const route = ctx.getRouteById(routeId);
+      return route !== undefined && routeCanDefer(route.definition, ctx);
+    },
     deliver: (endpoint, body, headers) =>
       new CraftClient(ctx).sendDirect(endpoint, body, headers),
     sessions: () => AgentSessionRuntime.for(ctx),

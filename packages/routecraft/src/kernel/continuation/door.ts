@@ -226,7 +226,7 @@ export async function runAuthorizer(
  * @internal
  */
 function refusalOf(
-  hook: "authorize" | "elevate",
+  hook: "authorize" | "elevate" | "reidentify",
   input: ResumeAuthorizerInput,
   logger: CraftContext["logger"],
 ): (outcome: string, err?: unknown) => Error {
@@ -336,8 +336,8 @@ function elevationDeviation(
   let same: boolean;
   try {
     same = identicalJson(
-      comparableIdentity(parked),
-      comparableIdentity(elevated),
+      comparableIdentity(parked, "lendable"),
+      comparableIdentity(elevated, "lendable"),
     );
   } catch {
     return "returned a principal that could not be compared with the parked one";
@@ -358,9 +358,10 @@ function elevationDeviation(
 }
 
 /**
- * Everything about a principal the elevation rule compares, with `scopes`
- * stripped from the subject and the outermost actor and kept everywhere
- * else.
+ * Everything about a principal the identity rule compares. In `lendable`
+ * mode `scopes` are stripped from the subject and the outermost actor and
+ * kept everywhere else, which is what `elevate` lends within; in `same`
+ * mode they are compared too, which is what a re-identification must hold.
  *
  * Built as a value and compared structurally rather than field by field, so
  * a field added to `Principal` is compared by default. Failing closed on a
@@ -369,13 +370,17 @@ function elevationDeviation(
  *
  * @internal
  */
-function comparableIdentity(principal: Principal): unknown {
+function comparableIdentity(
+  principal: Principal,
+  scopes: "lendable" | "same",
+): unknown {
   const { actor } = principal;
+  const lendable = (key: string): boolean =>
+    scopes === "lendable" && key === "scopes";
   return {
     ...without(
       principal as unknown as Record<string, unknown>,
-      (key) =>
-        VERIFICATION_FIELDS.has(key) || key === "scopes" || key === "actor",
+      (key) => VERIFICATION_FIELDS.has(key) || lendable(key) || key === "actor",
     ),
     ...(actor
       ? {
@@ -383,11 +388,84 @@ function comparableIdentity(principal: Principal): unknown {
           // compare whole (RFC 8693 section 4.1).
           actor: without(
             actor as unknown as Record<string, unknown>,
-            (key) => VERIFICATION_FIELDS.has(key) || key === "scopes",
+            (key) => VERIFICATION_FIELDS.has(key) || lendable(key),
           ),
         }
       : {}),
   };
+}
+
+/**
+ * Check a principal re-minted for the SAME identity a parked exchange
+ * carried, and name the first way it is not.
+ *
+ * This is the rule a plugin-driven revival runs under, as opposed to a
+ * resume door's `elevate`: nothing is being authorized and no authority is
+ * being raised, so the re-mint must be the parked identity verified live
+ * now, and nothing else. It is compared on the set `elevate` compares, with
+ * `scopes` added on the subject and on every actor, and any difference in
+ * either direction refuses it. A revival must not grant more than the park
+ * held, and it must not quietly grant less either: if the person was
+ * offboarded or their roles changed during the park, nothing runs in their
+ * name, they ask again, and the new park carries the new state.
+ *
+ * A restored principal is refused by the same call, because running
+ * restored is exactly what a re-identification exists to replace.
+ *
+ * @param parked - The principal the exchange parked with, read back restored
+ * @param reminted - What the application re-verified from live state
+ * @param authority - The application's authority, for the live brand
+ * @returns A phrase naming the deviation, or `undefined` when the re-mint
+ *   is the same identity verified live
+ */
+export function reidentificationDeviation(
+  parked: Principal | undefined,
+  reminted: Principal,
+  authority: Authority,
+): string | undefined {
+  if (!authority.isAuthentic(reminted)) {
+    return "returned a principal that was not verified live";
+  }
+  if (!parked) {
+    return "returned a principal for a deferral that parked without one";
+  }
+  let same: boolean;
+  try {
+    same = identicalJson(
+      comparableIdentity(parked, "same"),
+      comparableIdentity(reminted, "same"),
+    );
+  } catch {
+    return "returned a principal that could not be compared with the parked one";
+  }
+  return same
+    ? undefined
+    : "returned a principal differing from the parked one";
+}
+
+/**
+ * Refuse a plugin-driven revival whose re-identified principal is not the
+ * parked identity verified live. Logged and refused as the door hooks are,
+ * with the same `RC5056`, for the same reason: a refusal whose cause can be
+ * told apart from outside is an oracle for what the application knows.
+ *
+ * @throws RC5056 on a restored principal or any difference from the parked one
+ *
+ * @internal
+ */
+export function checkReidentified(
+  reidentified: Principal,
+  input: ResumeAuthorizerInput,
+  logger: CraftContext["logger"],
+  authority: Authority,
+): Principal {
+  const deviation = reidentificationDeviation(
+    input.deferred,
+    reidentified,
+    authority,
+  );
+  if (deviation) throw refusalOf("reidentify", input, logger)(deviation);
+  return reidentified;
 }
 
 /**
