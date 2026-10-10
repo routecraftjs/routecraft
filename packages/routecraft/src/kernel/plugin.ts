@@ -87,6 +87,10 @@ export interface PluginRoutes {
    * whose `routes` and `tags` select it. What a door reads to advertise a `Deferred` answer, and
    * what a caller that holds a request open reads to know the first answer
    * may be an acknowledgment. False for an unknown route.
+   *
+   * Complete from `start` on. During `bind` the hooks are not placed yet, so
+   * a route whose only way to park is an error-slot hook reads false, the
+   * same way `hooksOf` reads empty.
    */
   canDefer(id: string): boolean;
   /**

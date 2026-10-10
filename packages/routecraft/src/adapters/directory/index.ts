@@ -1,3 +1,4 @@
+import type { Exchange } from "../../exchange.ts";
 import type { Source } from "../../operations/from.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
@@ -53,6 +54,21 @@ export type DirectoryChunkedAdapter<T = unknown> = Source<DirectoryEntry> &
 export function directory<T = unknown>(
   options: Omit<DirectoryOptions<T>, "path"> & { path: string; chunked: true },
 ): DirectoryChunkedAdapter<T>;
+/**
+ * Creates a directory adapter whose `path` is a function of the exchange.
+ * It has no source role, because a source has no exchange to resolve the
+ * path against, so `.from(directory({ path: (ex) => ... }))` is a compile
+ * error rather than a refusal when the route starts. `.enrich()` scans
+ * mid-route and `.to()` resolves to the same fetch.
+ *
+ * @param options - Options whose `path` is a function of the exchange
+ * @returns The Enricher adapter
+ * @template T - Body type the path callback reads; inferred from the route
+ *   at `.to()` / `.enrich()`
+ */
+export function directory<T = unknown>(
+  options: DirectoryOptions<T> & { path: (exchange: Exchange<T>) => string },
+): Enricher<T, DirectoryEntry[]> & { readonly adapterId: string };
 /**
  * Creates a directory adapter that scans a directory and produces the full
  * {@link DirectoryEntry}`[]` listing (sorted by relative path). One factory,

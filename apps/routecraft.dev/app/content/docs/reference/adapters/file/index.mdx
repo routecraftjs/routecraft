@@ -8,6 +8,7 @@ title: file
 
 ```ts skip="signature: a type signature, not a statement"
 file<T = unknown>(options: FileOptions<T>): FileAdapter<T> // Source<string> & Destination<T> & Enricher<T, string>
+file<T = unknown>(options: FileOptions<T> & { path: (exchange: Exchange<T>) => string }): Destination<T> & Enricher<T, string>
 ```
 
 Read and write plain text files. For structured data, use `json` or `csv` adapters. One factory, one type; the operation keyword selects the role: `.from()` reads, `.to()` writes, `.enrich()` reads mid-route.
@@ -52,7 +53,7 @@ Read and write plain text files. For structured data, use `json` or `csv` adapte
 
 Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 
-**Read mid-route:** The adapter is also an enricher whose `fetch` returns the file content, so you can read a file partway through a route with `.enrich()`. The content replaces the body; pass an aggregator such as `only()` to merge instead. Unlike the source role, the fetch role accepts dynamic (function) paths, because the exchange exists when the read runs.
+**Read mid-route:** The adapter is also an enricher whose `fetch` returns the file content, so you can read a file partway through a route with `.enrich()`. The content replaces the body; pass an aggregator such as `only()` to merge instead. Unlike the source role, the fetch role accepts dynamic (function) paths, because the exchange exists when the read runs. A function path selects the overload without a source role, so `.from(file({ path: (ex) => ... }))` is a compile error.
 
 ```ts skip="fragment: not a complete statement on its own"
 // Replace the body with the file content

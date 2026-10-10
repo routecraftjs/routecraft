@@ -38,7 +38,7 @@ describe("route:exchange:denied", () => {
   /**
    * @case A park whose notify hook fails is denied, and the denial is announced
    * @preconditions A route whose .error() parks with recovery.defer({ notify }) and whose notify throws, so the record is denied claim-first; a later replay of the token that was issued
-   * @expectedResult route:exchange:denied fires exactly once, carrying the deferral id, the deferred exchange's ids and the recorded reason; the replay reads RC5050 and emits nothing more
+   * @expectedResult The failing call reads RC5067; route:exchange:denied fires exactly once, carrying the deferral id, the deferred exchange's ids and the recorded reason; the replay reads RC5050 rather than resuming, and emits nothing more
    */
   test("a failed notify announces its denial once", async () => {
     const store = new MemoryDeferralStore();
@@ -76,13 +76,15 @@ describe("route:exchange:denied", () => {
     });
     await t.startAndWaitReady();
 
-    await t.client.sendDirect("work", {}).catch(() => undefined);
-    await t.client
-      .sendDirect("answers", {
+    await expect(t.client.sendDirect("work", {})).rejects.toMatchObject({
+      rc: "RC5067",
+    });
+    await expect(
+      t.client.sendDirect("answers", {
         token: issued!.token,
         result: { approved: true },
-      })
-      .catch(() => undefined);
+      }),
+    ).rejects.toMatchObject({ rc: "RC5050" });
 
     const record = await store.get(issued!.deferralId);
     expect(denied).toHaveLength(1);
@@ -93,7 +95,7 @@ describe("route:exchange:denied", () => {
     });
     expect(denied[0]?.correlationId).toBeString();
     expect(denied[0]?.reason).toBeString();
-    expect(denied[0]?.reason).toBe(record?.outcome?.reason);
+    expect(record?.outcome?.reason).toBe(denied[0]?.reason);
   });
 
   /**

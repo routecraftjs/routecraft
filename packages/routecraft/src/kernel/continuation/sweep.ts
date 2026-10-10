@@ -139,7 +139,7 @@ export class ContinuationSweeper {
   }
 
   private async runPass(now: Date): Promise<number> {
-    // Heal before scanning: a claim whose holder died mid-delivery is
+    // Heal before scanning: a claim whose holder stopped renewing it is
     // released once its lease elapses, and the released records are past
     // their deadline, so this same pass redelivers them.
     const released = await this.store.releaseClaims(
@@ -148,7 +148,7 @@ export class ContinuationSweeper {
     if (released > 0) {
       this.context.logger.info(
         { released },
-        "Released stale delivery claims for redelivery; a process died while delivering them.",
+        "Released stale delivery claims for redelivery; their holders stopped renewing them.",
       );
     }
 

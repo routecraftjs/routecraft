@@ -621,9 +621,9 @@ export function deferralScope(deferral: Deferral): ExchangeScoped {
  * No re-ask is driven from here: whoever settled or claimed the record owns
  * the notification, and re-asking per replay would notify once per request
  * from a token anyone who saw the link still holds. An outstanding claim is
- * attributed by when it was taken, not by the clock now: an expiry claim is
- * only taken past the deadline and a denial claim only before it, so a slow
- * denial re-ask that crosses the deadline is still reported as a denial.
+ * attributed by when it was taken, not by the clock now, so a slow denial
+ * re-ask that crosses the deadline is still reported as a denial; see
+ * `DeferralClaim.at` for the one denial claim taken past it.
  *
  * @internal
  */
@@ -681,9 +681,9 @@ export type ExpiringDeferral = Deferral & { expiresAt: Date };
  * once its lease elapses and the next sweep redelivers it, where a record
  * settled before delivery would strand its approver. A crash after delivery
  * but before finalize redelivers once, so notification is at-least-once.
- * The claim is renewed while the delivery runs, so only a crash spends the
- * lease; `leaseMs` is the lease the sweeper releases against, and the
- * heartbeat is derived from it.
+ * The claim is renewed while the delivery runs, so only a holder whose
+ * renewals stop landing spends the lease; `leaseMs` is the lease the
+ * sweeper releases against, and the heartbeat is derived from it.
  *
  * @internal
  */

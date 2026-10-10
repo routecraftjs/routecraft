@@ -59,4 +59,16 @@ describe("file() type safety", () => {
       FileAdapter<unknown>
     >();
   });
+
+  /**
+   * @case A function path has no source role
+   * @preconditions file({ path: () => './in.txt' }) handed to .from()
+   * @expectedResult A compile error: the overload a function path selects drops `subscribe`, so the mismatch the source refuses at start is caught by the compiler instead
+   */
+  test("from(file({ path: fn })) does not compile", () => {
+    const dynamic = file({ path: () => "./in.txt" });
+    expectTypeOf(dynamic).not.toHaveProperty("subscribe");
+    // @ts-expect-error a source has no exchange to resolve a function path against
+    craft().from(file({ path: () => "./in.txt" }));
+  });
 });

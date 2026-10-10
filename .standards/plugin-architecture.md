@@ -77,7 +77,7 @@ that adds none of them is still a plugin:
 | `provide(port, value)`                             | in `bind` only, a port this plugin declared in `provides`                                                                      |
 | `observe(event, handler)` / `emit(event, details)` | the event bus                                                                                                                  |
 | `onDispose(fn)`                                    | released at stop, LIFO, every one run even when another throws; also when this plugin's own `bind` throws after registering it |
-| `routes`                                           | `register(...definitions)` in `bind`; `list()`, `get(id)` and `hooksOf(id)` read views, read-only down the graph (a write is `RC1110`); `canDefer(id)`, whether an exchange on that route can park (false for an unknown id) |
+| `routes`                                           | `register(...definitions)` in `bind`; `list()`, `get(id)` and `hooksOf(id)` read views, read-only down the graph (a write is `RC1110`); `canDefer(id)`, whether an exchange on that route can park (false for an unknown id; complete from `start` on, since hooks are placed after `bind`) |
 | `execution`                                        | `deliver` (resolves `unknown`; the caller narrows), `resume(request, options?)` (a plugin that re-verified the parked identity passes `reidentified`, see section 6), `sweep`, `capabilities`, `whenStarted`, `requestStop` |
 | `frozen`                                           | true once the last `bind` returned; a provider collecting contributions through its port refuses later ones with `RC1110`      |
 | `logger`, `id`, `namespace`                        |                                                                                                                                |
@@ -434,8 +434,11 @@ rule is in `security.md` section 3). A door never carries both: `elevate` and
 A delivery claim is fenced and leased: `claimExpiry` hands its winner a claim
 id, `renewClaim`, `markExpired` and `markDenied` win only while that id is the
 live claim, and the kernel renews it three times per lease while a re-ask
-runs, so only a claimant that died lets the lease lapse. A store that cannot
-honour the fence is refused at bind with `RC5066`.
+runs, so the lease lapses only under a claimant whose renewals stopped
+landing (it died, its store kept refusing, or its event loop stalled for a
+lease). A custom store must honour the fence itself: the bind check refuses a
+store missing any required member with `RC5066`, but it cannot see whether
+the members it finds compare the claim id.
 
 ## 7. Migration decisions
 
