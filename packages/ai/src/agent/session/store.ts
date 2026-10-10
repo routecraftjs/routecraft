@@ -45,7 +45,7 @@ export class AgentSessionStore {
     // another party settled it already, and that outcome stands.
     const claim = await this.defers.claimExpiry(deferralId, new Date());
     if (!claim.won) return;
-    await this.defers.markDenied(deferralId, reason);
+    await this.defers.markDenied(deferralId, claim.claim, reason);
   }
 
   /** Every session the store holds. */

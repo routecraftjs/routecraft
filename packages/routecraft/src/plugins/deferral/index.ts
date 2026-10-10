@@ -141,13 +141,13 @@ export interface DeferralConfig {
    */
   sweepInterval?: Duration;
   /**
-   * How long an expiry-delivery claim is honoured before the sweeper
-   * releases it for redelivery.
+   * How long an expiry-delivery claim is honoured without a renewal before
+   * the sweeper releases it for redelivery.
    *
-   * Defaults to {@link DEFAULT_EXPIRY_LEASE}. Only a crash mid-delivery
-   * ever spends this; keep it comfortably longer than the slowest `.error()`
-   * handler, because a lease shorter than a slow handler would make one
-   * healthy process double-deliver by itself.
+   * Defaults to {@link DEFAULT_EXPIRY_LEASE}. A live delivery renews its
+   * claim on a heartbeat (three per lease), so a slow `.error()` handler
+   * never spends this; only a process that dies mid-delivery does, and the
+   * lease is then how long its approver waits for the redelivery.
    */
   expiryLease?: Duration;
   /**

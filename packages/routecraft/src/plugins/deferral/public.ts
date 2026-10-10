@@ -8,6 +8,8 @@ export type {
   Deferral,
   ErrorPathRecord,
   DeferralCasResult,
+  DeferralClaim,
+  DeferralClaimResult,
   DeferralListCursor,
   DeferralListQuery,
   DeferralSummary,
@@ -20,6 +22,7 @@ export type {
 } from "../../kernel/continuation/types.ts";
 export {
   claimed,
+  claimedBy,
   resumable,
   summariseDeferral,
 } from "../../kernel/continuation/types.ts";

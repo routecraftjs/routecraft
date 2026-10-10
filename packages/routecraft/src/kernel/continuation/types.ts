@@ -4,7 +4,7 @@
  * Two values, because the five that came before were answers to three
  * different questions. What the work is waiting FOR is
  * {@link Deferral.waitingFor}; how it settled is {@link Deferral.outcome};
- * whether a delivery claim is outstanding is {@link Deferral.claimedAt}. A
+ * whether a delivery claim is outstanding is {@link Deferral.claim}. A
  * reader asks one of those and reads the field that answers it, instead of
  * inferring all three from which of five values a record landed on.
  *
@@ -110,8 +110,8 @@ export interface DeferralSummary {
  * Whether a delivery claim is outstanding right now.
  *
  * Only while waiting. `markExpired` and `markDenied` both settle a record
- * through a claim and neither clears `claimedAt`, so the stored timestamp
- * says a claim once existed, never that one is still held. Exported
+ * through a claim and neither clears it, so a stored claim says one once
+ * existed, never that one is still held. Exported
  * because the sqlite store summarises from columns rather than from a
  * `Deferral`, and the two readings have to agree.
  */
@@ -135,7 +135,7 @@ export function summariseDeferral(deferral: Deferral): DeferralSummary {
     routeId: deferral.routeId,
     state: deferral.state,
     waitingFor: deferral.waitingFor,
-    claimed: claimIsOutstanding(deferral.state, deferral.claimedAt),
+    claimed: claimIsOutstanding(deferral.state, deferral.claim?.at),
     deferredAt: deferral.deferredAt,
     ...(deferral.expiresAt !== undefined
       ? { expiresAt: deferral.expiresAt }
@@ -359,22 +359,50 @@ export interface Deferral {
   /** When the sweeper will expire this deferral. Absent means no TTL. */
   readonly expiresAt?: Date;
   /**
-   * When the outstanding delivery claim was taken, which is BEFORE the
-   * notification: it is a claim timestamp, not proof of delivery. Set only
-   * on a `waiting` record, cleared when a stale claim is released, and kept
-   * on a settled one as the record of who got there first.
+   * The outstanding delivery claim, taken BEFORE the notification: it says
+   * delivery was claimed, not that it happened. Set only on a `waiting`
+   * record, cleared when a stale claim is released, and kept on a settled
+   * one as the record of who got there first.
    *
    * Load-bearing rather than informational: a claimed record is not
    * resumable, because the claim holder owns the outcome. That is the
    * compare every transition out of `waiting` makes.
    */
-  readonly claimedAt?: Date;
+  readonly claim?: DeferralClaim;
   readonly state: DeferralState;
   readonly waitingFor: DeferralWaitingFor;
   /** How it settled. Absent while {@link Deferral.state} is `waiting`. */
   readonly outcome?: DeferralOutcome;
   /** Cached result of execution two, for idempotent re-resume. */
   readonly continuation?: SerializedOutcome;
+}
+
+/**
+ * One delivery claim on a deferral: who may notify the route, and for how
+ * long that right is honoured without word from them.
+ *
+ * `id` is the claim's identity, minted by the store when the claim is
+ * taken and distinct for every claim ever taken on a record. It is what
+ * fences a claimant that outlived its lease: the record it comes back to
+ * may be `waiting` and claimed again, exactly as it left it, but the claim
+ * on it is a different one, and every write the stale claimant attempts
+ * with its old identity loses.
+ *
+ * `at` is when the claim was taken and never moves. The resume path reads
+ * it to attribute a claim: an expiry claim is only ever taken past the
+ * deadline and a denial claim only before it, so a slow denial re-ask that
+ * crosses the deadline is still reported as a denial.
+ *
+ * `renewedAt` is what the lease is measured from: `at` until the first
+ * renewal, then the latest renewal. A live delivery renews it on a
+ * heartbeat, so a slow handler never lapses, and
+ * {@link DeferralStore.releaseClaims} releases the claims whose holder
+ * stopped renewing because it died.
+ */
+export interface DeferralClaim {
+  readonly id: string;
+  readonly at: Date;
+  readonly renewedAt: Date;
 }
 
 /**
@@ -450,8 +478,7 @@ export type NewDeferral = Omit<Deferral, DeferralTransitionField> & {
 /**
  * The fields only a `mark*` transition may write.
  */
-type DeferralTransitionField =
-  "state" | "outcome" | "continuation" | "claimedAt";
+type DeferralTransitionField = "state" | "outcome" | "continuation" | "claim";
 
 /**
  * Details recorded when a resume wins the compare-and-swap.
@@ -479,6 +506,28 @@ export interface DeferralCasResult {
 }
 
 /**
+ * Result of {@link DeferralStore.claimExpiry}: a {@link DeferralCasResult}
+ * that, when won, also hands the caller the claim it now holds.
+ *
+ * The claim is what the holder presents to {@link DeferralStore.renewClaim},
+ * {@link DeferralStore.markExpired} and {@link DeferralStore.markDenied}, so
+ * it is a field of its own rather than something to dig out of
+ * `deferral.claim`: a winner must not have to prove to the compiler that
+ * the record it was just handed is claimed.
+ */
+export type DeferralClaimResult =
+  | {
+      readonly won: true;
+      readonly deferral: Deferral;
+      readonly claim: DeferralClaim;
+    }
+  | {
+      readonly won: false;
+      readonly deferral: Deferral | undefined;
+      readonly claim?: undefined;
+    };
+
+/**
  * What the startup scan reports at info level.
  */
 export interface PendingDeferralSummary {
@@ -499,18 +548,37 @@ export interface PendingDeferralSummary {
  * it would produce two notifications for one event.
  */
 export function resumable(deferral: Deferral): boolean {
-  return deferral.state === "waiting" && deferral.claimedAt === undefined;
+  return deferral.state === "waiting" && deferral.claim === undefined;
 }
 
 /**
  * Whether a delivery claim is outstanding on a waiting deferral, which is
- * what {@link DeferralStore.markExpired} and
- * {@link DeferralStore.markDenied} settle.
+ * what {@link DeferralStore.releaseClaims} heals.
  */
 export function claimed(
   deferral: Deferral,
-): deferral is Deferral & { readonly claimedAt: Date } {
-  return deferral.state === "waiting" && deferral.claimedAt !== undefined;
+): deferral is Deferral & { readonly claim: DeferralClaim } {
+  return deferral.state === "waiting" && deferral.claim !== undefined;
+}
+
+/**
+ * Whether `claim` is the live delivery claim on a waiting deferral, which
+ * is the compare {@link DeferralStore.renewClaim},
+ * {@link DeferralStore.markExpired} and {@link DeferralStore.markDenied}
+ * make.
+ *
+ * Only the identity is compared. The holder's copy of the claim stops
+ * matching on `renewedAt` after its first renewal, and that is not what
+ * the fence is for: it tells one incarnation of the claim from the next,
+ * not one heartbeat from the next. Named once so the stores and the fakes
+ * cannot drift on it; the sqlite backend spells the same compare as its
+ * `WHERE` clause.
+ */
+export function claimedBy(
+  deferral: Deferral,
+  claim: DeferralClaim,
+): deferral is Deferral & { readonly claim: DeferralClaim } {
+  return claimed(deferral) && deferral.claim.id === claim.id;
 }
 
 /**
@@ -550,14 +618,22 @@ export interface DeferralStore {
   ): Promise<DeferralCasResult>;
 
   /**
-   * Claim an unclaimed waiting deferral for delivery, recording when the
-   * claim was taken. The record stays `waiting`, which is the point: a claim
-   * is not an outcome. Winning it is the right to notify the route, and the
-   * caller delivers the re-ask and then settles with
-   * {@link DeferralStore.markExpired} or {@link DeferralStore.markDenied}. A
+   * Claim an unclaimed waiting deferral for delivery, minting a
+   * {@link DeferralClaim} whose `at` and `renewedAt` are both `at`. The
+   * record stays `waiting`, which is the point: a claim is not an outcome.
+   * Winning it is the right to notify the route, and the caller delivers
+   * the re-ask, renewing the claim with {@link DeferralStore.renewClaim}
+   * while it does, and then settles with {@link DeferralStore.markExpired}
+   * or {@link DeferralStore.markDenied}, presenting the claim it won. A
    * holder that dies mid-delivery is healed by
    * {@link DeferralStore.releaseClaims} rather than leaving the record
    * stuck.
+   *
+   * The claim's `id` must be distinct from every claim previously taken on
+   * the same record (a uuid is the obvious choice), because a record that
+   * was released and reclaimed is `waiting` and claimed again, exactly as
+   * the first holder left it. Only the identity tells the two claims apart,
+   * and it is what makes the first holder's late writes lose.
    *
    * A released EXPIRY claim is overdue, so the next sweep redelivers it. A
    * released DENIAL claim is not, so its redelivery waits for the next
@@ -565,38 +641,69 @@ export interface DeferralStore {
    * proactive nag is lost only for a record that has no deadline and is
    * never replayed, which is the pre-lease behaviour for every crash.
    */
-  claimExpiry(id: string, at: Date): Promise<DeferralCasResult>;
+  claimExpiry(id: string, at: Date): Promise<DeferralClaimResult>;
+
+  /**
+   * Extend the lease on a claim this caller holds by moving
+   * {@link DeferralClaim.renewedAt} to `at`, leaving `id` and `at` alone.
+   * Wins only while `claim` is the live claim on a waiting record
+   * ({@link claimedBy}); it loses once the claim was released, whether or
+   * not somebody else has claimed the record since, and once the record
+   * settled.
+   *
+   * The heartbeat half of the lease. A delivery that outlives the lease is
+   * not a dead claimant, and without renewal the sweeper could not tell the
+   * two apart: it would release a live delivery's claim and the recipient
+   * would hear the re-ask twice. Losing here is the holder's signal to stop
+   * renewing; its finalize is going to lose on the same compare.
+   */
+  renewClaim(
+    id: string,
+    claim: DeferralClaim,
+    at: Date,
+  ): Promise<DeferralCasResult>;
 
   /**
    * Settle a claimed deferral as `expired`, stamping
-   * {@link DeferralOutcome.at} at the write. `expiresAt` still says when the
-   * deferral came due and `claimedAt` when its delivery was claimed; the
-   * outcome's own timestamp is when the record actually stopped waiting,
-   * which is what retention measures from.
+   * {@link DeferralOutcome.at} at the write. Wins only while `claim` is the
+   * live claim on the record ({@link claimedBy}): a holder whose claim was
+   * released and taken by another deliverer must not settle the other's
+   * delivery, however the record looks from where it stands.
+   *
+   * `expiresAt` still says when the deferral came due and `claim.at` when
+   * its delivery was claimed; the outcome's own timestamp is when the
+   * record actually stopped waiting, which is what retention measures from.
    */
-  markExpired(id: string): Promise<DeferralCasResult>;
+  markExpired(id: string, claim: DeferralClaim): Promise<DeferralCasResult>;
 
   /**
    * Settle a claimed deferral as `denied`, stamping
-   * {@link DeferralOutcome.at} at the write.
-   * The claim-first shape applies to denial for the same reason as expiry:
-   * a crash between the transition and the notification must heal by
-   * redelivery, not strand the approver. Cancellation (#552) will claim
-   * first too.
+   * {@link DeferralOutcome.at} at the write, under the same fence as
+   * {@link DeferralStore.markExpired}. The claim-first shape applies to
+   * denial for the same reason as expiry: a crash between the transition
+   * and the notification must heal by redelivery, not strand the approver.
+   * Cancellation (#552) will claim first too.
    */
-  markDenied(id: string, reason?: string): Promise<DeferralCasResult>;
+  markDenied(
+    id: string,
+    claim: DeferralClaim,
+    reason?: string,
+  ): Promise<DeferralCasResult>;
 
   /**
-   * Release every delivery claim taken at or before `before` by clearing
-   * {@link Deferral.claimedAt}, and report how many were released. The
-   * records were and remain `waiting`; what changes is that they are
-   * resumable and sweepable again.
+   * Release every delivery claim whose {@link DeferralClaim.renewedAt} is
+   * at or before `before` by clearing {@link Deferral.claim}, and report
+   * how many were released. The records were and remain `waiting`; what
+   * changes is that they are resumable and sweepable again.
    *
    * This is the healing half of the claim: a released record is past its
-   * deadline, so the next ordinary sweep pass redelivers it. A crash after
-   * delivery but before finalize therefore costs one duplicate escalation
-   * after the lease elapses, which is the accepted at-least-once trade;
-   * a crash before delivery costs nothing but the lease's delay.
+   * deadline, so the next ordinary sweep pass redelivers it. Because a
+   * live delivery renews its claim, a claim that reaches the cutoff
+   * belongs to a holder that stopped renewing, which is to say one that
+   * died. A crash after delivery but before finalize therefore costs one
+   * duplicate escalation after the lease elapses, which is the accepted
+   * at-least-once trade; a crash before delivery costs nothing but the
+   * lease's delay.
    */
   releaseClaims(before: Date): Promise<number>;
 

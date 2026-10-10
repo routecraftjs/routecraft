@@ -397,8 +397,13 @@ async function denyDeferred(
     // Losing the claim means someone else already settled the record (a
     // resume that raced in, the sweeper). Whoever won owns the outcome.
     if (!claim.won) return true;
-    // The claim's lease may have elapsed, so only the CAS result confirms the denial.
-    const denied = await runtime.store.markDenied(deferralId, reason);
+    // Nothing runs between the claim and the denial, so there is no lease
+    // to keep; the fence still decides, and only the CAS result confirms it.
+    const denied = await runtime.store.markDenied(
+      deferralId,
+      claim.claim,
+      reason,
+    );
     if (!denied.won) {
       exchange.logger.error(
         { deferralId, routeId, reason, expiresAt },

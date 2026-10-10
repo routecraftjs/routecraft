@@ -250,7 +250,7 @@ describe("the resume elevate hook", () => {
     // Non-destructive: the rightful principal's single-use link is intact.
     const untouched = await store.get(deferred.deferralId);
     expect(untouched?.state).toBe("waiting");
-    expect(untouched?.claimedAt).toBeUndefined();
+    expect(untouched?.claim).toBeUndefined();
     expect(untouched?.outcome).toBeUndefined();
 
     wide = false;

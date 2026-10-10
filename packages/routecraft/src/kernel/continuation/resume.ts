@@ -28,7 +28,7 @@ import {
   runElevator,
 } from "./door.ts";
 import { DeferralHeaders } from "./exchange-state.ts";
-import { requireContinuations } from "./port.ts";
+import { requireContinuations, type DeferralRuntime } from "./port.ts";
 import {
   decodePersistable,
   deserializeExchange,
@@ -46,8 +46,19 @@ import type {
   SerializedOutcome,
   Deferral,
   DeferralCasResult,
+  DeferralClaim,
   DeferralStore,
 } from "./types.ts";
+
+/**
+ * How many times a delivery renews its claim per lease.
+ *
+ * Three, so a claim survives two missed heartbeats (a busy store, a paused
+ * event loop) before the sweeper takes it for dead. Fewer would make a
+ * single slow renewal a lost claim; more would spend store writes on a
+ * lease that only matters after a crash.
+ */
+const RENEWALS_PER_LEASE = 3;
 
 /**
  * What `.resume()`'s mapping function produces: which deferral to revive,
@@ -267,10 +278,13 @@ export async function reviveDeferral(
 
   const deadline = deferral.expiresAt;
   if (deadline !== undefined && deadline.getTime() <= Date.now()) {
-    const { cas, error } = await expireDeferral(context, runtime.store, route, {
-      ...deferral,
-      expiresAt: deadline,
-    });
+    const { cas, error } = await expireDeferral(
+      context,
+      runtime.store,
+      route,
+      { ...deferral, expiresAt: deadline },
+      runtime.expiryLeaseMs,
+    );
     if (!cas.won) {
       // A concurrent resume may have won on the deadline; whoever won says what happened.
       if (cas.deferral) return unresumable(cas.deferral);
@@ -282,7 +296,7 @@ export async function reviveDeferral(
   if (!site) {
     return await refuseContinuation(
       context,
-      runtime.store,
+      runtime,
       route,
       deferral,
       "defer site removed",
@@ -299,7 +313,7 @@ export async function reviveDeferral(
   if (current !== deferral.continuationHash) {
     return await refuseContinuation(
       context,
-      runtime.store,
+      runtime,
       route,
       deferral,
       "continuation changed",
@@ -473,20 +487,28 @@ export async function reviveDeferral(
  */
 async function refuseContinuation(
   context: CraftContext,
-  store: DeferralStore,
+  runtime: Pick<DeferralRuntime, "store" | "expiryLeaseMs">,
   route: Route,
   deferral: Deferral,
   reason: string,
   message: string,
 ): Promise<ResumeAcknowledgment> {
+  const { store } = runtime;
   const error = rcError("RC5048", undefined, { message });
   const cas = await store.claimExpiry(deferral.id, new Date());
   if (!cas.won) {
     if (cas.deferral) return unresumable(cas.deferral);
     throw error;
   }
-  await reask(context, route, deferral, error);
-  const finalized = await store.markDenied(deferral.id, reason);
+  await underLease(
+    context,
+    store,
+    deferral,
+    cas.claim,
+    runtime.expiryLeaseMs,
+    () => reask(context, route, deferral, error),
+  );
+  const finalized = await store.markDenied(deferral.id, cas.claim, reason);
   if (!finalized.won) {
     context.logger.warn(
       { deferralId: deferral.id, routeId: deferral.routeId, reason },
@@ -559,7 +581,7 @@ function unresumable(deferral: Deferral): ResumeAcknowledgment {
     };
   }
 
-  const claimRef = deferral.claimedAt ?? new Date();
+  const claimRef = deferral.claim?.at ?? new Date();
   const expiryClaim =
     deferral.expiresAt !== undefined &&
     claimRef.getTime() >= deferral.expiresAt.getTime();
@@ -595,6 +617,9 @@ export type ExpiringDeferral = Deferral & { expiresAt: Date };
  * once its lease elapses and the next sweep redelivers it, where a record
  * settled before delivery would strand its approver. A crash after delivery
  * but before finalize redelivers once, so notification is at-least-once.
+ * The claim is renewed while the delivery runs, so only a crash spends the
+ * lease; `leaseMs` is the lease the sweeper releases against, and the
+ * heartbeat is derived from it.
  *
  * @internal
  */
@@ -603,6 +628,7 @@ export async function expireDeferral(
   store: DeferralStore,
   route: Route,
   deferral: ExpiringDeferral,
+  leaseMs: number,
 ): Promise<{ cas: DeferralCasResult; error: Error }> {
   const deadline = deferral.expiresAt;
   const error = rcError("RC5047", undefined, {
@@ -618,16 +644,85 @@ export async function expireDeferral(
     deferralId: deferral.id,
     expiresAt: deadline,
   });
-  await reask(context, route, deferral, error);
-  const finalized = await store.markExpired(deferral.id);
+  await underLease(context, store, deferral, cas.claim, leaseMs, () =>
+    reask(context, route, deferral, error),
+  );
+  const finalized = await store.markExpired(deferral.id, cas.claim);
   if (!finalized.won) {
-    // Single-node: only a lease release racing a very slow delivery loses this.
+    // Only a claim that lapsed despite the heartbeat loses this: the store
+    // was unreachable, or the process stalled, for most of a lease.
     context.logger.warn(
       { deferralId: deferral.id },
       "An expiry claim was released before its delivery finalized, so the next sweep will redeliver it.",
     );
   }
   return { cas, error };
+}
+
+/**
+ * Run a delivery while renewing the claim it runs under.
+ *
+ * The lease exists so a claimant that died is healed, and a delivery that
+ * merely outlives the lease is not dead; without the heartbeat the sweeper
+ * could not tell them apart, and a slow `.error()` handler would have its
+ * claim released and its re-ask repeated by the next pass. The heartbeat
+ * stops the moment the delivery settles, so the finalize that follows is
+ * made against a claim this caller still holds, or learns that it does not.
+ *
+ * A renewal that loses ends the heartbeat: the claim was released and
+ * possibly reclaimed, and the finalize is fenced on the same identity, so
+ * nothing this caller writes from here on can land. A renewal that throws
+ * is retried on the next beat, because a busy store is exactly the
+ * condition the slack in {@link RENEWALS_PER_LEASE} is for. Both are
+ * boundaries: the delivery's own outcome must not depend on whether the
+ * lease could be kept.
+ *
+ * The timer is unreferenced so a heartbeat never keeps a process alive on
+ * its own; the delivery it serves is awaited by whoever started it.
+ *
+ * @internal
+ */
+async function underLease<T>(
+  context: CraftContext,
+  store: DeferralStore,
+  deferral: Deferral,
+  claim: DeferralClaim,
+  leaseMs: number,
+  deliver: () => Promise<T>,
+): Promise<T> {
+  const every = Math.max(1, Math.floor(leaseMs / RENEWALS_PER_LEASE));
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const schedule = () => {
+    timer = setTimeout(() => void beat(), every);
+    timer.unref();
+  };
+  const beat = async () => {
+    if (stopped) return;
+    try {
+      const renewed = await store.renewClaim(deferral.id, claim, new Date());
+      if (!renewed.won) {
+        context.logger.warn(
+          { deferralId: deferral.id, routeId: deferral.routeId },
+          "A delivery claim was lost while its re-ask was running, so the re-ask may be repeated by whoever holds the record now and this delivery cannot finalize it.",
+        );
+        return;
+      }
+    } catch (err) {
+      context.logger.warn(
+        { deferralId: deferral.id, routeId: deferral.routeId, err },
+        "Could not renew a delivery claim; the next heartbeat will retry.",
+      );
+    }
+    if (!stopped) schedule();
+  };
+  schedule();
+  try {
+    return await deliver();
+  } finally {
+    stopped = true;
+    clearTimeout(timer);
+  }
 }
 
 /**

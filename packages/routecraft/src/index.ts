@@ -886,6 +886,8 @@ export type {
   Deferral,
   ErrorPathRecord,
   DeferralCasResult,
+  DeferralClaim,
+  DeferralClaimResult,
   DeferralConfig,
   DeferralListCursor,
   DeferralListQuery,
@@ -901,6 +903,7 @@ export type {
 } from "./plugins/deferral/public.ts";
 export {
   claimed,
+  claimedBy,
   resumable,
   summariseDeferral,
 } from "./plugins/deferral/public.ts";

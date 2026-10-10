@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { rcError } from "../../error.ts";
@@ -22,7 +23,10 @@ import {
   resolveDatabasePath,
   SQLITE_APPLICATION_IDS,
 } from "../../shared/sqlite/database.ts";
-import { claimIsOutstanding } from "../../kernel/continuation/types.ts";
+import {
+  claimIsOutstanding,
+  claimed,
+} from "../../kernel/continuation/types.ts";
 import type {
   ErrorPathRecord,
   ExpiredScanCursor,
@@ -33,6 +37,8 @@ import type {
   SerializedOutcome,
   Deferral,
   DeferralCasResult,
+  DeferralClaim,
+  DeferralClaimResult,
   DeferralListQuery,
   DeferralOutcome,
   DeferralSchema,
@@ -61,7 +67,7 @@ const SQLITE_CONSUMER = "deferral store (sqlite)";
  * Schema version this build writes. Bumped whenever
  * {@link MIGRATIONS} grows an entry.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * How long a writer waits for a competing write lock before giving up.
@@ -77,8 +83,15 @@ const BUSY_TIMEOUT_MS = 5_000;
  */
 const RESUMABLE = "state = 'waiting' AND claimed_at IS NULL";
 
-/** The claimed compare, the other half of {@link RESUMABLE}. */
-const CLAIMED = "state = 'waiting' AND claimed_at IS NOT NULL";
+/**
+ * The fenced compare, the other half of {@link RESUMABLE}: a waiting record
+ * whose live claim is the one the caller presents. `claimedBy()` in
+ * `types.ts` is the same condition in TypeScript. The `claimed_at` test is
+ * implied by a non-null `claim_id` and kept anyway, so the clause reads as
+ * what it checks.
+ */
+const CLAIMED_BY =
+  "state = 'waiting' AND claimed_at IS NOT NULL AND claim_id = ?";
 
 /**
  * Forward-only migrations, applied in order from the database's current
@@ -142,6 +155,16 @@ const MIGRATIONS: ReadonlyArray<string> = [
    CREATE INDEX deferrals_stranded ON deferrals (outcome_kind, deferred_at);`,
   // Version 2: error-path park metadata. Unindexed: only ever read by id.
   `ALTER TABLE deferrals ADD COLUMN error_path TEXT;`,
+  // Version 3: the claim gains an identity and a renewal time. A claim a
+  // version 2 build left outstanding gets both, so the invariant that a
+  // claimed row carries all three columns holds for every row the store
+  // will ever read; its holder is gone (this process replaced it), so the
+  // lease releases it as usual.
+  `ALTER TABLE deferrals ADD COLUMN claim_id TEXT;
+   ALTER TABLE deferrals ADD COLUMN claim_renewed_at INTEGER;
+   UPDATE deferrals
+      SET claim_id = lower(hex(randomblob(16))), claim_renewed_at = claimed_at
+    WHERE claimed_at IS NOT NULL;`,
 ];
 
 /**
@@ -285,37 +308,65 @@ export class SqliteDeferralStore implements DeferralStore {
       [
         resumption.at.getTime(),
         resumption.by ? JSON.stringify(resumption.by) : null,
+        id,
       ],
     );
   }
 
-  async claimExpiry(id: string, at: Date): Promise<DeferralCasResult> {
+  async claimExpiry(id: string, at: Date): Promise<DeferralClaimResult> {
+    const result = this.#transition(
+      id,
+      `UPDATE deferrals
+          SET claimed_at = ?, claim_id = ?, claim_renewed_at = ?
+        WHERE id = ? AND ${RESUMABLE}`,
+      [at.getTime(), randomUUID(), at.getTime(), id],
+    );
+    const deferral = result.deferral;
+    // The guard only narrows: a won transition always stored the claim.
+    if (!result.won || deferral === undefined || !claimed(deferral)) {
+      return { won: false, deferral };
+    }
+    return { won: true, deferral, claim: deferral.claim };
+  }
+
+  async renewClaim(
+    id: string,
+    claim: DeferralClaim,
+    at: Date,
+  ): Promise<DeferralCasResult> {
     return this.#transition(
       id,
-      `UPDATE deferrals SET claimed_at = ?
-        WHERE id = ? AND ${RESUMABLE}`,
-      [at.getTime()],
+      `UPDATE deferrals SET claim_renewed_at = ?
+        WHERE id = ? AND ${CLAIMED_BY}`,
+      [at.getTime(), id, claim.id],
     );
   }
 
-  async markExpired(id: string): Promise<DeferralCasResult> {
+  async markExpired(
+    id: string,
+    claim: DeferralClaim,
+  ): Promise<DeferralCasResult> {
     return this.#transition(
       id,
       `UPDATE deferrals
           SET state = 'settled', outcome_kind = 'expired', outcome_at = ?
-        WHERE id = ? AND ${CLAIMED}`,
-      [Date.now()],
+        WHERE id = ? AND ${CLAIMED_BY}`,
+      [Date.now(), id, claim.id],
     );
   }
 
-  async markDenied(id: string, reason?: string): Promise<DeferralCasResult> {
+  async markDenied(
+    id: string,
+    claim: DeferralClaim,
+    reason?: string,
+  ): Promise<DeferralCasResult> {
     return this.#transition(
       id,
       `UPDATE deferrals
           SET state = 'settled', outcome_kind = 'denied',
               outcome_reason = ?, outcome_at = ?
-        WHERE id = ? AND ${CLAIMED}`,
-      [reason ?? null, Date.now()],
+        WHERE id = ? AND ${CLAIMED_BY}`,
+      [reason ?? null, Date.now(), id, claim.id],
     );
   }
 
@@ -323,8 +374,9 @@ export class SqliteDeferralStore implements DeferralStore {
     return guard("release stale delivery claims", () => {
       this.#db
         .prepare(
-          `UPDATE deferrals SET claimed_at = NULL
-            WHERE state = 'waiting' AND claimed_at <= ?`,
+          `UPDATE deferrals
+              SET claimed_at = NULL, claim_id = NULL, claim_renewed_at = NULL
+            WHERE state = 'waiting' AND claim_renewed_at <= ?`,
         )
         .run(before.getTime());
       return (
@@ -562,22 +614,19 @@ export class SqliteDeferralStore implements DeferralStore {
    *
    * The update and the read-back run inside one immediate transaction so
    * the returned record is the state this transition produced, not a state
-   * some later writer moved on to. The {@link RESUMABLE} or {@link CLAIMED}
-   * clause is the compare half of the compare-and-swap; `changes` is the
-   * answer.
+   * some later writer moved on to. The {@link RESUMABLE} or
+   * {@link CLAIMED_BY} clause is the compare half of the compare-and-swap;
+   * `changes` is the answer. `params` binds every `?` in `sql`, the id
+   * included, in order.
    */
-  #transition(
-    id: string,
-    sql: string,
-    leadingParams: unknown[],
-  ): DeferralCasResult {
+  #transition(id: string, sql: string, params: unknown[]): DeferralCasResult {
     let won = false;
     let row: unknown;
     try {
       // BEGIN sits inside the try so a busy lock surfaces as the wrapped
       // store error this method promises, not as a raw driver throw.
       this.#db.exec("BEGIN IMMEDIATE");
-      this.#db.prepare(sql).run(...leadingParams, id);
+      this.#db.prepare(sql).run(...params);
       // bun:sqlite's run() only returns { changes } from partway through 1.1.
       won =
         (
@@ -698,6 +747,9 @@ interface DeferralRow {
   deferred_at: number;
   expires_at: number | null;
   claimed_at: number | null;
+  // Nullable-or-absent like `error_path`: both arrive with version 3.
+  claim_id?: string | null;
+  claim_renewed_at?: number | null;
   outcome_kind: string | null;
   outcome_at: number | null;
   outcome_reason: string | null;
@@ -776,6 +828,34 @@ function toSummary(row: DeferralSummaryRow): DeferralSummary {
   };
 }
 
+/**
+ * Hydrate the claim half of a row.
+ *
+ * A claimed row carries all three columns: the version 3 migration
+ * backfills the two it added for every row that had a claim, and the
+ * store writes them together. A claim timestamp without an identity is
+ * therefore a row written by raw SQL, and reading it back as a claim would
+ * hand out one that no holder can ever present, so the record could never
+ * finalize; refusing the read is the louder failure.
+ *
+ * @internal
+ */
+function toClaim(row: DeferralRow): { claim?: DeferralClaim } {
+  if (row.claimed_at === null) return {};
+  if (row.claim_id == null) {
+    throw rcError("RC5044", undefined, {
+      message: `Deferral "${row.id}" carries a claim timestamp but no claim id, so it was written outside the store and cannot be read back.`,
+    });
+  }
+  return {
+    claim: {
+      id: row.claim_id,
+      at: new Date(row.claimed_at),
+      renewedAt: new Date(row.claim_renewed_at ?? row.claimed_at),
+    },
+  };
+}
+
 /** @internal */
 function toDeferral(row: DeferralRow): Deferral {
   const continuation = row.continuation
@@ -801,7 +881,7 @@ function toDeferral(row: DeferralRow): Deferral {
     waitingFor: row.waiting_for as DeferralWaitingFor,
     deferredAt: new Date(row.deferred_at),
     ...(row.expires_at !== null ? { expiresAt: new Date(row.expires_at) } : {}),
-    ...(row.claimed_at != null ? { claimedAt: new Date(row.claimed_at) } : {}),
+    ...toClaim(row),
     ...toOutcome(row),
     ...(continuation
       ? { continuation: { ...continuation, at: new Date(continuation.at) } }

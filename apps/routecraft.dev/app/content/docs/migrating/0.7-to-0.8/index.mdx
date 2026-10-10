@@ -53,7 +53,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 6](#6-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 7](#7-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -135,7 +135,20 @@ A plugin that is not repeatable is installed once per application. A second `llm
 
 The internal `RouteDefinition` fields `preParseFilters`, `postParseFilters` and `postFromFilters` are gone: a route definition carries its chain as configuration, and the chain is built when the route compiles.
 
-## 6. What is new in 0.8.0 \{#6-what-is-new-in-080}
+## 6. A custom `DeferralStore` fences its claims \{#6-deferral-store}
+
+A store supplied through `deferral: { store }` implements a claim with an identity, so a claimant that outlived its lease cannot renew or finalize the claim that replaced it. The shipped backends migrate themselves (the SQLite file moves to schema version 3 on open); a store of your own changes four members:
+
+| 0.7 | 0.8 |
+|-----|-----|
+| `Deferral.claimedAt?: Date` | `Deferral.claim?: DeferralClaim`, which is `{ id, at, renewedAt }`: `id` is minted by the store and distinct for every claim taken on a record, `at` never moves, and `renewedAt` is what `releaseClaims` compares |
+| `claimExpiry(id, at): DeferralCasResult` | `claimExpiry(id, at): DeferralClaimResult`, which carries the `claim` the caller now holds when it won |
+| (absent) | `renewClaim(id, claim, at)`: moves `renewedAt` to `at`, and wins only while `claim` is the live claim on a waiting record |
+| `markExpired(id)` and `markDenied(id, reason?)` | `markExpired(id, claim)` and `markDenied(id, claim, reason?)`: settle only while `claim` is the live claim, so a stale holder loses |
+
+The exported `claimedBy(record, claim)` predicate is the compare the three fenced methods make; `resumable` and `claimed` read `claim` in place of `claimedAt`. The kernel renews a claim three times per `expiryLease` while a re-ask runs, so a slow `.error()` handler no longer needs a lease longer than itself.
+
+## 7. What is new in 0.8.0 \{#7-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too.
