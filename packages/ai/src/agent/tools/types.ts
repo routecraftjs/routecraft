@@ -146,16 +146,21 @@ export function isLazyFn(value: unknown): value is LazyFn {
 
 /**
  * A fn as the heterogeneous registry holds it: its input type erased, so
- * fns over unrelated schemas share one record. Every `FnOptions<TIn, TOut>`
- * is assignable to it, because a handler that accepts some `TIn` accepts
- * `never`. Nothing calls the handler through this type; the one place that
- * turns it back into something callable is the tool resolution, after
- * which the bridge validates against `input` before the call.
+ * fns over unrelated schemas share one record.
+ *
+ * `handler` is a method here, and only here, so its parameter is checked
+ * bivariantly and every `FnOptions<TIn, TOut>` is assignable to this shape
+ * while `FnOptions` and `FnDefinition` keep a contravariant property. The
+ * erasure is sound at the one place a registered handler is called: the
+ * bridge validates the model's input against `input` first, and `input` is
+ * the schema whose output typed that handler. A bare object literal written
+ * straight into a `functions` record is typed against this shape, so its
+ * handler sees `unknown`; wrap it in `fn()` to type it by its schema.
  */
 export interface RegisteredFn {
   readonly description: string;
   readonly input: StandardSchemaV1;
-  readonly handler: (input: never, ctx: FnHandlerContext) => unknown;
+  handler(input: unknown, ctx: FnHandlerContext): unknown;
   tags?: Tag[];
 }
 

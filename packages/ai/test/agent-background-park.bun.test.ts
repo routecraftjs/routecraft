@@ -946,8 +946,9 @@ describe("a restart reconciles a parked call against its deferral", () => {
   ): Promise<void> {
     const claim = await store!.claimExpiry(deferralId, new Date());
     if (!claim.won) throw new Error("the claim was lost");
-    if (kind === "expired") await store!.markExpired(deferralId, claim.claim);
-    else await store!.markDenied(deferralId, claim.claim, reason);
+    if (kind === "expired")
+      await store!.markExpired(deferralId, claim.claim.id);
+    else await store!.markDenied(deferralId, claim.claim.id, reason);
   }
 
   /**
@@ -1126,8 +1127,8 @@ describe("a live settlement follows the park it is about", () => {
 
   /**
    * @case A denied park settles the handle as failed
-   * @preconditions A call parked; its deferral is denied, which emits neither resumed nor expired
-   * @expectedResult settleDenied retires the call with RC5050 and the reason, read through the handle on the parked exchange's headers, and the revived turn reads it
+   * @preconditions A call parked; core announces its deferral on route:exchange:denied, which is the only event a denial emits
+   * @expectedResult The runtime retires the call with RC5050 and the reason, read through the handle on the parked exchange's headers, and the revived turn reads it
    */
   test("a denied park settles the handle with RC5050 naming the reason", async () => {
     t = await contextWith({ store: store! }).build();
@@ -1135,10 +1136,13 @@ describe("a live settlement follows the park it is about", () => {
     const receipt = await parkFromTurn(t, "direct__park");
     const deferralId = (await recordOf(store!, "s")).background[0]!.deferralId!;
     llm.script.push({ text: "noted" });
-    await AgentSessionRuntime.for(t.ctx).settleDenied(
+    t.ctx.emit("route:exchange:denied", {
+      routeId: "park",
+      exchangeId: "denied-run",
+      correlationId: "denied-run",
       deferralId,
-      "the route changed after the park",
-    );
+      reason: "the route changed after the park",
+    });
     await until(() => llm.calls.length === 2);
     await t.ctx.getRouteById("chat")!.drain();
     const text = lastUserOf(llm.calls[1]!)[0]!.text;

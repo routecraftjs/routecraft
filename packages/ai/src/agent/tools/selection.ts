@@ -859,11 +859,10 @@ function resolveFnEntry(
 }
 
 /**
- * Turn a registered fn into a tool the bridge can call: the one place the
- * erased handler becomes callable with `unknown`. Sound because the bridge
- * validates the model's input against `fn.input` before every call, and
- * `fn.input` is the schema whose output typed that handler; the input the
- * handler receives is therefore exactly what it was written for.
+ * Turn a registered fn into a tool the bridge can call. The bridge validates
+ * the model's input against `fn.input` before every call, which is what
+ * makes the registry's erased handler (see {@link RegisteredFn}) sound to
+ * call here.
  */
 function toResolvedTool(
   name: string,
@@ -878,7 +877,7 @@ function toResolvedTool(
     ...(fn.tags && fn.tags.length > 0 ? { tags: fn.tags } : {}),
     ...(guard ? { guard } : {}),
     source,
-    handler: fn.handler as ResolvedTool["handler"],
+    handler: (input, ctx) => fn.handler(input, ctx),
     ...(isBackgroundFn(fn) ? { background: true as const } : {}),
   };
 }

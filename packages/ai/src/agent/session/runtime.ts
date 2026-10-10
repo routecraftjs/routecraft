@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
   CONTINUATIONS,
-  HeadersKeys,
   anySignal,
   authorityOf,
   decodeCursor,
+  deferralScope,
   deferredPrincipal,
   getExchangeRoute,
   rcCodeOf,
@@ -393,6 +393,11 @@ export class AgentSessionRuntime {
         { deferralId: details.deferralId },
       );
     });
+    this.host.observe("route:exchange:denied", ({ details }) => {
+      this.track(this.settleDenied(details.deferralId, details.reason), {
+        deferralId: details.deferralId,
+      });
+    });
   }
 
   /** Settle the handle a resumed run's terminal event names, when it names one. */
@@ -420,10 +425,8 @@ export class AgentSessionRuntime {
    * never run, so the call fails with `RC5050` naming the reason.
    *
    * Registered on `route:exchange:denied`.
-   *
-   * @internal
    */
-  settleDenied(
+  private settleDenied(
     deferralId: string,
     reason: string | undefined,
   ): Promise<{ depth: number; running: boolean } | undefined> {
@@ -1790,7 +1793,7 @@ export class AgentSessionRuntime {
         "Agent session revival refused: the parked principal could not be re-identified",
       );
       this.emitAt(
-        storedIdentity(stored),
+        deferralScope(stored),
         "route:agent:session:revival:refused",
         {
           agentName: agent,
@@ -1911,23 +1914,6 @@ function identityOf(exchange: Exchange<unknown>): ExchangeScoped | undefined {
     exchange,
     getExchangeRoute(exchange)?.definition.id,
   );
-}
-
-/**
- * The identity a stored deferral's events are scoped to, read straight off
- * the stored headers the way core scopes `route:exchange:expired`, so a
- * consumer correlating a refusal with the park sees the same ids on both.
- */
-function storedIdentity(deferral: Deferral): ExchangeScoped {
-  const header = (key: string): string => {
-    const value = deferral.exchange.headers[key];
-    return typeof value === "string" ? value : deferral.id;
-  };
-  return {
-    routeId: deferral.routeId,
-    exchangeId: header(HeadersKeys.ID),
-    correlationId: header(HeadersKeys.CORRELATION_ID),
-  };
 }
 
 /**

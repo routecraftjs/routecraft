@@ -106,4 +106,26 @@ describe("fn() type safety", () => {
     });
     expectTypeOf(annotated).toMatchTypeOf<FnEntry>();
   });
+
+  /**
+   * @case A bare object literal in a functions record types its handler input as unknown
+   * @preconditions agentPlugin({ functions: { raw: { input, handler: (input) => ... } } }) with no fn() wrapper
+   * @expectedResult The handler sees unknown rather than never, so passing the input on to a typed function is a compile error until it is narrowed or wrapped in fn()
+   */
+  test("a bare literal in a functions record sees unknown", () => {
+    const needsOrder = (order: { id: string }) => order.id;
+    agentPlugin({
+      functions: {
+        raw: {
+          description: "Unwrapped",
+          input: z.object({ id: z.string() }),
+          handler: async (input) => {
+            expectTypeOf(input).toEqualTypeOf<unknown>();
+            // @ts-expect-error unknown is not an order; wrap the entry in fn() to type it
+            return needsOrder(input);
+          },
+        },
+      },
+    });
+  });
 });
