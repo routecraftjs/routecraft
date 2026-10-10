@@ -80,7 +80,7 @@ export default craft()
   .input({ body: z.object({ question: z.string() }) })
   .from(direct())
   .to(
-    agent<{ question: string }>({
+    agent({
       model: 'anthropic:claude-opus-4-7',
       system: 'Be useful. Say what you did.',
       user: (ex) => ex.body.question,

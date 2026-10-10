@@ -77,8 +77,8 @@ that adds none of them is still a plugin:
 | `provide(port, value)`                             | in `bind` only, a port this plugin declared in `provides`                                                                      |
 | `observe(event, handler)` / `emit(event, details)` | the event bus                                                                                                                  |
 | `onDispose(fn)`                                    | released at stop, LIFO, every one run even when another throws; also when this plugin's own `bind` throws after registering it |
-| `routes`                                           | `register(...definitions)` in `bind`; `list()`, `get(id)` and `hooksOf(id)` read views, read-only down the graph (a write is `RC1110`)                                         |
-| `execution`                                        | `deliver` (resolves `unknown`; the caller narrows), `resume`, `sweep`, `capabilities`, `whenStarted`, `requestStop`            |
+| `routes`                                           | `register(...definitions)` in `bind`; `list()`, `get(id)` and `hooksOf(id)` read views, read-only down the graph (a write is `RC1110`); `canDefer(id)`, whether an exchange on that route can park (false for an unknown id) |
+| `execution`                                        | `deliver` (resolves `unknown`; the caller narrows), `resume(request, options?)` (a plugin that re-verified the parked identity passes `reidentified`, see section 6), `sweep`, `capabilities`, `whenStarted`, `requestStop` |
 | `frozen`                                           | true once the last `bind` returned; a provider collecting contributions through its port refuses later ones with `RC1110`      |
 | `logger`, `id`, `namespace`                        |                                                                                                                                |
 
@@ -421,6 +421,21 @@ The door stays on the ingress route: `.resume(mapper, { authorize, elevate })`.
 Its order: token, call binding, `authorize`, lifecycle disclosure, deadline,
 live tail, payload, compare-and-swap, `elevate` applied after the claim, the
 suffix, the recorded outcome.
+
+A plugin can also revive a continuation itself, through
+`execution.resume(request, { reidentified })`, when it has re-verified the
+parked identity from live state (the agent plugin does this when a background
+settlement wakes a session). The kernel applies the re-identified principal
+after the claim, in the slot `elevate` uses, and only when it is live-branded
+and identical to the parked one including `scopes` (`RC5056` otherwise; the
+rule is in `security.md` section 3). A door never carries both: `elevate` and
+`reidentified` together are refused.
+
+A delivery claim is fenced and leased: `claimExpiry` hands its winner a claim
+id, `renewClaim`, `markExpired` and `markDenied` win only while that id is the
+live claim, and the kernel renews it three times per lease while a re-ask
+runs, so only a claimant that died lets the lease lapse. A store that cannot
+honour the fence is refused at bind with `RC5066`.
 
 ## 7. Migration decisions
 
