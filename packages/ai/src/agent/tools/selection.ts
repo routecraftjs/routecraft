@@ -377,6 +377,11 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): each item must be a string or { name, guard?, description?, background? }.`,
           });
         }
+        if (typeof item.name !== "string" || item.name.trim() === "") {
+          throw rcError("RC5003", undefined, {
+            message: `tools(): { name } must be a non-empty string.`,
+          });
+        }
         if (
           item.background !== undefined &&
           typeof item.background !== "boolean"
@@ -385,15 +390,19 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): { name: "${item.name}", background } must be a boolean when present.`,
           });
         }
-        if (typeof item.name !== "string" || item.name.trim() === "") {
+        const mcpRef =
+          isMcpRefName(item.name) && !fnRegistryHas(ctx, item.name);
+        const remoteRef =
+          isRemoteRefName(item.name) && !fnRegistryHas(ctx, item.name);
+        if ((mcpRef || remoteRef) && item.background !== undefined) {
           throw rcError("RC5003", undefined, {
-            message: `tools(): { name } must be a non-empty string.`,
+            message: `tools(): { name: "${item.name}", background } applies to a Direct(<routeId>) reference only.`,
           });
         }
         // MCP refs reject any description override (empty or not) so
         // users see the precise "MCP server is the source of truth"
         // message instead of the generic empty-string error.
-        if (isMcpRefName(item.name) && !fnRegistryHas(ctx, item.name)) {
+        if (mcpRef) {
           if (item.description !== undefined) {
             throw rcError("RC5003", undefined, {
               message: `tools(): { name: "${item.name}", description } is not supported for MCP tools. The MCP server is the source of truth for description and schema; do not override.`,
@@ -406,7 +415,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
         }
         // A whole-remote ref expands to many tools, so one description
         // cannot apply; name the route with Direct(<name>:<id>) instead.
-        if (isRemoteRefName(item.name) && !fnRegistryHas(ctx, item.name)) {
+        if (remoteRef) {
           if (item.description !== undefined) {
             throw rcError("RC5003", undefined, {
               message: `tools(): { name: "${item.name}", description } is not supported for a whole-remote reference; it expands to every route of the remote. Reference one route with { name: "Direct(<name>:<id>)", description }.`,

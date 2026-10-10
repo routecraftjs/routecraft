@@ -551,7 +551,7 @@ It is not `.resume({ elevate })`. `elevate` raises authority on a resume door; t
 
 The hook is bounded: one that has not settled within 30 seconds, or by the time the application stops, refuses the revival, because the session cannot be woken while it runs and shutdown would otherwise wait on it. Its second argument carries a `signal` that aborts at either point; pass it to the hook's own I/O (a `fetch`, a directory client) so the lookup stops with it.
 
-With no hook registered, a revival over a principal-bearing exchange is refused rather than run restored. The settlement is still written to the session inbox, so the outcome is recorded, and `route:agent:session:revival:refused` names the reason; the session sees it at its next boundary when something else wakes it. An agent dispatched anonymously revives as it always did. The rule applies to every wake a background settlement starts, a settlement the boot reconciled included; a message posted to an idle session, and a boot that delivers only lost calls, revive as before.
+With no hook registered, a revival over a principal-bearing exchange is refused rather than run restored. The settlement is still written to the session inbox, so the outcome is recorded, and `route:agent:session:revival:refused` names the reason; the session sees it at its next boundary when something else wakes it. An agent dispatched anonymously revives as it always did. The rule applies to every wake a background settlement starts, including a settlement the boot reconciled and one a refused or interrupted revival left in the inbox, which the next boot re-identifies rather than reviving as a restart; a message posted to an idle session, and a boot that delivers only lost calls, revive as before.
 
 #### Tags
 

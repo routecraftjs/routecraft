@@ -234,8 +234,9 @@ declare module "@routecraft/routecraft" {
      * A stored continuation was NOT revived on a background settlement,
      * because the identity the parked exchange carried could not be
      * re-verified: no `agentPlugin({ reidentify })` hook is registered, the
-     * hook declined or threw, or it answered with a principal that is not
-     * live or is not the same identity. The settlement is in the inbox;
+     * hook declined or threw, it did not settle within its bound or before
+     * the runtime stopped, or it answered with a principal that is not live
+     * or is not the same identity. The settlement is in the inbox;
      * no turn runs until something else wakes the session. Scoped to the
      * parked exchange, as core's `route:exchange:expired` is.
      */

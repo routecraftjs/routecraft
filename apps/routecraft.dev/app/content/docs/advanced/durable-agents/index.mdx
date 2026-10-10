@@ -15,6 +15,9 @@ One limit before the rest: an agent dispatched with a [session](/docs/reference/
 `ctx.defer()` on the handler context is the whole protocol. Return its sentinel immediately:
 
 ```ts skip="fragment: sendApprovalRequest, Approval are illustrative"
+import { agentPlugin, fn } from "@routecraft/ai"
+import { z } from "zod"
+
 agentPlugin({
   functions: {
     askApproval: fn({

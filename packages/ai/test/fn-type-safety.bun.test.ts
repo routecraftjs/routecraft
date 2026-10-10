@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, test } from "bun:test";
 import { z } from "zod";
 import { agentPlugin, fn } from "../src/index.ts";
-import type { FnOptions } from "../src/index.ts";
+import type { FnDefinition, FnOptions } from "../src/index.ts";
 import type { FnEntry } from "../src/agent/tools/types.ts";
 
 /**
@@ -58,17 +58,20 @@ describe("fn() type safety", () => {
   });
 
   /**
-   * @case fn() returns FnOptions of the schema output and the handler result
+   * @case fn() returns its definition with the concrete schema type kept on input
    * @preconditions fn({ input: z.object({ q: z.string() }), handler: async () => 1 })
-   * @expectedResult The value is FnOptions<{ q: string }, number> and assignable to FnEntry
+   * @expectedResult input is the zod object schema itself; the value is FnDefinition of that schema and number, and still assignable to FnOptions<{ q: string }, number> and to FnEntry
    */
-  test("fn() returns FnOptions typed by the schema and the handler", () => {
+  test("fn() keeps the schema type and fits FnOptions and the record", () => {
+    const schema = z.object({ q: z.string() });
     const spec = fn({
       description: "Counts",
-      input: z.object({ q: z.string() }),
+      input: schema,
       handler: async (input) => input.q.length,
     });
-    expectTypeOf(spec).toEqualTypeOf<FnOptions<{ q: string }, number>>();
+    expectTypeOf(spec.input).toEqualTypeOf<typeof schema>();
+    expectTypeOf(spec).toEqualTypeOf<FnDefinition<typeof schema, number>>();
+    expectTypeOf(spec).toMatchTypeOf<FnOptions<{ q: string }, number>>();
     expectTypeOf(spec).toMatchTypeOf<FnEntry>();
   });
 

@@ -705,7 +705,7 @@ describe("whose principal runs a revived continuation", () => {
     t = await contextWith({ store: store! }).build();
     await t.startAndWaitReady();
     const { receipt, refused } = await settleUnderAlice(t);
-    await sleep(100);
+    await until(() => refused.length === 1);
     expect(llm.calls).toHaveLength(1);
     expect(await summaryOf(t, "s")).toMatchObject({
       inbox: 1,
@@ -1048,6 +1048,42 @@ describe("a restart reconciles a parked call against its deferral", () => {
     t.ctx.on("route:agent:session:revival:refused", ({ details }) => {
       refused.push(details);
     });
+    await t.startAndWaitReady();
+    await until(() => refused.length === 1);
+    expect(refused[0]).toMatchObject({
+      session: "s",
+      reason: expect.stringContaining("no reidentify hook is registered"),
+    });
+    expect(llm.calls).toHaveLength(1);
+    expect(await summaryOf(t, "s")).toMatchObject({
+      background: 0,
+      inbox: 1,
+      deferred: true,
+    });
+  });
+
+  /**
+   * @case A settlement whose live revival was refused is not revived as a restart by the next boot
+   * @preconditions The turn that parked ran under a principal; the park is answered on a first context with no reidentify hook, which refuses the revival and leaves the settlement in the inbox; a second context with no hook boots over the same stores
+   * @expectedResult The boot refuses the revival again on route:agent:session:revival:refused naming the missing hook and runs no turn; the settlement and the continuation stay stored
+   */
+  test("a settlement a refused revival left in the inbox re-identifies at boot", async () => {
+    t = await contextWith({ store: store! }).build();
+    await t.startAndWaitReady();
+    const first: unknown[] = [];
+    t.ctx.on("route:agent:session:revival:refused", ({ details }) => {
+      first.push(details);
+    });
+    await parkFromTurn(t, "direct__park", carol);
+    await answer(t, { verdict: "approve" });
+    await until(() => first.length === 1);
+    await t.stop();
+    t = await contextWith({ store: store! }).build();
+    const refused: unknown[] = [];
+    t.ctx.on("route:agent:session:revival:refused", ({ details }) => {
+      refused.push(details);
+    });
+    llm.script.push({ text: "ran in carol's name" });
     await t.startAndWaitReady();
     await until(() => refused.length === 1);
     expect(refused[0]).toMatchObject({

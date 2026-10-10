@@ -1,7 +1,7 @@
 import { isStandardSchema, rcError } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { RegisteredFn } from "../agent/tools/types.ts";
-import type { FnDefinition, FnOptions } from "./types.ts";
+import type { FnDefinition } from "./types.ts";
 
 /**
  * Author a fn whose handler is typed by its own input schema.
@@ -31,13 +31,13 @@ import type { FnDefinition, FnOptions } from "./types.ts";
  * ```
  *
  * @param definition - Description, input schema, handler and optional tags
- * @returns The same object, typed as `FnOptions` of the schema's output
+ * @returns The same object, with `input` still typed as `S`
  * @template S - The input schema
  * @template TOut - Handler return type
  */
 export function fn<S extends StandardSchemaV1, TOut>(
   definition: FnDefinition<S, TOut>,
-): FnOptions<StandardSchemaV1.InferOutput<S>, TOut> {
+): FnDefinition<S, TOut> {
   return definition;
 }
 

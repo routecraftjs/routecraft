@@ -963,8 +963,10 @@ export class AgentSessionRuntime {
    * continuation, the background calls that never parked are reported lost
    * (no process is running them) and the continuation is revived, so the
    * outcome reaches the model as a turn rather than waiting for a message
-   * nobody may send; a revival that carries a settlement re-identifies the
-   * parked principal first, as a live settlement does. A session with no
+   * nobody may send; a revival that carries a settlement, reconciled here or
+   * left in the inbox by a settlement wake that never got through,
+   * re-identifies the parked principal first, as a live settlement does
+   * ({@link awaitsSettlementWake}). A session with no
    * continuation is left for its next message, which restores it the same
    * way. Bounded by the index; one read per session, one per parked call,
    * and writes only where something was outstanding.
@@ -1094,7 +1096,9 @@ export class AgentSessionRuntime {
           key,
           next.agent,
           next.deferral,
-          settledAtBoot ? "settlement" : "restart",
+          settledAtBoot || awaitsSettlementWake(record)
+            ? "settlement"
+            : "restart",
         );
         revived += 1;
       } else if (next.background.length === 0) {
@@ -2109,6 +2113,23 @@ function parkVerdict(
     case "deferred":
       return undefined;
   }
+}
+
+/**
+ * Whether a record the previous process left holds settlements its own
+ * wake never got through: only background entries in the inbox and no turn
+ * cut short. That wake was a settlement, refused by `reidentify` or lost
+ * to the crash before it ran, so the boot revives it as one; reviving it
+ * as a restart would run the turn a refusal stopped. A message in the
+ * inbox, or a turn cut short, means the entries were waiting on that
+ * turn's boundary, which does not re-identify.
+ */
+function awaitsSettlementWake(record: AgentSessionRecord): boolean {
+  return (
+    record.turn === undefined &&
+    record.inbox.length > 0 &&
+    record.inbox.every((entry) => entry.kind === "background")
+  );
 }
 
 /** The inbox entry that delivers a background call's outcome. */
