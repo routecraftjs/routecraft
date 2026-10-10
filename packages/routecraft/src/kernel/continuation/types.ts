@@ -390,14 +390,16 @@ export interface Deferral {
  *
  * `at` is when the claim was taken and never moves. The resume path reads
  * it to attribute a claim: an expiry claim is only ever taken past the
- * deadline and a denial claim only before it, so a slow denial re-ask that
- * crosses the deadline is still reported as a denial.
+ * deadline, so a slow denial re-ask that crosses the deadline is still
+ * reported as a denial. A denial claim is taken past the deadline only by a
+ * park whose notify hook outlived the ttl, and a replay landing between that
+ * claim and its denial reads as an expiry.
  *
  * `renewedAt` is what the lease is measured from: `at` until the first
  * renewal, then the latest renewal. A live delivery renews it on a
  * heartbeat, so a slow handler never lapses, and
  * {@link DeferralStore.releaseClaims} releases the claims whose holder
- * stopped renewing because it died.
+ * stopped renewing them.
  */
 export interface DeferralClaim {
   readonly id: DeferralClaimId;

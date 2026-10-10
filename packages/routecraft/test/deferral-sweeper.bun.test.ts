@@ -21,12 +21,16 @@ const Approval = z.object({ approved: z.boolean() });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Every gate a test made, so `afterEach` can open the ones a failed assertion left shut. */
+const gates: Array<() => void> = [];
+
 /** A promise the test opens by hand, so a delivery stalls until told to go on. */
 function gate(): { opened: Promise<void>; open: () => void } {
   let open: () => void = () => {};
   const opened = new Promise<void>((resolve) => {
     open = resolve;
   });
+  gates.push(open);
   return { opened, open };
 }
 
@@ -113,6 +117,8 @@ describe("the deferral sweeper", () => {
   let t: TestContext | undefined;
 
   afterEach(async () => {
+    // A handler still parked on a gate would hold the route's drain open.
+    for (const open of gates.splice(0)) open();
     if (t) await t.stop();
     t = undefined;
   });

@@ -7,8 +7,13 @@ title: directory
 </Lead>
 
 ```ts skip="fragment: not a complete statement on its own"
-directory<T = unknown>(options & { path: string; chunked: true }): DirectoryChunkedAdapter<T> // Source<DirectoryEntry> & Enricher<T, DirectoryEntry[]>
-directory<T = unknown>(options: DirectoryOptions<T>): DirectoryAdapter<T>                      // Source<DirectoryEntry[]> & Enricher<T, DirectoryEntry[]>
+directory<T = unknown>(
+  options: Omit<DirectoryOptions<T>, "path"> & { path: string; chunked: true },
+): DirectoryChunkedAdapter<T> // Source<DirectoryEntry> & Enricher<T, DirectoryEntry[]>
+directory<T = unknown>(
+  options: DirectoryOptions<T> & { path: (exchange: Exchange<T>) => string },
+): Enricher<T, DirectoryEntry[]>
+directory<T = unknown>(options: DirectoryOptions<T>): DirectoryAdapter<T> // Source<DirectoryEntry[]> & Enricher<T, DirectoryEntry[]>
 ```
 
 Scan a directory and list its entries. The directory adapter is the "find the files" half of working with a directory; the [`file`](/docs/reference/adapters/file) adapter reads or writes a single file. Compose the two to process every file in a directory.
@@ -40,7 +45,7 @@ craft()
   .to(log())
 ```
 
-**List mid-route:** the adapter's `fetch` returns the sorted `DirectoryEntry[]` listing, so you can list a directory partway through a route with `.enrich()` or `.to()`, the same way [`file`](/docs/reference/adapters/file)'s fetch pulls in a file's content. A listing is a read, so it belongs in the pull-in role. This is what makes the adapter usable inside a [`direct()`](/docs/reference/adapters/direct) capability, where there is no `.from()` slot to hang the listing on. The source role needs a static string path; the enricher also accepts a function, resolved against the exchange when the scan runs.
+**List mid-route:** the adapter's `fetch` returns the sorted `DirectoryEntry[]` listing, so you can list a directory partway through a route with `.enrich()` or `.to()`, the same way [`file`](/docs/reference/adapters/file)'s fetch pulls in a file's content. A listing is a read, so it belongs in the pull-in role. This is what makes the adapter usable inside a [`direct()`](/docs/reference/adapters/direct) capability, where there is no `.from()` slot to hang the listing on. The source role needs a static string path; the enricher also accepts a function, resolved against the exchange when the scan runs. A function path selects the overload without a source role, so `.from(directory({ path: (ex) => ... }))` is a compile error.
 
 ```ts
 // An agent capability: list candidate files, read them, return the matches

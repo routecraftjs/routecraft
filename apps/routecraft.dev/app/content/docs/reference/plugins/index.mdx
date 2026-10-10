@@ -101,7 +101,7 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `routes.register(...definitions)` | Add routes. In `bind` only (`RC1110` afterwards). |
 | `routes.list()`, `routes.get(id)` | Read-only views of registered routes: `id`, `definition`, `enabled`, `disabledReason`. The definition is read-only down the graph, at the type and at runtime: a write through it is `RC1110`. |
 | `routes.hooksOf(id)` | The hooks that apply to a route in the order they run, each as `{ slot, point, phase?, plugin, id }`. Empty before the routes compile. |
-| `routes.canDefer(id)` | Whether an exchange on this route can park: it has a [`.defer()`](/docs/reference/operations/defer), a defer-capable step, or an `error` hook declared with `mayDefer` whose `routes` and `tags` select it. What a door reads to advertise a `Deferred` answer. False for an unknown id. |
+| `routes.canDefer(id)` | Whether an exchange on this route can park: it has a [`.defer()`](/docs/reference/operations/defer), a defer-capable step, or an `error` hook declared with `mayDefer` whose `routes` and `tags` select it. What a door reads to advertise a `Deferred` answer. False for an unknown id. Complete from `start` on: during `bind` the hooks are not placed yet, so a route that parks only through an `error` hook reads false. |
 | `execution` | The verbs that drive the application, below. |
 
 ### Execution

@@ -13,8 +13,9 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 3. **`craft.config.ts` default-exports `defineProject(...)`.** A plain config still loads. [Section 3](#3-define-project).
 4. **`registerDsl` is removed.** Route methods come from a plugin's `steps`. [Section 4](#4-steps).
 5. **Store keys that crossed plugins are ports.** [Section 5](#5-ports).
+6. **A custom `DeferralStore` fences its claims.** `renewClaim` is new, and `markExpired` and `markDenied` take the claim id. The shipped SQLite and memory stores migrate themselves. [Section 6](#6-deferral-store).
 
-Projects that write no plugin of their own typically need section 2 and nothing else. Section 6 lists what is new, for context.
+Projects that write no plugin of their own typically need section 2 and nothing else, and section 6 if they supply their own `DeferralStore`. [Section 7](#7-what-is-new-in-080) lists what is new, for context.
 
 ---
 
