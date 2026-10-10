@@ -6,6 +6,7 @@ import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
 import type {
   ResumeAcknowledgment,
   ResumeRequest,
+  RevivalOptions,
 } from "./continuation/resume.ts";
 import type { AnyPort, Port } from "./port.ts";
 import type { Hooks, PointDeclaration, RouteHookView } from "./hooks.ts";
@@ -81,6 +82,18 @@ export interface PluginRoutes {
   /** One route by id. */
   get(id: string): RouteView | undefined;
   /**
+   * Whether an exchange on this route can park: the route has a `.defer()`,
+   * a defer-capable step, or an error-slot hook declared with `mayDefer`
+   * whose `routes` and `tags` select it. What a door reads to advertise a `Deferred` answer, and
+   * what a caller that holds a request open reads to know the first answer
+   * may be an acknowledgment. False for an unknown route.
+   *
+   * Complete from `start` on. During `bind` the hooks are not placed yet, so
+   * a route whose only way to park is an error-slot hook reads false, the
+   * same way `hooksOf` reads empty.
+   */
+  canDefer(id: string): boolean;
+  /**
    * The hooks that apply to a route, in the order they run. Empty for an
    * unknown route and before the routes compile.
    */
@@ -105,11 +118,17 @@ export interface Execution {
   ): Promise<unknown>;
   /**
    * Resume a parked exchange by its token, on the plugin's own behalf: no
-   * ingress door, so no door policy and no live principal.
+   * ingress door, so no door policy and no live principal, unless the
+   * plugin re-verified the parked identity itself and hands it over as
+   * `options.reidentified`.
    *
    * @throws RC5052 when no plugin provides continuations
+   * @throws RC5056 when `reidentified` is restored or is not the parked identity
    */
-  resume(request: ResumeRequest): Promise<ResumeAcknowledgment>;
+  resume(
+    request: ResumeRequest,
+    options?: RevivalOptions,
+  ): Promise<ResumeAcknowledgment>;
   /**
    * Run one pass of the kernel's sweep over parked exchanges: heal claims
    * whose deliverer died, purge settled records past retention, and retire

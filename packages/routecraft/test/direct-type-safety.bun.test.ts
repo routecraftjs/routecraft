@@ -1,8 +1,10 @@
 import { describe, expectTypeOf, test } from "bun:test";
 import { craft, simple } from "@routecraft/routecraft";
+import { z } from "zod";
 import { direct } from "../src/adapters/direct/index.ts";
 import type { Source } from "../src/operations/from.ts";
 import type { Enricher } from "../src/operations/enrich.ts";
+import { expectBodyOf } from "./helpers/types.ts";
 
 /**
  * Type-level tests: direct() returns Source when called with options or no
@@ -26,6 +28,61 @@ describe("Direct adapter type safety", () => {
    */
   test("direct() with no args returns Source", () => {
     expectTypeOf(direct()).toMatchTypeOf<Source<unknown>>();
+  });
+
+  /**
+   * @case direct<T>() with no args is typed as Source<T>
+   * @preconditions direct<{ name: string }>()
+   * @expectedResult Type matches Source<{ name: string }> and the route body is { name: string }
+   */
+  test("direct<T>() returns Source<T>", () => {
+    expectTypeOf(direct<{ name: string }>()).toMatchTypeOf<
+      Source<{ name: string }>
+    >();
+    const route = craft().from(direct<{ name: string }>());
+    expectBodyOf(route).toEqualTypeOf<{ name: string }>();
+  });
+
+  /**
+   * @case direct<T>(options) with channel options is typed as Source<T>
+   * @preconditions direct<{ name: string }>({ internal: true })
+   * @expectedResult Type matches Source<{ name: string }>
+   */
+  test("direct<T>(options) returns Source<T>", () => {
+    expectTypeOf(direct<{ name: string }>({ internal: true })).toMatchTypeOf<
+      Source<{ name: string }>
+    >();
+  });
+
+  /**
+   * @case A staged .input({ body }) schema wins over the direct<T>() type argument
+   * @preconditions .input({ body: schemaB }) then .from(direct<A>()) with A and B unrelated
+   * @expectedResult Body type is the schema's output B; the engine validates against B, so A is only a claim
+   */
+  test("input({ body }) schema wins over direct<T>()", () => {
+    const schemaB = z.object({ id: z.number() });
+    type A = { name: string };
+    const route = craft()
+      .id("schema-wins")
+      .input({ body: schemaB })
+      .from(direct<A>());
+    expectBodyOf(route).toEqualTypeOf<{ id: number }>();
+  });
+
+  /**
+   * @case An explicit .from<C>() wins over both the staged schema and the direct<T>() argument
+   * @preconditions .input({ body: schemaB }) then .from<C>(direct<A>()) with A, B and C unrelated
+   * @expectedResult Body type is C
+   */
+  test("explicit from<C>() wins over input() and direct<T>()", () => {
+    const schemaB = z.object({ id: z.number() });
+    type A = { name: string };
+    type C = { raw: string };
+    const route = craft()
+      .id("explicit-wins")
+      .input({ body: schemaB })
+      .from<C>(direct<A>());
+    expectBodyOf(route).toEqualTypeOf<C>();
   });
 
   /**

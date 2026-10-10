@@ -876,15 +876,19 @@ The token verifies and names a real deferral, but it was minted for a different 
 Nothing is wrong with the record; it is still resumable by the rightful credential. Design so at most one tool per turn can defer (one approval tool, or mutually exclusive guards) rather than handing two recipients two links backed by one deferral. The refusal is deliberately non-destructive: it leaves the record exactly as it found it, so the winning call's recipient can still resume.
 
 ## RC5056
-Resume refused by the route's authorize hook
+Resume refused for this principal
 
 **Why it happens**  
-The [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume) hook on the ingress route refused this principal. Who may resume a deferred run is your application's policy, not the framework's: the hook receives the live principal, the deferred principal snapshot, the raw submitted payload, and the record's context, and decides.
+One of three checks refused the principal a deferred run would resume under:
 
-A hook that returns false, one that throws, and one that never settles before the route's own `.timeout()` all produce this one code with the same message. That is deliberate: a hook whose failures can be told apart from outside is an oracle for what it knows.
+- The [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume) hook on the ingress route refused the resuming principal. Who may resume a deferred run is your application's policy, not the framework's: the hook receives the live principal, the deferred principal snapshot, the raw submitted payload, and the record's context, and decides.
+- The `.resume({ elevate })` hook on the ingress route refused, or re-minted the parked principal outside its rule: not verified live, a difference outside `scopes`, or a lent scope the refusal that parked the exchange never named.
+- A plugin reviving the exchange on its own behalf (`execution.resume(request, { reidentified })`, which the agent plugin's `reidentify` uses) handed over a principal that is not the parked identity verified live: a restored principal, or one differing from the parked one in any identity or policy field, `scopes` included. How it was verified (`kind`, `scheme`, `expiresAt`, `claims`, `userinfoClaims`) is not compared, since a live re-verification changes all of it.
+
+Within each check, every cause produces this one code with the same message: a hook that returns false, one that throws, one that never settles before the route's own `.timeout()`, and a principal that breaks the rule. That is deliberate: a check whose failures can be told apart from outside is an oracle for what it knows. The message names which check refused, never why.
 
 **Suggestion**  
-Read the boundary log. It records which of the three happened and carries any thrown cause, neither of which reaches the wire. The refusal is non-destructive and runs before the record's lifecycle is disclosed, so the record stays exactly as it was and a refused caller learns nothing about it; whoever does qualify can still resume.
+Read the boundary log. It names the check and records the cause, including any thrown error, none of which reaches the wire. The refusal is non-destructive and runs before the record's lifecycle is disclosed, so the record stays exactly as it was and a refused caller learns nothing about it; whoever does qualify can still resume. For a refused re-identification, verify the parked identity again from live state: if the person's roles or scopes changed during the park, nothing runs in their name, and they ask again so the new park carries the new state.
 
 A door that declares no hook is bearer by design: any holder of a valid token may resume. If you did not intend that, the fix is a hook, not a config flag.
 
@@ -1010,10 +1014,13 @@ Read the issues: each names the field and the rule that rejected it. `craft ops 
 Deferral store is missing a contract member
 
 **Why it happens**  
-A surface asked the deferral store for something the store this context was given does not implement. `GET /ops/deferrals` reads `DeferralStore.list`, which the two shipped backends provide; a store supplied through `deferral: { store }` is your own, and one written against an earlier version of the contract can be missing a member added since. The message names it.
+The deferral store this context was given does not implement a member of the `DeferralStore` contract. A store supplied through `deferral: { store }` is your own, and one written against an earlier version of the contract can be missing a member added since; the message names it. Two places refuse:
+
+- The deferral plugin, when the application starts, for every member the kernel calls (`renewClaim` is the one a 0.7 store lacks). Starting anyway would lose the first delivery claim to a renewal that throws, and redeliver the re-ask it was guarding.
+- `GET /ops/deferrals`, when asked, for `DeferralStore.list`, which is optional because nothing else reads it. The surface refuses rather than answering an empty listing, because an empty listing and a listing the store cannot produce look identical to whoever is reading them, and one of them is a lie about what the instance is holding.
 
 **Suggestion**  
-Implement the member the message names, or drop back to a shipped backend (`sqlite`, or `memory` for tests). The surface refuses rather than answering an empty listing, because an empty listing and a listing the store cannot produce look identical to whoever is reading them, and one of them is a lie about what the instance is holding.
+Implement the member the message names (the [0.7 to 0.8 migration guide](/docs/migrating/0.7-to-0.8#6-deferral-store) lists what changed), or drop back to a shipped backend (`sqlite`, or `memory` for tests).
 
 ## RC5067
 Deferral notification failed
@@ -1126,7 +1133,7 @@ Agent deferral unavailable on this surface
 **Suggestion**  
 Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable defer site, and `ctx.defer()` defers. If this surface genuinely cannot defer (an MCP proxy guard), drop the deferral from the handler; a guard's job is admission, not waiting.
 
-A [background tool](/docs/reference/plugins/agentplugin#background-tools) also reports this code when its downstream route returns a `Deferred` acknowledgment. In that case the downstream record already exists and stays pending; only background result delivery fails. Resolve the existing action through the application's approval flow instead of retrying it. The receipt's bearer token is withheld from the model and session inbox.
+A [background tool](/docs/reference/plugins/agentplugin#background-tools) also reports this code when its route answers with another route's `Deferred` acknowledgment without having parked itself: that park's stored exchange does not carry the handle, so nothing will ever settle it. The downstream record already exists and stays pending; only background result delivery fails. Resolve the existing action through the application's approval flow instead of retrying it. The receipt's bearer token is withheld from the model and session inbox. A route that parks itself, or forwards to one with its headers, is settled from execution two instead.
 
 ## AI1007
 Agent deferral state invalid at rehydration

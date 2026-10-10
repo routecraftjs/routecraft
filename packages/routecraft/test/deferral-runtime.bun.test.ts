@@ -9,12 +9,17 @@ import {
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { testContext } from "@routecraft/testing";
 import {
   CraftContext,
   MemoryDeferralStore,
   DEFERRAL_SECRET_ENV,
   DEFERRAL_STORE_ENV,
+  craft,
+  direct,
+  noop,
   rcError,
+  type DeferralStore,
 } from "../src/index.ts";
 // Engine machinery, reached through the intra-package barrel.
 import {
@@ -48,6 +53,39 @@ const absentPeerLoaders: SqliteDriverLoaders = {
       }),
     ),
 };
+
+/**
+ * A store as a 0.7 application wrote it: every member that contract had,
+ * delegating to a real backend, and nothing added since. Assembled by hand
+ * because that is how a custom store is written, and cast because the
+ * compiler rightly refuses it as a 0.8 `DeferralStore`; a JavaScript config
+ * or a stale build hands it over all the same.
+ */
+function storeWrittenFor07(): DeferralStore {
+  const backing = new MemoryDeferralStore();
+  const legacy: Omit<DeferralStore, "renewClaim"> = {
+    create: (record) => backing.create(record),
+    get: (id) => backing.get(id),
+    markResumed: (id, resumption) => backing.markResumed(id, resumption),
+    claimExpiry: (id, at) => backing.claimExpiry(id, at),
+    markExpired: (id, claimId) => backing.markExpired(id, claimId),
+    markDenied: (id, claimId, reason) =>
+      backing.markDenied(id, claimId, reason),
+    releaseClaims: (before) => backing.releaseClaims(before),
+    replaceStepState: (id, expected, stepState) =>
+      backing.replaceStepState(id, expected, stepState),
+    recordContinuation: (id, continuation) =>
+      backing.recordContinuation(id, continuation),
+    findExpired: (now, limit, after) => backing.findExpired(now, limit, after),
+    pending: () => backing.pending(),
+    list: (query) => backing.list(query),
+    resumedWithoutContinuation: (limit) =>
+      backing.resumedWithoutContinuation(limit),
+    purgeSettled: (before) => backing.purgeSettled(before),
+    close: () => backing.close(),
+  };
+  return legacy as DeferralStore;
+}
 
 // At least 32 bytes: resolveSigningSecret enforces a strength floor.
 const SECRET = { secret: "runtime-test-secret-padded-to-32b" };
@@ -234,6 +272,101 @@ describe("deferral runtime resolution", () => {
         message: expect.stringContaining("deferral.sweepInterval"),
       }),
     );
+  });
+
+  /**
+   * @case An expiry lease whose renewal interval a timer cannot schedule is refused at build
+   * @preconditions expiryLease one millisecond past three times the 2^31-1 ms timer ceiling, and expiryLease exactly at it
+   * @expectedResult The longer lease is RC5003 naming deferral.expiryLease, rather than a heartbeat coerced to 1ms that renews the claim back to back for the whole delivery; the lease at the ceiling builds
+   */
+  test("refuses an expiry lease above the renewal timer ceiling", async () => {
+    const ceiling = 3 * 2_147_483_647;
+    await expect(
+      createDeferralRuntime(new CraftContext(), {
+        ...SECRET,
+        store: "memory",
+        expiryLease: ceiling + 1,
+      }),
+    ).rejects.toThrow(
+      expect.objectContaining({
+        rc: "RC5003",
+        message: expect.stringContaining("deferral.expiryLease"),
+      }),
+    );
+
+    runtime = await createDeferralRuntime(new CraftContext(), {
+      ...SECRET,
+      store: "memory",
+      expiryLease: ceiling,
+    });
+    expect(runtime.runtime.expiryLeaseMs).toBe(ceiling);
+  });
+
+  /**
+   * @case A custom store written for the 0.7 contract is refused where it is configured
+   * @preconditions A caller-supplied store implementing every 0.7 member and not renewClaim
+   * @expectedResult RC5066 naming renewClaim, at build, instead of a runtime that starts clean and loses every delivery claim to a heartbeat that throws
+   */
+  test("refuses a supplied store missing a contract member", async () => {
+    await expect(
+      createDeferralRuntime(new CraftContext(), {
+        ...SECRET,
+        store: storeWrittenFor07(),
+      }),
+    ).rejects.toThrow(
+      expect.objectContaining({
+        rc: "RC5066",
+        message: expect.stringContaining('"renewClaim"'),
+      }),
+    );
+  });
+
+  /**
+   * @case The plugin refuses a 0.7-shaped store when the application starts
+   * @preconditions deferral: { store } set to a store with no renewClaim, on an application with one route
+   * @expectedResult Building the application fails with RC5066, because the plugin resolves its runtime in bind, before any route can park in the store
+   */
+  test("the deferral plugin refuses a 0.7-shaped store at bind", async () => {
+    const outcome = await testContext()
+      .with({ deferral: { ...SECRET, store: storeWrittenFor07() } })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build()
+      .then(
+        async (t) => {
+          try {
+            await t.ctx.start();
+            return undefined;
+          } catch (err) {
+            return err;
+          } finally {
+            await t.stop();
+          }
+        },
+        (err: unknown) => err,
+      );
+    expect(outcome).toMatchObject({ rc: "RC5066" });
+  });
+
+  /**
+   * @case A supplied store without the listing still runs
+   * @preconditions A caller-supplied store implementing every member but list
+   * @expectedResult The runtime builds: list is read only by the ops listing, which refuses such a store itself with RC5066 when asked
+   */
+  test("accepts a supplied store that does not implement list", async () => {
+    const backing = new MemoryDeferralStore();
+    const unlisted = new Proxy(backing, {
+      get(target, prop) {
+        if (prop === "list") return undefined;
+        const value = Reflect.get(target, prop, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+    runtime = await createDeferralRuntime(new CraftContext(), {
+      ...SECRET,
+      store: unlisted,
+    });
+    expect(runtime.backend).toBe("custom");
   });
 
   /**

@@ -10,6 +10,8 @@ import {
   type EventName,
   type NewDeferral,
   type DeferralCasResult,
+  type DeferralClaimId,
+  type DeferralClaimResult,
   type DeferralStore,
 } from "../src/index.ts";
 import { ContinuationSweeper } from "../src/kernel/continuation/sweep.ts";
@@ -18,6 +20,28 @@ import { asDeferred, storeWith } from "./helpers/deferral.ts";
 const Approval = z.object({ approved: z.boolean() });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Every gate a test made, so `afterEach` can open the ones a failed assertion left shut. */
+const gates: Array<() => void> = [];
+
+/** A promise the test opens by hand, so a delivery stalls until told to go on. */
+function gate(): { opened: Promise<void>; open: () => void } {
+  let open: () => void = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  gates.push(open);
+  return { opened, open };
+}
+
+/** Poll until `condition` holds, failing loudly rather than hanging the suite. */
+async function waitFor(condition: () => boolean, timeoutMs = 2_000) {
+  const until = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > until) throw new Error("condition never held");
+    await sleep(5);
+  }
+}
 
 /** Directly driven sweepers in these tests never tick or purge on cadence. */
 const sweeperOptions = { intervalMs: 60_000, leaseMs: 60 * 60 * 1000 };
@@ -93,6 +117,8 @@ describe("the deferral sweeper", () => {
   let t: TestContext | undefined;
 
   afterEach(async () => {
+    // A handler still parked on a gate would hold the route's drain open.
+    for (const open of gates.splice(0)) open();
     if (t) await t.stop();
     t = undefined;
   });
@@ -200,7 +226,10 @@ describe("the deferral sweeper", () => {
     });
 
     const store = storeWith(backing, {
-      claimExpiry: async (id: string, at: Date): Promise<DeferralCasResult> => {
+      claimExpiry: async (
+        id: string,
+        at: Date,
+      ): Promise<DeferralClaimResult> => {
         sweepIsAtTheTransition();
         await answered;
         return backing.claimExpiry(id, at);
@@ -353,7 +382,7 @@ describe("the deferral sweeper", () => {
   test("a store error on one record does not stop the pass", async () => {
     const backing = new MemoryDeferralStore();
     const store = storeWith(backing, {
-      claimExpiry: (id: string, at: Date): Promise<DeferralCasResult> =>
+      claimExpiry: (id: string, at: Date): Promise<DeferralClaimResult> =>
         id === "def-b"
           ? Promise.reject(new Error("the database went away"))
           : backing.claimExpiry(id, at),
@@ -651,11 +680,14 @@ describe("the deferral sweeper", () => {
     });
 
     const store = storeWith(backing, {
-      markExpired: async (id: string) => {
+      markExpired: async (
+        id: string,
+        claimId: DeferralClaimId,
+      ): Promise<DeferralCasResult> => {
         sweepReached();
         await held;
         order.push("sweep finished");
-        return backing.markExpired(id);
+        return backing.markExpired(id, claimId);
       },
       close: async () => {
         order.push("store closed");
@@ -825,8 +857,237 @@ describe("the deferral sweeper", () => {
 
     const claimed = await store.get("def-claimed");
     expect(claimed?.state).toBe("waiting");
-    expect(claimed?.claimedAt).toBeDefined();
+    expect(claimed?.claim).toBeDefined();
     expect(claimed?.outcome).toBeUndefined();
+  });
+
+  /**
+   * @case A delivery that outlives the lease, with its claimant alive
+   * @preconditions A record whose re-ask stalls inside the route's error handler for several leases, under a sweeper with a 120ms lease; a second sweeper over the same store passes while the stall holds
+   * @expectedResult The second pass releases nothing and retires nothing, the stalled delivery finalizes as the live claim when it ends, and the route heard exactly one re-ask. The claimant renews its claim while the handler runs, so a slow handler is not mistaken for a dead process; before the heartbeat the only defence was a lease longer than the slowest handler, which is a guess
+   */
+  test("a live delivery past the lease is not redelivered", async () => {
+    const store = new MemoryDeferralStore();
+    const reasked: unknown[] = [];
+    const stall = gate();
+
+    t = await testContext()
+      .with(deferringWith(store))
+      .routes([
+        craft()
+          .id("payout")
+          .error(async (err) => {
+            reasked.push(err);
+            // Only the first delivery stalls, so a regression shows up as a
+            // second re-ask rather than as a hung suite.
+            if (reasked.length === 1) await stall.opened;
+            return { reasked: true };
+          })
+          .from(direct())
+          .defer({ schema: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await store.create(overdue("def-slow"));
+    const lease = { intervalMs: 60_000, leaseMs: 120 };
+    const slow = new ContinuationSweeper(t.ctx, store, lease);
+    const delivering = slow.sweep();
+    await waitFor(() => reasked.length === 1);
+    const claim = (await store.get("def-slow"))?.claim;
+    expect(claim).toBeDefined();
+
+    // Two and a half leases: without renewal the claim is long gone.
+    await sleep(300);
+    const other = new ContinuationSweeper(t.ctx, store, lease);
+    expect(await other.sweep()).toBe(0);
+    const held = await store.get("def-slow");
+    expect(held?.state).toBe("waiting");
+    expect(held?.claim?.id).toBe(claim?.id);
+    expect(held?.claim?.renewedAt.getTime()).toBeGreaterThan(
+      claim!.at.getTime(),
+    );
+    expect(reasked).toHaveLength(1);
+
+    stall.open();
+    expect(await delivering).toBe(1);
+    expect((await store.get("def-slow"))?.outcome?.kind).toBe("expired");
+    expect(reasked).toHaveLength(1);
+    expect(
+      said(t.contextLogger.warn.mock.calls, "claim was released"),
+    ).toBeUndefined();
+    expect(
+      said(t.contextLogger.warn.mock.calls, "claim was lost"),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case A renewal still in flight when its delivery settles
+   * @preconditions A 30ms lease whose first renewal reaches the store only after the test releases it; the re-ask returns as soon as that renewal has started, the delivery finalizes, and the held renewal then runs against the settled record and loses
+   * @expectedResult The record settles as expired through the live claim, and no "claim was lost" warning is logged: the renewal's loss is the finalize that just won, not a lost claim, and warning about it after a correct finalize sends an operator looking for a duplicate re-ask that never happened
+   */
+  test("a renewal that loses after the delivery settled does not warn", async () => {
+    const backing = new MemoryDeferralStore();
+    const renewalStarted = gate();
+    const renewalReleased = gate();
+    let renewalSettled = false;
+
+    const store = storeWith(backing, {
+      renewClaim: async (id, claimId, at) => {
+        renewalStarted.open();
+        await renewalReleased.opened;
+        const result = await backing.renewClaim(id, claimId, at);
+        renewalSettled = true;
+        return result;
+      },
+    });
+
+    t = await testContext()
+      .with(deferringWith(backing))
+      .routes([
+        craft()
+          .id("payout")
+          .error(async () => {
+            await renewalStarted.opened;
+            return { reasked: true };
+          })
+          .from(direct())
+          .defer({ schema: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await backing.create(overdue("def-late"));
+    const sweeper = new ContinuationSweeper(t.ctx, store, { leaseMs: 30 });
+    expect(await sweeper.sweep()).toBe(1);
+    expect((await backing.get("def-late"))?.outcome?.kind).toBe("expired");
+
+    renewalReleased.open();
+    await waitFor(() => renewalSettled);
+    await sleep(5);
+    expect(
+      said(t.contextLogger.warn.mock.calls, "claim was lost"),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case A claimant that died mid-delivery
+   * @preconditions A record claimed now and never renewed, as a process that crashed after claiming leaves it; sweeps driven at half a lease, one lease, and two leases later
+   * @expectedResult Nothing happens inside the lease; at the lease the claim is released and the record redelivered and settled; after that nothing happens again. One repeat per lease period for a dead claimant is the at-least-once trade the lease exists for, and the second idle pass pins that the repeat is one, not one per pass
+   */
+  test("a dead claimant is redelivered exactly once, at the lease", async () => {
+    const store = new MemoryDeferralStore();
+    const reasked: unknown[] = [];
+
+    t = await testContext()
+      .with(deferringWith(store))
+      .routes([
+        craft()
+          .id("payout")
+          .error((err) => {
+            reasked.push(err);
+            return { reasked: true };
+          })
+          .from(direct())
+          .defer({ schema: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await store.create(overdue("def-dead"));
+    const now = Date.now();
+    const dead = await store.claimExpiry("def-dead", new Date(now));
+    expect(dead.won).toBe(true);
+
+    const lease = sweeperOptions.leaseMs;
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
+
+    expect(await sweeper.sweep(new Date(now + lease / 2))).toBe(0);
+    expect(reasked).toHaveLength(0);
+    expect((await store.get("def-dead"))?.claim?.id).toBe(dead.claim?.id);
+
+    expect(await sweeper.sweep(new Date(now + lease + 1))).toBe(1);
+    expect(reasked).toHaveLength(1);
+    const settled = await store.get("def-dead");
+    expect(settled?.outcome?.kind).toBe("expired");
+    expect(settled?.claim?.id).not.toBe(dead.claim?.id);
+
+    expect(await sweeper.sweep(new Date(now + 2 * lease + 1))).toBe(0);
+    expect(reasked).toHaveLength(1);
+  });
+
+  /**
+   * @case A claimant whose heartbeats stop and that wakes while its replacement is still delivering
+   * @preconditions Claimant A's renewals never reach the store (a paused process, a partition) while its re-ask stalls; its lease elapses and claimant B releases the claim, reclaims the record and starts its own re-ask, which also stalls; A's re-ask then completes and A finalizes with the claim it won while B is mid-delivery
+   * @expectedResult A's finalize is refused and logged, and the record stays waiting under B's claim, which B then settles. From where A stands the record looks exactly as it left it, waiting and claimed, so only the claim's identity can refuse it; without the fence A would settle a delivery B is still making, and a crash of B after that would be a lost re-ask nothing revisits. The route heard two re-asks, the accepted duplicate for a claimant the store had to presume dead, and never a third
+   */
+  test("a stale claimant cannot finalize the delivery that replaced it", async () => {
+    const backing = new MemoryDeferralStore();
+    const reasked: unknown[] = [];
+    const stalls = [gate(), gate()];
+
+    t = await testContext()
+      .with(deferringWith(backing))
+      .routes([
+        craft()
+          .id("payout")
+          .error(async (err) => {
+            reasked.push(err);
+            await stalls[reasked.length - 1]?.opened;
+            return { reasked: true };
+          })
+          .from(direct())
+          .defer({ schema: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await backing.create(overdue("def-aba"));
+    const lease = { intervalMs: 60_000, leaseMs: 120 };
+    // A's heartbeats hang forever; everything else reaches the store.
+    const partitioned = storeWith(backing, {
+      renewClaim: () => new Promise<DeferralCasResult>(() => {}),
+    });
+    const a = new ContinuationSweeper(t.ctx, partitioned, lease);
+    const deliveringA = a.sweep();
+    await waitFor(() => reasked.length === 1);
+    const claimOfA = (await backing.get("def-aba"))?.claim;
+    expect(claimOfA).toBeDefined();
+
+    await sleep(300);
+    const b = new ContinuationSweeper(t.ctx, backing, lease);
+    const deliveringB = b.sweep();
+    await waitFor(() => reasked.length === 2);
+    const claimOfB = (await backing.get("def-aba"))?.claim;
+    expect(claimOfB?.id).not.toBe(claimOfA?.id);
+
+    // A wakes while B is mid-delivery: the record is waiting and claimed,
+    // exactly as A left it.
+    stalls[0]!.open();
+    await deliveringA;
+    const underB = await backing.get("def-aba");
+    expect(underB?.state).toBe("waiting");
+    expect(underB?.outcome).toBeUndefined();
+    expect(underB?.claim?.id).toBe(claimOfB?.id);
+    expect(
+      said(
+        t.contextLogger.warn.mock.calls,
+        "released before its delivery finalized",
+      ),
+    ).toBeDefined();
+
+    stalls[1]!.open();
+    expect(await deliveringB).toBe(1);
+    const settled = await backing.get("def-aba");
+    expect(settled?.outcome?.kind).toBe("expired");
+    expect(settled?.claim?.id).toBe(claimOfB?.id);
+
+    expect(await b.sweep()).toBe(0);
+    expect(reasked).toHaveLength(2);
   });
 
   /**
@@ -941,8 +1202,9 @@ describe("the deferral sweeper", () => {
         expiresAt: new Date(Date.now() + day),
       }),
     );
-    await store.claimExpiry("def-recent", new Date());
-    await store.markExpired("def-recent");
+    const recent = await store.claimExpiry("def-recent", new Date());
+    if (!recent.won) throw new Error("the test's own claim lost");
+    await store.markExpired("def-recent", recent.claim.id);
 
     t = await testContext()
       .with(deferringWith(store))

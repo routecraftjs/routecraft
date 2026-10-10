@@ -119,7 +119,7 @@ describe("the resume authorize hook", () => {
 
     const untouched = await store.get(deferred.deferralId);
     expect(untouched?.state).toBe("waiting");
-    expect(untouched?.claimedAt).toBeUndefined();
+    expect(untouched?.claim).toBeUndefined();
     expect(untouched?.outcome).toBeUndefined();
 
     const ack = (await t.client.sendDirect("answers", {
@@ -206,7 +206,7 @@ describe("the resume authorize hook", () => {
       state: undefined,
       outcome: undefined,
       continuation: undefined,
-      claimedAt: undefined,
+      claim: undefined,
     } as never);
     const runtime = t.ctx.require(CONTINUATIONS)!;
     const token = runtime.signer.mint(`${record.id}-edited`);
@@ -217,7 +217,7 @@ describe("the resume authorize hook", () => {
     const untouched = await store.get(`${record.id}-edited`);
     expect(untouched?.state).toBe("waiting");
     expect(untouched?.outcome).toBeUndefined();
-    expect(untouched?.claimedAt).toBeUndefined();
+    expect(untouched?.claim).toBeUndefined();
 
     // Only a caller the hook accepted may settle it.
     await expect(
@@ -297,7 +297,7 @@ describe("the resume authorize hook", () => {
       state: undefined,
       outcome: undefined,
       continuation: undefined,
-      claimedAt: undefined,
+      claim: undefined,
     } as never);
     const runtime = t.ctx.require(CONTINUATIONS)!;
     const winner = runtime.signer.mint(
@@ -352,7 +352,7 @@ describe("the resume authorize hook", () => {
       state: undefined,
       outcome: undefined,
       continuation: undefined,
-      claimedAt: undefined,
+      claim: undefined,
     } as never);
     const runtime = t.ctx.require(CONTINUATIONS)!;
     const loser = runtime.signer.mint(
@@ -372,7 +372,7 @@ describe("the resume authorize hook", () => {
     const untouched = await store.get(`${record.id}-bound`);
     expect(untouched?.state).toBe("waiting");
     expect(untouched?.outcome).toBeUndefined();
-    expect(untouched?.claimedAt).toBeUndefined();
+    expect(untouched?.claim).toBeUndefined();
 
     await expect(
       t.client.sendDirect("answers", { token: winner }),

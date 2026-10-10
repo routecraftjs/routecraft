@@ -1,5 +1,45 @@
 import { isStandardSchema, rcError } from "@routecraft/routecraft";
-import type { FnOptions } from "./types.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { RegisteredFn } from "../agent/tools/types.ts";
+import type { FnDefinition } from "./types.ts";
+
+/**
+ * Author a fn whose handler is typed by its own input schema.
+ *
+ * `agentPlugin({ functions })` holds fns of unrelated shapes in one record,
+ * so an entry written as a bare object literal is not typed by its schema:
+ * the record erases the handler's input. Wrapping the entry in `fn()` gives it an
+ * inference boundary of its own: the schema's output type (after any
+ * `.transform()`) is the handler's input type, with nothing to annotate.
+ *
+ * Runtime behaviour is unchanged; the value is returned as given.
+ *
+ * @example
+ * ```ts
+ * agentPlugin({
+ *   functions: {
+ *     sendSlackMessage: fn({
+ *       description: "Post a message to a Slack channel",
+ *       input: z.object({ channel: z.string(), text: z.string() }),
+ *       handler: async (input, ctx) => {
+ *         ctx.logger.info({ channel: input.channel }, "Posting to Slack");
+ *         return { ok: true };
+ *       },
+ *     }),
+ *   },
+ * });
+ * ```
+ *
+ * @param definition - Description, input schema, handler and optional tags
+ * @returns The same object, with `input` still typed as `S`
+ * @template S - The input schema
+ * @template TOut - Handler return type
+ */
+export function fn<S extends StandardSchemaV1, TOut>(
+  definition: FnDefinition<S, TOut>,
+): FnDefinition<S, TOut> {
+  return definition;
+}
 
 /**
  * Validate a fn's config shape. Run at context init (not at authoring
@@ -8,7 +48,7 @@ import type { FnOptions } from "./types.ts";
  *
  * @internal
  */
-export function validateFnOptions(id: string, options: FnOptions): void {
+export function validateFnOptions(id: string, options: RegisteredFn): void {
   if (options === null || typeof options !== "object") {
     throw rcError("RC5003", undefined, {
       message: `agentPlugin: fn "${id}" entry must be an object with description, input, and handler.`,

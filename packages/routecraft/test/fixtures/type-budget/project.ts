@@ -4,8 +4,23 @@ import {
   noop,
   when,
   otherwise,
+  type Enricher,
+  type Exchange,
 } from "../../../src/index.ts";
 import { plugins, type Order } from "./plugins.ts";
+
+/**
+ * A fetch-only factory whose body type reaches its callback only through
+ * the contextual return type, the shape of `llm()` and `agent()`: what the
+ * Enricher-first `.to()` overload resolves on the hot path.
+ */
+function lookup<T = unknown>(options: {
+  key: (exchange: Exchange<T>) => string;
+}): Enricher<T, { found: boolean }> {
+  return {
+    fetch: async (exchange) => ({ found: options.key(exchange) !== "" }),
+  };
+}
 
 const project = defineProject({ plugins, deferral: { store: "memory" } });
 
@@ -34,4 +49,5 @@ export const route = project
     void ex.echo.name;
     return undefined;
   })
+  .to(lookup({ key: (ex) => ex.body.id }))
   .to(noop());

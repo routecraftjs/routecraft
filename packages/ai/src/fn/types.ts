@@ -205,6 +205,11 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
   /**
    * Handler called after schema validation with the (possibly coerced)
    * input and a minimal handler context.
+   *
+   * A function-typed property, so its parameter is checked contravariantly:
+   * a handler annotated narrower than what `input` produces does not
+   * compile. The heterogeneous `functions` record holds the erased
+   * `RegisteredFn` instead, which every typed fn is assignable to.
    */
   handler: (input: TIn, ctx: FnHandlerContext) => Promise<TOut> | TOut;
 
@@ -220,6 +225,22 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
    * match by exact value.
    */
   tags?: Tag[];
+}
+
+/**
+ * What {@link fn} takes: {@link FnOptions} with the input schema kept as
+ * its own type parameter, so the handler's input is the schema's output
+ * type rather than the `unknown` an annotation site collapses it to.
+ *
+ * @template S - The input schema
+ * @template TOut - Handler return type
+ */
+export interface FnDefinition<
+  S extends StandardSchemaV1 = StandardSchemaV1,
+  TOut = unknown,
+> extends Omit<FnOptions<StandardSchemaV1.InferOutput<S>, TOut>, "input"> {
+  /** Standard Schema for the fn's input; its output type is what the handler sees. */
+  input: S;
 }
 
 /**

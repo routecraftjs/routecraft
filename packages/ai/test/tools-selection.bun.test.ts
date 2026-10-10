@@ -167,6 +167,31 @@ describe("tools() resolver - bare references", () => {
       /unknown tool/i,
     );
   });
+
+  /**
+   * @case background on an item the type does not stop is refused unless the name is a Direct(...) reference
+   * @preconditions Untyped items: an MCP whole-server ref and a whole-remote ref carrying background: true, and a symbol name carrying a non-boolean background
+   * @expectedResult Each resolve throws RC5003: the refs name the Direct(<routeId>)-only rule instead of expanding with background ignored, and the symbol name fails the name check rather than a TypeError
+   */
+  test("background on a non-Direct item is refused with RC5003", async () => {
+    t = await buildCtx({});
+    const rcOf = (items: unknown): unknown => {
+      try {
+        tools(items as never).resolve(t!.ctx);
+      } catch (err) {
+        return err;
+      }
+      return undefined;
+    };
+    for (const name of ["MCP(server)", "mcp__server", "Remote(lab)"]) {
+      const err = rcOf([{ name, background: true }]);
+      expect((err as { rc?: string }).rc).toBe("RC5003");
+      expect((err as Error).message).toContain("Direct(<routeId>)");
+    }
+    const symbolName = rcOf([{ name: Symbol("x"), background: 1 }]);
+    expect((symbolName as { rc?: string }).rc).toBe("RC5003");
+    expect((symbolName as Error).message).toContain("non-empty string");
+  });
 });
 
 describe("tools() resolver - { name, guard }", () => {

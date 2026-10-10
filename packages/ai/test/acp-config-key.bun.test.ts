@@ -7,7 +7,15 @@
  * boots a real instance and speaks the protocol to it over a real socket.
  */
 
-import { afterEach, describe, expect, expectTypeOf, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  mock,
+  test,
+} from "bun:test";
 import {
   MemoryDeferralStore,
   defineConfig,
@@ -18,6 +26,13 @@ import { acpPlugin, agentPlugin } from "../src/index.ts";
 import type { AcpPluginOptions } from "../src/acp/types.ts";
 import { connectAcp } from "./helpers/acp-harness.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
+import { scriptedLlm } from "./helpers/scripted-llm.ts";
+
+const llm = scriptedLlm([]);
+mock.module("../src/llm/providers/index.ts", () => ({
+  callLlm: llm.callLlm,
+  streamLlm: llm.streamLlm,
+}));
 
 const AGENTS = {
   max: {
@@ -56,6 +71,10 @@ async function serve(
 
 describe("the acp config key", () => {
   let t: TestContext | undefined;
+
+  beforeEach(() => {
+    llm.reset();
+  });
 
   afterEach(async () => {
     if (t) await t.stop();
@@ -101,18 +120,37 @@ describe("the acp config key", () => {
 
   /**
    * @case The plugins form serves whichever order the plugins are listed in
-   * @preconditions `plugins: [acpPlugin(), agentPlugin({ agents })]`, no `acp` key
-   * @expectedResult The instance boots and serves the protocol: every agent contribution binds before ACP reads the registry, so list order carries no constraint
+   * @preconditions `plugins: [acpPlugin(), agentPlugin({ agents })]`, no `acp` key, the model scripted to answer one turn
+   * @expectedResult The instance boots, serves the protocol and runs a turn on the agent registered after it: every agent contribution binds before ACP reads the registry, so list order carries no constraint
    */
-  test("plugins: [acpPlugin(), agentPlugin()] serves", async () => {
-    const served = await serve({
-      servers: { default: { host: "127.0.0.1", port: 0 } },
-      deferral: { store: new MemoryDeferralStore() },
-      sessions: { store: "memory" },
-      plugins: [acpPlugin(), agentPlugin({ agents: AGENTS })],
-    });
-    t = served.t;
-    expect(served.agentInfo?.name).toBe("routecraft");
+  test("plugins: [acpPlugin(), agentPlugin()] serves, and the agent takes a turn", async () => {
+    llm.script.push({ text: "done" });
+    let port = 0;
+    t = await testContext()
+      .on("server:listening", ({ details }) => {
+        port = details.port;
+      })
+      .with({
+        servers: { default: { host: "127.0.0.1", port: 0 } },
+        llm: { providers: { anthropic: { apiKey: "sk-test" } } },
+        deferral: { store: new MemoryDeferralStore() },
+        sessions: { store: "memory" },
+        plugins: [acpPlugin(), agentPlugin({ agents: AGENTS })],
+      })
+      .build();
+    await t.startAndWaitReady();
+
+    const turn = await connectAcp(
+      `http://127.0.0.1:${port}/acp`,
+      (agent, initialized) =>
+        agent.buildSession("/work").withSession(async (session) => ({
+          agentInfo: initialized.agentInfo,
+          stopReason: (await session.prompt("go")).stopReason,
+        })),
+    );
+    expect(turn.agentInfo?.name).toBe("routecraft");
+    expect(turn.stopReason).toBe("end_turn");
+    expect(llm.calls).toHaveLength(1);
   });
 
   /**

@@ -1,3 +1,4 @@
+import type { ExchangeScoped, Principal } from "@routecraft/routecraft";
 import type {
   LlmModelId,
   LlmPromptPart,
@@ -103,14 +104,65 @@ export type AgentInboxMessage =
       readonly by: string | null;
     };
 
-/** A background tool call the session is still waiting on. */
+/**
+ * A background tool call the session is still waiting on.
+ *
+ * `deferralId` is set once the dispatched route answered with a `Deferred`
+ * acknowledgment: the route parked, and the call is settled by execution
+ * two rather than by the dispatch. It is the link a restart keeps, which
+ * is why it lives on the record: a boot reconciles the call against that
+ * deferral record, so it keeps waiting while the record does, settles from
+ * the recorded outcome of a decision, an expiry or a denial that landed
+ * while no process watched, and is reported lost only when execution two
+ * died before recording an outcome or the record is gone.
+ */
 export interface AgentBackgroundCall {
   readonly handle: string;
   readonly tool: string;
   readonly startedAt: string;
   /** The subject of the principal whose turn started it, or `null`. */
   readonly by: string | null;
+  /** The deferral the dispatched route parked on, once it did. */
+  readonly deferralId?: string;
+  /**
+   * The exchange whose turn started the call, so the settlement's events
+   * are attributed to it whichever process delivers them.
+   */
+  readonly origin?: ExchangeScoped;
 }
+
+/**
+ * Re-verify, from live state, the identity a parked exchange carried, so a
+ * stored session continuation can revive on a background settlement under
+ * a principal a gate trusts.
+ *
+ * Handed the principal the exchange parked with, restored: a shape read back
+ * from a record, never a credential. Returns a live-branded principal for
+ * the SAME identity (the application's authority minted it, or a verifier
+ * did), or `undefined` to refuse the revival. Throwing refuses it too.
+ *
+ * It is not a resume door's `elevate`. Nothing is being authorized and no
+ * authority is being raised; the only question is whether the identity is
+ * still live and what it looks like now. The framework compares the answer
+ * with the parked principal on the set `elevate` compares, with `scopes`
+ * added on the subject and on every actor, and refuses the revival on any
+ * difference in either direction: a revival must not grant more than the
+ * park held, and it must not quietly grant less either. Somebody offboarded
+ * during the park, or whose roles changed, gets nothing run in their name;
+ * they ask again, and the new park carries the new state.
+ *
+ * The refused settlement is still written to the session inbox, so the
+ * outcome is recorded; no turn runs until something else wakes the session.
+ *
+ * Bounded: a hook that has not settled within 30 seconds, or by the time the
+ * application stops, refuses the revival, because the session cannot be woken
+ * while it runs. `options.signal` fires at either point, so a hook doing I/O
+ * passes it on (to `fetch`, a driver call) and stops waiting with it.
+ */
+export type ReidentifyHook = (
+  parked: Principal,
+  options: { readonly signal: AbortSignal },
+) => Principal | undefined | Promise<Principal | undefined>;
 
 /**
  * What the store holds for one session, in the deferral record's opaque

@@ -86,7 +86,7 @@ craft()
 
 **Performance:** The default key hashes a JSON serialisation of the body on every exchange. For hot paths or large bodies, supply a `key` that returns a stable identifier already to hand (an id field, a content hash in a header) to avoid re-serialising and re-hashing.
 
-**Custom providers:** Implement `CacheProvider` (`get`, `set`, `delete`, `has`, `getOrCompute`) and pass an instance via `cache({ provider })`. A future release will allow a global default to be set on `CraftConfig`.
+**Custom providers:** Implement `CacheProvider` (`get`, `set`, `delete`, `has`, `getOrCompute`) and pass an instance via `cache({ provider })`. To make one the default for every cache site in the application, install a plugin that replaces the `CACHE` port with `cacheProvider(yourProvider)`; the [plugins reference](/docs/reference/plugins#ports) shows the shape.
 
 ## Cache key
 

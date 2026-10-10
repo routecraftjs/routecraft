@@ -13,6 +13,7 @@ import {
   simple,
   type DirectoryEntry,
   type DirectoryAdapter,
+  type DirectoryOptions,
   type Exchange,
 } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
@@ -455,12 +456,15 @@ describe("Directory Adapter - Source", () => {
 
   /**
    * @case The source role rejects a dynamic (function) path at runtime
-   * @preconditions Adapter built with a function path, used via .from(); the
-   *   shape is legal for the enricher role, so only the source guard fires
+   * @preconditions Adapter built with a function path through options typed
+   *   as `DirectoryOptions`, so the overload that drops the source role is not
+   *   selected (as from JavaScript); the shape is legal for the enricher role,
+   *   so only the source guard fires
    * @expectedResult subscribe rejects, pointing at the enricher role
    */
   test("source rejects a dynamic (function) path", async () => {
-    const adapter = directory({ path: () => tmpDir });
+    const options: DirectoryOptions = { path: () => tmpDir };
+    const adapter = directory(options);
 
     t = await testContext().build();
 

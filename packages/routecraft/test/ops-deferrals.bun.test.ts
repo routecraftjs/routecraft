@@ -309,6 +309,8 @@ class StoreWithoutList implements Omit<DeferralStore, "list"> {
     this.#inner.markResumed(...args);
   claimExpiry = (...args: Parameters<DeferralStore["claimExpiry"]>) =>
     this.#inner.claimExpiry(...args);
+  renewClaim = (...args: Parameters<DeferralStore["renewClaim"]>) =>
+    this.#inner.renewClaim(...args);
   markExpired = (...args: Parameters<DeferralStore["markExpired"]>) =>
     this.#inner.markExpired(...args);
   markDenied = (...args: Parameters<DeferralStore["markDenied"]>) =>

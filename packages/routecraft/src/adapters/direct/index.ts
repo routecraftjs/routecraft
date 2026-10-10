@@ -21,6 +21,10 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  *   `direct({ internal: true })` keeps the in-process endpoint and closes
  *   the external doors: not dispatchable through ops, not resolvable as an
  *   agent `directTool`; only composable from another route.
+ *   `direct<T>()` types the body without a schema. It is compile-time only:
+ *   nothing validates the inbound body against `T`. A `.input({ body })`
+ *   schema staged before `.from()` wins over it (the engine validates that
+ *   one), and an explicit `.from<C>()` wins over both.
  * - **Enricher (for `.to()` / `.enrich()` / `.tap()`):** Call with a string
  *   or function naming the target route: `direct("fetch-order")` or
  *   `direct((exchange) => exchange.headers["x-endpoint"] as string)`. The
@@ -47,6 +51,12 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  *   .input({ body: mySchema })
  *   .from(direct())
  *
+ * // Source typed without a schema (no validation; a type claim only)
+ * craft()
+ *   .id("greet")
+ *   .from(direct<{ name: string }>())
+ *   .transform((body) => `hello ${body.name}`)
+ *
  * // Agent-only source (no id -> UUID endpoint, not callable from code)
  * craft()
  *   .description("Internal knowledge base lookup")
@@ -62,8 +72,7 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  * .enrich(direct<{ name: string; query: string }, AgentResult>("agent"))
  * ```
  */
-export function direct(options: DirectServerOptions): Source<unknown>;
-export function direct(): Source<unknown>;
+export function direct<T = unknown>(options?: DirectServerOptions): Source<T>;
 export function direct<K extends RegisteredDirectEndpoint>(
   endpoint: K,
 ): Enricher<ResolveBody<DirectEndpointRegistry, K>, unknown>;
@@ -88,7 +97,7 @@ export function direct<TIn, TOut>(
 ): Enricher<TIn, TOut>;
 export function direct<TIn = unknown, TOut = TIn>(
   arg?: DirectEndpoint<TIn> | DirectServerOptions,
-): Source<unknown> | Enricher<TIn, TOut> {
+): Source<TIn> | Enricher<TIn, TOut> {
   // String or function first-arg -> Enricher (names a target route).
   if (typeof arg === "string" || typeof arg === "function") {
     return tagAdapter(
@@ -99,10 +108,10 @@ export function direct<TIn = unknown, TOut = TIn>(
   }
   // Undefined or options object -> Source (endpoint resolved from route id).
   return tagAdapter(
-    new DirectSourceAdapter(arg ?? {}),
+    new DirectSourceAdapter<TIn>(arg ?? {}),
     direct,
     factoryArgs(arg),
-  ) as Source<unknown>;
+  );
 }
 
 // Re-export types for public API

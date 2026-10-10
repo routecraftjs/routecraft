@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { rcError } from "../../error.ts";
 import { compareCodeUnits } from "../../shared/compare.ts";
 import { stepStateFingerprint } from "../../kernel/continuation/hash.ts";
 import { encodePersistable } from "../../kernel/continuation/serialize.ts";
 import {
   claimed,
+  claimedBy,
+  claimResultOf,
   resumable,
   summariseDeferral,
 } from "../../kernel/continuation/types.ts";
@@ -14,6 +17,8 @@ import type {
   SerializedOutcome,
   Deferral,
   DeferralCasResult,
+  DeferralClaimId,
+  DeferralClaimResult,
   DeferralListCursor,
   DeferralListQuery,
   DeferralResumption,
@@ -120,19 +125,43 @@ export class MemoryDeferralStore implements DeferralStore {
     });
   }
 
-  async claimExpiry(id: string, at: Date): Promise<DeferralCasResult> {
-    return this.#transition(id, resumable, { claimedAt: at });
+  async claimExpiry(id: string, at: Date): Promise<DeferralClaimResult> {
+    return claimResultOf(
+      this.#transition(id, resumable, {
+        claim: { id: randomUUID() as DeferralClaimId, at, renewedAt: at },
+      }),
+    );
   }
 
-  async markExpired(id: string): Promise<DeferralCasResult> {
-    return this.#transition(id, claimed, {
+  async renewClaim(
+    id: string,
+    claimId: DeferralClaimId,
+    at: Date,
+  ): Promise<DeferralCasResult> {
+    return this.#transition(
+      id,
+      (record) => claimedBy(record, claimId),
+      (record) =>
+        claimed(record) ? { claim: { ...record.claim, renewedAt: at } } : {},
+    );
+  }
+
+  async markExpired(
+    id: string,
+    claimId: DeferralClaimId,
+  ): Promise<DeferralCasResult> {
+    return this.#transition(id, (record) => claimedBy(record, claimId), {
       state: "settled",
       outcome: { kind: "expired", at: new Date() },
     });
   }
 
-  async markDenied(id: string, reason?: string): Promise<DeferralCasResult> {
-    return this.#transition(id, claimed, {
+  async markDenied(
+    id: string,
+    claimId: DeferralClaimId,
+    reason?: string,
+  ): Promise<DeferralCasResult> {
+    return this.#transition(id, (record) => claimedBy(record, claimId), {
       state: "settled",
       outcome: {
         kind: "denied",
@@ -146,9 +175,9 @@ export class MemoryDeferralStore implements DeferralStore {
     let released = 0;
     for (const [id, record] of this.#records) {
       if (!claimed(record)) continue;
-      if (record.claimedAt.getTime() > before.getTime()) continue;
+      if (record.claim.renewedAt.getTime() > before.getTime()) continue;
       // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
-      const { claimedAt: _claimedAt, ...rest } = record;
+      const { claim: _claim, ...rest } = record;
       this.#records.set(id, clone(rest));
       released++;
     }
@@ -348,16 +377,17 @@ export class MemoryDeferralStore implements DeferralStore {
   #transition(
     id: string,
     matches: (record: Deferral) => boolean,
-    fields: Partial<Deferral>,
+    fields: Partial<Deferral> | ((record: Deferral) => Partial<Deferral>),
   ): DeferralCasResult {
     const record = this.#records.get(id);
     if (!record) return { won: false, deferral: undefined };
     if (!matches(record)) {
       return { won: false, deferral: clone(record) };
     }
+    const next = typeof fields === "function" ? fields(record) : fields;
     // `fields` carries caller-owned values (a `Date`, a `PrincipalRef`), so
     // the stored copy has to be detached too, not just the returned one.
-    const stored = clone({ ...record, ...fields } as Deferral);
+    const stored = clone({ ...record, ...next } as Deferral);
     this.#records.set(id, stored);
     return { won: true, deferral: clone(stored) };
   }

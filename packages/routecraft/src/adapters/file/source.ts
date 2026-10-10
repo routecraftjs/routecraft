@@ -12,10 +12,12 @@ import { staticSourcePathError } from "../shared/file-role-guards.ts";
  * Reads the file once and emits its content as a string.
  * When chunked is true, emits one exchange per line.
  */
-export class FileSourceAdapter implements Source<string> {
+export class FileSourceAdapter<T = unknown> implements Source<string> {
   readonly adapterId = "routecraft.adapter.file";
 
-  constructor(private readonly options: FileOptions) {}
+  // Generic only so the factory can hand all three roles one options
+  // object; the source honours a static string path alone.
+  constructor(private readonly options: FileOptions<T>) {}
 
   /**
    * Source implementation: subscribe to file content.

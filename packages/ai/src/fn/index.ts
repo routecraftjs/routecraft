@@ -1,4 +1,6 @@
+export { fn } from "./fn.ts";
 export type {
+  FnDefinition,
   FnHandlerContext,
   FnOptions,
   FnRegistry,

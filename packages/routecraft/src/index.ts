@@ -856,11 +856,16 @@ export {
   isDeferSignal,
   isDeferred,
   markDeferCapable,
-  // deferAside and reviveDeferral are @internal and re-exported on purpose:
-  // @routecraft/ai stores and revives an agent session's continuation
-  // through them, and a package cannot reach a deep import of core.
+  // deferAside, reviveDeferral and deferralScope are @internal and
+  // re-exported on purpose: @routecraft/ai stores and revives an agent
+  // session's continuation through the first two and scopes its own events
+  // about a deferral with the third, and a package cannot reach a deep
+  // import of core.
   deferAside,
+  deferralScope,
   reviveDeferral,
+  deferredPrincipal,
+  reidentificationDeviation,
   routeCanDefer,
   stepStateFingerprint,
   deferredSchema,
@@ -878,6 +883,7 @@ export type {
   ResumeAuthorizerInput,
   ResumeElevator,
   ResumeRequest,
+  RevivalOptions,
   Deferred,
   DeferralRecordView,
   DeferralAffordance,
@@ -886,6 +892,9 @@ export type {
   Deferral,
   ErrorPathRecord,
   DeferralCasResult,
+  DeferralClaim,
+  DeferralClaimId,
+  DeferralClaimResult,
   DeferralConfig,
   DeferralListCursor,
   DeferralListQuery,
@@ -901,6 +910,8 @@ export type {
 } from "./plugins/deferral/public.ts";
 export {
   claimed,
+  claimedBy,
+  claimResultOf,
   resumable,
   summariseDeferral,
 } from "./plugins/deferral/public.ts";

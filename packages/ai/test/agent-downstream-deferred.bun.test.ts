@@ -56,7 +56,7 @@ describe("downstream deferral token boundary", () => {
 
   /**
    * @case A downstream receipt is replaced before model results and snapshots are recorded
-   * @preconditions A session tool calls a static defer route, directly or after a JSON round trip
+   * @preconditions A session tool's own handler calls a static defer route and returns the acknowledgment, as received or after a JSON round trip
    * @expectedResult The model receives only a pending marker; no prompt, session write, or tool snapshot contains the real token, and the action stays waiting
    */
   test.each([false, true])(
@@ -75,18 +75,16 @@ describe("downstream deferral token boundary", () => {
             llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
             agentPlugin({
               functions: {
-                park: serialized
-                  ? {
-                      description: "A transport-returned acknowledgment",
-                      input: z.object({}),
-                      handler: async () =>
-                        JSON.parse(
-                          JSON.stringify(
-                            await t!.client.sendDirect("park", {}),
-                          ),
-                        ),
-                    }
-                  : directTool("park"),
+                park: {
+                  description: "A transport-returned acknowledgment",
+                  input: z.object({}),
+                  handler: async () => {
+                    const receipt = await t!.client.sendDirect("park", {});
+                    return serialized
+                      ? JSON.parse(JSON.stringify(receipt))
+                      : receipt;
+                  },
+                },
               },
               agents: {
                 reviewer: {
@@ -147,11 +145,11 @@ describe("downstream deferral token boundary", () => {
   );
 
   /**
-   * @case A background receipt cannot bypass the bridge through session inbox delivery
-   * @preconditions The first turn ends while the downstream route waits, then that route defers and delivers to the idle session
+   * @case A background route that completes with another route's park acknowledgment cannot hand its token to the session
+   * @preconditions A background tool over a route that does not park itself but forwards to one that does, so execution one completes with the Deferred as its body; the first turn ends before that route finishes
    * @expectedResult Delivery fails explicitly with AI1006, the handle settles, no model or persisted session sees the token, and the downstream approval remains pending without executing its action
    */
-  test("background delivery fails safely without leaking or completing the pending action", async () => {
+  test("a proxied park fails delivery safely without leaking or completing the pending action", async () => {
     const store = new MemoryDeferralStore();
     const writes: string[] = [];
     const snapshots: unknown[] = [];
@@ -170,7 +168,7 @@ describe("downstream deferral token boundary", () => {
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
-            functions: { park: directTool("park", { background: true }) },
+            functions: { park: directTool("proxy", { background: true }) },
             agents: {
               reviewer: {
                 description: "Review",
@@ -198,6 +196,12 @@ describe("downstream deferral token boundary", () => {
             actionRuns++;
             return ex;
           }),
+        craft()
+          .id("proxy")
+          .description("Answers with the approval route's acknowledgment")
+          .input({ body: z.object({}) })
+          .from(direct())
+          .transform(() => t!.client.sendDirect("park", {})),
         craft()
           .id("chat")
           .from(direct())

@@ -7,9 +7,9 @@ title: direct
 </Lead>
 
 ```ts skip="fragment: not a complete statement on its own"
-// Source (endpoint = route id). Body types are unknown at the adapter
-// layer; schemas live on the route builder via `.input()` / `.output()`.
-direct(options?: Partial<DirectServerOptions>): Source<unknown>
+// Source (endpoint = route id). `T` types the body without a schema and is
+// compile-time only; schemas live on the route builder via `.input()` / `.output()`.
+direct<T = unknown>(options?: DirectServerOptions): Source<T>
 
 // Enricher (registry-aware: body type resolves from DirectEndpointRegistry when populated)
 direct<K extends RegisteredDirectEndpoint>(endpoint: K): Enricher<ResolveBody<DirectEndpointRegistry, K>, unknown>
@@ -28,6 +28,30 @@ See [Type registries](/docs/advanced/type-registries) for how to populate `Direc
 Enable synchronous inter-route communication. Perfect for composable route architectures where you need request-response patterns. The source form uses the route's `.id()` as the endpoint name; the client form (a string or function endpoint) is an enricher that addresses the target by id: the call is a pull-in, so the target route's response body replaces the caller's body in `.to()` / bare `.enrich()`, feeds the aggregator in `.enrich(x, aggregator)`, and is discarded by `.tap()`.
 
 Discovery metadata (`.title()`, `.description()`) and schemas (`.input()`, `.output()`) live on the route builder, not the adapter. The framework validates `.input()` before the pipeline runs and `.output()` before the primary destination fires -- any source adapter (direct, mcp, future ones) inherits this validation automatically.
+
+**Typing the source body.** Three spellings can claim the body type of a `direct()` source, and when more than one is present the winner is fixed:
+
+1. An explicit `.from<C>(direct())` generic wins over everything.
+2. A `.input({ body: schema })` staged before `.from()` wins over the adapter's type argument. This is the only spelling the engine validates, so it is the one to reach for at a boundary.
+3. `direct<T>()` types the body when neither of the above is present. It is compile-time sugar: nothing checks the inbound body against `T`, so a caller that sends a different shape reaches the pipeline unchecked.
+
+```ts
+import { craft, direct } from '@routecraft/routecraft'
+import { z } from 'zod'
+
+// Typed without a schema library: a claim, not a check
+craft()
+  .id('greet')
+  .from(direct<{ name: string }>())
+  .transform((body) => `hello ${body.name}`)
+
+// The schema wins and the engine validates against it: body is { id: number }
+craft()
+  .id('resolve')
+  .input({ body: z.object({ id: z.number() }) })
+  .from(direct<{ name: string }>())
+  .transform((body) => body.id)
+```
 
 ```ts skip="fragment: source, processData, businessLogic are illustrative"
 // Producer route that sends to a direct endpoint

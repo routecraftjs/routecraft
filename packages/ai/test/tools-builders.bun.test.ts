@@ -12,6 +12,7 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, directTool, tools, type FnEntry } from "../src/index.ts";
 import { isLazyFn, toolHostOf } from "../src/agent/tools/types.ts";
 import { AGENTS } from "../src/agent/port.ts";
+import { callable } from "./helpers/callable-fn.ts";
 
 /** Deferral is not under test in this file; the required slot just refuses. */
 const refuseDefer = (): never => {
@@ -249,7 +250,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const desc = directTool("orders/fetch");
-    const fn = desc.resolve(toolHostOf(t.ctx), "ordersFetch");
+    const fn = callable(desc.resolve(toolHostOf(t.ctx), "ordersFetch"));
     const result = await fn.handler(
       { orderId: "abc" },
       {
@@ -297,7 +298,7 @@ describe("tool builders - directTool dispatch", () => {
       scopes: ["orders.read"],
     };
     const desc = directTool("orders/fetch-with-auth");
-    const fn = desc.resolve(toolHostOf(t.ctx), "ordersFetchWithAuth");
+    const fn = callable(desc.resolve(toolHostOf(t.ctx), "ordersFetchWithAuth"));
     await fn.handler(
       { orderId: "abc" },
       {
@@ -335,9 +336,11 @@ describe("tool builders - directTool dispatch", () => {
       .build();
     await t.startAndWaitReady();
 
-    const fn = directTool("orders/fetch-correlated").resolve(
-      toolHostOf(t.ctx),
-      "ordersFetchCorrelated",
+    const fn = callable(
+      directTool("orders/fetch-correlated").resolve(
+        toolHostOf(t.ctx),
+        "ordersFetchCorrelated",
+      ),
     );
     await fn.handler(
       { orderId: "abc" },
@@ -379,7 +382,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const desc = directTool("guarded/echo");
-    const fn = desc.resolve(toolHostOf(t.ctx), "guardedEcho");
+    const fn = callable(desc.resolve(toolHostOf(t.ctx), "guardedEcho"));
     const base = {
       logger: undefined as unknown as Parameters<
         typeof fn.handler
@@ -441,7 +444,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const desc = directTool("guarded-admin");
-    const fn = desc.resolve(toolHostOf(t.ctx), "guardedAdmin");
+    const fn = callable(desc.resolve(toolHostOf(t.ctx), "guardedAdmin"));
     const base = {
       logger: undefined as unknown as Parameters<
         typeof fn.handler

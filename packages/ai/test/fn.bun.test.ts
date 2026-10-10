@@ -2,7 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { ContextBuilder, isRoutecraftError } from "@routecraft/routecraft";
 import { testContext, testFn, type TestContext } from "@routecraft/testing";
-import { agentPlugin, type FnOptions } from "../src/index.ts";
+import { agentPlugin, fn, type FnOptions } from "../src/index.ts";
 import { AGENTS } from "../src/agent/port.ts";
 
 describe("fn registration via agentPlugin", () => {
@@ -326,6 +326,22 @@ describe("testFn - exercise fn handlers in isolation", () => {
         {},
       ),
     ).rejects.toMatchObject({ rc: "RC5003" });
+  });
+
+  /**
+   * @case fn() hands back the object it was given, so the registry stores the author's value
+   * @preconditions fn({ description, input, handler })
+   * @expectedResult The return value is the same reference, and testFn runs its schema and handler
+   */
+  test("fn() returns its definition unchanged and runs under testFn", async () => {
+    const definition = {
+      description: "Echoes",
+      input: z.object({ q: z.string() }),
+      handler: async (input: { q: string }) => input.q,
+    };
+    const spec = fn(definition);
+    expect(spec).toBe(definition);
+    expect(await testFn(spec, { q: "hi" })).toBe("hi");
   });
 
   /**

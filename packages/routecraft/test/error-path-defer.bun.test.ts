@@ -926,6 +926,71 @@ describe("recovery.defer: parking an exchange from the error path", () => {
   });
 
   /**
+   * @case An admission park raised while a source parser is pending is refused
+   * @preconditions A callable source emitting a raw string with a parse function into a route whose .authorize() refuses the caller, and an .error() answering recovery.defer with notify
+   * @expectedResult The source's emit rejects with RC5051, nothing is written and notify never runs: the parser arrives per message and cannot ride the record, so the continuation would resume against a body nothing parsed
+   */
+  test("an admission park with a source parser pending is refused with RC5051", async () => {
+    const store = new MemoryDeferralStore();
+    let notified = 0;
+    let bodyRan = false;
+    let emitted: { rc?: string } | undefined;
+
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("ingest")
+          .authorize({ scopes: ["sessions:manage"] })
+          .error((error) =>
+            insufficientAuthorityOf(error)
+              ? recovery.defer({
+                  ttl: "1h",
+                  notify: async () => {
+                    notified += 1;
+                  },
+                })
+              : recovery.rethrow(),
+          )
+          .from((sub) => {
+            void (async () => {
+              sub.ready();
+              await sub
+                .emit({
+                  message: '{"id":1}',
+                  headers: {
+                    [HeadersKeys.AUTH_PRINCIPAL]: authenticate({
+                      subject: "agent",
+                      scopes: ["sessions:manage:owned"],
+                    }),
+                  },
+                  parse: (raw) => JSON.parse(raw as string),
+                })
+                .catch((err: unknown) => {
+                  emitted = err as { rc?: string };
+                });
+              sub.complete();
+            })();
+          })
+          .transform((body) => {
+            bodyRan = true;
+            return body;
+          })
+          .to(noop()),
+      ])
+      .build();
+    await t.test();
+
+    // The same refusal on a transport that attaches no parser parks at
+    // position 0 (the test above); here the parse position is still ahead
+    // of the park, and a resumed continuation could never run it.
+    expect(emitted?.rc).toBe("RC5051");
+    expect(bodyRan).toBe(false);
+    expect(notified).toBe(0);
+    expect(await store.list({ limit: 10, state: "waiting" })).toHaveLength(0);
+  });
+
+  /**
    * @case A step failure INSIDE a route-scope segment still resolves to the real step
    * @preconditions A route-scope .retry() around a pipeline whose second step throws
    * @expectedResult The park lands at the failing step re-entrantly rather than being refused, because the nested run noted the real step before rethrowing

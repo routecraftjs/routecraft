@@ -6,13 +6,15 @@ import type { ExpiredScanCursor, DeferralStore } from "./types.ts";
 export const DEFAULT_SWEEP_INTERVAL = "60s";
 
 /**
- * How long a delivery claim is honoured before it is released for
- * redelivery.
+ * How long a delivery claim is honoured without a renewal before it is
+ * released for redelivery.
  *
- * Deliberately generous relative to handler work: a lease shorter than a
- * slow error handler would make one healthy process double-deliver by
- * itself. The lease only matters after a crash, so its length costs nothing
- * in the healthy case.
+ * A live delivery renews its claim on a heartbeat, so the lease bounds how
+ * long a DEAD claimant's claim stands, not how long a delivery may take.
+ * Generous because the lease only matters after a crash, where its length
+ * costs one redelivery's delay, and because a heartbeat that stalls for
+ * most of an hour (an unreachable store, a paused process) is a dead
+ * claimant for every practical purpose.
  */
 export const DEFAULT_EXPIRY_LEASE = "60m";
 
@@ -137,7 +139,7 @@ export class ContinuationSweeper {
   }
 
   private async runPass(now: Date): Promise<number> {
-    // Heal before scanning: a claim whose holder died mid-delivery is
+    // Heal before scanning: a claim whose holder stopped renewing it is
     // released once its lease elapses, and the released records are past
     // their deadline, so this same pass redelivers them.
     const released = await this.store.releaseClaims(
@@ -146,7 +148,7 @@ export class ContinuationSweeper {
     if (released > 0) {
       this.context.logger.info(
         { released },
-        "Released stale delivery claims for redelivery; a process died while delivering them.",
+        "Released stale delivery claims for redelivery; their holders stopped renewing them.",
       );
     }
 
@@ -202,6 +204,7 @@ export class ContinuationSweeper {
             this.store,
             route,
             { ...deferral, expiresAt: deadline },
+            this.options.leaseMs,
           );
           if (cas.won) retired++;
         } catch (err) {

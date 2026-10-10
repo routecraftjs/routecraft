@@ -2,6 +2,7 @@ import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
+import type { Exchange } from "../../exchange.ts";
 import type { FileOptions } from "./types.ts";
 import { FileSourceAdapter } from "./source.ts";
 import { FileDestinationAdapter } from "./destination.ts";
@@ -11,10 +12,12 @@ import { FileEnricherAdapter } from "./enricher.ts";
  * Combined file adapter type: all three roles on one honest type. The
  * operation keyword selects the role (`.from()` subscribes, `.to()` sends,
  * `.enrich()` fetches).
+ *
+ * @template T - Body type the send and fetch roles receive
  */
-export type FileAdapter = Source<string> &
-  Destination<unknown> &
-  Enricher<unknown, string> & { readonly adapterId: string };
+export type FileAdapter<T = unknown> = Source<string> &
+  Destination<T> &
+  Enricher<T, string> & { readonly adapterId: string };
 
 /**
  * Creates a file adapter for plain text files. One factory, one type; the
@@ -30,8 +33,14 @@ export type FileAdapter = Source<string> &
  *   replaces the body (pass an aggregator such as `only()` to merge
  *   instead). Dynamic (function) paths resolve against the exchange.
  *
- * @param options - File path, encoding, createDirs, append/delete, chunked
- * @returns The combined Source + Destination + Enricher adapter
+ * A function `path` selects this overload, which drops the source role, so
+ * `.from(file({ path: (ex) => ... }))` is a compile error rather than a
+ * refusal when the route starts.
+ *
+ * @param options - Options whose `path` is a function of the exchange
+ * @returns The Destination + Enricher adapter
+ * @template T - Body type a dynamic `path` callback reads; inferred from
+ *   the route at `.to()` / `.enrich()`
  *
  * @example
  * ```typescript
@@ -57,10 +66,24 @@ export type FileAdapter = Source<string> &
  * }))
  * ```
  */
-export function file(options: FileOptions): FileAdapter {
-  const source = new FileSourceAdapter(options);
-  const destination = new FileDestinationAdapter(options);
-  const enricher = new FileEnricherAdapter(options);
+export function file<T = unknown>(
+  options: FileOptions<T> & { path: (exchange: Exchange<T>) => string },
+): Destination<T> & Enricher<T, string> & { readonly adapterId: string };
+/**
+ * Creates a file adapter with a static path, so all three roles are open:
+ * `.from()` reads it, `.to()` writes it and `.enrich()` reads it mid-route.
+ * A function `path` takes the overload above, which has no source role
+ * because a source has no exchange to resolve the path against.
+ *
+ * @param options - File path, encoding, createDirs, append/delete, chunked
+ * @returns The combined Source + Destination + Enricher adapter
+ * @template T - Body type the send and fetch roles receive
+ */
+export function file<T = unknown>(options: FileOptions<T>): FileAdapter<T>;
+export function file<T = unknown>(options: FileOptions<T>): FileAdapter<T> {
+  const source = new FileSourceAdapter<T>(options);
+  const destination = new FileDestinationAdapter<T>(options);
+  const enricher = new FileEnricherAdapter<T>(options);
   return tagAdapter(
     {
       adapterId: "routecraft.adapter.file",

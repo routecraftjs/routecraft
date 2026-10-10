@@ -13,8 +13,9 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 3. **`craft.config.ts` default-exports `defineProject(...)`.** A plain config still loads. [Section 3](#3-define-project).
 4. **`registerDsl` is removed.** Route methods come from a plugin's `steps`. [Section 4](#4-steps).
 5. **Store keys that crossed plugins are ports.** [Section 5](#5-ports).
+6. **A custom `DeferralStore` fences its claims.** `renewClaim` is new, and `markExpired` and `markDenied` take the claim id. The shipped SQLite and memory stores migrate themselves. [Section 6](#6-deferral-store).
 
-Projects that write no plugin of their own typically need section 2 and nothing else. Section 6 lists what is new, for context.
+Projects that write no plugin of their own typically need section 2 and nothing else, and section 6 if they supply their own `DeferralStore`. [Section 7](#7-what-is-new-in-080) lists what is new, for context.
 
 ---
 
@@ -53,7 +54,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 6](#6-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 7](#7-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -135,7 +136,24 @@ A plugin that is not repeatable is installed once per application. A second `llm
 
 The internal `RouteDefinition` fields `preParseFilters`, `postParseFilters` and `postFromFilters` are gone: a route definition carries its chain as configuration, and the chain is built when the route compiles.
 
-## 6. What is new in 0.8.0 \{#6-what-is-new-in-080}
+## 6. A custom `DeferralStore` fences its claims \{#6-deferral-store}
+
+A store supplied through `deferral: { store }` implements a claim with an identity, so a claimant that outlived its lease cannot renew or finalize the claim that replaced it. The shipped backends migrate themselves (the SQLite file moves to schema version 3 on open); a store of your own changes four members:
+
+| 0.7 | 0.8 |
+|-----|-----|
+| `Deferral.claimedAt?: Date` | `Deferral.claim?: DeferralClaim`, which is `{ id, at, renewedAt }`: `id` is a `DeferralClaimId` minted by the store (`randomUUID() as DeferralClaimId`) and distinct for every claim taken on a record, `at` never moves, and `renewedAt` is what `releaseClaims` compares |
+| `claimExpiry(id, at): DeferralCasResult` | `claimExpiry(id, at): DeferralClaimResult`, which carries the `claim` the caller now holds when it won; `claimResultOf(result)` builds it from the compare-and-swap result |
+| (absent) | `renewClaim(id, claimId, at)`: moves `renewedAt` to `at`, and wins only while `claimId` names the live claim on a waiting record |
+| `markExpired(id)` and `markDenied(id, reason?)` | `markExpired(id, claimId)` and `markDenied(id, claimId, reason?)`: settle only while `claimId` names the live claim, so a stale holder loses |
+
+The fenced methods compare the claim's identity and nothing else. Compare `renewedAt` too and the holder's own second renewal loses, because its copy of the claim went stale at the first. The exported `claimedBy(record, claimId)` predicate is that compare; `resumable` and `claimed` read `claim` in place of `claimedAt`. The kernel renews a claim three times per `expiryLease` while a re-ask runs, so a slow `.error()` handler no longer needs a lease longer than itself.
+
+A configured store missing any of these members is refused when the application starts, with [`RC5066`](/docs/reference/errors#rc-5066) naming the first one, rather than starting clean and losing its first delivery claim to a renewal that throws.
+
+Do not run 0.7 and 0.8 against one SQLite file, including for the length of a rolling deploy: 0.7 does not honour the fence, so it can settle a delivery a 0.8 process is still making. Stop every 0.7 process before the first 0.8 one opens the file. A claim a 0.7 process writes after the migration anyway carries no identity; 0.8 reads it back as claimed under one no holder can present, and the lease releases it from its claim time, so the record is redelivered rather than stranded.
+
+## 7. What is new in 0.8.0 \{#7-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too.

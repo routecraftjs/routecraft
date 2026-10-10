@@ -1,8 +1,8 @@
 import { port } from "@routecraft/routecraft";
-import type { FnOptions } from "../fn/types.ts";
 import type { AgentSessionRuntime } from "./session/runtime.ts";
+import type { ReidentifyHook } from "./session/types.ts";
 import type { AgentToolPolicy } from "./tools/policy.ts";
-import type { FnEntry } from "./tools/types.ts";
+import type { FnEntry, RegisteredFn } from "./tools/types.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 
 /**
@@ -14,6 +14,7 @@ export interface AgentContribution {
   readonly functions?: Readonly<Record<string, FnEntry>>;
   readonly defaultOptions?: AgentDefaultOptions;
   readonly toolPolicy?: AgentToolPolicy;
+  readonly reidentify?: ReidentifyHook;
 }
 
 /**
@@ -38,11 +39,18 @@ export interface AgentRegistry {
   /** Every contributed tool policy; composed with AND at dispatch. */
   readonly toolPolicies: readonly AgentToolPolicy[];
   /**
+   * The application's re-identification hook, if one contribution set it.
+   * One per application: identity lives in one place, and two answers to
+   * "is this person still who they were" would have to agree by luck.
+   */
+  readonly reidentify: ReidentifyHook | undefined;
+  /**
    * Add one contribution, applying the composition rules. In `bind` only:
    * whatever read the contributions during bind has already used them.
    *
    * @throws RC5003 for an invalid entry, a duplicate id, a default field
-   *   already set by an earlier contribution, or a block name already defined
+   *   already set by an earlier contribution, a block name already defined,
+   *   or a second `reidentify` hook
    * @throws RC1110 once the application froze
    */
   contribute(contribution: AgentContribution): void;
@@ -60,7 +68,7 @@ export interface AgentRegistry {
    * `undefined` before the runtime started, or for a function that is not
    * deferred.
    */
-  resolvedFunction(id: string): FnOptions | undefined;
+  resolvedFunction(id: string): RegisteredFn | undefined;
 }
 
 /** The agent registry the agent runtime plugin provides. */

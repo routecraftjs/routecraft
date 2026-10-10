@@ -193,8 +193,12 @@ declare module "@routecraft/routecraft" {
     };
     /**
      * A turn started on a session whose previous turn was cut short by a
-     * restart: its partial transcript was kept, its inbox was intact, and
-     * every background call it was waiting on was reported lost.
+     * restart: its partial transcript was kept and its inbox was intact.
+     * A background call whose route never parked was reported lost; a
+     * parked call was reconciled against its deferral record, kept while
+     * that record is still waiting and settled from the outcome it
+     * recorded otherwise. `lostBackground` counts the calls reported lost,
+     * including a parked call whose execution two died unrecorded.
      */
     "route:agent:session:restored": ExchangeScoped & {
       agentName: string;
@@ -225,6 +229,22 @@ declare module "@routecraft/routecraft" {
       agentName: string;
       session: string;
       deferralId: string;
+    };
+    /**
+     * A stored continuation was NOT revived on a background settlement,
+     * because the identity the parked exchange carried could not be
+     * re-verified: no `agentPlugin({ reidentify })` hook is registered, the
+     * hook declined or threw, it did not settle within its bound or before
+     * the runtime stopped, or it answered with a principal that is not live
+     * or is not the same identity. The settlement is in the inbox;
+     * no turn runs until something else wakes the session. Scoped to the
+     * parked exchange, as core's `route:exchange:expired` is.
+     */
+    "route:agent:session:revival:refused": ExchangeScoped & {
+      agentName: string;
+      session: string;
+      deferralId: string;
+      reason: string;
     };
     /** A background tool dispatched its route and returned a handle to the model. */
     "route:agent:session:background:started": ExchangeScoped & {

@@ -34,4 +34,5 @@ export type {
   AgentSessionRecord,
   AgentSessionScope,
   AgentSessionSummary,
+  ReidentifyHook,
 } from "./types.ts";

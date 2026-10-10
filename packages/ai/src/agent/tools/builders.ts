@@ -2,27 +2,24 @@ import { randomUUID } from "node:crypto";
 import {
   HeadersKeys,
   type Authority,
-  rcCodeOf,
   rcError,
   type Capability,
   type ExchangeHeaders,
   type Principal,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type {
-  FnHandlerContext,
-  FnOptions,
-  ReadonlyPrincipal,
-} from "../../fn/types.ts";
+import type { FnHandlerContext, ReadonlyPrincipal } from "../../fn/types.ts";
 import { authorityOfHandler } from "../../fn/handler-context.ts";
-import type { BackgroundOutcome } from "../session/runtime.ts";
+import { errorOf, outcomeOfResult } from "../session/runtime.ts";
+import { isDownstreamDeferred } from "../downstream-deferred.ts";
+import { AgentHeadersKeys } from "./headers.ts";
 import {
   LAZY_FN_BRAND,
   FN_BACKGROUND,
   type LazyFn,
+  type RegisteredFn,
   type ToolHost,
 } from "./types.ts";
-import { isDownstreamDeferred } from "../downstream-deferred.ts";
 
 /**
  * Re-hydrate a frozen `ReadonlyPrincipal` (as exposed on
@@ -96,31 +93,19 @@ export interface ToolBuilderOverrides<TIn = unknown> {
    * (`RC5003`). The description the model sees says the tool is
    * asynchronous, so it does not wait on the return value.
    *
-   * If the downstream route defers, result delivery fails with AI1006:
-   * this background handle cannot track its eventual continuation yet.
-   * The action remains pending in the application's approval flow; its
-   * resume token is never delivered to the session or model.
+   * The tool's shape follows the route's shape. A route that can park (a
+   * `.defer()`, a defer-capable step, or an error-slot hook that may park
+   * it) is background without being declared so, because its dispatch
+   * answers with a `Deferred` acknowledgment rather than a result: the
+   * handle stays open through the park and settles with execution two's
+   * outcome, so a decline reaches the model as an ordinary background
+   * message it can revise and ask again from. `false` on such a route is
+   * refused when the tool resolves (`RC5003` naming the route), because
+   * the alternative is telling the model a call completed and handing it
+   * a receipt it cannot use. `true` is still what an author writes for a
+   * route that does not park but is slow.
    */
   background?: boolean;
-}
-
-/**
- * Header keys the agent tier writes on exchanges it dispatches.
- */
-export const AgentHeadersKeys = {
-  /**
-   * The background handle a dispatched exchange belongs to, so an operator
-   * reading the route's exchanges can find the run a handle names. The
-   * route mints its own exchange id, so this is the join key.
-   */
-  BACKGROUND_HANDLE: "routecraft.agent.background.handle",
-} as const;
-
-declare module "@routecraft/routecraft" {
-  interface RoutecraftHeaders {
-    /** The background tool handle this exchange was dispatched under. */
-    "routecraft.agent.background.handle"?: string;
-  }
 }
 
 /** What a background call returns to the model in place of the route's result. */
@@ -178,7 +163,7 @@ export function directTool<TIn = unknown>(
     [LAZY_FN_BRAND]: true,
     kind: "direct",
     targetId: routeId,
-    resolve(host, fnId): FnOptions {
+    resolve(host, fnId): RegisteredFn {
       const route = readDirectRoute(host, routeId, fnId);
       const description = overrides?.description ?? route.description;
       if (typeof description !== "string" || description.trim() === "") {
@@ -195,31 +180,31 @@ export function directTool<TIn = unknown>(
         });
       }
       const tags = route.tags;
-      if (overrides?.background === true) {
-        const handler = ((input, hctx) =>
-          dispatchBackground(
-            host,
-            hctx,
-            routeId,
-            fnId,
-            input,
-          )) as FnOptions["handler"];
-        return {
-          description: `${description}${BACKGROUND_DESCRIPTION_SUFFIX}`,
-          input,
-          ...(tags && tags.length > 0 ? { tags: [...tags] } : {}),
-          handler,
-          [FN_BACKGROUND]: true,
-        } as FnOptions;
+      const parks = host.canDefer(routeId);
+      if (overrides?.background === false && parks) {
+        throw rcError("RC5003", undefined, {
+          message: `directTool: route "${routeId}" can park (a .defer(), a defer-capable step, or an error-slot hook that may park it), so its dispatch may answer with a Deferred acknowledgment in place of a result; a synchronous tool over it would tell the model the call completed. Drop background: false on it (referenced as fn "${fnId}").`,
+        });
       }
-      const handler = ((input, hctx) =>
-        dispatchDirect(host, hctx, routeId, input)) as FnOptions["handler"];
-      return {
-        description,
+      const fields = {
         input,
         ...(tags && tags.length > 0 ? { tags: [...tags] } : {}),
-        handler,
-      } as FnOptions;
+      };
+      if (overrides?.background ?? parks) {
+        const background: RegisteredFn = {
+          ...fields,
+          description: `${description}${BACKGROUND_DESCRIPTION_SUFFIX}`,
+          handler: (body: TIn, hctx: FnHandlerContext) =>
+            dispatchBackground(host, hctx, routeId, fnId, body),
+        };
+        return Object.assign(background, { [FN_BACKGROUND]: true });
+      }
+      return {
+        ...fields,
+        description,
+        handler: (body: TIn, hctx: FnHandlerContext) =>
+          dispatchDirect(host, hctx, routeId, body),
+      };
     },
   };
 }
@@ -246,11 +231,17 @@ function dispatchHeaders(hctx: FnHandlerContext): Record<string, unknown> {
 /**
  * Dispatch the route and return a handle at once. The result or the
  * failure is delivered to the calling session's inbox by the session
- * runtime when the route settles, attributed to the handle.
+ * runtime when the run that carries it ends, attributed to the handle.
  *
  * The dispatch id is minted here and carried on the dispatched exchange's
- * headers: a route mints its own exchange id, so the header is what lets
- * an operator join the handle to the run.
+ * headers with the session: a route mints its own exchange id, so the
+ * header is what lets an operator join the handle to the run, and both
+ * survive a park with the exchange, which is how execution two settles
+ * the handle it was dispatched under. A dispatch that resolves with the
+ * route's result settles the handle here; one that resolves with a
+ * `Deferred` acknowledgment records the park beside the handle instead,
+ * so the model keeps holding a `running` handle, which is true, and the
+ * session runtime settles it from execution two's terminal event.
  *
  * @internal
  */
@@ -288,89 +279,53 @@ async function dispatchBackground<TIn>(
   const headers: ExchangeHeaders = {
     ...dispatchHeaders(hctx),
     [AgentHeadersKeys.BACKGROUND_HANDLE]: handle,
+    [AgentHeadersKeys.BACKGROUND_SESSION]: key,
   } as ExchangeHeaders;
-  // The settlement writes the session record, and that write can fail
-  // (a store outage, a compare-and-swap that never wins); a failure here
-  // is logged, because the model is waiting on a result that is now lost
-  // and nothing else will say so.
-  const settle = (outcome: BackgroundOutcome): void => {
-    runtime
-      .settleBackground(key, session.agent, outcome)
-      .catch((err: unknown) => {
-        host.logger.error(
-          { err, agent: session.agent, session: key, handle, tool: toolName },
-          "Background tool result could not be delivered to the session inbox",
-        );
-      });
-  };
+  const about = { agent: session.agent, session: key, handle, tool: toolName };
+  const report = (work: Promise<unknown>): void => runtime.track(work, about);
   // Deliberately not awaited: the turn continues, and the settlement is
   // the runtime's business.
   void host.deliver(routeId, input, headers).then(
     (result) => {
-      let downstreamDeferred: boolean;
-      try {
-        downstreamDeferred = isDownstreamDeferred(result);
-      } catch {
-        // A user result can throw during inspection. Retire the handle without
-        // forwarding that result or an accessor's potentially sensitive error.
-        settle({
-          handle,
-          tool: toolName,
-          by,
-          status: "failed",
-          error: {
-            name: "Error",
-            message:
-              "The background result could not be stored because it could not be inspected safely.",
-          },
-          duration: Date.now() - startedAt.getTime(),
-        });
+      // Only the id is read: the acknowledgment carries a live resume
+      // token, and the model must never hold its own park's token.
+      const deferralId = parkedOn(result);
+      if (deferralId !== undefined) {
+        report(runtime.parkBackground(key, handle, deferralId));
         return;
       }
-      if (downstreamDeferred) {
-        // A receipt is not the eventual action result. Durable linkage to
-        // execution two belongs to #813; until then, fail result delivery
-        // without persisting the receipt's live token or stranding a handle.
-        // The downstream park remains pending and must not be retried.
-        settle({
-          handle,
-          tool: toolName,
-          by,
-          status: "failed",
-          error: {
-            rc: "AI1006",
-            name: "RoutecraftError",
-            message:
-              "Background result delivery does not support a deferred downstream route. The action is still awaiting approval, not cancelled or completed. Do not retry it; use the application's approval flow to resolve the pending action.",
-          },
-          duration: Date.now() - startedAt.getTime(),
-        });
-        return;
-      }
-      settle({
-        handle,
-        tool: toolName,
-        by,
-        status: "completed",
-        result,
-        duration: Date.now() - startedAt.getTime(),
-      });
+      report(
+        runtime.settleBackground(key, { handle, ...outcomeOfResult(result) }),
+      );
     },
     (err: unknown) =>
-      settle({
-        handle,
-        tool: toolName,
-        by,
-        status: "failed",
-        error: {
-          ...(rcCodeOf(err) !== undefined ? { rc: rcCodeOf(err)! } : {}),
-          message: err instanceof Error ? err.message : String(err),
-          name: err instanceof Error ? err.name || "Error" : typeof err,
-        },
-        duration: Date.now() - startedAt.getTime(),
-      }),
+      report(
+        runtime.settleBackground(key, {
+          handle,
+          status: "failed",
+          error: errorOf(err),
+        }),
+      ),
   );
   return { handle, status: "running" };
+}
+
+/**
+ * The deferral a dispatch's result says the route parked on, or
+ * `undefined` for a result that is not a `Deferred` acknowledgment. A
+ * result that throws while inspected is not one; {@link outcomeOfResult}
+ * retires it without reading it.
+ *
+ * @internal
+ */
+function parkedOn(result: unknown): string | undefined {
+  try {
+    return isDownstreamDeferred(result)
+      ? (result as { deferralId: string }).deferralId
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readDirectRoute(

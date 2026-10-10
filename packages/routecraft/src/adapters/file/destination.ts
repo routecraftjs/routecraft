@@ -12,10 +12,10 @@ import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
  * (`delete: true`, idempotent). Reading lives on the fetch role
  * (FileEnricherAdapter); the source role reads at subscribe time.
  */
-export class FileDestinationAdapter implements Destination<unknown> {
+export class FileDestinationAdapter<T = unknown> implements Destination<T> {
   readonly adapterId = "routecraft.adapter.file";
 
-  constructor(private readonly options: FileOptions) {
+  constructor(private readonly options: FileOptions<T>) {
     assertExclusiveSendBehavior("file", options);
   }
 
@@ -23,7 +23,7 @@ export class FileDestinationAdapter implements Destination<unknown> {
    * Send implementation. Deletes (delete: true) or writes/appends the
    * resolved path. Static and dynamic paths are supported.
    */
-  send: CallableDestination<unknown> = async (exchange) => {
+  send: CallableDestination<T> = async (exchange) => {
     const {
       path: filePath,
       encoding = "utf-8",

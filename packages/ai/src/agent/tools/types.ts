@@ -1,11 +1,13 @@
 import {
   CraftClient,
+  routeCanDefer,
   type Capability,
   type CraftContext,
   type ExchangeHeaders,
-  type PluginLogger,
+  type Tag,
 } from "@routecraft/routecraft";
-import type { FnOptions } from "../../fn/types.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { FnHandlerContext } from "../../fn/types.ts";
 import { AgentSessionRuntime } from "../session/runtime.ts";
 
 /**
@@ -33,7 +35,7 @@ export const FN_BACKGROUND = Symbol.for("routecraft.ai.fn.background");
  *
  * @internal
  */
-export function isBackgroundFn(fn: FnOptions): boolean {
+export function isBackgroundFn(fn: RegisteredFn): boolean {
   return (fn as { [FN_BACKGROUND]?: unknown })[FN_BACKGROUND] === true;
 }
 
@@ -68,14 +70,14 @@ export interface LazyFn {
    */
   readonly targetId: string;
   /**
-   * Resolve to a concrete `FnOptions`. Throws `RC5003` with a clear
+   * Resolve to a concrete {@link RegisteredFn}. Throws `RC5003` with a clear
    * message if the underlying registry entry is missing or incomplete.
    *
    * @param ctx - Live context (registries populated)
    * @param fnId - The fn id this descriptor was registered as (used in
    *   error messages so the user can find the offending config entry)
    */
-  readonly resolve: (host: ToolHost, fnId: string) => FnOptions;
+  readonly resolve: (host: ToolHost, fnId: string) => RegisteredFn;
 }
 
 /**
@@ -87,11 +89,17 @@ export interface LazyFn {
  * @internal
  */
 export interface ToolHost {
-  readonly logger: PluginLogger;
   /** Discoverable capabilities of the enabled routes. */
   capabilities(): Capability[];
   /** Whether a route with this id is registered at all. */
   hasRoute(routeId: string): boolean;
+  /**
+   * Whether an exchange on this route can park, so a tool over it is
+   * background by shape: the dispatch answers with an acknowledgment and
+   * the result arrives from execution two. False for a route this
+   * application does not hold, a remote's included.
+   */
+  canDefer(routeId: string): boolean;
   /** Send a body to a direct endpoint and resolve with its reply. */
   deliver(
     endpoint: string,
@@ -109,9 +117,12 @@ export interface ToolHost {
  */
 export function toolHostOf(ctx: CraftContext): ToolHost {
   return {
-    logger: ctx.logger,
     capabilities: () => ctx.capabilities(),
     hasRoute: (routeId) => ctx.getRouteById(routeId) !== undefined,
+    canDefer: (routeId) => {
+      const route = ctx.getRouteById(routeId);
+      return route !== undefined && routeCanDefer(route.definition, ctx);
+    },
     deliver: (endpoint, body, headers) =>
       new CraftClient(ctx).sendDirect(endpoint, body, headers),
     sessions: () => AgentSessionRuntime.for(ctx),
@@ -134,11 +145,31 @@ export function isLazyFn(value: unknown): value is LazyFn {
 }
 
 /**
- * What the fn registry actually holds. Eagerly authored fns are stored
- * as `FnOptions`; entries from `directTool` are stored as `LazyFn`
- * and resolved on first agent dispatch.
+ * A fn as the heterogeneous registry holds it: its input type erased, so
+ * fns over unrelated schemas share one record.
+ *
+ * `handler` is a method here, and only here, so its parameter is checked
+ * bivariantly and every `FnOptions<TIn, TOut>` is assignable to this shape
+ * while `FnOptions` and `FnDefinition` keep a contravariant property. The
+ * erasure is sound at the one place a registered handler is called: the
+ * bridge validates the model's input against `input` first, and `input` is
+ * the schema whose output typed that handler. A bare object literal written
+ * straight into a `functions` record is typed against this shape, so its
+ * handler sees `unknown`; wrap it in `fn()` to type it by its schema.
  */
-export type FnEntry = FnOptions | LazyFn;
+export interface RegisteredFn {
+  readonly description: string;
+  readonly input: StandardSchemaV1;
+  handler(input: unknown, ctx: FnHandlerContext): unknown;
+  tags?: Tag[];
+}
+
+/**
+ * What the fn registry actually holds. Eagerly authored fns are stored
+ * as {@link RegisteredFn}; entries from `directTool` are stored as
+ * `LazyFn` and resolved on first agent dispatch.
+ */
+export type FnEntry = RegisteredFn | LazyFn;
 
 /**
  * The declared shape of a registered tool, whichever way it was authored.
@@ -165,8 +196,8 @@ export function resolveFnOptions(
   host: ToolHost,
   fnId: string,
   entry: FnEntry,
-  memo: Map<string, FnOptions>,
-): FnOptions {
+  memo: Map<string, RegisteredFn>,
+): RegisteredFn {
   if (!isLazyFn(entry)) return entry;
   const cached = memo.get(fnId);
   if (cached) return cached;

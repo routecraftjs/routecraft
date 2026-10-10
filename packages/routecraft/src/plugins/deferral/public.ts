@@ -8,6 +8,9 @@ export type {
   Deferral,
   ErrorPathRecord,
   DeferralCasResult,
+  DeferralClaim,
+  DeferralClaimId,
+  DeferralClaimResult,
   DeferralListCursor,
   DeferralListQuery,
   DeferralSummary,
@@ -20,6 +23,8 @@ export type {
 } from "../../kernel/continuation/types.ts";
 export {
   claimed,
+  claimedBy,
+  claimResultOf,
   resumable,
   summariseDeferral,
 } from "../../kernel/continuation/types.ts";
@@ -59,6 +64,10 @@ export type {
   ResumeAuthorizerInput,
   ResumeElevator,
   DeferralRecordView,
+} from "../../kernel/continuation/door.ts";
+export {
+  deferredPrincipal,
+  reidentificationDeviation,
 } from "../../kernel/continuation/door.ts";
 
 export {
@@ -106,6 +115,7 @@ export type { DeferralAffordance } from "../../kernel/continuation/exchange-stat
 export type {
   ResumeAcknowledgment,
   ResumeRequest,
+  RevivalOptions,
 } from "../../kernel/continuation/resume.ts";
 
 // The in-process halves of deferral and resume, for a tier that stores a
@@ -113,3 +123,8 @@ export type {
 // sessions). Internal: the public surfaces are `.defer()` / `.resume()`.
 export { deferAside } from "../../kernel/continuation/park.ts";
 export { reviveDeferral } from "../../kernel/continuation/resume.ts";
+// `deferralScope` is @internal and re-exported on purpose: a tier that
+// announces its own events about a deferral scopes them the way core scopes
+// `route:exchange:expired` and `:denied`, and a package cannot reach a deep
+// import.
+export { deferralScope } from "../../kernel/continuation/resume.ts";

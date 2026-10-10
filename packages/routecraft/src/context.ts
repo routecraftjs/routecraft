@@ -22,10 +22,14 @@ import {
   CONTINUATIONS_REMEDY,
 } from "./kernel/continuation/port.ts";
 import { ContinuationSweeper } from "./kernel/continuation/sweep.ts";
-import { applyResolvedSites } from "./kernel/continuation/sites.ts";
+import {
+  applyResolvedSites,
+  routeCanDefer,
+} from "./kernel/continuation/sites.ts";
 import {
   reviveDeferral,
   type ResumeRequest,
+  type RevivalOptions,
 } from "./kernel/continuation/resume.ts";
 import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
@@ -683,6 +687,10 @@ export class CraftContext {
           if (!route || !this.hooks) return [];
           return this.hooks.describeRoute(id, routeTags(route.definition));
         },
+        canDefer: (id: string) => {
+          const route = this.getRouteById(id);
+          return route !== undefined && routeCanDefer(route.definition, this);
+        },
       },
       execution: {
         deliver: (
@@ -690,7 +698,8 @@ export class CraftContext {
           body: unknown,
           headers?: Parameters<CraftClient["sendDirect"]>[2],
         ) => client.sendDirect(endpoint, body, headers),
-        resume: (request: ResumeRequest) => reviveDeferral(this, request),
+        resume: (request: ResumeRequest, options?: RevivalOptions) =>
+          reviveDeferral(this, request, options),
         sweep: (options?: { readonly boot?: boolean }) =>
           this.sweepContinuations(options),
         capabilities: () => this.capabilities(),
@@ -1031,13 +1040,14 @@ export class CraftContext {
    */
   private assertDeferralConfigured(): void {
     if (this.lookup(CONTINUATIONS)) return;
-    // A registered handler that may answer `recovery.defer()` can park ANY
-    // route in the context, including one that declares no defer site of its
-    // own, so it is checked before the per-route markers and reported without
-    // naming a route: no route is the offender.
-    if (this.hasDeferringErrorHook()) {
+    // Before the per-route markers, so a route only a hook can park is
+    // reported as the hook's doing rather than as the route's own defer.
+    const parked = this.routes.find((route) =>
+      this.hasDeferringErrorHook(route.definition),
+    );
+    if (parked) {
       this.refuseWithoutDeferralRuntime(
-        `An error slot hook declared with { mayDefer: true } can park any exchange in this application, but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
+        `An error slot hook declared with { mayDefer: true } can park route "${parked.definition.id}", but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
       );
     }
     const deferring = this.routes.find(
@@ -1094,15 +1104,26 @@ export class CraftContext {
   }
 
   /**
-   * Whether any `error` slot hook declared it may park an exchange.
+   * Whether an `error` slot hook that applies to this route declared it may
+   * park an exchange, selected by the hook's `routes` and `tags` exactly as
+   * dispatch selects it.
    *
    * Read by the startup runtime check and by `routeCanDefer`, because such a
-   * hook can defer ANY route it applies to: a transport that advertises
-   * deferability per route would otherwise under-advertise every route that
-   * declares no defer site of its own.
+   * hook can defer a route that declares no defer site of its own: a
+   * transport that advertises deferability per route would otherwise
+   * under-advertise it. Per route rather than per application, because a
+   * hook aimed at one route would otherwise make every route deferrable,
+   * and every caller reading that (an agent's tools among them) would treat
+   * routes that can never park as ones that might.
+   *
+   * @param definition - The route asked about, by its id and its tags
    */
-  hasDeferringErrorHook(): boolean {
-    return this.hookTable?.mayDefer() ?? false;
+  hasDeferringErrorHook(
+    definition: Pick<RouteDefinition, "id" | "discovery">,
+  ): boolean {
+    return (
+      this.hookTable?.mayDefer(definition.id, routeTags(definition)) ?? false
+    );
   }
 
   /**

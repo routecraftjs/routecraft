@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, file } from "@routecraft/routecraft";
+import { craft, simple, file, type FileOptions } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -105,11 +105,12 @@ describe("File Adapter", () => {
 
     /**
      * @case Throws error when path is a function in the source role
-     * @preconditions Source subscription with a function path
+     * @preconditions Source subscription with a function path, through options typed as `FileOptions` so the overload that drops the source role is not selected (as from JavaScript)
      * @expectedResult The shared "static string path" error surfaces
      */
     test("throws error when path is function in the source role", async () => {
-      const adapter = file({ path: () => "dynamic.txt" });
+      const options: FileOptions = { path: () => "dynamic.txt" };
+      const adapter = file(options);
 
       await expect(
         adapter.subscribe({

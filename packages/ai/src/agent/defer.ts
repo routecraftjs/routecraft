@@ -108,16 +108,16 @@ export function isDeferSentinel(value: unknown): value is AgentDeferSentinel {
  *
  * @example
  * ```ts
- * import { DeferError } from "@routecraft/ai"
+ * import { DeferError, fn } from "@routecraft/ai"
  *
- * const askApproval: FnOptions = {
+ * const askApproval = fn({
  *   description: "Ask a human for approval via email",
  *   input: z.object({ request: z.string() }),
  *   handler: async (input, ctx) => {
  *     await sendApprovalRequest({ request: input.request, ctx })
  *     throw new DeferError({ schema: Approval, ttl: "72h" })
  *   },
- * }
+ * })
  * ```
  */
 export class DeferError extends Error {

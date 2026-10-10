@@ -24,7 +24,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-`craft start` discovers `agents/` for you, and the `acp` key serves every agent the context holds at `/acp`, in whatever order the keys are written. Building a context by hand instead, import `agents` from `@routecraft/ai` and write them under `agent: { agents: await agents('./agents') }`. That form cannot resolve `skills:` frontmatter refs, which need the house and bundle folders only the project runtime has. Every option is in the [configuration reference](/docs/reference/configuration#acp); `acpPlugin()` is the same thing for `plugins`, where it goes after the `agentPlugin()` that registers the agents.
+`craft start` discovers `agents/` for you, and the `acp` key serves every agent the context holds at `/acp`, in whatever order the keys are written. Building a context by hand instead, import `agents` from `@routecraft/ai` and write them under `agent: { agents: await agents('./agents') }`. That form cannot resolve `skills:` frontmatter refs, which need the house and bundle folders only the project runtime has. Every option is in the [configuration reference](/docs/reference/configuration#acp); `acpPlugin()` is the same thing for `plugins`, in any order beside the `agentPlugin()` that registers the agents.
 
 ## Connecting an editor
 

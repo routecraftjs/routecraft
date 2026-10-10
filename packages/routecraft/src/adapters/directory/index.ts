@@ -1,3 +1,4 @@
+import type { Exchange } from "../../exchange.ts";
 import type { Source } from "../../operations/from.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
@@ -11,17 +12,21 @@ import { DirectoryEnricherAdapter } from "./enricher.ts";
  * listing, `.enrich()` fetches it mid-route). There is no `send`: a listing
  * is a read, so `.to(directory({ path }))` resolves to the fetch and the
  * listing replaces the body.
+ *
+ * @template T - Body type the fetch role receives
  */
-export type DirectoryAdapter = Source<DirectoryEntry[]> &
-  Enricher<unknown, DirectoryEntry[]> & { readonly adapterId: string };
+export type DirectoryAdapter<T = unknown> = Source<DirectoryEntry[]> &
+  Enricher<T, DirectoryEntry[]> & { readonly adapterId: string };
 
 /**
  * Directory adapter type in chunked mode: the source emits one
  * {@link DirectoryEntry} per exchange. The enricher role is unaffected by
  * `chunked` (a fetch produces one value) and still returns the full listing.
+ *
+ * @template T - Body type the fetch role receives
  */
-export type DirectoryChunkedAdapter = Source<DirectoryEntry> &
-  Enricher<unknown, DirectoryEntry[]> & { readonly adapterId: string };
+export type DirectoryChunkedAdapter<T = unknown> = Source<DirectoryEntry> &
+  Enricher<T, DirectoryEntry[]> & { readonly adapterId: string };
 
 /**
  * Creates a directory adapter in chunked mode: the source emits one exchange
@@ -46,9 +51,24 @@ export type DirectoryChunkedAdapter = Source<DirectoryEntry> &
  *   .to(log());
  * ```
  */
-export function directory(
-  options: Omit<DirectoryOptions, "path"> & { path: string; chunked: true },
-): DirectoryChunkedAdapter;
+export function directory<T = unknown>(
+  options: Omit<DirectoryOptions<T>, "path"> & { path: string; chunked: true },
+): DirectoryChunkedAdapter<T>;
+/**
+ * Creates a directory adapter whose `path` is a function of the exchange.
+ * It has no source role, because a source has no exchange to resolve the
+ * path against, so `.from(directory({ path: (ex) => ... }))` is a compile
+ * error rather than a refusal when the route starts. `.enrich()` scans
+ * mid-route and `.to()` resolves to the same fetch.
+ *
+ * @param options - Options whose `path` is a function of the exchange
+ * @returns The Enricher adapter
+ * @template T - Body type the path callback reads; inferred from the route
+ *   at `.to()` / `.enrich()`
+ */
+export function directory<T = unknown>(
+  options: DirectoryOptions<T> & { path: (exchange: Exchange<T>) => string },
+): Enricher<T, DirectoryEntry[]> & { readonly adapterId: string };
 /**
  * Creates a directory adapter that scans a directory and produces the full
  * {@link DirectoryEntry}`[]` listing (sorted by relative path). One factory,
@@ -72,6 +92,8 @@ export function directory(
  *
  * @param options - Directory path plus `recursive`, `includeDirs`, `chunked`
  * @returns The combined Source + Enricher adapter
+ * @template T - Body type a dynamic `path` callback reads; inferred from
+ *   the route at `.to()` / `.enrich()`
  *
  * @example
  * ```typescript
@@ -95,16 +117,18 @@ export function directory(
  *   .to(log());
  * ```
  */
-export function directory(options: DirectoryOptions): DirectoryAdapter;
-export function directory(
-  options: DirectoryOptions,
+export function directory<T = unknown>(
+  options: DirectoryOptions<T>,
+): DirectoryAdapter<T>;
+export function directory<T = unknown>(
+  options: DirectoryOptions<T>,
 ): (Source<DirectoryEntry | DirectoryEntry[]> &
-  Enricher<unknown, DirectoryEntry[]>) & { readonly adapterId: string } {
+  Enricher<T, DirectoryEntry[]>) & { readonly adapterId: string } {
   return tagAdapter(
     {
       adapterId: "routecraft.adapter.directory",
-      subscribe: new DirectorySourceAdapter(options).subscribe,
-      fetch: new DirectoryEnricherAdapter(options).fetch,
+      subscribe: new DirectorySourceAdapter<T>(options).subscribe,
+      fetch: new DirectoryEnricherAdapter<T>(options).fetch,
     },
     directory,
     factoryArgs(options),
