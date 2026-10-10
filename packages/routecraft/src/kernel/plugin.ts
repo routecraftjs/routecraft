@@ -83,8 +83,8 @@ export interface PluginRoutes {
   get(id: string): RouteView | undefined;
   /**
    * Whether an exchange on this route can park: the route has a `.defer()`,
-   * a defer-capable step, or the application has an error-slot hook that may
-   * park any route. What a door reads to advertise a `Deferred` answer, and
+   * a defer-capable step, or an error-slot hook declared with `mayDefer`
+   * whose `routes` and `tags` select it. What a door reads to advertise a `Deferred` answer, and
    * what a caller that holds a request open reads to know the first answer
    * may be an acknowledgment. False for an unknown route.
    */

@@ -741,9 +741,9 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
   },
   RC5056: {
     category: "Runtime",
-    message: "Resume refused by the route's authorize hook",
+    message: "Resume refused for this principal",
     suggestion:
-      "The `.resume({ authorize })` hook on the ingress route refused this principal. Who may resume a deferred run is the application's policy, not the framework's: the hook receives the live principal, the deferred principal snapshot, the raw submitted payload, and the record's context (including whatever `meta` the defer site attached), and decides. A hook that returns false, throws, or does not settle before the route's own `.timeout()` produces this one code with the same message, deliberately: a hook whose failures can be told apart from outside is an oracle for what it knows. The cause is in the boundary log, never on the wire, and a thrown cause is never returned. The refusal is non-destructive, so the record stays resumable by whoever does qualify.",
+      "One of three checks refused the principal a deferred run would resume under, and the message names which. The `.resume({ authorize })` hook on the ingress route refused the resuming principal: who may resume is the application's policy, so the hook receives the live principal, the deferred principal snapshot, the raw submitted payload, and the record's context (including whatever `meta` the defer site attached), and decides. The `.resume({ elevate })` hook refused, or re-minted the parked principal outside its rule (not verified live, a difference outside `scopes`, or a lent scope the parking refusal never named). Or a plugin reviving the exchange on its own behalf handed over a re-identified principal that is not the parked identity verified live (restored, or different in anything, `scopes` included). Within each check a false, a throw, a hook that does not settle before the route's own `.timeout()` and a principal that breaks the rule produce the same message, deliberately: a check whose failures can be told apart from outside is an oracle for what it knows. The cause is in the boundary log, never on the wire, and a thrown cause is never returned. The refusal is non-destructive, so the record stays resumable by whoever does qualify.",
     docs: `${DOCS_BASE}#rc-5056`,
     retryable: false,
   },
@@ -823,7 +823,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Deferral store is missing a contract member",
     suggestion:
-      "A surface asked the deferral store for something the store this context was given does not implement. The two shipped backends (sqlite and memory) implement the whole `DeferralStore` contract; a store supplied through `deferral: { store }` is the caller's own, and one written against an earlier version of the contract can be missing a member added since. The message names the member. Implement it, or drop back to a shipped backend. The surface refuses rather than answering empty, because an empty listing and a listing the store cannot produce look identical to whoever is reading it.",
+      "The deferral store this context was given does not implement a member of the `DeferralStore` contract. The two shipped backends (sqlite and memory) implement all of it; a store supplied through `deferral: { store }` is the caller's own, and one written against an earlier version of the contract can be missing a member added since. The message names the member. The deferral plugin refuses at start a store missing any member the kernel calls (a 0.7 store has no `renewClaim`), and `GET /ops/deferrals` refuses one without the optional `list` when asked, rather than answering empty, because an empty listing and a listing the store cannot produce look identical to whoever is reading it. Implement the member, or drop back to a shipped backend.",
     docs: `${DOCS_BASE}#rc-5066`,
     retryable: false,
   },

@@ -400,10 +400,24 @@ export interface Deferral {
  * stopped renewing because it died.
  */
 export interface DeferralClaim {
-  readonly id: string;
+  readonly id: DeferralClaimId;
   readonly at: Date;
   readonly renewedAt: Date;
 }
+
+declare const CLAIM_ID: unique symbol;
+
+/**
+ * The identity of one {@link DeferralClaim}, which is all a holder presents
+ * to the fenced store methods.
+ *
+ * Branded so the compiler refuses a deferral id where a claim id belongs:
+ * the fenced methods take both as their first two arguments, and a swap
+ * would compile as two strings and lose every write at runtime. A store
+ * mints one with a cast (`randomUUID() as DeferralClaimId`); nothing else
+ * should.
+ */
+export type DeferralClaimId = string & { readonly [CLAIM_ID]: true };
 
 /**
  * What an error-path park records about itself, for the two decisions the
@@ -509,11 +523,12 @@ export interface DeferralCasResult {
  * Result of {@link DeferralStore.claimExpiry}: a {@link DeferralCasResult}
  * that, when won, also hands the caller the claim it now holds.
  *
- * The claim is what the holder presents to {@link DeferralStore.renewClaim},
- * {@link DeferralStore.markExpired} and {@link DeferralStore.markDenied}, so
- * it is a field of its own rather than something to dig out of
- * `deferral.claim`: a winner must not have to prove to the compiler that
- * the record it was just handed is claimed.
+ * The claim's `id` is what the holder presents to
+ * {@link DeferralStore.renewClaim}, {@link DeferralStore.markExpired} and
+ * {@link DeferralStore.markDenied}, so the claim is a field of its own rather
+ * than something to dig out of `deferral.claim`: a winner must not have to
+ * prove to the compiler that the record it was just handed is claimed.
+ * {@link claimResultOf} builds this from a plain {@link DeferralCasResult}.
  */
 export type DeferralClaimResult =
   | {
@@ -562,23 +577,41 @@ export function claimed(
 }
 
 /**
- * Whether `claim` is the live delivery claim on a waiting deferral, which
- * is the compare {@link DeferralStore.renewClaim},
+ * Whether `claimId` names the live delivery claim on a waiting deferral,
+ * which is the compare {@link DeferralStore.renewClaim},
  * {@link DeferralStore.markExpired} and {@link DeferralStore.markDenied}
  * make.
  *
- * Only the identity is compared. The holder's copy of the claim stops
- * matching on `renewedAt` after its first renewal, and that is not what
- * the fence is for: it tells one incarnation of the claim from the next,
- * not one heartbeat from the next. Named once so the stores and the fakes
- * cannot drift on it; the sqlite backend spells the same compare as its
- * `WHERE` clause.
+ * It takes the identity rather than the claim because the identity is all
+ * the fence may compare: a claim compared whole stops matching on
+ * `renewedAt` after its first renewal, so a holder would lose its own lease
+ * on the second heartbeat. Named once so the stores and the fakes cannot
+ * drift on it; the sqlite backend spells the same compare as its `WHERE`
+ * clause.
  */
 export function claimedBy(
   deferral: Deferral,
-  claim: DeferralClaim,
+  claimId: DeferralClaimId,
 ): deferral is Deferral & { readonly claim: DeferralClaim } {
-  return claimed(deferral) && deferral.claim.id === claim.id;
+  return claimed(deferral) && deferral.claim.id === claimId;
+}
+
+/**
+ * Narrow the result of the compare-and-swap that took a claim into the
+ * {@link DeferralClaimResult} {@link DeferralStore.claimExpiry} returns.
+ *
+ * Won and claimed go together: a won claim transition always stored the
+ * claim, and this is where the compiler is told so, once, for every
+ * backend. A result that reports a win on a record carrying no claim is
+ * returned as lost, because a winner with no claim to present could only
+ * ever lose its finalize.
+ */
+export function claimResultOf(result: DeferralCasResult): DeferralClaimResult {
+  const deferral = result.deferral;
+  if (!result.won || deferral === undefined || !claimed(deferral)) {
+    return { won: false, deferral };
+  }
+  return { won: true, deferral, claim: deferral.claim };
 }
 
 /**
@@ -624,8 +657,8 @@ export interface DeferralStore {
    * Winning it is the right to notify the route, and the caller delivers
    * the re-ask, renewing the claim with {@link DeferralStore.renewClaim}
    * while it does, and then settles with {@link DeferralStore.markExpired}
-   * or {@link DeferralStore.markDenied}, presenting the claim it won. A
-   * holder that dies mid-delivery is healed by
+   * or {@link DeferralStore.markDenied}, presenting the id of the claim it
+   * won. A holder that dies mid-delivery is healed by
    * {@link DeferralStore.releaseClaims} rather than leaving the record
    * stuck.
    *
@@ -634,6 +667,10 @@ export interface DeferralStore {
    * was released and reclaimed is `waiting` and claimed again, exactly as
    * the first holder left it. Only the identity tells the two claims apart,
    * and it is what makes the first holder's late writes lose.
+   *
+   * A store that takes the claim as a compare-and-swap returning a
+   * {@link DeferralCasResult} hands that to {@link claimResultOf} rather
+   * than narrowing it by hand; both shipped backends do.
    *
    * A released EXPIRY claim is overdue, so the next sweep redelivers it. A
    * released DENIAL claim is not, so its redelivery waits for the next
@@ -646,10 +683,12 @@ export interface DeferralStore {
   /**
    * Extend the lease on a claim this caller holds by moving
    * {@link DeferralClaim.renewedAt} to `at`, leaving `id` and `at` alone.
-   * Wins only while `claim` is the live claim on a waiting record
+   * Wins only while `claimId` names the live claim on a waiting record
    * ({@link claimedBy}); it loses once the claim was released, whether or
    * not somebody else has claimed the record since, and once the record
-   * settled.
+   * settled. Compare the identity alone: the holder's `renewedAt` is stale
+   * after its first renewal, so a whole-claim compare would refuse the
+   * second heartbeat.
    *
    * The heartbeat half of the lease. A delivery that outlives the lease is
    * not a dead claimant, and without renewal the sweeper could not tell the
@@ -659,14 +698,14 @@ export interface DeferralStore {
    */
   renewClaim(
     id: string,
-    claim: DeferralClaim,
+    claimId: DeferralClaimId,
     at: Date,
   ): Promise<DeferralCasResult>;
 
   /**
    * Settle a claimed deferral as `expired`, stamping
-   * {@link DeferralOutcome.at} at the write. Wins only while `claim` is the
-   * live claim on the record ({@link claimedBy}): a holder whose claim was
+   * {@link DeferralOutcome.at} at the write. Wins only while `claimId` names
+   * the live claim on the record ({@link claimedBy}): a holder whose claim was
    * released and taken by another deliverer must not settle the other's
    * delivery, however the record looks from where it stands.
    *
@@ -674,7 +713,7 @@ export interface DeferralStore {
    * its delivery was claimed; the outcome's own timestamp is when the
    * record actually stopped waiting, which is what retention measures from.
    */
-  markExpired(id: string, claim: DeferralClaim): Promise<DeferralCasResult>;
+  markExpired(id: string, claimId: DeferralClaimId): Promise<DeferralCasResult>;
 
   /**
    * Settle a claimed deferral as `denied`, stamping
@@ -686,7 +725,7 @@ export interface DeferralStore {
    */
   markDenied(
     id: string,
-    claim: DeferralClaim,
+    claimId: DeferralClaimId,
     reason?: string,
   ): Promise<DeferralCasResult>;
 

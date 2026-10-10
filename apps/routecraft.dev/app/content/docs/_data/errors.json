@@ -518,7 +518,7 @@
   {
     "code": "RC5056",
     "category": "Runtime",
-    "message": "Resume refused by the route's authorize hook",
+    "message": "Resume refused for this principal",
     "retryable": false
   },
   {

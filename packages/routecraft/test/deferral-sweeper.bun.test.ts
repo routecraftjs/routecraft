@@ -10,7 +10,7 @@ import {
   type EventName,
   type NewDeferral,
   type DeferralCasResult,
-  type DeferralClaim,
+  type DeferralClaimId,
   type DeferralClaimResult,
   type DeferralStore,
 } from "../src/index.ts";
@@ -676,12 +676,12 @@ describe("the deferral sweeper", () => {
     const store = storeWith(backing, {
       markExpired: async (
         id: string,
-        claim: DeferralClaim,
+        claimId: DeferralClaimId,
       ): Promise<DeferralCasResult> => {
         sweepReached();
         await held;
         order.push("sweep finished");
-        return backing.markExpired(id, claim);
+        return backing.markExpired(id, claimId);
       },
       close: async () => {
         order.push("store closed");
@@ -911,6 +911,56 @@ describe("the deferral sweeper", () => {
     expect(
       said(t.contextLogger.warn.mock.calls, "claim was released"),
     ).toBeUndefined();
+    expect(
+      said(t.contextLogger.warn.mock.calls, "claim was lost"),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case A renewal still in flight when its delivery settles
+   * @preconditions A 30ms lease whose first renewal reaches the store only after the test releases it; the re-ask returns as soon as that renewal has started, the delivery finalizes, and the held renewal then runs against the settled record and loses
+   * @expectedResult The record settles as expired through the live claim, and no "claim was lost" warning is logged: the renewal's loss is the finalize that just won, not a lost claim, and warning about it after a correct finalize sends an operator looking for a duplicate re-ask that never happened
+   */
+  test("a renewal that loses after the delivery settled does not warn", async () => {
+    const backing = new MemoryDeferralStore();
+    const renewalStarted = gate();
+    const renewalReleased = gate();
+    let renewalSettled = false;
+
+    const store = storeWith(backing, {
+      renewClaim: async (id, claimId, at) => {
+        renewalStarted.open();
+        await renewalReleased.opened;
+        const result = await backing.renewClaim(id, claimId, at);
+        renewalSettled = true;
+        return result;
+      },
+    });
+
+    t = await testContext()
+      .with(deferringWith(backing))
+      .routes([
+        craft()
+          .id("payout")
+          .error(async () => {
+            await renewalStarted.opened;
+            return { reasked: true };
+          })
+          .from(direct())
+          .defer({ schema: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await backing.create(overdue("def-late"));
+    const sweeper = new ContinuationSweeper(t.ctx, store, { leaseMs: 30 });
+    expect(await sweeper.sweep()).toBe(1);
+    expect((await backing.get("def-late"))?.outcome?.kind).toBe("expired");
+
+    renewalReleased.open();
+    await waitFor(() => renewalSettled);
+    await sleep(5);
     expect(
       said(t.contextLogger.warn.mock.calls, "claim was lost"),
     ).toBeUndefined();
@@ -1148,7 +1198,7 @@ describe("the deferral sweeper", () => {
     );
     const recent = await store.claimExpiry("def-recent", new Date());
     if (!recent.won) throw new Error("the test's own claim lost");
-    await store.markExpired("def-recent", recent.claim);
+    await store.markExpired("def-recent", recent.claim.id);
 
     t = await testContext()
       .with(deferringWith(store))

@@ -308,15 +308,18 @@ export interface ResolvedDeferSites {
 /**
  * Whether a built route can raise a durable deferral: statically (a
  * declared `.defer()`), at runtime (a defer-capable step that MAY defer),
- * or from the error path (an error-slot hook that may answer with
- * `recovery.defer()`). The predicate transports key on to advertise a
- * `Deferred` acknowledgment arm, owned here next to the fields it reads so
- * a new way for a route to defer updates every consumer in one edit.
+ * or from the error path (an error-slot hook that applies to this route and
+ * may answer with `recovery.defer()`). The predicate transports key on to
+ * advertise a `Deferred` acknowledgment arm, owned here next to the fields
+ * it reads so a new way for a route to defer updates every consumer in one
+ * edit.
  *
  * @param context - The context the route is registered in, when the caller
- *   has one. A registered deferring error handler can park ANY route in the
- *   context, including one that declares no defer site of its own, so a
- *   transport that omits this under-advertises every such route. Optional
+ *   has one. An error hook declared with `mayDefer` can park a route that
+ *   declares no defer site of its own, so a transport that omits this
+ *   under-advertises every route such a hook selects. The hook counts only
+ *   for the routes its `routes` and `tags` select, as at dispatch: a hook
+ *   aimed at one route leaves every other route's answer alone. Optional
  *   rather than required because the two shipped callers differ: the MCP
  *   source holds the context, and a caller reasoning about a definition
  *   alone gets the definition's own answer.
@@ -328,7 +331,7 @@ export function routeCanDefer(
   return (
     (definition.deferSteps?.length ?? 0) > 0 ||
     (definition.reentrantDeferSteps?.length ?? 0) > 0 ||
-    context?.hasDeferringErrorHook() === true
+    context?.hasDeferringErrorHook(definition) === true
   );
 }
 

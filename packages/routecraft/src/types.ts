@@ -631,10 +631,26 @@ export interface EventDetailsMap {
    * when a late resume discovers it, or when the sweeper reaches it first.
    * The deferred route's error channel receives
    * `RC5047` alongside, which is where a re-ask belongs.
+   *
+   * At least once, not exactly once: a delivery whose claim was lost or
+   * lapsed before it finalized is redelivered by the next sweep, and this
+   * fires again for the same deferral.
    */
   "route:exchange:expired": ExchangeScoped & {
     deferralId: string;
     expiresAt: Date;
+  };
+  /**
+   * A deferral stopped being resumable because it was denied: the route
+   * changed under it so the stored approval no longer authorizes what would
+   * run, or the run that parked it was cancelled or failed to notify anyone.
+   * Fires once per denial, when the denial is written; a replay of the
+   * token afterwards reads `RC5050` and emits nothing.
+   */
+  "route:exchange:denied": ExchangeScoped & {
+    deferralId: string;
+    /** Why it was denied, as recorded on the deferral's outcome. */
+    reason?: string;
   };
 
   // -- Step lifecycle --

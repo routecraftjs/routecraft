@@ -16,7 +16,7 @@ import {
   setResumeStepState,
 } from "../../exchange.ts";
 import type { Route } from "../../route.ts";
-import type { Adapter, Step } from "../../types.ts";
+import type { Adapter, ExchangeScoped, Step } from "../../types.ts";
 import { continuationTailHash, describeSchema } from "./hash.ts";
 import {
   type ResumeAuthorizer,
@@ -47,7 +47,7 @@ import type {
   SerializedOutcome,
   Deferral,
   DeferralCasResult,
-  DeferralClaim,
+  DeferralClaimId,
   DeferralStore,
 } from "./types.ts";
 
@@ -58,8 +58,10 @@ import type {
  * event loop) before the sweeper takes it for dead. Fewer would make a
  * single slow renewal a lost claim; more would spend store writes on a
  * lease that only matters after a crash.
+ *
+ * @internal
  */
-const RENEWALS_PER_LEASE = 3;
+export const RENEWALS_PER_LEASE = 3;
 
 /**
  * What `.resume()`'s mapping function produces: which deferral to revive,
@@ -105,7 +107,9 @@ export interface ResumeDoor {
    *
    * On the trusted half with `authorize`, and for the same reason: this sets
    * the authority the continuation runs with, and the mapper is the
-   * untrusted half of an ingress.
+   * untrusted half of an ingress. Never set together with
+   * {@link ResumeDoor.reidentified}: both name the principal the
+   * continuation runs as, and a revival given both is refused with `RC5003`.
    */
   readonly elevate?: ResumeElevator;
   /** The principal this ingress route verified live, if any. */
@@ -252,6 +256,8 @@ export interface ResumeAcknowledgment {
  * @param request - Token plus submitted payload, as the mapper produced them
  * @param door - What the ingress route itself declares and verified
  * @returns The acknowledgment for the ingress route's body
+ * @throws RC5003 when `door` carries both `elevate` and `reidentified`,
+ *   before the token is read
  *
  * @internal
  */
@@ -260,6 +266,12 @@ export async function reviveDeferral(
   request: ResumeRequest,
   door: ResumeDoor = {},
 ): Promise<ResumeAcknowledgment> {
+  if (door.elevate && door.reidentified) {
+    throw rcError("RC5003", undefined, {
+      message:
+        "A revival was given both an elevate hook and a re-identified principal. Each names the principal the continuation runs as, so one of the two answers would be discarded: a resume door elevates, a plugin reviving on its own behalf re-identifies.",
+    });
+  }
   const runtime = requireContinuations(
     context,
     "Cannot resume: no token this application was handed can be verified",
@@ -418,23 +430,22 @@ export async function reviveDeferral(
       );
     }
     context.emit("route:exchange:expired", {
-      routeId: deferral.routeId,
-      exchangeId: exchangeIdOf(deferral),
-      correlationId: correlationIdOf(deferral),
+      ...deferralScope(deferral),
       deferralId: id,
       expiresAt: deferral.expiresAt,
     });
     throw await reask(context, route, deferral, expiry);
   }
 
+  // At most one is set: the entry check refuses a door carrying both.
+  const runAs = reidentified ?? elevated;
   let continuation: SerializedOutcome;
   try {
     const exchange = rehydrate(context, route, deferral, {
       result: payload,
       resumedAt,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
-      ...(reidentified ? { elevated: reidentified } : {}),
-      ...(elevated && !reidentified ? { elevated } : {}),
+      ...(runAs ? { elevated: runAs } : {}),
     });
     // Internals, not headers: step state must not re-serialize into a second deferral.
     if (site.site.reentrant && deferral.stepState !== undefined) {
@@ -543,12 +554,18 @@ async function refuseContinuation(
     context,
     store,
     deferral,
-    cas.claim,
+    cas.claim.id,
     runtime.expiryLeaseMs,
     () => reask(context, route, deferral, error),
   );
-  const finalized = await store.markDenied(deferral.id, cas.claim, reason);
-  if (!finalized.won) {
+  const finalized = await store.markDenied(deferral.id, cas.claim.id, reason);
+  if (finalized.won) {
+    context.emit("route:exchange:denied", {
+      ...deferralScope(deferral),
+      deferralId: deferral.id,
+      reason,
+    });
+  } else {
     context.logger.warn(
       { deferralId: deferral.id, routeId: deferral.routeId, reason },
       "A continuation refusal was released before its denial finalized, so the record is resumable again and a replay will re-drive the re-ask",
@@ -574,14 +591,22 @@ function headerOf(deferral: Deferral, key: string): string {
   return typeof value === "string" ? value : deferral.id;
 }
 
-/** @internal */
-function exchangeIdOf(deferral: Deferral): string {
-  return headerOf(deferral, HeadersKeys.ID);
-}
-
-/** @internal */
-function correlationIdOf(deferral: Deferral): string {
-  return headerOf(deferral, HeadersKeys.CORRELATION_ID);
+/**
+ * The identity fields of an event about a deferral: the deferred route and
+ * the deferred exchange's own ids, read off the stored headers.
+ *
+ * One helper for every emitter, core's and a tier's, so `:expired`,
+ * `:denied` and whatever a tier announces about the same record correlate
+ * on the same values.
+ *
+ * @internal
+ */
+export function deferralScope(deferral: Deferral): ExchangeScoped {
+  return {
+    routeId: deferral.routeId,
+    exchangeId: headerOf(deferral, HeadersKeys.ID),
+    correlationId: headerOf(deferral, HeadersKeys.CORRELATION_ID),
+  };
 }
 
 /**
@@ -677,16 +702,14 @@ export async function expireDeferral(
   if (!cas.won) return { cas, error };
 
   context.emit("route:exchange:expired", {
-    routeId: deferral.routeId,
-    exchangeId: exchangeIdOf(deferral),
-    correlationId: correlationIdOf(deferral),
+    ...deferralScope(deferral),
     deferralId: deferral.id,
     expiresAt: deadline,
   });
-  await underLease(context, store, deferral, cas.claim, leaseMs, () =>
+  await underLease(context, store, deferral, cas.claim.id, leaseMs, () =>
     reask(context, route, deferral, error),
   );
-  const finalized = await store.markExpired(deferral.id, cas.claim);
+  const finalized = await store.markExpired(deferral.id, cas.claim.id);
   if (!finalized.won) {
     // Only a claim that lapsed despite the heartbeat loses this: the store
     // was unreachable, or the process stalled, for most of a lease.
@@ -714,7 +737,9 @@ export async function expireDeferral(
  * is retried on the next beat, because a busy store is exactly the
  * condition the slack in {@link RENEWALS_PER_LEASE} is for. Both are
  * boundaries: the delivery's own outcome must not depend on whether the
- * lease could be kept.
+ * lease could be kept. Either answer is read only while the delivery is
+ * still running: a renewal in flight when it settles loses to the finalize
+ * that follows, and that is not a lost claim.
  *
  * The timer is unreferenced so a heartbeat never keeps a process alive on
  * its own; the delivery it serves is awaited by whoever started it.
@@ -725,7 +750,7 @@ async function underLease<T>(
   context: CraftContext,
   store: DeferralStore,
   deferral: Deferral,
-  claim: DeferralClaim,
+  claimId: DeferralClaimId,
   leaseMs: number,
   deliver: () => Promise<T>,
 ): Promise<T> {
@@ -739,7 +764,8 @@ async function underLease<T>(
   const beat = async () => {
     if (stopped) return;
     try {
-      const renewed = await store.renewClaim(deferral.id, claim, new Date());
+      const renewed = await store.renewClaim(deferral.id, claimId, new Date());
+      if (stopped) return;
       if (!renewed.won) {
         context.logger.warn(
           { deferralId: deferral.id, routeId: deferral.routeId },
@@ -748,6 +774,7 @@ async function underLease<T>(
         return;
       }
     } catch (err) {
+      if (stopped) return;
       context.logger.warn(
         { deferralId: deferral.id, routeId: deferral.routeId, err },
         "Could not renew a delivery claim; the next heartbeat will retry.",

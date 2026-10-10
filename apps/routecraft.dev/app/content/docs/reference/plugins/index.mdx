@@ -101,6 +101,7 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `routes.register(...definitions)` | Add routes. In `bind` only (`RC1110` afterwards). |
 | `routes.list()`, `routes.get(id)` | Read-only views of registered routes: `id`, `definition`, `enabled`, `disabledReason`. The definition is read-only down the graph, at the type and at runtime: a write through it is `RC1110`. |
 | `routes.hooksOf(id)` | The hooks that apply to a route in the order they run, each as `{ slot, point, phase?, plugin, id }`. Empty before the routes compile. |
+| `routes.canDefer(id)` | Whether an exchange on this route can park: it has a [`.defer()`](/docs/reference/operations/defer), a defer-capable step, or an `error` hook declared with `mayDefer` whose `routes` and `tags` select it. What a door reads to advertise a `Deferred` answer. False for an unknown id. |
 | `execution` | The verbs that drive the application, below. |
 
 ### Execution
@@ -108,7 +109,7 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | Member | Meaning |
 | --- | --- |
 | `deliver(endpoint, body, headers?)` | Hand a body to the route listening on a `direct()` endpoint and resolve with its reply, typed `unknown` for the caller to narrow. `RC5004` when nothing listens. |
-| `resume(request)` | Resume a parked exchange by its token on the plugin's own behalf, with no ingress door and no live principal. `RC5052` when no plugin provides continuations. |
+| `resume(request, { reidentified }?)` | Resume a parked exchange by its token on the plugin's own behalf, with no ingress door and no live principal. `reidentified` runs the continuation as the identity the exchange parked with, re-verified from live state by the plugin: read it with `deferredPrincipal(record, authority)`, verify it, and hand back the live result. Anything but the same identity verified live (a restored principal, a different role, a scope added or dropped) is [`RC5056`](/docs/reference/errors#rc-5056) and leaves the record as it was; `reidentificationDeviation(parked, reminted, authority)` answers the same question beforehand. `RC5052` when no plugin provides continuations. |
 | `sweep({ boot? })` | Run one pass of the kernel's sweep over parked exchanges: heal stale claims, purge settled records past retention, retire overdue ones through each route's error channel. The deferral plugin calls it on its cadence. Resolves with how many were retired. |
 | `capabilities()` | Discoverable capabilities of the enabled routes. |
 | `whenStarted()` | Resolves once every route signalled readiness and every `start` returned. |

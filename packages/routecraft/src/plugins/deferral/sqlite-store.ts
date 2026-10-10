@@ -25,7 +25,7 @@ import {
 } from "../../shared/sqlite/database.ts";
 import {
   claimIsOutstanding,
-  claimed,
+  claimResultOf,
 } from "../../kernel/continuation/types.ts";
 import type {
   ErrorPathRecord,
@@ -38,6 +38,7 @@ import type {
   Deferral,
   DeferralCasResult,
   DeferralClaim,
+  DeferralClaimId,
   DeferralClaimResult,
   DeferralListQuery,
   DeferralOutcome,
@@ -314,50 +315,46 @@ export class SqliteDeferralStore implements DeferralStore {
   }
 
   async claimExpiry(id: string, at: Date): Promise<DeferralClaimResult> {
-    const result = this.#transition(
-      id,
-      `UPDATE deferrals
-          SET claimed_at = ?, claim_id = ?, claim_renewed_at = ?
-        WHERE id = ? AND ${RESUMABLE}`,
-      [at.getTime(), randomUUID(), at.getTime(), id],
+    return claimResultOf(
+      this.#transition(
+        id,
+        `UPDATE deferrals
+            SET claimed_at = ?, claim_id = ?, claim_renewed_at = ?
+          WHERE id = ? AND ${RESUMABLE}`,
+        [at.getTime(), randomUUID(), at.getTime(), id],
+      ),
     );
-    const deferral = result.deferral;
-    // The guard only narrows: a won transition always stored the claim.
-    if (!result.won || deferral === undefined || !claimed(deferral)) {
-      return { won: false, deferral };
-    }
-    return { won: true, deferral, claim: deferral.claim };
   }
 
   async renewClaim(
     id: string,
-    claim: DeferralClaim,
+    claimId: DeferralClaimId,
     at: Date,
   ): Promise<DeferralCasResult> {
     return this.#transition(
       id,
       `UPDATE deferrals SET claim_renewed_at = ?
         WHERE id = ? AND ${CLAIMED_BY}`,
-      [at.getTime(), id, claim.id],
+      [at.getTime(), id, claimId],
     );
   }
 
   async markExpired(
     id: string,
-    claim: DeferralClaim,
+    claimId: DeferralClaimId,
   ): Promise<DeferralCasResult> {
     return this.#transition(
       id,
       `UPDATE deferrals
           SET state = 'settled', outcome_kind = 'expired', outcome_at = ?
         WHERE id = ? AND ${CLAIMED_BY}`,
-      [Date.now(), id, claim.id],
+      [Date.now(), id, claimId],
     );
   }
 
   async markDenied(
     id: string,
-    claim: DeferralClaim,
+    claimId: DeferralClaimId,
     reason?: string,
   ): Promise<DeferralCasResult> {
     return this.#transition(
@@ -366,17 +363,24 @@ export class SqliteDeferralStore implements DeferralStore {
           SET state = 'settled', outcome_kind = 'denied',
               outcome_reason = ?, outcome_at = ?
         WHERE id = ? AND ${CLAIMED_BY}`,
-      [reason ?? null, Date.now(), id, claim.id],
+      [reason ?? null, Date.now(), id, claimId],
     );
   }
 
+  /**
+   * The lease is measured from `claimed_at` where a row has no renewal
+   * time: a 0.7 build still holding the file open after a 0.8 build
+   * migrated it writes claims without the version 3 columns, and a compare
+   * on `claim_renewed_at` alone would never release them.
+   */
   async releaseClaims(before: Date): Promise<number> {
     return guard("release stale delivery claims", () => {
       this.#db
         .prepare(
           `UPDATE deferrals
               SET claimed_at = NULL, claim_id = NULL, claim_renewed_at = NULL
-            WHERE state = 'waiting' AND claim_renewed_at <= ?`,
+            WHERE state = 'waiting'
+              AND COALESCE(claim_renewed_at, claimed_at) <= ?`,
         )
         .run(before.getTime());
       return (
@@ -831,25 +835,23 @@ function toSummary(row: DeferralSummaryRow): DeferralSummary {
 /**
  * Hydrate the claim half of a row.
  *
- * A claimed row carries all three columns: the version 3 migration
- * backfills the two it added for every row that had a claim, and the
- * store writes them together. A claim timestamp without an identity is
- * therefore a row written by raw SQL, and reading it back as a claim would
- * hand out one that no holder can ever present, so the record could never
- * finalize; refusing the read is the louder failure.
+ * The store writes all three claim columns together, and the version 3
+ * migration backfills the two it added. A claim timestamp with no identity
+ * is a claim a 0.7 build wrote into a file a 0.8 build had already
+ * migrated. It is read back as a claim with a synthesised identity, which
+ * no holder was ever handed and which no `claim_id = ?` compare can match
+ * against the NULL column, so nothing can renew or settle it under the
+ * fence; {@link SqliteDeferralStore.releaseClaims} releases it once its
+ * lease, measured from `claimed_at`, elapses.
  *
  * @internal
  */
 function toClaim(row: DeferralRow): { claim?: DeferralClaim } {
   if (row.claimed_at === null) return {};
-  if (row.claim_id == null) {
-    throw rcError("RC5044", undefined, {
-      message: `Deferral "${row.id}" carries a claim timestamp but no claim id, so it was written outside the store and cannot be read back.`,
-    });
-  }
   return {
     claim: {
-      id: row.claim_id,
+      id: (row.claim_id ??
+        `legacy:${row.id}:${row.claimed_at}`) as DeferralClaimId,
       at: new Date(row.claimed_at),
       renewedAt: new Date(row.claim_renewed_at ?? row.claimed_at),
     },

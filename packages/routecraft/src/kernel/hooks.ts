@@ -689,12 +689,13 @@ export class HookTable {
   }
 
   /**
-   * Whether any live `error` slot hook declared it may park an exchange.
-   * Such a hook can defer ANY route it applies to, so the answer is read
-   * per application rather than per route.
+   * Whether a live `error` slot hook that applies to this route declared it
+   * may park an exchange. Selected exactly as dispatch selects, so a hook
+   * aimed at one route by `routes` or `tags` makes that route deferrable
+   * and leaves every other route as it was.
    */
-  mayDefer(): boolean {
-    return this.ordered("error").some(
+  mayDefer(routeId: string, tags: readonly string[]): boolean {
+    return this.forRoute("error", routeId, tags).some(
       (entry) => (entry.hook as ErrorHook).mayDefer === true,
     );
   }

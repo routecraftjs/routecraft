@@ -9,6 +9,7 @@ export type {
   ErrorPathRecord,
   DeferralCasResult,
   DeferralClaim,
+  DeferralClaimId,
   DeferralClaimResult,
   DeferralListCursor,
   DeferralListQuery,
@@ -23,6 +24,7 @@ export type {
 export {
   claimed,
   claimedBy,
+  claimResultOf,
   resumable,
   summariseDeferral,
 } from "../../kernel/continuation/types.ts";
@@ -63,9 +65,6 @@ export type {
   ResumeElevator,
   DeferralRecordView,
 } from "../../kernel/continuation/door.ts";
-// `deferredPrincipal` is @internal and re-exported on purpose: a plugin that
-// revives a parked exchange under a re-verified identity has to read the
-// identity it parked with first, and a package cannot reach a deep import.
 export {
   deferredPrincipal,
   reidentificationDeviation,
@@ -124,3 +123,8 @@ export type {
 // sessions). Internal: the public surfaces are `.defer()` / `.resume()`.
 export { deferAside } from "../../kernel/continuation/park.ts";
 export { reviveDeferral } from "../../kernel/continuation/resume.ts";
+// `deferralScope` is @internal and re-exported on purpose: a tier that
+// announces its own events about a deferral scopes them the way core scopes
+// `route:exchange:expired` and `:denied`, and a package cannot reach a deep
+// import.
+export { deferralScope } from "../../kernel/continuation/resume.ts";

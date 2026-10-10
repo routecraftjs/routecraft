@@ -37,6 +37,7 @@ import {
 } from "../../kernel/continuation/sweep.ts";
 import { isDevelopmentRuntime } from "../../shared/runtime-env.ts";
 import { MAX_SWEEP_INTERVAL_MS, SweepCadence } from "./cadence.ts";
+import { RENEWALS_PER_LEASE } from "../../kernel/continuation/resume.ts";
 
 /**
  * Environment variable naming where deferred exchanges are persisted. Either
@@ -147,7 +148,13 @@ export interface DeferralConfig {
    * Defaults to {@link DEFAULT_EXPIRY_LEASE}. A live delivery renews its
    * claim on a heartbeat (three per lease), so a slow `.error()` handler
    * never spends this; only a process that dies mid-delivery does, and the
-   * lease is then how long its approver waits for the redelivery.
+   * lease is then how long its approver waits for the redelivery. At most
+   * about 74.5 days (`RC5003` above it), so a renewal interval stays within
+   * what a timer can schedule.
+   *
+   * A renewal is stamped with the renewing process's clock and released
+   * against the sweeping process's clock, so processes sharing a store must
+   * agree on the time to well within a third of the lease.
    */
   expiryLease?: Duration;
   /**
@@ -229,6 +236,11 @@ export async function createDeferralRuntime(
     config.expiryLease ?? DEFAULT_EXPIRY_LEASE,
     "deferral.expiryLease",
   );
+  if (expiryLeaseMs > MAX_EXPIRY_LEASE_MS) {
+    throw rcError("RC5003", undefined, {
+      message: `deferral.expiryLease must be at most ${MAX_EXPIRY_LEASE_MS}ms (about 74.5 days), got ${expiryLeaseMs}ms; the claim is renewed ${RENEWALS_PER_LEASE} times per lease, and a longer lease would schedule each renewal as 1ms.`,
+    });
+  }
   const configuredRetention = config.retention ?? DEFAULT_DEFERRAL_RETENTION;
   const retentionMs =
     configuredRetention === "never"
@@ -284,6 +296,7 @@ export async function createDeferralRuntime(
     typeof configured === "object" &&
     "create" in configured
   ) {
+    assertStoreContract(configured);
     releaseClaimant({ scope: host, claimant: DEFERRAL_CLAIMANT });
     return runtime(configured, "custom", false);
   }
@@ -329,6 +342,61 @@ export async function createDeferralRuntime(
     );
     return runtime(new MemoryDeferralStore(), "memory", true);
   }
+}
+
+/**
+ * The longest `expiryLease` whose renewal interval a timer can schedule as
+ * written: the heartbeat fires every lease divided by
+ * {@link RENEWALS_PER_LEASE}, and a delay past the timer ceiling is coerced
+ * to 1ms.
+ */
+const MAX_EXPIRY_LEASE_MS = RENEWALS_PER_LEASE * MAX_SWEEP_INTERVAL_MS;
+
+/**
+ * The `DeferralStore` members the kernel calls without checking for them.
+ * `list` is absent on purpose: only the ops listing reads it, and that
+ * surface refuses a store without it with `RC5066` when asked, so a store
+ * written before the listing existed still runs everything else.
+ */
+const REQUIRED_STORE_MEMBERS = [
+  "create",
+  "get",
+  "markResumed",
+  "claimExpiry",
+  "renewClaim",
+  "markExpired",
+  "markDenied",
+  "releaseClaims",
+  "replaceStepState",
+  "recordContinuation",
+  "findExpired",
+  "pending",
+  "resumedWithoutContinuation",
+  "purgeSettled",
+  "close",
+] as const satisfies ReadonlyArray<keyof DeferralStore>;
+
+/**
+ * Refuse a configured store that does not implement the contract this
+ * build calls, before anything parks in it.
+ *
+ * A store written against an earlier contract otherwise starts clean and
+ * fails mid-delivery: a 0.7 store has no `renewClaim`, so the first
+ * heartbeat of the first re-ask throws, every later one too, and the claim
+ * lapses under a live delivery, which is the duplicate re-ask the lease
+ * exists to prevent. The member names in the message are the whole fix.
+ *
+ * @throws RC5066 naming the first missing member
+ */
+function assertStoreContract(store: object): void {
+  const members = store as Record<string, unknown>;
+  const missing = REQUIRED_STORE_MEMBERS.find(
+    (member) => typeof members[member] !== "function",
+  );
+  if (missing === undefined) return;
+  throw rcError("RC5066", undefined, {
+    message: `The deferral store passed as deferral: { store } does not implement "${missing}", which this build of the DeferralStore contract requires. A store written for an earlier release is missing the members added since; see the migration guide, or use one of the shipped backends (sqlite or memory).`,
+  });
 }
 
 /**

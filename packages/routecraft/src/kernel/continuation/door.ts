@@ -109,13 +109,35 @@ export type ResumeElevator = (
 ) => Principal | Promise<Principal>;
 
 /**
- * Read the deferred principal back off a stored record.
+ * Read back the principal a deferred exchange parked with.
+ *
+ * The first half of reviving a parked exchange under a re-verified
+ * identity: a plugin reads who parked it here, verifies that identity
+ * against live state (a directory, a session, its own registry), and hands
+ * the live result to `execution.resume(request, { reidentified })`, which
+ * {@link reidentificationDeviation} then holds to being the same identity.
+ * A resume door's `authorize` and `elevate` hooks receive the same value as
+ * `deferred`.
  *
  * Marked restored on the way out, so the one object in the resume path that
  * came from storage rather than from a live verification cannot be mistaken
- * for a credential by anything downstream, the hook included.
+ * for a credential by anything downstream: `authorize()` refuses it, and
+ * handing it back as `reidentified` is refused with `RC5056`. Use it as
+ * reference data for what to verify, never as the identity to run as.
  *
- * @internal
+ * @param deferral - The stored record, as `DeferralStore.get` returns it
+ * @param authority - The application's authority (`authorityOf(context)`),
+ *   which owns the restored mark
+ * @returns The parked principal marked restored, or `undefined` when the
+ *   exchange parked without one
+ *
+ * @example
+ * ```ts
+ * const record = await store.get(deferralId);
+ * const parked = record && deferredPrincipal(record, authority);
+ * const live = parked && (await directory.verify(parked.subject));
+ * await c.execution.resume({ token, result }, { reidentified: live });
+ * ```
  */
 export function deferredPrincipal(
   deferral: Deferral,
@@ -216,33 +238,68 @@ export async function runAuthorizer(
 }
 
 /**
- * Build the single refusal both resume hooks answer with, and log its cause.
+ * What a refusal is logged as and answered with, per refusing check.
  *
- * One builder, because the two hooks are required to be indistinguishable
- * from outside: three failure modes, one `RC5056`, one message, and the
- * operator's log as the only place they are told apart. Asserting that
- * property in two copies is how it stops being true.
+ * The two door hooks are `.resume()` options and name themselves as such.
+ * A re-identification is not a hook on any route: a plugin reviving a parked
+ * exchange on its own behalf handed over a principal, and naming a
+ * `.resume()` option there would send an operator looking for a hook nobody
+ * declared.
+ *
+ * @internal
+ */
+const REFUSALS = {
+  authorize: {
+    log: "A .resume({ authorize }) hook refused a resume",
+    message: (id: string) =>
+      `The resume route's authorize hook refused this principal for deferral "${id}".`,
+  },
+  elevate: {
+    log: "A .resume({ elevate }) hook refused a resume",
+    message: (id: string) =>
+      `The resume route's elevate hook refused this principal for deferral "${id}".`,
+  },
+  reidentify: {
+    log: "A plugin-driven revival was refused its re-identified principal",
+    message: (id: string) =>
+      `The principal re-identified for deferral "${id}" is not the identity it parked with, verified live, so the revival was refused.`,
+  },
+} as const;
+
+/**
+ * Build the single refusal a resume check answers with, and log its cause.
+ *
+ * One builder, because every way a check refuses is required to be
+ * indistinguishable from outside: each check has one `RC5056` and one fixed
+ * message whatever the cause, and the operator's log is the only place the
+ * causes are told apart. Asserting that property in several copies is how
+ * it stops being true.
+ *
+ * @param principal - Who the log names as refused; the door's live
+ *   principal unless the check refused a different one
  *
  * @internal
  */
 function refusalOf(
-  hook: "authorize" | "elevate" | "reidentify",
+  check: keyof typeof REFUSALS,
   input: ResumeAuthorizerInput,
   logger: CraftContext["logger"],
+  principal: Principal | undefined = input.principal,
 ): (outcome: string, err?: unknown) => Error {
+  const refusal = REFUSALS[check];
   return (outcome, err) => {
     logger.warn(
       {
         deferralId: input.record.id,
         routeId: input.record.routeId,
-        principal: input.principal?.subject,
+        principal: principal?.subject,
         outcome,
         ...(err !== undefined ? { err } : {}),
       },
-      `A .resume({ ${hook} }) hook refused a resume`,
+      refusal.log,
     );
     return rcError("RC5056", undefined, {
-      message: `The resume route's ${hook} hook refused this principal for deferral "${input.record.id}".`,
+      message: refusal.message(input.record.id),
     });
   };
 }
@@ -399,6 +456,13 @@ function comparableIdentity(
  * Check a principal re-minted for the SAME identity a parked exchange
  * carried, and name the first way it is not.
  *
+ * `execution.resume(request, { reidentified })` runs this itself and
+ * refuses with `RC5056` on any answer but `undefined`, so a plugin calls it
+ * only to learn, before resuming, whether its re-verification would pass:
+ * to report a refusal in its own terms, or to skip a revival that would be
+ * refused anyway. The returned phrase is for the plugin's operator log and
+ * never for a caller, since it says which part of the identity moved.
+ *
  * This is the rule a plugin-driven revival runs under, as opposed to a
  * resume door's `elevate`: nothing is being authorized and no authority is
  * being raised, so the re-mint must be the parked identity verified live
@@ -445,9 +509,10 @@ export function reidentificationDeviation(
 
 /**
  * Refuse a plugin-driven revival whose re-identified principal is not the
- * parked identity verified live. Logged and refused as the door hooks are,
- * with the same `RC5056`, for the same reason: a refusal whose cause can be
- * told apart from outside is an oracle for what the application knows.
+ * parked identity verified live. Refused with the `RC5056` the door hooks
+ * answer with, for the same reason: a refusal whose cause can be told apart
+ * from outside is an oracle for what the application knows. Its log line
+ * and message name a re-identification rather than a `.resume()` hook.
  *
  * @throws RC5056 on a restored principal or any difference from the parked one
  *
@@ -464,7 +529,9 @@ export function checkReidentified(
     reidentified,
     authority,
   );
-  if (deviation) throw refusalOf("reidentify", input, logger)(deviation);
+  if (deviation) {
+    throw refusalOf("reidentify", input, logger, reidentified)(deviation);
+  }
   return reidentified;
 }
 

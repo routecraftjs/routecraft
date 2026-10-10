@@ -689,13 +689,13 @@ describe("the error slot", () => {
       .build();
 
     await t.startAndWaitReady();
-    expect(t.ctx.hasDeferringErrorHook()).toBe(false);
     const route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
+    expect(t.ctx.hasDeferringErrorHook(route.definition)).toBe(false);
     expect(routeCanDefer(route.definition, t.ctx)).toBe(false);
   });
 
   /**
-   * @case mayDefer advertises every route as deferrable, and disabling the hook withdraws it
+   * @case A mayDefer hook with no selectors advertises every route as deferrable, and disabling the hook withdraws it
    * @preconditions A route with no defer site; once with a mayDefer hook installed, once with the same hook in hooks.disable
    * @expectedResult routeCanDefer is true while the hook is live and false once it is disabled, and the disabled hook no longer demands a runtime
    */
@@ -715,7 +715,7 @@ describe("the error slot", () => {
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
     let route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
-    expect(t.ctx.hasDeferringErrorHook()).toBe(true);
+    expect(t.ctx.hasDeferringErrorHook(route.definition)).toBe(true);
     expect(routeCanDefer(route.definition, t.ctx)).toBe(true);
     expect(routeCanDefer(route.definition)).toBe(false);
     await t.stop();
@@ -725,9 +725,91 @@ describe("the error slot", () => {
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
     route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
-    expect(t.ctx.hasDeferringErrorHook()).toBe(false);
+    expect(t.ctx.hasDeferringErrorHook(route.definition)).toBe(false);
     expect(routeCanDefer(route.definition, t.ctx)).toBe(false);
     await t.startAndWaitReady();
+  });
+
+  /**
+   * @case A mayDefer hook aimed at some routes makes only those routes deferrable
+   * @preconditions One mayDefer hook selecting route "a" by id, another selecting the tag "billing"; route "b" carries that tag, route "c" carries neither selector, and none declares a defer site
+   * @expectedResult routeCanDefer and routes.canDefer are true for "a" and "b" and false for "c", because the hook is selected per route exactly as dispatch selects it; read per application instead, one hook aimed at one route would make every route in the application read as deferrable
+   */
+  test("a mayDefer hook makes only the routes it selects deferrable", async () => {
+    let canDefer: ((id: string) => boolean) | undefined;
+    t = await testContext()
+      .with({
+        deferral: { store: new MemoryDeferralStore(), secret: SECRET },
+        plugins: [
+          errorPlugin("test.byId", {
+            phase: "mutate",
+            mayDefer: true,
+            routes: ["a"],
+            run: () => undefined,
+          }),
+          errorPlugin("test.byTag", {
+            phase: "mutate",
+            mayDefer: true,
+            tags: ["billing"],
+            run: () => undefined,
+          }),
+          definePlugin({
+            id: "test.reader",
+            bind(c) {
+              canDefer = (id) => c.routes.canDefer(id);
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft().id("a").from(direct()).to(noop()),
+        craft().id("b").tag("billing").from(direct()).to(noop()),
+        craft().id("c").from(direct()).to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const definitionOf = (id: string) =>
+      t!.ctx.getRoutes().find((r) => r.definition.id === id)!.definition;
+    expect(routeCanDefer(definitionOf("a"), t.ctx)).toBe(true);
+    expect(routeCanDefer(definitionOf("b"), t.ctx)).toBe(true);
+    expect(routeCanDefer(definitionOf("c"), t.ctx)).toBe(false);
+    expect(canDefer?.("a")).toBe(true);
+    expect(canDefer?.("b")).toBe(true);
+    expect(canDefer?.("c")).toBe(false);
+  });
+
+  /**
+   * @case The boot check names the route a selective mayDefer hook can park, and ignores a hook that selects nothing registered
+   * @preconditions No deferral runtime; once with a mayDefer hook selecting a route id no route has, once with the same hook selecting the registered route
+   * @expectedResult The first context starts, since nothing in it can park; the second fails with RC5052 naming the selected route
+   */
+  test("the boot check follows the routes a mayDefer hook selects", async () => {
+    const parkOn = (routes: string[]) =>
+      errorPlugin("test.park", {
+        phase: "mutate",
+        mayDefer: true,
+        routes,
+        run: () => recovery.defer({ ttl: "1h" }),
+      });
+
+    t = await testContext()
+      .with({ plugins: [parkOn(["elsewhere"])] })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build();
+    await t.startAndWaitReady();
+    await t.stop();
+
+    t = await testContext()
+      .with({ plugins: [parkOn(["work"])] })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build();
+    const refused = await t.ctx.start().then(
+      () => undefined,
+      (err: unknown) => err as { rc?: string; message?: string },
+    );
+    expect(refused?.rc).toBe("RC5052");
+    expect(refused?.message).toContain('route "work"');
   });
 
   /**

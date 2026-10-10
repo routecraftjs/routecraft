@@ -6,6 +6,7 @@ import { encodePersistable } from "../../kernel/continuation/serialize.ts";
 import {
   claimed,
   claimedBy,
+  claimResultOf,
   resumable,
   summariseDeferral,
 } from "../../kernel/continuation/types.ts";
@@ -16,7 +17,7 @@ import type {
   SerializedOutcome,
   Deferral,
   DeferralCasResult,
-  DeferralClaim,
+  DeferralClaimId,
   DeferralClaimResult,
   DeferralListCursor,
   DeferralListQuery,
@@ -125,25 +126,21 @@ export class MemoryDeferralStore implements DeferralStore {
   }
 
   async claimExpiry(id: string, at: Date): Promise<DeferralClaimResult> {
-    const result = this.#transition(id, resumable, {
-      claim: { id: randomUUID(), at, renewedAt: at },
-    });
-    const deferral = result.deferral;
-    // The guard only narrows: a won transition always stored the claim.
-    if (!result.won || deferral === undefined || !claimed(deferral)) {
-      return { won: false, deferral };
-    }
-    return { won: true, deferral, claim: deferral.claim };
+    return claimResultOf(
+      this.#transition(id, resumable, {
+        claim: { id: randomUUID() as DeferralClaimId, at, renewedAt: at },
+      }),
+    );
   }
 
   async renewClaim(
     id: string,
-    claim: DeferralClaim,
+    claimId: DeferralClaimId,
     at: Date,
   ): Promise<DeferralCasResult> {
     return this.#transition(
       id,
-      (record) => claimedBy(record, claim),
+      (record) => claimedBy(record, claimId),
       (record) =>
         claimed(record) ? { claim: { ...record.claim, renewedAt: at } } : {},
     );
@@ -151,9 +148,9 @@ export class MemoryDeferralStore implements DeferralStore {
 
   async markExpired(
     id: string,
-    claim: DeferralClaim,
+    claimId: DeferralClaimId,
   ): Promise<DeferralCasResult> {
-    return this.#transition(id, (record) => claimedBy(record, claim), {
+    return this.#transition(id, (record) => claimedBy(record, claimId), {
       state: "settled",
       outcome: { kind: "expired", at: new Date() },
     });
@@ -161,10 +158,10 @@ export class MemoryDeferralStore implements DeferralStore {
 
   async markDenied(
     id: string,
-    claim: DeferralClaim,
+    claimId: DeferralClaimId,
     reason?: string,
   ): Promise<DeferralCasResult> {
-    return this.#transition(id, (record) => claimedBy(record, claim), {
+    return this.#transition(id, (record) => claimedBy(record, claimId), {
       state: "settled",
       outcome: {
         kind: "denied",

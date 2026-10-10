@@ -22,6 +22,7 @@ import {
 } from "./exchange-state.ts";
 import { CONTINUATIONS, requireContinuations } from "./port.ts";
 import { serializeExchange } from "./serialize.ts";
+import { deferralScope } from "./resume.ts";
 import { type Deferred, createDeferred } from "./deferred.ts";
 import type { NewDeferral } from "./types.ts";
 
@@ -401,10 +402,16 @@ async function denyDeferred(
     // to keep; the fence still decides, and only the CAS result confirms it.
     const denied = await runtime.store.markDenied(
       deferralId,
-      claim.claim,
+      claim.claim.id,
       reason,
     );
-    if (!denied.won) {
+    if (denied.won) {
+      context.emit("route:exchange:denied", {
+        ...deferralScope(claim.deferral),
+        deferralId,
+        reason,
+      });
+    } else {
       exchange.logger.error(
         { deferralId, routeId, reason, expiresAt },
         "A deferral that had to be denied lost its denial transition, so its resume link may become live again when the expiry claim is released.",

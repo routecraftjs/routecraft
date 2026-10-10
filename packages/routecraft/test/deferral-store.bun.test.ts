@@ -13,7 +13,7 @@ import {
   stepStateFingerprint,
   type SerializedOutcome,
   type NewDeferral,
-  type DeferralClaim,
+  type DeferralClaimId,
   type DeferralStore,
   type DeferralListCursor,
 } from "../src/index.ts";
@@ -62,19 +62,19 @@ function circular(): Record<string, unknown> {
 }
 
 /**
- * Take the delivery claim on `id` and hand back the claim, failing the test
- * if the store refused it: every finalize below presents this claim, and a
- * claim that silently did not happen would make the finalize lose for a
+ * Take the delivery claim on `id` and hand back its identity, failing the
+ * test if the store refused it: every finalize below presents this id, and
+ * a claim that silently did not happen would make the finalize lose for a
  * reason unrelated to what the test asserts.
  */
 async function claimOn(
   store: DeferralStore,
   id: string,
   at: Date = new Date(),
-): Promise<DeferralClaim> {
+): Promise<DeferralClaimId> {
   const result = await store.claimExpiry(id, at);
   if (!result.won) throw new Error(`the claim on "${id}" was refused`);
-  return result.claim;
+  return result.claim.id;
 }
 
 const continuation: SerializedOutcome = {
@@ -433,11 +433,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       store = await open();
       await store.create(record());
 
-      const invented: DeferralClaim = {
-        id: "never-minted",
-        at: new Date(),
-        renewedAt: new Date(),
-      };
+      const invented = "never-minted" as DeferralClaimId;
       const unclaimed = await store.markDenied("def-1", invented, "too eager");
       expect(unclaimed.won).toBe(false);
 
@@ -454,7 +450,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
       const result = await store.markDenied(
         "def-1",
-        claim.claim,
+        claim.claim.id,
         "run cancelled",
       );
       expect(result.won).toBe(true);
@@ -489,8 +485,8 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
     /**
      * @case A renewed claim is measured from its renewal, not from when it was taken
-     * @preconditions A record claimed at 08:00 and renewed at 09:30 by its holder
-     * @expectedResult The renewal moves only `renewedAt`: `at` and the identity stay, and a release with a cutoff between the two leaves the claim standing while a cutoff past the renewal releases it. This is the heartbeat the lease relies on; without it a delivery that outlives the lease is indistinguishable from a dead one, and the sweeper would redeliver a re-ask that is still being delivered
+     * @preconditions A record claimed at 08:00 and renewed at 09:30 and again at 09:45 by its holder, presenting the same claim id both times
+     * @expectedResult Each renewal moves only `renewedAt`: `at` and the identity stay, and a release with a cutoff before the latest renewal leaves the claim standing while a cutoff at it releases it. The second renewal winning pins that the fence compares the identity alone: the holder's copy of the claim is stale after the first renewal, and a whole-claim compare would lose the lease on the second heartbeat. This is the heartbeat the lease relies on; without it a delivery that outlives the lease is indistinguishable from a dead one, and the sweeper would redeliver a re-ask that is still being delivered
      */
     test("renewClaim extends the lease without changing the claim's identity", async () => {
       store = await open();
@@ -508,18 +504,28 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       );
       expect(renewed.won).toBe(true);
       expect(renewed.deferral?.claim).toEqual({
-        id: claim.id,
+        id: claim,
         at: new Date("2026-08-11T08:00:00.000Z"),
         renewedAt: new Date("2026-08-11T09:30:00.000Z"),
       });
 
-      expect(
-        await store.releaseClaims(new Date("2026-08-11T09:00:00.000Z")),
-      ).toBe(0);
-      expect((await store.get("def-1"))?.claim?.id).toBe(claim.id);
+      const again = await store.renewClaim(
+        "def-1",
+        claim,
+        new Date("2026-08-11T09:45:00.000Z"),
+      );
+      expect(again.won).toBe(true);
+      expect(again.deferral?.claim?.renewedAt).toEqual(
+        new Date("2026-08-11T09:45:00.000Z"),
+      );
 
       expect(
         await store.releaseClaims(new Date("2026-08-11T09:30:00.000Z")),
+      ).toBe(0);
+      expect((await store.get("def-1"))?.claim?.id).toBe(claim);
+
+      expect(
+        await store.releaseClaims(new Date("2026-08-11T09:45:00.000Z")),
       ).toBe(1);
       expect((await store.get("def-1"))?.claim).toBeUndefined();
     });
@@ -577,7 +583,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
         "def-1",
         new Date("2026-08-11T09:01:00.000Z"),
       );
-      expect(b.id).not.toBe(a.id);
+      expect(b).not.toBe(a);
 
       const renewedByA = await store.renewClaim(
         "def-1",
@@ -593,7 +599,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       const standing = await store.get("def-1");
       expect(standing?.state).toBe("waiting");
       expect(standing?.outcome).toBeUndefined();
-      expect(standing?.claim).toEqual(b);
+      expect(standing?.claim?.id).toBe(b);
 
       const renewedByB = await store.renewClaim(
         "def-1",
@@ -605,7 +611,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       expect(expiredByB.won).toBe(true);
       expect(expiredByB.deferral?.outcome?.kind).toBe("expired");
       // History: the settled record keeps the claim it settled through.
-      expect(expiredByB.deferral?.claim?.id).toBe(b.id);
+      expect(expiredByB.deferral?.claim?.id).toBe(b);
     });
 
     /**
@@ -1462,8 +1468,48 @@ describe("SqliteDeferralStore durability", () => {
     expect(held?.claim?.renewedAt).toEqual(at);
 
     expect(await store.releaseClaims(new Date(at.getTime() - 1))).toBe(0);
-    const finalized = await store.markExpired("held", held!.claim!);
+    const finalized = await store.markExpired("held", held!.claim!.id);
     expect(finalized.won).toBe(true);
+    await store.close();
+  });
+
+  /**
+   * @case A claim a 0.7 build wrote into a file a 0.8 build already migrated
+   * @preconditions A version 3 file holding a waiting row whose claimed_at was set by raw SQL with claim_id and claim_renewed_at left NULL, as a 0.7 process still holding the file open writes a claim
+   * @expectedResult The row reads back as claimed, with a synthesised identity starting "legacy:" and a renewal time equal to its claim time; no holder can renew or settle it, not even one presenting the identity it reads back; a release before the claim time leaves it and one at the claim time releases it, after which a 0.8 claim on it wins. Refusing the read, or comparing the lease on claim_renewed_at alone, would leave a waiting row nothing could ever read or release
+   */
+  test("a claim written without an identity heals by its lease", async () => {
+    const path = join(scratch, "claim-legacy.db");
+    const seed = await SqliteDeferralStore.open({ path });
+    await seed.create(record({ id: "legacy" }));
+    await seed.close();
+
+    const at = new Date("2026-08-11T08:00:00.000Z");
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(path);
+    db.prepare(
+      "UPDATE deferrals SET claimed_at = ?, claim_id = NULL, claim_renewed_at = NULL WHERE id = 'legacy'",
+    ).run(at.getTime());
+    db.close();
+
+    const store = await SqliteDeferralStore.open({ path });
+    const held = await store.get("legacy");
+    expect(held?.state).toBe("waiting");
+    expect(held?.claim?.id.startsWith("legacy:")).toBe(true);
+    expect(held?.claim?.at).toEqual(at);
+    expect(held?.claim?.renewedAt).toEqual(at);
+
+    const presented = held!.claim!.id;
+    expect((await store.renewClaim("legacy", presented, new Date())).won).toBe(
+      false,
+    );
+    expect((await store.markExpired("legacy", presented)).won).toBe(false);
+    expect((await store.markDenied("legacy", presented)).won).toBe(false);
+
+    expect(await store.releaseClaims(new Date(at.getTime() - 1))).toBe(0);
+    expect(await store.releaseClaims(at)).toBe(1);
+    expect((await store.get("legacy"))?.claim).toBeUndefined();
+    expect((await store.claimExpiry("legacy", new Date())).won).toBe(true);
     await store.close();
   });
 

@@ -870,7 +870,7 @@ describe("defer and resume", () => {
     class SweptStore extends MemoryDeferralStore {
       override async claimExpiry(id: string, at: Date) {
         const sweep = await super.claimExpiry(id, at);
-        if (sweep.won) await super.markExpired(id, sweep.claim);
+        if (sweep.won) await super.markExpired(id, sweep.claim.id);
         return super.claimExpiry(id, at);
       }
     }

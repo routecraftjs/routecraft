@@ -141,12 +141,16 @@ A store supplied through `deferral: { store }` implements a claim with an identi
 
 | 0.7 | 0.8 |
 |-----|-----|
-| `Deferral.claimedAt?: Date` | `Deferral.claim?: DeferralClaim`, which is `{ id, at, renewedAt }`: `id` is minted by the store and distinct for every claim taken on a record, `at` never moves, and `renewedAt` is what `releaseClaims` compares |
-| `claimExpiry(id, at): DeferralCasResult` | `claimExpiry(id, at): DeferralClaimResult`, which carries the `claim` the caller now holds when it won |
-| (absent) | `renewClaim(id, claim, at)`: moves `renewedAt` to `at`, and wins only while `claim` is the live claim on a waiting record |
-| `markExpired(id)` and `markDenied(id, reason?)` | `markExpired(id, claim)` and `markDenied(id, claim, reason?)`: settle only while `claim` is the live claim, so a stale holder loses |
+| `Deferral.claimedAt?: Date` | `Deferral.claim?: DeferralClaim`, which is `{ id, at, renewedAt }`: `id` is a `DeferralClaimId` minted by the store (`randomUUID() as DeferralClaimId`) and distinct for every claim taken on a record, `at` never moves, and `renewedAt` is what `releaseClaims` compares |
+| `claimExpiry(id, at): DeferralCasResult` | `claimExpiry(id, at): DeferralClaimResult`, which carries the `claim` the caller now holds when it won; `claimResultOf(result)` builds it from the compare-and-swap result |
+| (absent) | `renewClaim(id, claimId, at)`: moves `renewedAt` to `at`, and wins only while `claimId` names the live claim on a waiting record |
+| `markExpired(id)` and `markDenied(id, reason?)` | `markExpired(id, claimId)` and `markDenied(id, claimId, reason?)`: settle only while `claimId` names the live claim, so a stale holder loses |
 
-The exported `claimedBy(record, claim)` predicate is the compare the three fenced methods make; `resumable` and `claimed` read `claim` in place of `claimedAt`. The kernel renews a claim three times per `expiryLease` while a re-ask runs, so a slow `.error()` handler no longer needs a lease longer than itself.
+The fenced methods compare the claim's identity and nothing else. Compare `renewedAt` too and the holder's own second renewal loses, because its copy of the claim went stale at the first. The exported `claimedBy(record, claimId)` predicate is that compare; `resumable` and `claimed` read `claim` in place of `claimedAt`. The kernel renews a claim three times per `expiryLease` while a re-ask runs, so a slow `.error()` handler no longer needs a lease longer than itself.
+
+A configured store missing any of these members is refused when the application starts, with [`RC5066`](/docs/reference/errors#rc-5066) naming the first one, rather than starting clean and losing its first delivery claim to a renewal that throws.
+
+Do not run 0.7 and 0.8 against one SQLite file, including for the length of a rolling deploy: 0.7 does not honour the fence, so it can settle a delivery a 0.8 process is still making. Stop every 0.7 process before the first 0.8 one opens the file. A claim a 0.7 process writes after the migration anyway carries no identity; 0.8 reads it back as claimed under one no holder can present, and the lease releases it from its claim time, so the record is redelivered rather than stranded.
 
 ## 7. What is new in 0.8.0 \{#7-what-is-new-in-080}
 
