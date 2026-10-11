@@ -9,7 +9,8 @@ import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
 import { AGENTS } from "../port.ts";
 import { directTool } from "./builders.ts";
 import {
-  isBackgroundFn,
+  backgroundReasonOf,
+  FN_BACKGROUND,
   isLazyFn,
   resolveFnOptions,
   toolHostOf,
@@ -258,8 +259,9 @@ export interface ResolvedTool {
   handler: FnOptions["handler"];
   /**
    * The tool returns a handle immediately and posts its result to the
-   * calling session's inbox later. Set by `directTool(routeId, {
-   * background: true })`; an agent without a session cannot carry one.
+   * calling session's inbox later. Set for a direct tool declared
+   * `background: true` and for one over a route that can park; an agent
+   * without a session cannot carry one.
    */
   background?: true;
 }
@@ -879,6 +881,7 @@ function toResolvedTool(
   guard: ToolGuard | undefined,
   source: AgentToolSource,
 ): ResolvedTool {
+  const reason = backgroundReasonOf(fn);
   return {
     name,
     description: fn.description,
@@ -887,7 +890,9 @@ function toResolvedTool(
     ...(guard ? { guard } : {}),
     source,
     handler: (input, ctx) => fn.handler(input, ctx),
-    ...(isBackgroundFn(fn) ? { background: true as const } : {}),
+    ...(reason !== undefined
+      ? { background: true as const, [FN_BACKGROUND]: reason }
+      : {}),
   };
 }
 

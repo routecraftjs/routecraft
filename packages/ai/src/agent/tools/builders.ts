@@ -197,7 +197,9 @@ export function directTool<TIn = unknown>(
           handler: (body: TIn, hctx: FnHandlerContext) =>
             dispatchBackground(host, hctx, routeId, fnId, body),
         };
-        return Object.assign(background, { [FN_BACKGROUND]: true });
+        return Object.assign(background, {
+          [FN_BACKGROUND]: parks ? "parks" : "declared",
+        });
       }
       return {
         ...fields,
@@ -258,7 +260,7 @@ async function dispatchBackground<TIn>(
   const session = hctx.session;
   if (!session) {
     throw rcError("RC5003", undefined, {
-      message: `directTool "${routeId}" is declared background: true, which delivers its result to the calling agent's session inbox, and this call has no session. Dispatch the agent with agent(name, { session }), or drop the background flag.`,
+      message: `directTool "${routeId}" runs in the background, which delivers its result to the calling agent's session inbox, and this call has no session. Dispatch the agent with agent(name, { session }).`,
     });
   }
   if (hctx.abortSignal.aborted) {

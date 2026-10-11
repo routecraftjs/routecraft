@@ -68,6 +68,8 @@ let token = "";
 let secondToken = "";
 /** How often the parked route's continuation ran. */
 let actionRuns = 0;
+/** How often the agent's own `user` resolver ran. */
+let userCalls = 0;
 /** The slow route is held here until the test lets it finish. */
 let release: ((value: string) => void) | undefined;
 
@@ -158,6 +160,12 @@ function routes(
       .to(agent<ChatMessage>("max", { session: (ex) => ex.body.session }))
       .to(chatSink)
       .build(),
+    ...craft()
+      .id("sessionless")
+      .input({ body: ChatMessage })
+      .from(direct())
+      .to(agent("max"))
+      .build(),
   ];
 }
 
@@ -192,7 +200,10 @@ function contextWith(setup: Setup) {
               description: "Max",
               model: MODEL,
               system: "be useful",
-              user: (ex) => (ex.body as ChatMessage).message,
+              user: (ex) => {
+                userCalls++;
+                return (ex.body as ChatMessage).message;
+              },
               tools: tools(setup.tools ?? ["Direct(park)"]),
             },
           },
@@ -276,6 +287,7 @@ describe("background tools over a parking route", () => {
     llm.reset();
     token = "";
     actionRuns = 0;
+    userCalls = 0;
     release = undefined;
     store = new MemoryDeferralStore();
   });
@@ -289,7 +301,7 @@ describe("background tools over a parking route", () => {
   /**
    * @case A background call over a route that parks stays open on the acknowledgment and settles with execution two's body
    * @preconditions The agent's tool list names Direct(park) with nothing declared; the model calls it; the route parks; the turn ends; the human approves through the resume ingress
-   * @expectedResult The tool is background by shape and returns a running handle; the session record keeps the call with the deferralId recorded and no inbox entry; the token reaches neither the model nor the record; once the park is answered the handle settles with the continuation's body, the inbox message names the tool and the handle, the idle session revives, and the next turn's user message carries the decision
+   * @expectedResult The tool is background by shape and returns a running handle; the session record keeps the call with the deferralId recorded and no inbox entry; the token reaches neither the model nor the record; once the park is answered the handle settles with the continuation's body, the inbox message names the tool and the handle, the idle session revives, and the next turn's user message carries the decision without the agent's own `user` resolver running again on the parked body
    */
   test("the handle stays open through the park and settles from execution two", async () => {
     const sink = spy();
@@ -353,6 +365,8 @@ describe("background tools over a parking route", () => {
     expect((chatSink.received[1]!.body as AgentResult).text).toBe(
       "approved, proceeding",
     );
+    // The revived turn reads its inbox; the agent's own `user` ran for the first turn only.
+    expect(userCalls).toBe(1);
     expect(await summaryOf(t, "s")).toMatchObject({
       background: 0,
       inbox: 0,
@@ -525,6 +539,7 @@ describe("the tool's shape follows the route's shape", () => {
     llm.reset();
     token = "";
     actionRuns = 0;
+    userCalls = 0;
     release = undefined;
     store = new MemoryDeferralStore();
   });
@@ -629,6 +644,56 @@ describe("the tool's shape follows the route's shape", () => {
   });
 
   /**
+   * @case A sessionless agent holding a tool over a parking route is refused with the reason it is background
+   * @preconditions The agent lists Direct(park) and nothing declared; it is dispatched through a route with no session
+   * @expectedResult RC5003 says the route can park and to remove the tool or dispatch with a session, never to drop a background flag nobody wrote; no model call is made
+   */
+  test("a sessionless refusal names the park, not a flag", async () => {
+    const store = new MemoryDeferralStore();
+    t = await contextWith({ store }).build();
+    await t.startAndWaitReady();
+    const refused = t.client.sendDirect("sessionless", {
+      session: "s",
+      message: "hi",
+    });
+    await expect(refused).rejects.toMatchObject({ rc: "RC5003" });
+    const message = await refused.catch((err: Error) => err.message);
+    expect(message).toMatch(
+      /"direct__park" is background because its route can park/,
+    );
+    expect(message).toMatch(/agent\(name, \{ session \}\)/);
+    expect(message).not.toMatch(/drop the flag|without the background flag/);
+    expect(llm.calls).toHaveLength(0);
+  });
+
+  /**
+   * @case A sessionless refusal over a parking tool and a declared one gives each its own remedy
+   * @preconditions The agent lists Direct(park), which parks, and Direct(sandbox) declared background; it is dispatched with no session
+   * @expectedResult One RC5003 names the parking tool with "remove it" and the declared one with "drop the flag"; no model call is made
+   */
+  test("a sessionless refusal words each background reason", async () => {
+    const store = new MemoryDeferralStore();
+    t = await contextWith({
+      store,
+      tools: ["Direct(park)", { name: "Direct(sandbox)", background: true }],
+    }).build();
+    await t.startAndWaitReady();
+    const message = await t.client
+      .sendDirect("sessionless", { session: "s", message: "hi" })
+      .then(
+        () => "",
+        (err: Error) => err.message,
+      );
+    expect(message).toMatch(
+      /"direct__park" is background because its route can park[^;]*; remove it/,
+    );
+    expect(message).toMatch(
+      /"direct__sandbox" is declared background: true; drop the flag/,
+    );
+    expect(llm.calls).toHaveLength(0);
+  });
+
+  /**
    * @case A route that does not park is synchronous unless declared background, as before
    * @preconditions tools(["Direct(sandbox)"]) with nothing declared; the model calls it
    * @expectedResult The call holds the turn until the route returns and the model sees the route's result, not a handle
@@ -669,6 +734,7 @@ describe("whose principal runs a revived continuation", () => {
     llm.reset();
     token = "";
     actionRuns = 0;
+    userCalls = 0;
     release = undefined;
     store = new MemoryDeferralStore();
   });
@@ -907,6 +973,7 @@ describe("a restart reconciles a parked call against its deferral", () => {
     llm.reset();
     token = "";
     actionRuns = 0;
+    userCalls = 0;
     release = undefined;
     store = new MemoryDeferralStore();
   });
@@ -1152,6 +1219,7 @@ describe("a live settlement follows the park it is about", () => {
     token = "";
     secondToken = "";
     actionRuns = 0;
+    userCalls = 0;
     release = undefined;
     store = new MemoryDeferralStore();
   });
@@ -1273,6 +1341,7 @@ describe("a reidentify hook is bounded", () => {
     llm.reset();
     token = "";
     actionRuns = 0;
+    userCalls = 0;
     release = undefined;
     store = new MemoryDeferralStore();
   });

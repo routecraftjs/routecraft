@@ -22,7 +22,7 @@ import { agentRuntimePlugin } from "../agent/plugin.ts";
 import { AGENTS } from "../agent/port.ts";
 import { SURFACES, surfacesPlugin } from "../surface/index.ts";
 import "../errors.ts";
-import { AcpRuntime, ACP_ROUTE_PREFIX, promptBodyOf } from "./runtime.ts";
+import { AcpRuntime, ACP_ROUTE_PREFIX, promptSessionOf } from "./runtime.ts";
 import { AcpServer, normalizeAcpPath } from "./server.ts";
 import type { AcpPluginOptions } from "./types.ts";
 
@@ -126,7 +126,7 @@ function turnRoutes(
       .from(direct({ internal: true }))
       .to(
         agent(name, {
-          session: (exchange) => promptBodyOf(exchange).session,
+          session: promptSessionOf,
           // Resolved per exchange: one route serves every connected
           // editor at once, so a listener fixed when the route was built
           // would stream one person's turn into another person's window.

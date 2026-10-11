@@ -438,7 +438,10 @@ program
   .command("exec")
   .description("Dispatch to a route on a running instance and print the result")
   .argument("[route]", "Route id to dispatch to; omit for the endpoint list")
-  .argument("[args...]", "Route input as --field=value pairs")
+  .argument(
+    "[args...]",
+    "Route input as --field=value pairs; pipe JSON on stdin for numbers, booleans or nested input",
+  )
   .option("--profile <name>", "Settings profile to select")
   .option(PROJECT_FLAG, PROJECT_HELP)
   .option("--url <url>", "Ops server base URL of the target instance")
