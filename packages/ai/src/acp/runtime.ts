@@ -39,6 +39,7 @@ import type { AgentRegisteredOptions, AgentResult } from "../agent/types.ts";
 import {
   AGENT_SURFACE_HEADER,
   registerTurn,
+  surfaceRefOf,
   type SurfaceState,
   type AgentSurfaceRef,
 } from "../surface/index.ts";
@@ -67,37 +68,27 @@ import type { AcpPluginOptions } from "./types.ts";
 export const ACP_ROUTE_PREFIX = "routecraft.acp.agent.";
 
 /**
- * The header a prompt carries its conversation key on.
+ * The conversation an exchange on an agent's route belongs to, read off the
+ * surface the mount put on it.
  *
  * The body is the prompt text itself, so an agent with no `user` of its own
- * reads the person's words rather than an envelope around them, as it does
- * on any route whose body is the message.
- *
- * @internal
- */
-export const ACP_SESSION_HEADER = "routecraft.acp.session";
-
-declare module "@routecraft/routecraft" {
-  interface RoutecraftHeaders {
-    /** The editor conversation an ACP turn belongs to. */
-    "routecraft.acp.session"?: string;
-  }
-}
-
-/**
- * The conversation an exchange on an agent's route belongs to.
- *
- * Read rather than validated: the route is `internal`, so the mount is the
- * only thing that can reach it. A continuation parked before the key moved
- * to a header carries it in a `{ session, message }` body instead, and is
- * still answered.
+ * reads the person's words rather than an envelope around them. The surface
+ * header is stored with a parked exchange, so a continuation parked when the
+ * body was still a `{ session, message }` envelope resolves the same way.
+ * One with no surface did not come through the mount, the only door these
+ * internal routes have, so it is refused rather than filed under a made-up
+ * conversation.
  *
  * @internal
  */
 export function promptSessionOf(exchange: Exchange<unknown>): string {
-  const fromHeader = exchange.headers[ACP_SESSION_HEADER];
-  if (typeof fromHeader === "string") return fromHeader;
-  return String((exchange.body as { session?: unknown } | null)?.session);
+  const session = surfaceRefOf(exchange.headers)?.session;
+  if (session === undefined) {
+    throw rcError("RC5003", undefined, {
+      message: `An exchange on ACP route "${String(exchange.headers[HeadersKeys.ROUTE_ID] ?? "")}" carries no editor surface, so it names no conversation. Only the ACP mount delivers into these routes.`,
+    });
+  }
+  return session;
 }
 
 /** One prompt request in flight, keyed by the correlation id the mount minted for it. */
@@ -372,7 +363,6 @@ export class AcpRuntime {
     const headers: ExchangeHeaders = {
       [HeadersKeys.CORRELATION_ID]: correlationId,
       [AGENT_SURFACE_HEADER]: surface,
-      [ACP_SESSION_HEADER]: key,
       ...(principal !== undefined
         ? { [HeadersKeys.AUTH_PRINCIPAL]: principal }
         : {}),

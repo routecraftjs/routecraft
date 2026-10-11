@@ -126,7 +126,7 @@ function turnRoutes(
       .from(direct({ internal: true }))
       .to(
         agent(name, {
-          session: (exchange) => promptSessionOf(exchange),
+          session: promptSessionOf,
           // Resolved per exchange: one route serves every connected
           // editor at once, so a listener fixed when the route was built
           // would stream one person's turn into another person's window.

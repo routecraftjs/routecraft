@@ -28,7 +28,8 @@ export const LAZY_FN_BRAND = Symbol.for("routecraft.ai.fn.lazy");
  *
  * The value says why: `"parks"` when the route can park, which makes the
  * tool background whatever the author declared, and `"declared"` when the
- * author asked for `background: true` on a route that does not park.
+ * author asked for `background: true` on a route that does not park. The
+ * resolved tool carries it too, so the reason stays off the public type.
  *
  * @internal
  */
@@ -38,25 +39,18 @@ export const FN_BACKGROUND = Symbol.for("routecraft.ai.fn.background");
 export type BackgroundReason = "parks" | "declared";
 
 /**
- * Why resolved fn options run in the background, or `undefined` for a
- * synchronous tool.
+ * Why resolved fn options, or the tool resolved from them, run in the
+ * background, or `undefined` for a synchronous tool. `true` is the marker a
+ * copy of this package from before the reason existed sets.
  *
  * @internal
  */
 export function backgroundReasonOf(
-  fn: RegisteredFn,
+  resolved: object,
 ): BackgroundReason | undefined {
-  const marker = (fn as { [FN_BACKGROUND]?: unknown })[FN_BACKGROUND];
+  const marker = (resolved as { [FN_BACKGROUND]?: unknown })[FN_BACKGROUND];
+  if (marker === true) return "declared";
   return marker === "parks" || marker === "declared" ? marker : undefined;
-}
-
-/**
- * Whether resolved fn options carry the background marker.
- *
- * @internal
- */
-export function isBackgroundFn(fn: RegisteredFn): boolean {
-  return backgroundReasonOf(fn) !== undefined;
 }
 
 /**

@@ -9,7 +9,8 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Exchange } from "@routecraft/routecraft";
-import { ACP_SESSION_HEADER, promptSessionOf } from "../src/acp/runtime.ts";
+import { promptSessionOf } from "../src/acp/runtime.ts";
+import { AGENT_SURFACE_HEADER } from "../src/surface/index.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
@@ -248,20 +249,30 @@ describe("the ACP mount", () => {
 
 describe("promptSessionOf", () => {
   /**
-   * @case An ACP turn's conversation is read off its header, and a continuation parked before the key moved there still resolves
-   * @preconditions One exchange carrying the session header and a string body; one carrying the pre-0.8 `{ session, message }` body and no header
-   * @expectedResult Both resolve to their conversation id
+   * @case An ACP turn's conversation is read off the surface the mount put on it, whatever the body holds
+   * @preconditions One exchange with a prompt-text body, one parked before the change with a `{ session, message }` body, both carrying the surface header; one with no surface
+   * @expectedResult The first two resolve to their surface's conversation; the third is refused with RC5003 rather than filed under a made-up conversation
    */
-  test("reads the header, and the legacy body without one", () => {
+  test("reads the surface, and refuses an exchange without one", () => {
+    const surface = (session: string) => ({
+      [AGENT_SURFACE_HEADER]: { kind: "acp", session, connection: "c1" },
+    });
     const current = {
-      headers: { [ACP_SESSION_HEADER]: "conv-1" },
+      headers: surface("conv-1"),
       body: "hello",
     } as unknown as Exchange<unknown>;
     const legacy = {
-      headers: {},
+      headers: surface("conv-0"),
       body: { session: "conv-0", message: "hello" },
+    } as unknown as Exchange<unknown>;
+    const stray = {
+      headers: {},
+      body: { session: "conv-x", message: "hello" },
     } as unknown as Exchange<unknown>;
     expect(promptSessionOf(current)).toBe("conv-1");
     expect(promptSessionOf(legacy)).toBe("conv-0");
+    expect(() => promptSessionOf(stray)).toThrow(
+      expect.objectContaining({ rc: "RC5003" }),
+    );
   });
 });

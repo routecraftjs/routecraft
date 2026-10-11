@@ -122,11 +122,11 @@ jobs:
   # push's diff while carrying over the bump intent of the pending changesets,
   # so canaries keep previewing the NEXT stable version). The fixed core train
   # moves together whenever any train member changed; independent packages
-  # (ai, os) get a canary when they themselves changed or carry a pending
-  # changeset, versioned from their OWN version line via
-  # snapshot.useCalculatedVersion (e.g. 0.6.0-canary-<datetime>). The pending
-  # rule keeps the scaffolder's pins coherent: it pins every @routecraft/*
-  # package at its version in this snapshot. An unchanged package whose
+  # (ai, os) get a canary when they themselves changed, versioned from their
+  # OWN version line via snapshot.useCalculatedVersion (e.g.
+  # 0.6.0-canary-<datetime>), and also join a canary that ships the
+  # scaffolder while they carry a pending changeset, so its pins stay
+  # coherent (the script header has the rule). An unchanged package whose
   # current version was never published is folded in too, so `changeset
   # publish` cannot leak a stable-looking version from this job.
   #

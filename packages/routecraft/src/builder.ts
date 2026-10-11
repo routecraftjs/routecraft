@@ -305,13 +305,7 @@ export class ContextBuilder {
       }
     };
 
-    for (const entry of routes) {
-      if (isRouteList(entry)) {
-        entry.forEach(addOne);
-      } else {
-        addOne(entry);
-      }
-    }
+    routes.flat().forEach(addOne);
     return this;
   }
 
@@ -405,12 +399,6 @@ export type RoutesArgument =
   | RouteDefinition
   | AnyRouteBuilder
   | readonly (RouteDefinition | AnyRouteBuilder)[];
-
-function isRouteList(
-  entry: RoutesArgument,
-): entry is readonly (RouteDefinition | AnyRouteBuilder)[] {
-  return Array.isArray(entry);
-}
 
 /**
  * Options for configuring a route.

@@ -10,7 +10,7 @@ import { AGENTS } from "../port.ts";
 import { directTool } from "./builders.ts";
 import {
   backgroundReasonOf,
-  isBackgroundFn,
+  FN_BACKGROUND,
   isLazyFn,
   resolveFnOptions,
   toolHostOf,
@@ -264,12 +264,6 @@ export interface ResolvedTool {
    * without a session cannot carry one.
    */
   background?: true;
-  /**
-   * The tool is background because its route can park, so no flag the
-   * author could drop makes it synchronous. Unset for a tool that is
-   * background only because it was declared so.
-   */
-  parks?: true;
 }
 
 /**
@@ -887,6 +881,7 @@ function toResolvedTool(
   guard: ToolGuard | undefined,
   source: AgentToolSource,
 ): ResolvedTool {
+  const reason = backgroundReasonOf(fn);
   return {
     name,
     description: fn.description,
@@ -895,8 +890,9 @@ function toResolvedTool(
     ...(guard ? { guard } : {}),
     source,
     handler: (input, ctx) => fn.handler(input, ctx),
-    ...(isBackgroundFn(fn) ? { background: true as const } : {}),
-    ...(backgroundReasonOf(fn) === "parks" ? { parks: true as const } : {}),
+    ...(reason !== undefined
+      ? { background: true as const, [FN_BACKGROUND]: reason }
+      : {}),
   };
 }
 

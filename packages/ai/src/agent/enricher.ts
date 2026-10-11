@@ -40,6 +40,7 @@ import { streamAgentDeltas, type AgentStream } from "./delta-stream.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { LlmModelId, LlmReasoningEffort } from "../llm/types.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
+import { backgroundReasonOf } from "./tools/types.ts";
 import type {
   AgentOptions,
   AgentPrincipalRenderer,
@@ -260,7 +261,10 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       agentName,
       dispatchIdentity,
     );
-    const user = buildUserPrompt(merged, exchange);
+    // A revived turn's message is its inbox, and its parked body may predate
+    // the shape the agent's own `user` now reads.
+    const user =
+      revivedDeferral === undefined ? buildUserPrompt(merged, exchange) : "";
     // System accepts the same string-or-function shape as `llm({ system })`,
     // so resolve it against the exchange here. The session then receives a
     // plain string, matching what the provider layer expects.
@@ -337,6 +341,8 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     if (sessionKey === undefined && backgroundTools.length > 0) {
       throw rcError("RC5003", undefined, {
         message: sessionlessBackgroundMessage(agentName, backgroundTools),
+        suggestion:
+          "Give the dispatch a session, or leave the background tools off this agent's list.",
       });
     }
     // Built once for both paths: a field added here reaches a session turn
@@ -973,22 +979,20 @@ function sessionlessBackgroundMessage(
 ): string {
   const names = (list: readonly ResolvedTool[]): string =>
     list.map((tool) => `"${tool.name}"`).join(", ");
-  const verb = (list: readonly ResolvedTool[]): string =>
-    list.length === 1 ? "is" : "are";
-  const parking = tools.filter((tool) => tool.parks === true);
-  const declared = tools.filter((tool) => tool.parks !== true);
-  const reasons = [
-    ...(parking.length > 0
-      ? [
-          `${names(parking)} ${verb(parking)} background because ${parking.length === 1 ? "its route" : "their routes"} can park, so no flag makes ${parking.length === 1 ? "it" : "them"} synchronous; remove ${parking.length === 1 ? "it" : "them"} from this agent's tools`,
-        ]
-      : []),
-    ...(declared.length > 0
-      ? [
-          `${names(declared)} ${verb(declared)} declared background: true; drop the flag`,
-        ]
-      : []),
-  ];
+  const parking = tools.filter((tool) => backgroundReasonOf(tool) === "parks");
+  const declared = tools.filter((tool) => backgroundReasonOf(tool) !== "parks");
+  const reasons: string[] = [];
+  if (parking.length > 0) {
+    const one = parking.length === 1;
+    reasons.push(
+      `${names(parking)} ${one ? "is" : "are"} background because ${one ? "its route" : "their routes"} can park, so no flag makes ${one ? "it" : "them"} synchronous; remove ${one ? "it" : "them"} from this agent's tools`,
+    );
+  }
+  if (declared.length > 0) {
+    reasons.push(
+      `${names(declared)} ${declared.length === 1 ? "is" : "are"} declared background: true; drop the flag`,
+    );
+  }
   return (
     `Agent${agentName !== undefined ? ` "${agentName}"` : ""}: a background tool delivers its result to the calling session's inbox, and this dispatch carries no session. ` +
     `Dispatch the agent with agent(name, { session }), or: ${reasons.join("; ")}.`

@@ -536,22 +536,22 @@ Not here yet: cancelling a background call from the agent, progress from a runni
 A settlement over a parking route revives the session's stored continuation on somebody else's decision, and a stored continuation replays the principal its exchange parked with, read back from a record: the shape of what was verified at park time with no live credential behind it. No gate trusts a restored principal, so a revived turn running as one would have every authorized tool call refused with `RC5023`, and waking the agent would achieve nothing. `agentPlugin({ reidentify })` is where the application re-verifies the identity from live state instead:
 
 ```ts skip="fragment: roster is the application's directory"
-import { authenticate } from '@routecraft/routecraft'
+import { defaultAuthority } from '@routecraft/routecraft'
 
 agentPlugin({
   // Given the principal the parked exchange carried, return a live-branded
   // principal for the SAME identity, or undefined to refuse the revival.
   reidentify: async (parked, { signal }) => {
-    if (parked.actor !== undefined) return undefined
     const person = await roster.find(parked.subject, { signal })
     if (!person || !person.roles.includes('agent')) return undefined
+    const { expiresAt, claims, userinfoClaims, ...identity } = parked
     // eslint-disable-next-line @routecraft/routecraft/restrict-principal-minting -- re-verified from the roster just now
-    return authenticate({ ...parked, roles: person.roles, scopes: person.scopes })
+    return defaultAuthority.brand({ ...identity, roles: person.roles, scopes: person.scopes })
   },
 })
 ```
 
-The hook is handed no context, so it brands with [`authenticate()`](/docs/reference/operations/authenticate), which the default authority recognises; an application that replaced `routecraft.principals` brands through its own authority instead. `authenticate()` mints a subject and refuses an actor chain, so a park made under delegation is refused here rather than re-minted; rebuilding one means authenticating the subject and passing it through [`delegate()`](/docs/reference/operations/delegate) again. Minting is a sanctioned site under the `restrict-principal-minting` lint rule, which is what the disable comment records.
+The hook is handed no context, so it brands through `defaultAuthority`, the authority the default `routecraft.principals` plugin provides; an application that replaced that plugin brands through its own. The parked principal's `expiresAt`, `claims` and `userinfoClaims` are what the park-time credential said, so they are left behind rather than carried into the revived turn, where a token's past expiry would refuse every authorized call with `RC5020`; the comparison below does not read them. Branding is a minting site under the `restrict-principal-minting` lint rule, which is what the disable comment records.
 
 It is not `.resume({ elevate })`. `elevate` raises authority on a resume door; this hook changes nothing about authority and only asks whether the identity is still live and what it looks like now. The framework holds its answer to the same identity, and refuses on any difference in either direction: it must be live-branded (`isAuthentic`), and it is compared with the parked principal on `(issuer, subject)`, `roles`, `subjectProfile`, `email`, `name`, `audience`, `clientId`, `mayAct`, the actor chain's depth and every actor whole, and `scopes` on the subject and on every actor. A revival must not grant more than the park held, and it must not quietly grant less either: somebody offboarded during the park, or whose roles changed, gets nothing run in their name. They ask again, and the new park carries the new state. A hook that declines, throws, or answers with the restored principal refuses the same way.
 

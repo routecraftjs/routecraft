@@ -3,15 +3,15 @@
 /**
  * Prepare the synthetic changeset for the publish-canary job.
  *
- * Scopes the canary snapshot to the packages the push changed and the ones
- * the next stable release will ship, keeping the version line aimed at that
- * release:
+ * Scopes the canary snapshot to the packages the push changed, keeping the
+ * version line aimed at the next stable release:
  *
  * 1. Diffs `<base-sha>..HEAD` to find the changed public packages.
  * 2. Collects the highest pending bump per package from the changesets on
  *    main, then deletes them: they belong to the next stable release, and
- *    `changeset version --snapshot` would otherwise consume them. Step 5
- *    puts the packages they name back, at the bump they carry.
+ *    `changeset version --snapshot` would otherwise consume them. A kept
+ *    package takes the bump they carry, and step 5 can put the packages they
+ *    name back.
  * 3. Expands `fixed` groups from .changeset/config.json so the core train
  *    moves together whenever any member changed.
  * 4. Folds in any public package the registry is behind on: one whose
@@ -22,10 +22,12 @@
  *    The second rule is what makes a missed canary self-healing: scoping to
  *    a single push means a failed canary job drops that push's packages for
  *    good, since no later push has them in its diff range.
- * 5. When anything is kept, folds in every package with a pending bump,
- *    which the release the canary previews will ship: the scaffolder pins
- *    each `@routecraft/*` package at its version in this snapshot, so a
- *    skipped one would scaffold at its last stable release.
+ * 5. When the scaffolder (`create-routecraft`) is in the snapshot, folds in
+ *    every package with a pending bump. The scaffolder pins each
+ *    `@routecraft/*` package at its version in this snapshot, so one left
+ *    out would scaffold at its last stable release: the code the pending
+ *    release replaces, beside a core that has moved on. It never starts a
+ *    canary of its own, or every push would republish the pending release.
  *    Nothing kept after all five steps means no canary (`publish=false`).
  * 6. Writes .changeset/snapshot-canary.md giving each kept package its
  *    pending bump (patch when none), so canaries keep previewing the next
@@ -53,6 +55,7 @@ import { pendingBumps as readPendingBumps } from "./lib/changeset-bumps.mjs";
 import { publishedVersion, registryJson } from "./lib/npm-registry.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const SCAFFOLDER = "create-routecraft";
 const changesetDir = join(rootDir, ".changeset");
 
 const base = process.argv[2];
@@ -150,6 +153,11 @@ function changedSince(sha, dir) {
   return out.trim().length > 0;
 }
 
+function fold(name, why) {
+  console.log(`${name} ${why}; folding it into the canary.`);
+  keep.add(name);
+}
+
 // 4. Fold in public packages the registry is behind on: never-published
 // versions, and packages changed since their newest canary was cut.
 for (const [name, pkg] of packages) {
@@ -159,42 +167,29 @@ for (const [name, pkg] of packages) {
     "application/vnd.npm.install-v1+json",
   );
   if (!meta?.versions?.[pkg.version]) {
-    console.log(
-      `${name}@${pkg.version} is not on npm; folding it into the canary.`,
-    );
-    keep.add(name);
+    fold(name, `(version ${pkg.version}) is not on npm`);
     continue;
   }
   const canaryBase = await publishedCanaryBase(name, meta);
   if (canaryBase === null) {
-    console.log(
-      `${name} has no resolvable canary base; folding it into the canary.`,
-    );
-    keep.add(name);
+    fold(name, "has no resolvable canary base");
     continue;
   }
   if (changedSince(canaryBase, pkg.dir)) {
-    console.log(
-      `${name} changed since its canary at ${canaryBase.slice(0, 7)}; folding it into the canary.`,
-    );
-    keep.add(name);
+    fold(name, `changed since its canary at ${canaryBase.slice(0, 7)}`);
   }
 }
-
-// 5. A package with a pending bump is part of the release the canary
-// previews. The scaffolder pins every @routecraft/* package at the version
-// this snapshot gives it, so one left out would scaffold at its last stable:
-// the code the pending release replaces, beside a core that has moved on.
-// It joins a canary something else started and never starts one, or every
-// docs push would republish the whole pending release.
-for (const name of keep.size === 0 ? [] : packages.keys()) {
-  if (keep.has(name) || !pendingBump.has(name)) continue;
-  console.log(
-    `${name} has a pending ${pendingBump.get(name)}; folding it into the canary.`,
-  );
-  keep.add(name);
-}
 expandFixedGroups();
+
+// 5. Only when the scaffolder ships: see the header for why.
+if (keep.has(SCAFFOLDER)) {
+  for (const [name, bump] of pendingBump) {
+    if (packages.has(name) && !keep.has(name)) {
+      fold(name, `has a pending ${bump} the scaffolder pins`);
+    }
+  }
+  expandFixedGroups();
+}
 
 if (keep.size === 0) {
   console.log("Registry is level with main; skipping canary.");
@@ -209,7 +204,7 @@ const releases = [...keep]
 const snapshotPath = join(changesetDir, "snapshot-canary.md");
 writeFileSync(
   snapshotPath,
-  `---\n${releases.join("\n")}\n---\n\nCanary snapshot of the packages this push changed, plus any the registry was behind on or a pending changeset names.\n`,
+  `---\n${releases.join("\n")}\n---\n\nCanary snapshot of the packages this push changed, plus any the registry was behind on or the scaffolder pins.\n`,
 );
 console.log(readFileSync(snapshotPath, "utf8"));
 setOutput("publish=true");
