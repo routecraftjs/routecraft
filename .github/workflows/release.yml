@@ -125,8 +125,9 @@ jobs:
   # (ai, os) get a canary when they themselves changed, versioned from their
   # OWN version line via snapshot.useCalculatedVersion (e.g.
   # 0.6.0-canary-<datetime>), and also join a canary that ships the
-  # scaffolder while they carry a pending changeset, so its pins stay
-  # coherent (the script header has the rule). An unchanged package whose
+  # scaffolder (every core-train canary) while they carry a pending
+  # changeset, so its pins stay coherent (scripts/lib/canary-selection.mjs
+  # has the rule). An unchanged package whose
   # current version was never published is folded in too, so `changeset
   # publish` cannot leak a stable-looking version from this job.
   #

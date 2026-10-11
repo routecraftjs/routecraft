@@ -22,12 +22,10 @@
  *    The second rule is what makes a missed canary self-healing: scoping to
  *    a single push means a failed canary job drops that push's packages for
  *    good, since no later push has them in its diff range.
- * 5. When the scaffolder (`create-routecraft`) is in the snapshot, folds in
- *    every package with a pending bump. The scaffolder pins each
- *    `@routecraft/*` package at its version in this snapshot, so one left
- *    out would scaffold at its last stable release: the code the pending
- *    release replaces, beside a core that has moved on. It never starts a
- *    canary of its own, or every push would republish the pending release.
+ * 5. When the scaffolder (`create-routecraft`) is in the snapshot, which
+ *    is every canary of the core train, folds in every package with a
+ *    pending bump (`foldPendingForScaffolder` in `lib/canary-selection.mjs`
+ *    has the rule and why). A push that keeps nothing still skips the canary.
  *    Nothing kept after all five steps means no canary (`publish=false`).
  * 6. Writes .changeset/snapshot-canary.md giving each kept package its
  *    pending bump (patch when none), so canaries keep previewing the next
@@ -51,11 +49,14 @@ import {
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  expandFixedGroups,
+  foldPendingForScaffolder,
+} from "./lib/canary-selection.mjs";
 import { pendingBumps as readPendingBumps } from "./lib/changeset-bumps.mjs";
 import { publishedVersion, registryJson } from "./lib/npm-registry.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SCAFFOLDER = "create-routecraft";
 const changesetDir = join(rootDir, ".changeset");
 
 const base = process.argv[2];
@@ -111,15 +112,7 @@ for (const file of readdirSync(changesetDir)) {
 const config = JSON.parse(
   readFileSync(join(changesetDir, "config.json"), "utf8"),
 );
-function expandFixedGroups() {
-  for (const group of config.fixed ?? []) {
-    if (!group.some((name) => keep.has(name))) continue;
-    for (const name of group) {
-      if (packages.has(name)) keep.add(name);
-    }
-  }
-}
-expandFixedGroups();
+expandFixedGroups(keep, config.fixed, packages);
 
 /**
  * The commit the package's newest canary was built from, or null when that
@@ -179,16 +172,18 @@ for (const [name, pkg] of packages) {
     fold(name, `changed since its canary at ${canaryBase.slice(0, 7)}`);
   }
 }
-expandFixedGroups();
+expandFixedGroups(keep, config.fixed, packages);
 
-// 5. Only when the scaffolder ships: see the header for why.
-if (keep.has(SCAFFOLDER)) {
-  for (const [name, bump] of pendingBump) {
-    if (packages.has(name) && !keep.has(name)) {
-      fold(name, `has a pending ${bump} the scaffolder pins`);
-    }
-  }
-  expandFixedGroups();
+// 5. Pending packages join a canary that ships the scaffolder.
+for (const name of foldPendingForScaffolder(
+  keep,
+  pendingBump,
+  packages,
+  config.fixed,
+)) {
+  console.log(
+    `${name} has a pending ${pendingBump.get(name) ?? "patch"} the scaffolder pins; folding it into the canary.`,
+  );
 }
 
 if (keep.size === 0) {

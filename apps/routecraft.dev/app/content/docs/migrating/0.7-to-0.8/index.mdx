@@ -16,7 +16,7 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 6. **A custom `DeferralStore` fences its claims.** `renewClaim` is new, and `markExpired` and `markDenied` take the claim id. The shipped SQLite and memory stores migrate themselves. [Section 6](#6-deferral-store).
 7. **An editor turn's body is the prompt text.** An agent's own `user` that read `ex.body.message` on an ACP turn reads `ex.body`. [Section 7](#7-acp-turn-body).
 
-Projects that write no plugin of their own typically need section 2 and nothing else, and section 6 if they supply their own `DeferralStore`. [Section 8](#8-what-is-new-in-080) lists what is new, for context.
+Projects that write no plugin of their own typically need section 2 and nothing else, section 6 if they supply their own `DeferralStore`, and section 7 if an agent declares its own `user` for editor turns. [Section 8](#8-what-is-new-in-080) lists what is new, for context.
 
 ---
 
