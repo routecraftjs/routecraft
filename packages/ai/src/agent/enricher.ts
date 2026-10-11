@@ -336,9 +336,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     const backgroundTools = tools.filter((tool) => tool.background === true);
     if (sessionKey === undefined && backgroundTools.length > 0) {
       throw rcError("RC5003", undefined, {
-        message:
-          `Agent${agentName !== undefined ? ` "${agentName}"` : ""}: ${backgroundTools.map((t) => `"${t.name}"`).join(", ")} ${backgroundTools.length === 1 ? "is" : "are"} declared background: true, which delivers the result to the calling session's inbox, and this dispatch carries no session. ` +
-          `Dispatch the agent with agent(name, { session }), or register the tool without the background flag.`,
+        message: sessionlessBackgroundMessage(agentName, backgroundTools),
       });
     }
     // Built once for both paths: a field added here reaches a session turn
@@ -961,6 +959,40 @@ function messageOf(cause: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The refusal for background tools on a dispatch with no session, worded per
+ * reason. A tool over a route that can park is background with no flag to
+ * drop (`background: false` on it is refused), so telling its author to drop
+ * one would send them looking for a declaration that does not exist.
+ */
+function sessionlessBackgroundMessage(
+  agentName: string | undefined,
+  tools: readonly ResolvedTool[],
+): string {
+  const names = (list: readonly ResolvedTool[]): string =>
+    list.map((tool) => `"${tool.name}"`).join(", ");
+  const verb = (list: readonly ResolvedTool[]): string =>
+    list.length === 1 ? "is" : "are";
+  const parking = tools.filter((tool) => tool.parks === true);
+  const declared = tools.filter((tool) => tool.parks !== true);
+  const reasons = [
+    ...(parking.length > 0
+      ? [
+          `${names(parking)} ${verb(parking)} background because ${parking.length === 1 ? "its route" : "their routes"} can park, so no flag makes ${parking.length === 1 ? "it" : "them"} synchronous; remove ${parking.length === 1 ? "it" : "them"} from this agent's tools`,
+        ]
+      : []),
+    ...(declared.length > 0
+      ? [
+          `${names(declared)} ${verb(declared)} declared background: true; drop the flag`,
+        ]
+      : []),
+  ];
+  return (
+    `Agent${agentName !== undefined ? ` "${agentName}"` : ""}: a background tool delivers its result to the calling session's inbox, and this dispatch carries no session. ` +
+    `Dispatch the agent with agent(name, { session }), or: ${reasons.join("; ")}.`
+  );
 }
 
 /**

@@ -9,6 +9,7 @@ import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
 import { AGENTS } from "../port.ts";
 import { directTool } from "./builders.ts";
 import {
+  backgroundReasonOf,
   isBackgroundFn,
   isLazyFn,
   resolveFnOptions,
@@ -258,10 +259,17 @@ export interface ResolvedTool {
   handler: FnOptions["handler"];
   /**
    * The tool returns a handle immediately and posts its result to the
-   * calling session's inbox later. Set by `directTool(routeId, {
-   * background: true })`; an agent without a session cannot carry one.
+   * calling session's inbox later. Set for a direct tool declared
+   * `background: true` and for one over a route that can park; an agent
+   * without a session cannot carry one.
    */
   background?: true;
+  /**
+   * The tool is background because its route can park, so no flag the
+   * author could drop makes it synchronous. Unset for a tool that is
+   * background only because it was declared so.
+   */
+  parks?: true;
 }
 
 /**
@@ -888,6 +896,7 @@ function toResolvedTool(
     source,
     handler: (input, ctx) => fn.handler(input, ctx),
     ...(isBackgroundFn(fn) ? { background: true as const } : {}),
+    ...(backgroundReasonOf(fn) === "parks" ? { parks: true as const } : {}),
   };
 }
 

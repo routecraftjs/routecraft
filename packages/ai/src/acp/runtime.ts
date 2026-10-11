@@ -66,23 +66,38 @@ import type { AcpPluginOptions } from "./types.ts";
  */
 export const ACP_ROUTE_PREFIX = "routecraft.acp.agent.";
 
-/** The body a prompt sends into an agent's route. @internal */
-export interface AcpPromptBody {
-  readonly session: string;
-  readonly message: string;
-}
-
 /**
- * The body the mount sent, read off an exchange on an agent's route.
+ * The header a prompt carries its conversation key on.
  *
- * Read rather than validated: the route is `internal`, so the mount is the
- * only thing that can reach it, and a schema here would describe a
- * boundary that does not exist.
+ * The body is the prompt text itself, so an agent with no `user` of its own
+ * reads the person's words rather than an envelope around them, as it does
+ * on any route whose body is the message.
  *
  * @internal
  */
-export function promptBodyOf(exchange: Exchange<unknown>): AcpPromptBody {
-  return exchange.body as AcpPromptBody;
+export const ACP_SESSION_HEADER = "routecraft.acp.session";
+
+declare module "@routecraft/routecraft" {
+  interface RoutecraftHeaders {
+    /** The editor conversation an ACP turn belongs to. */
+    "routecraft.acp.session"?: string;
+  }
+}
+
+/**
+ * The conversation an exchange on an agent's route belongs to.
+ *
+ * Read rather than validated: the route is `internal`, so the mount is the
+ * only thing that can reach it. A continuation parked before the key moved
+ * to a header carries it in a `{ session, message }` body instead, and is
+ * still answered.
+ *
+ * @internal
+ */
+export function promptSessionOf(exchange: Exchange<unknown>): string {
+  const fromHeader = exchange.headers[ACP_SESSION_HEADER];
+  if (typeof fromHeader === "string") return fromHeader;
+  return String((exchange.body as { session?: unknown } | null)?.session);
 }
 
 /** One prompt request in flight, keyed by the correlation id the mount minted for it. */
@@ -276,7 +291,7 @@ export class AcpRuntime {
    */
   sinkFor(exchange: Exchange<unknown>): (delta: AgentDelta) => Promise<void> {
     const correlationId = correlationOf(exchange);
-    const session = promptBodyOf(exchange).session;
+    const session = promptSessionOf(exchange);
     return async (delta) => {
       const update = deltaUpdate(delta);
       const turn = this.sessions().turnIdOf(session);
@@ -357,6 +372,7 @@ export class AcpRuntime {
     const headers: ExchangeHeaders = {
       [HeadersKeys.CORRELATION_ID]: correlationId,
       [AGENT_SURFACE_HEADER]: surface,
+      [ACP_SESSION_HEADER]: key,
       ...(principal !== undefined
         ? { [HeadersKeys.AUTH_PRINCIPAL]: principal }
         : {}),
@@ -365,7 +381,7 @@ export class AcpRuntime {
       // The turn route is ACP's own, built to end in the agent's result.
       const result = (await this.plugin.execution.deliver(
         `${ACP_ROUTE_PREFIX}${agent}`,
-        { session: key, message } satisfies AcpPromptBody,
+        message,
         headers,
       )) as AgentResult;
       // A turn that ran with a delta listener has already said its reply

@@ -8,6 +8,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { Exchange } from "@routecraft/routecraft";
+import { ACP_SESSION_HEADER, promptSessionOf } from "../src/acp/runtime.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
@@ -26,7 +28,6 @@ const ONE_AGENT = {
     description: "Max, the only agent here",
     model: MODEL,
     system: "be useful",
-    user: (ex: { body: unknown }) => (ex.body as { message: string }).message,
   },
 };
 
@@ -73,6 +74,29 @@ describe("the ACP mount", () => {
         (entry) => (entry.update as { content: { text: string } }).content.text,
       );
     expect(chunks.join("")).toContain("hello back");
+  });
+
+  /**
+   * @case An agent with no `user` of its own reads the editor's words, not an envelope around them
+   * @preconditions One registered agent declaring no `user`, as an agent loaded from agents/*.md declares none; one prompt over a real connection
+   * @expectedResult The model's user message is exactly the prompt text and does not carry the conversation id
+   */
+  test("the model reads the prompt text as the user message", async () => {
+    h = await acpHarness({ agents: ONE_AGENT });
+    llm.script.push({ text: "ok" });
+
+    const sessionId = await h.connect((agent) =>
+      agent.buildSession("/work").withSession(async (session) => {
+        await session.prompt("rename the build step");
+        return session.sessionId;
+      }),
+    );
+
+    expect(llm.calls).toHaveLength(1);
+    expect(llm.calls[0]?.user).toEqual([
+      { role: "user", content: "rename the build step" },
+    ]);
+    expect(JSON.stringify(llm.calls[0]?.user)).not.toContain(sessionId);
   });
 
   /**
@@ -219,5 +243,25 @@ describe("the ACP mount", () => {
       SONNET,
     );
     expect(options.find((o) => o.id === "reasoning")).toBeUndefined();
+  });
+});
+
+describe("promptSessionOf", () => {
+  /**
+   * @case An ACP turn's conversation is read off its header, and a continuation parked before the key moved there still resolves
+   * @preconditions One exchange carrying the session header and a string body; one carrying the pre-0.8 `{ session, message }` body and no header
+   * @expectedResult Both resolve to their conversation id
+   */
+  test("reads the header, and the legacy body without one", () => {
+    const current = {
+      headers: { [ACP_SESSION_HEADER]: "conv-1" },
+      body: "hello",
+    } as unknown as Exchange<unknown>;
+    const legacy = {
+      headers: {},
+      body: { session: "conv-0", message: "hello" },
+    } as unknown as Exchange<unknown>;
+    expect(promptSessionOf(current)).toBe("conv-1");
+    expect(promptSessionOf(legacy)).toBe("conv-0");
   });
 });

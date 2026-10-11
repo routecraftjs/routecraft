@@ -4,8 +4,7 @@ import type {
   StoreRegistry,
   EventName,
   EventHandler,
-  RouteDefinition,
-  AnyRouteBuilder,
+  RoutesArgument,
   AdapterOverride,
   DeferralConfig,
   Duration,
@@ -426,11 +425,8 @@ export class TestContextBuilder {
     return this;
   }
 
-  routes(
-    routes:
-      RouteDefinition[] | AnyRouteBuilder[] | RouteDefinition | AnyRouteBuilder,
-  ): this {
-    this.builder.routes(routes);
+  routes(...routes: RoutesArgument[]): this {
+    this.builder.routes(...routes);
     return this;
   }
 

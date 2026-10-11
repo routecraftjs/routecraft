@@ -41,7 +41,6 @@ const CHOOSY = {
     reasoning: "medium" as const,
     reasoningLevels: ["medium", "high"] as const,
     system: "be useful",
-    user: (ex: { body: unknown }) => (ex.body as { message: string }).message,
     tools: tools(["slow"]),
   },
   zoe: {
@@ -50,7 +49,6 @@ const CHOOSY = {
     // readable from the call the provider saw.
     model: HAIKU,
     system: "be useful",
-    user: (ex: { body: unknown }) => (ex.body as { message: string }).message,
   },
 };
 

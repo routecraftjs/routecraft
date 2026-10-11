@@ -28,7 +28,6 @@ const AGENT = {
     description: "Max",
     model: MODEL,
     system: "be useful",
-    user: (ex: { body: unknown }) => (ex.body as { message: string }).message,
     tools: tools(["slow"]),
   },
 };

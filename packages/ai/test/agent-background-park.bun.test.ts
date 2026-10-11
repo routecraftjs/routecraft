@@ -158,6 +158,12 @@ function routes(
       .to(agent<ChatMessage>("max", { session: (ex) => ex.body.session }))
       .to(chatSink)
       .build(),
+    ...craft()
+      .id("sessionless")
+      .input({ body: ChatMessage })
+      .from(direct())
+      .to(agent("max"))
+      .build(),
   ];
 }
 
@@ -625,6 +631,29 @@ describe("the tool's shape follows the route's shape", () => {
     );
     expect(rcCodeOf(outcome)).toBe("RC5003");
     expect(String((outcome as Error).message)).toMatch(/Direct\(<routeId>\)/);
+    expect(llm.calls).toHaveLength(0);
+  });
+
+  /**
+   * @case A sessionless agent holding a tool over a parking route is refused with the reason it is background
+   * @preconditions The agent lists Direct(park) and nothing declared; it is dispatched through a route with no session
+   * @expectedResult RC5003 says the route can park and to remove the tool or dispatch with a session, never to drop a background flag nobody wrote; no model call is made
+   */
+  test("a sessionless refusal names the park, not a flag", async () => {
+    const store = new MemoryDeferralStore();
+    t = await contextWith({ store }).build();
+    await t.startAndWaitReady();
+    const refused = t.client.sendDirect("sessionless", {
+      session: "s",
+      message: "hi",
+    });
+    await expect(refused).rejects.toMatchObject({ rc: "RC5003" });
+    const message = await refused.catch((err: Error) => err.message);
+    expect(message).toMatch(
+      /"direct__park" is background because its route can park/,
+    );
+    expect(message).toMatch(/agent\(name, \{ session \}\)/);
+    expect(message).not.toMatch(/drop the flag|without the background flag/);
     expect(llm.calls).toHaveLength(0);
   });
 

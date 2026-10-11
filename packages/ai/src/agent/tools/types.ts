@@ -20,15 +20,35 @@ import { AgentSessionRuntime } from "../session/runtime.ts";
 export const LAZY_FN_BRAND = Symbol.for("routecraft.ai.fn.lazy");
 
 /**
- * Marks the `FnOptions` a `directTool(routeId, { background: true })`
- * resolves to, so the agent's tool list can tell a background tool from
- * a synchronous one without re-reading the builder's overrides. A symbol
- * rather than a field, because `FnOptions` is the public shape an author
- * writes and this is resolver-set provenance, not something to author.
+ * Marks the `FnOptions` a background direct tool resolves to, so the agent's
+ * tool list can tell a background tool from a synchronous one without
+ * re-reading the builder's overrides. A symbol rather than a field, because
+ * `FnOptions` is the public shape an author writes and this is resolver-set
+ * provenance, not something to author.
+ *
+ * The value says why: `"parks"` when the route can park, which makes the
+ * tool background whatever the author declared, and `"declared"` when the
+ * author asked for `background: true` on a route that does not park.
  *
  * @internal
  */
 export const FN_BACKGROUND = Symbol.for("routecraft.ai.fn.background");
+
+/** Why a direct tool runs in the background. @internal */
+export type BackgroundReason = "parks" | "declared";
+
+/**
+ * Why resolved fn options run in the background, or `undefined` for a
+ * synchronous tool.
+ *
+ * @internal
+ */
+export function backgroundReasonOf(
+  fn: RegisteredFn,
+): BackgroundReason | undefined {
+  const marker = (fn as { [FN_BACKGROUND]?: unknown })[FN_BACKGROUND];
+  return marker === "parks" || marker === "declared" ? marker : undefined;
+}
 
 /**
  * Whether resolved fn options carry the background marker.
@@ -36,7 +56,7 @@ export const FN_BACKGROUND = Symbol.for("routecraft.ai.fn.background");
  * @internal
  */
 export function isBackgroundFn(fn: RegisteredFn): boolean {
-  return (fn as { [FN_BACKGROUND]?: unknown })[FN_BACKGROUND] === true;
+  return backgroundReasonOf(fn) !== undefined;
 }
 
 /**
