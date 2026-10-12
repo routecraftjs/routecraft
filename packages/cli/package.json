@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/cli",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "CLI for running Routecraft capabilities",
   "private": false,
   "type": "module",
@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.5.0",
-    "@routecraft/routecraft": "^0.7.2",
+    "@routecraft/routecraft": "^0.8.0",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
     "ink": "^7.1.1",
