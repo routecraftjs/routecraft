@@ -39,6 +39,7 @@ import type { AgentRegisteredOptions, AgentResult } from "../agent/types.ts";
 import {
   AGENT_SURFACE_HEADER,
   registerTurn,
+  surfaceRefOf,
   type SurfaceState,
   type AgentSurfaceRef,
 } from "../surface/index.ts";
@@ -66,23 +67,28 @@ import type { AcpPluginOptions } from "./types.ts";
  */
 export const ACP_ROUTE_PREFIX = "routecraft.acp.agent.";
 
-/** The body a prompt sends into an agent's route. @internal */
-export interface AcpPromptBody {
-  readonly session: string;
-  readonly message: string;
-}
-
 /**
- * The body the mount sent, read off an exchange on an agent's route.
+ * The conversation an exchange on an agent's route belongs to, read off the
+ * surface the mount put on it.
  *
- * Read rather than validated: the route is `internal`, so the mount is the
- * only thing that can reach it, and a schema here would describe a
- * boundary that does not exist.
+ * The body is the prompt text itself, so an agent with no `user` of its own
+ * reads the person's words rather than an envelope around them. The surface
+ * header is stored with a parked exchange, so a continuation parked when the
+ * body was still a `{ session, message }` envelope resolves the same way.
+ * One with no surface did not come through the mount, the only door these
+ * internal routes have, so it is refused rather than filed under a made-up
+ * conversation.
  *
  * @internal
  */
-export function promptBodyOf(exchange: Exchange<unknown>): AcpPromptBody {
-  return exchange.body as AcpPromptBody;
+export function promptSessionOf(exchange: Exchange<unknown>): string {
+  const session = surfaceRefOf(exchange.headers)?.session;
+  if (session === undefined) {
+    throw rcError("RC5003", undefined, {
+      message: `An exchange on ACP route "${String(exchange.headers[HeadersKeys.ROUTE_ID] ?? "")}" carries no editor surface, so it names no conversation. Only the ACP mount delivers into these routes.`,
+    });
+  }
+  return session;
 }
 
 /** One prompt request in flight, keyed by the correlation id the mount minted for it. */
@@ -276,7 +282,7 @@ export class AcpRuntime {
    */
   sinkFor(exchange: Exchange<unknown>): (delta: AgentDelta) => Promise<void> {
     const correlationId = correlationOf(exchange);
-    const session = promptBodyOf(exchange).session;
+    const session = promptSessionOf(exchange);
     return async (delta) => {
       const update = deltaUpdate(delta);
       const turn = this.sessions().turnIdOf(session);
@@ -365,7 +371,7 @@ export class AcpRuntime {
       // The turn route is ACP's own, built to end in the agent's result.
       const result = (await this.plugin.execution.deliver(
         `${ACP_ROUTE_PREFIX}${agent}`,
-        { session: key, message } satisfies AcpPromptBody,
+        message,
         headers,
       )) as AgentResult;
       // A turn that ran with a delta listener has already said its reply

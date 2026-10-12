@@ -14,8 +14,9 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 4. **`registerDsl` is removed.** Route methods come from a plugin's `steps`. [Section 4](#4-steps).
 5. **Store keys that crossed plugins are ports.** [Section 5](#5-ports).
 6. **A custom `DeferralStore` fences its claims.** `renewClaim` is new, and `markExpired` and `markDenied` take the claim id. The shipped SQLite and memory stores migrate themselves. [Section 6](#6-deferral-store).
+7. **An editor turn's body is the prompt text.** An agent's own `user` that read `ex.body.message` on an ACP turn reads `ex.body`. [Section 7](#7-acp-turn-body).
 
-Projects that write no plugin of their own typically need section 2 and nothing else, and section 6 if they supply their own `DeferralStore`. [Section 7](#7-what-is-new-in-080) lists what is new, for context.
+Projects that write no plugin of their own typically need section 2 and nothing else, section 6 if they supply their own `DeferralStore`, and section 7 if an agent declares its own `user` for editor turns. [Section 8](#8-what-is-new-in-080) lists what is new, for context.
 
 ---
 
@@ -54,7 +55,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 7](#7-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 8](#8-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -153,7 +154,18 @@ A configured store missing any of these members is refused when the application 
 
 Do not run 0.7 and 0.8 against one SQLite file, including for the length of a rolling deploy: 0.7 does not honour the fence, so it can settle a delivery a 0.8 process is still making. Stop every 0.7 process before the first 0.8 one opens the file. A claim a 0.7 process writes after the migration anyway carries no identity; 0.8 reads it back as claimed under one no holder can present, and the lease releases it from its claim time, so the record is redelivered rather than stranded.
 
-## 7. What is new in 0.8.0 \{#7-what-is-new-in-080}
+## 7. An editor turn's body is the prompt text \{#7-acp-turn-body}
+
+An ACP turn used to reach the agent's route as a `{ session, message }` body, so an agent with no `user` of its own, as every agent loaded from `agents/*.md` is, handed the model that envelope as JSON. The body is now the prompt text. An agent that declared its own `user` for editor turns reads the text directly:
+
+| 0.7 | 0.8 |
+|-----|-----|
+| `user: (ex) => ex.body.message` | `user: (ex) => ex.body`, or no `user` at all |
+| `ex.body.session` | `(ex.headers[AGENT_SURFACE_HEADER] as AgentSurfaceRef \| undefined)?.session`, the editor surface every turn carries, both exported from `@routecraft/ai` |
+
+A conversation recorded under 0.7 keeps its earlier prompts as they were stored, so loading one in the editor replays those as the envelope; turns taken under 0.8 replay as text.
+
+## 8. What is new in 0.8.0 \{#8-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too.

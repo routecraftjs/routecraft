@@ -3,14 +3,15 @@
 /**
  * Prepare the synthetic changeset for the publish-canary job.
  *
- * Scopes the canary snapshot to the packages the push actually changed,
- * while keeping the version line aimed at the next stable release:
+ * Scopes the canary snapshot to the packages the push changed, keeping the
+ * version line aimed at the next stable release:
  *
  * 1. Diffs `<base-sha>..HEAD` to find the changed public packages.
  * 2. Collects the highest pending bump per package from the changesets on
  *    main, then deletes them: they belong to the next stable release, and
- *    `changeset version --snapshot` would otherwise consume them and pull
- *    every package they mention into every canary.
+ *    `changeset version --snapshot` would otherwise consume them. A kept
+ *    package takes the bump they carry, and step 5 can put the packages they
+ *    name back.
  * 3. Expands `fixed` groups from .changeset/config.json so the core train
  *    moves together whenever any member changed.
  * 4. Folds in any public package the registry is behind on: one whose
@@ -21,8 +22,12 @@
  *    The second rule is what makes a missed canary self-healing: scoping to
  *    a single push means a failed canary job drops that push's packages for
  *    good, since no later push has them in its diff range.
- *    Nothing kept after all four steps means no canary (`publish=false`).
- * 5. Writes .changeset/snapshot-canary.md giving each kept package its
+ * 5. When the scaffolder (`create-routecraft`) is in the snapshot, which
+ *    is every canary of the core train, folds in every package with a
+ *    pending bump (`foldPendingForScaffolder` in `lib/canary-selection.mjs`
+ *    has the rule and why). A push that keeps nothing still skips the canary.
+ *    Nothing kept after all five steps means no canary (`publish=false`).
+ * 6. Writes .changeset/snapshot-canary.md giving each kept package its
  *    pending bump (patch when none), so canaries keep previewing the next
  *    stable version (e.g. 0.6.0-canary-<datetime> while a minor is
  *    pending, not 0.5.1-canary-<datetime>).
@@ -44,6 +49,10 @@ import {
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  expandFixedGroups,
+  foldPendingForScaffolder,
+} from "./lib/canary-selection.mjs";
 import { pendingBumps as readPendingBumps } from "./lib/changeset-bumps.mjs";
 import { publishedVersion, registryJson } from "./lib/npm-registry.mjs";
 
@@ -103,15 +112,7 @@ for (const file of readdirSync(changesetDir)) {
 const config = JSON.parse(
   readFileSync(join(changesetDir, "config.json"), "utf8"),
 );
-function expandFixedGroups() {
-  for (const group of config.fixed ?? []) {
-    if (!group.some((name) => keep.has(name))) continue;
-    for (const name of group) {
-      if (packages.has(name)) keep.add(name);
-    }
-  }
-}
-expandFixedGroups();
+expandFixedGroups(keep, config.fixed, packages);
 
 /**
  * The commit the package's newest canary was built from, or null when that
@@ -145,6 +146,11 @@ function changedSince(sha, dir) {
   return out.trim().length > 0;
 }
 
+function fold(name, why) {
+  console.log(`${name} ${why}; folding it into the canary.`);
+  keep.add(name);
+}
+
 // 4. Fold in public packages the registry is behind on: never-published
 // versions, and packages changed since their newest canary was cut.
 for (const [name, pkg] of packages) {
@@ -154,28 +160,31 @@ for (const [name, pkg] of packages) {
     "application/vnd.npm.install-v1+json",
   );
   if (!meta?.versions?.[pkg.version]) {
-    console.log(
-      `${name}@${pkg.version} is not on npm; folding it into the canary.`,
-    );
-    keep.add(name);
+    fold(name, `(version ${pkg.version}) is not on npm`);
     continue;
   }
   const canaryBase = await publishedCanaryBase(name, meta);
   if (canaryBase === null) {
-    console.log(
-      `${name} has no resolvable canary base; folding it into the canary.`,
-    );
-    keep.add(name);
+    fold(name, "has no resolvable canary base");
     continue;
   }
   if (changedSince(canaryBase, pkg.dir)) {
-    console.log(
-      `${name} changed since its canary at ${canaryBase.slice(0, 7)}; folding it into the canary.`,
-    );
-    keep.add(name);
+    fold(name, `changed since its canary at ${canaryBase.slice(0, 7)}`);
   }
 }
-expandFixedGroups();
+expandFixedGroups(keep, config.fixed, packages);
+
+// 5. Pending packages join a canary that ships the scaffolder.
+for (const name of foldPendingForScaffolder(
+  keep,
+  pendingBump,
+  packages,
+  config.fixed,
+)) {
+  console.log(
+    `${name} has a pending ${pendingBump.get(name) ?? "patch"} the scaffolder pins; folding it into the canary.`,
+  );
+}
 
 if (keep.size === 0) {
   console.log("Registry is level with main; skipping canary.");
@@ -183,14 +192,14 @@ if (keep.size === 0) {
   process.exit(0);
 }
 
-// 5. Write the synthetic changeset, carrying the pending bump intent.
+// 6. Write the synthetic changeset, carrying the pending bump intent.
 const releases = [...keep]
   .sort()
   .map((name) => `"${name}": ${pendingBump.get(name) ?? "patch"}`);
 const snapshotPath = join(changesetDir, "snapshot-canary.md");
 writeFileSync(
   snapshotPath,
-  `---\n${releases.join("\n")}\n---\n\nCanary snapshot of the packages this push changed, plus any the registry was behind on.\n`,
+  `---\n${releases.join("\n")}\n---\n\nCanary snapshot of the packages this push changed, plus any the registry was behind on or the scaffolder pins.\n`,
 );
 console.log(readFileSync(snapshotPath, "utf8"));
 setOutput("publish=true");

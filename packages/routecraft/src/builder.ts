@@ -267,7 +267,11 @@ export class ContextBuilder {
    * are supported so that builders from another copy of the package (e.g. CLI vs user module)
    * are still recognized.
    *
-   * @param routes Individual or array of route definitions/builders to add
+   * Every argument counts, so `routes(a, b)` adds both. Taking only the
+   * first would drop the rest without a word anywhere types are not
+   * checked: plain JavaScript, esbuild, `node --experimental-strip-types`.
+   *
+   * @param routes Route definitions/builders to add, individually or in arrays
    * @returns This builder instance for method chaining
    *
    * @example
@@ -276,6 +280,7 @@ export class ContextBuilder {
    * builder.routes(myRoute);
    *
    * // Add multiple routes
+   * builder.routes(route1, route2, route3);
    * builder.routes([route1, route2, route3]);
    *
    * // Add a route builder
@@ -286,10 +291,7 @@ export class ContextBuilder {
    * );
    * ```
    */
-  routes(
-    routes:
-      RouteDefinition[] | AnyRouteBuilder[] | RouteDefinition | AnyRouteBuilder,
-  ): this {
+  routes(...routes: RoutesArgument[]): this {
     const addOne = (route: RouteDefinition | AnyRouteBuilder): void => {
       // Structural check, matching `AnyRouteBuilder` (and the duck-typing
       // promise above): anything with a callable `.build()` is treated as
@@ -303,11 +305,7 @@ export class ContextBuilder {
       }
     };
 
-    if (Array.isArray(routes)) {
-      routes.forEach(addOne);
-    } else {
-      addOne(routes);
-    }
+    routes.flat().forEach(addOne);
     return this;
   }
 
@@ -395,6 +393,12 @@ export class ContextBuilder {
  * minimal structural alias is the correct parameter type for them.
  */
 export type AnyRouteBuilder = Pick<RouteBuilder, "build">;
+
+/** One argument to {@link ContextBuilder.routes}: a route, a builder, or a list of either. */
+export type RoutesArgument =
+  | RouteDefinition
+  | AnyRouteBuilder
+  | readonly (RouteDefinition | AnyRouteBuilder)[];
 
 /**
  * Options for configuring a route.

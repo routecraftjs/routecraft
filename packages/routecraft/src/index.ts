@@ -495,6 +495,7 @@ export {
   craft,
   RouteBuilder,
   type AnyRouteBuilder,
+  type RoutesArgument,
   type PreFromBuilder,
   type PreFromStaging,
   type PreFromTypedBuilder,
