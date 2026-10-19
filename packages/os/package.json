@@ -25,7 +25,7 @@
   "devDependencies": {
     "@routecraft/routecraft": "workspace:*",
     "@routecraft/testing": "workspace:*",
-    "@types/dockerode": "^4.0.1",
+    "@types/dockerode": "^4.0.2",
     "agent-browser": "^0.17.1",
     "dockerode": "^5.0.1",
     "execa": "^9.6.0",

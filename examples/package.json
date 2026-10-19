@@ -13,7 +13,7 @@
     "@routecraft/routecraft": "workspace:*",
     "@typesafe-ai/sdk": "^0.6.0",
     "commander": "^14.0.3",
-    "zod": "^4.6.1"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@routecraft/cli": "workspace:*",
