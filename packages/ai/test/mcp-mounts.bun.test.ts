@@ -20,7 +20,11 @@ import type { McpPluginOptions, McpRawToolResult } from "../src/mcp/types.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
 import { listToolsOver, MCP_INIT_PARAMS, postRpc } from "./helpers/mcp-http.ts";
 
-let dispatches: Array<{ serverId: string; toolName: string }> = [];
+let dispatches: Array<{
+  serverId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}> = [];
 
 function buildRegistry(): McpToolRegistry {
   const registry = new McpToolRegistry();
@@ -66,12 +70,12 @@ function buildManagers() {
   >();
   for (const serverId of ["docs", "billing"]) {
     managers.set(serverId, {
-      async callTool(name) {
-        dispatches.push({ serverId, toolName: name });
+      async callTool(name, args) {
+        dispatches.push({ serverId, toolName: name, args });
         return "extracted";
       },
-      async callToolRaw(name) {
-        dispatches.push({ serverId, toolName: name });
+      async callToolRaw(name, args) {
+        dispatches.push({ serverId, toolName: name, args });
         return { content: [{ type: "text", text: `raw:${serverId}:${name}` }] };
       },
     });
@@ -176,7 +180,7 @@ describe("MCP mounts", () => {
   /**
    * @case A client mount lists that client's tools under their remote names, the exact route winning for its tool
    * @preconditions The same routes
-   * @expectedResult /mcp/docs carries get_document and search; calling get_document there runs the exact route, search the star route, and billing's search is not there
+   * @expectedResult /mcp/docs carries get_document and search; calling get_document there runs the exact route (its transform marks the arguments), search the star route, and a local tool is not there
    */
   test("a client mount serves the client's tools bare, exact route first", async () => {
     await serve();
@@ -187,8 +191,8 @@ describe("MCP mounts", () => {
     const viaStar = await call(DOCS_MOUNT, "search");
     expect(viaStar.isError).toBeUndefined();
     expect(dispatches).toEqual([
-      { serverId: "docs", toolName: "get_document" },
-      { serverId: "docs", toolName: "search" },
+      { serverId: "docs", toolName: "get_document", args: { via: "exact" } },
+      { serverId: "docs", toolName: "search", args: {} },
     ]);
     const missing = await call(DOCS_MOUNT, "ping");
     expect(missing.isError).toBe(true);
@@ -207,7 +211,7 @@ describe("MCP mounts", () => {
     const result = await call(own, "fetch_doc");
     expect(result.isError).toBeUndefined();
     expect(dispatches).toEqual([
-      { serverId: "docs", toolName: "get_document" },
+      { serverId: "docs", toolName: "get_document", args: { via: "exact" } },
     ]);
     const missing = await call(own, "docs_search");
     expect(missing.isError).toBe(true);
@@ -358,7 +362,7 @@ describe("MCP mounts over HTTP", () => {
   /**
    * @case Every mount answers beside the root, with or without a trailing slash, and an unknown segment is not found
    * @preconditions HTTP server named eywa over the docs and billing clients and the ping route
-   * @expectedResult /mcp lists the prefixed names; /mcp/eywa and /mcp/eywa/ list fetch_doc and ping; /mcp/docs lists the bare remote names; /mcp/other answers 404
+   * @expectedResult /mcp lists the prefixed names; /mcp/eywa and /mcp/eywa/ list fetch_doc and ping; /mcp/docs lists the bare remote names and a tools/call there runs the exact route to the client; /mcp/other answers 404
    */
   test("the mounts are served beside the root", async () => {
     await start();
@@ -381,6 +385,25 @@ describe("MCP mounts over HTTP", () => {
       "search",
     ]);
     expect((await listToolsOver(port, "/mcp/other")).status).toBe(404);
+    const called = await postRpc(port, "/mcp/docs", {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "get_document", arguments: { id: "1" } },
+    });
+    expect(called.status).toBe(200);
+    const result = JSON.parse(called.body) as {
+      result?: { isError?: boolean; content: Array<{ text?: string }> };
+    };
+    expect(result.result?.isError).toBeUndefined();
+    expect(result.result?.content[0]?.text).toBe("raw:docs:get_document");
+    expect(dispatches).toEqual([
+      {
+        serverId: "docs",
+        toolName: "get_document",
+        args: { id: "1", via: "exact" },
+      },
+    ]);
   });
 
   /**

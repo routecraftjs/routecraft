@@ -59,7 +59,7 @@ export function mcpServerPlugin(
   seed: McpSeed,
   options: McpPluginOptions,
 ): Plugin {
-  let server: McpServer | undefined;
+  const servers = new WeakMap<object, McpServer>();
   return {
     id: "test.mcp.server",
     provides: [MCP],
@@ -68,7 +68,7 @@ export function mcpServerPlugin(
     async bind(c) {
       const service = createMcpService(seed);
       c.provide(MCP, service);
-      server = new McpServer(
+      const server = new McpServer(
         {
           logger: c.logger,
           emit: (event, details) => c.emit(event, details),
@@ -79,13 +79,15 @@ export function mcpServerPlugin(
         },
         options,
       );
+      servers.set(c, server);
       c.onDispose(async () => {
-        await server?.stop();
+        servers.delete(c);
+        await server.stop();
       });
       await server.prepare();
     },
-    async start() {
-      await server?.start();
+    async start(c) {
+      await servers.get(c)?.start();
     },
   };
 }
