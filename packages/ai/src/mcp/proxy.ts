@@ -1,7 +1,9 @@
 import {
   HeadersKeys,
   standardSchemaFromJsonSchema,
+  type CraftContext,
 } from "@routecraft/routecraft";
+import { isMcpAdapter } from "../brand.ts";
 import { mergeAnnotations } from "./annotation-tags.ts";
 import type { McpService } from "./port.ts";
 import {
@@ -65,6 +67,35 @@ export function coveringProxy(
     service.proxies.get(proxyRegistrationKey(serverId, tool)) ??
     service.proxies.get(proxyRegistrationKey(serverId, "*"))
   );
+}
+
+/**
+ * The route whose source declares a proxy over `serverId:tool`, live or
+ * not: an exact declaration first, else a star over the client. A live
+ * registration is what {@link coveringProxy} answers; this reads the route
+ * definitions instead, so the agent tool resolver can tell a tool nobody
+ * governs from one whose governing route is held back by `.enabled()`.
+ * The second is withheld rather than offered raw: a disabled policy must
+ * not open the door it was written to close.
+ *
+ * @internal
+ */
+export function declaredProxy(
+  context: CraftContext,
+  serverId: string,
+  tool: string,
+): { routeId: string; tool: string } | undefined {
+  let star: { routeId: string; tool: string } | undefined;
+  for (const route of context.getRoutes()) {
+    for (const source of route.definition.sources) {
+      const ref = (source as { proxyRef?: McpProxyRef }).proxyRef;
+      if (!isMcpAdapter(source) || ref === undefined) continue;
+      if (ref.serverId !== serverId) continue;
+      if (ref.tool === tool) return { routeId: route.definition.id, tool };
+      if (ref.tool === "*") star ??= { routeId: route.definition.id, tool };
+    }
+  }
+  return star;
 }
 
 /** A tool a proxy registration exposes: a local entry plus where it goes. */

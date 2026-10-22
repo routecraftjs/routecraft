@@ -11,8 +11,9 @@ import type { McpServer } from "../src/mcp/server.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
-import { mcp, McpHeadersKeys, tools } from "../src/index.ts";
+import { mcp, McpHeadersKeys, sessionsPlugin, tools } from "../src/index.ts";
 import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
+import { MemorySessionStore } from "../src/agent/session/memory-store.ts";
 import type { McpClientConfig } from "../src/mcp/port.ts";
 import type { McpRawToolResult } from "../src/mcp/types.ts";
 
@@ -878,7 +879,10 @@ describe("an agent's MCP reference to a proxied tool", () => {
     if (t) await t.stop();
   });
 
+  let sessions: MemorySessionStore;
+
   async function build(routes: AnyRouteBuilder[]): Promise<TestContext> {
+    sessions = new MemorySessionStore();
     t = await testContext()
       .routes(routes)
       .with({
@@ -888,6 +892,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
             stdio: buildManagers(),
             clients: buildClients(),
           }),
+          sessionsPlugin({ store: sessions }),
         ],
       })
       .with(deferring())
@@ -896,13 +901,16 @@ describe("an agent's MCP reference to a proxied tool", () => {
     return t;
   }
 
-  function handlerContext(toolName: string) {
+  function handlerContext(
+    toolName: string,
+    session?: { id: string; agent: string },
+  ) {
     return makeFnHandlerContext(
       toolName,
       new AbortController().signal,
       undefined,
       undefined,
-      undefined,
+      session,
       undefined,
       authorityOf(t.ctx),
     );
@@ -995,6 +1003,69 @@ describe("an agent's MCP reference to a proxied tool", () => {
       tool.handler({ id: "7" }, handlerContext(tool.name)),
     ).rejects.toMatchObject({ rc: "AI2002" });
     expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case A parking route that declines settles the background call as failed, not as the echoed request
+   * @preconditions Star route with a filter dropping every exchange before a .defer(); the agent calls the background tool in a session
+   * @expectedResult The handle is returned running, the session inbox then carries a failed settlement for that handle with AI2002, and the client is never reached
+   */
+  test("a declining parking route fails the background call", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .filter(() => false)
+        .defer({ ttl: "1h" })
+        .to(mcp("docs:*")),
+    ]);
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    expect(tool.background).toBe(true);
+    const session = { id: "s", agent: "bot" };
+    const handle = (await tool.handler(
+      { id: "7" },
+      handlerContext(tool.name, session),
+    )) as { status: string; handle: string };
+    expect(handle.status).toBe("running");
+
+    const inbox = async () =>
+      ((await sessions.get("s"))?.value as { inbox?: unknown[] } | undefined)
+        ?.inbox ?? [];
+    for (let i = 0; i < 50 && (await inbox()).length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(await inbox()).toEqual([
+      expect.objectContaining({
+        handle: handle.handle,
+        status: "failed",
+        error: expect.objectContaining({ rc: "AI2002" }),
+      }),
+    ]);
+    expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case A tool whose proxy route is declared but not live is withheld
+   * @preconditions Star route over docs held back by .enabled(() => false); the agent lists MCP(docs:get_document), then the same with raw: true
+   * @expectedResult The plain reference resolves to no tool, with a warning naming the route; raw: true resolves the tool without a governing route
+   */
+  test("a disabled proxy route withholds the tool", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .enabled(() => false)
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+    ]);
+    expect(tools(["MCP(docs:get_document)"]).resolve(t.ctx)).toEqual([]);
+    const warned = t.contextLogger.warn.mock.calls.find(
+      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("not live"),
+    );
+    expect(warned?.[0]).toMatchObject({ route: "docs", tool: "get_document" });
+    const [raw] = tools([
+      { name: "MCP(docs:get_document)", raw: true },
+    ]).resolve(t.ctx);
+    expect(raw.source).not.toHaveProperty("routeId");
   });
 
   /**

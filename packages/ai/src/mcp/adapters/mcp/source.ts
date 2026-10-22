@@ -110,7 +110,12 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
 
   private options: McpServerOptions;
 
-  private readonly proxyRef: McpProxyRef | undefined;
+  /**
+   * The client and tool this source proxies, when it is the proxy form.
+   * Read by the agent tool resolver off the route definition, live or not,
+   * so a tool whose proxy route is held back is withheld rather than raw.
+   */
+  readonly proxyRef: McpProxyRef | undefined;
 
   constructor(options: McpServerOptions = {}) {
     (this as unknown as Record<symbol, boolean>)[BRAND_MCP_ADAPTER] = true;

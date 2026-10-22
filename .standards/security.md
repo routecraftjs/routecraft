@@ -192,7 +192,10 @@ When a route proxies the tool (`.from(mcp({ proxy }))`), the agent's
 carries the agent's principal exactly as a `directTool` dispatch does, so
 the route's `.authorize()` and steps judge the agent. The hop from that
 route to the MCP server still authenticates with the client's registered
-`auth` alone; the principal stops at the route.
+`auth` alone; the principal stops at the route. While that route is
+declared but not live (held back by `.enabled()`), the tool is withheld
+from the agent rather than offered raw, per § 6a: `raw: true` is the
+named opt-in.
 
 ## 12. Agent identity and delegation
 

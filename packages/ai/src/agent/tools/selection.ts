@@ -10,7 +10,7 @@ import { standardSchemaFromJsonSchema } from "@routecraft/routecraft";
 import type { FnHandlerContext, FnOptions, ToolGuard } from "../../fn/types.ts";
 import { dispatchMcpCall } from "../../mcp/dispatch.ts";
 import { MCP } from "../../mcp/port.ts";
-import { coveringProxy, proxiedEntry } from "../../mcp/proxy.ts";
+import { coveringProxy, declaredProxy, proxiedEntry } from "../../mcp/proxy.ts";
 import {
   McpHeadersKeys,
   type McpProxyRegistration,
@@ -1184,6 +1184,18 @@ function mcpEntryToResolvedTool(
       ctx.logger.warn(
         { server: entry.source, tool: entry.name, route: covering.routeId },
         "MCP tool is proxied by a route, and an agent references it with raw: true, so its calls bypass that route's policy.",
+      );
+    }
+  } else if (!raw) {
+    // A proxy route that is declared but not live (held back by
+    // `.enabled()`, or not yet started) withholds the tool: the policy the
+    // operator wrote for it is off, and off is closed, not open.
+    const declared = declaredProxy(ctx, entry.source, entry.name);
+    if (declared !== undefined) {
+      return dropOnce(
+        `mcp-withheld:${name}`,
+        { server: entry.source, tool: entry.name, route: declared.routeId },
+        "MCP tool is proxied by a route that is not live, so the agent is not offered it. Enable the route, or reference the tool with raw: true to reach the client without it.",
       );
     }
   }
