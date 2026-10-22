@@ -273,7 +273,8 @@ A failure at slot scope is also the one case where `route:error-handler:failed` 
 | `route:cache:hit` | A cached value was reused; the wrapped step (or whole pipeline, at route scope) was skipped | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", key }` |
 | `route:cache:miss` | No cached value; the wrapped step ran (or was dropped) | Same plus `dropped?: true` when the wrapped step dropped the exchange |
 | `route:cache:stored` | A fresh value was written to the cache | Same plus `ttl?: number` when a per-call TTL was set |
-| `route:cache:failed` | Key derivation, a provider read/write, or the wrapped step threw | `{ ..., stepLabel, scope: "route" \| "step", phase: "key" \| "get" \| "inner" \| "set", error, key? }` |
+| `route:cache:bypassed` | The cache's `when` returned false: neither read nor written for this exchange | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step" }` |
+| `route:cache:failed` | The cache condition, key derivation, a provider read/write, or the wrapped step threw | `{ ..., stepLabel, scope: "route" \| "step", phase: "when" \| "key" \| "get" \| "inner" \| "set", error, key? }` |
 
 Failure phases:
 - `phase: "key"` - key derivation threw (no `key` field, since none was produced). Raised as `RC5029` (not retryable).

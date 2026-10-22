@@ -125,6 +125,27 @@ craft()
   .to(noop())
 ```
 
+## Cache condition
+
+`when` decides per exchange whether the cache takes part at all. It runs before the key is derived; when it returns `false` the exchange skips both the read and the write, emits `route:cache:bypassed` in place of a hit or a miss, and runs as if no cache were declared. It sits beside `key` for the cases a key cannot express: an operation that is only sometimes safe to cache, or a caller who must always see a fresh answer.
+
+```ts skip="fragment: loadReport is illustrative"
+craft()
+  .id('report')
+  .cache({
+    ttl: '5m',
+    // A forced refresh runs the pipeline and stores nothing.
+    when: (ex) => ex.body.force !== true,
+  })
+  .from<{ id: string; force?: boolean }>(direct())
+  .enrich(loadReport)
+  .to(noop())
+```
+
+A route that fronts a set of remote MCP tools is the other case: the writing tools and the read-only ones share one `.cache()`, and only the read-only ones may be served from it. The [`mcp()` proxy source](/docs/reference/adapters/mcp#proxying-a-remote-server) sets the remote tool's annotations on a header for exactly this predicate.
+
+A `when` that throws fails the exchange with [`RC5029`](/docs/reference/errors#rc-5029) and a `route:cache:failed` event with `phase: "when"`, the same as a `key` that throws.
+
 ## Route scope
 
 Place `.cache()` BEFORE `.from()` to cache the entire route's terminal output (the body returned to the source), keyed by the route and a fingerprint of its pipeline, the principal, and the source-emitted message. Deploying an edited pipeline therefore misses on its first request for each input rather than serving entries the old pipeline stored (see [Cache key](#cache-key)).

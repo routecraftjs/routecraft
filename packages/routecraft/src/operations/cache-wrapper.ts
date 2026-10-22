@@ -87,6 +87,20 @@ export interface CacheOptions<Current = unknown> {
    * handing it in here.
    */
   provider?: CacheProvider;
+  /**
+   * Decide per exchange whether the cache takes part at all. Evaluated
+   * before the key is derived; a `false` skips both the read and the write
+   * for this exchange, with a `route:cache:bypassed` event in place of a
+   * hit or a miss, and the route or step runs as if no cache were declared.
+   *
+   * For the cases a key cannot express: an operation that is only sometimes
+   * safe to cache (a lookup, but not with `force: true`; a proxied remote
+   * tool whose annotations say read-only, but not the writing tools beside
+   * it under the same route), or a caller who must always see a fresh
+   * answer. A `when` that throws fails the exchange with `RC5029`, the same
+   * as a `key` that throws.
+   */
+  when?: (exchange: Exchange<Current>) => boolean;
 }
 
 /**
@@ -140,6 +154,8 @@ export interface ResolvedCacheOptions<Current = unknown> {
   /** No custom `key` was supplied, so `key` is {@link defaultCacheKey}. */
   usesDefaultKey: boolean;
   ttl: number | undefined;
+  /** The per-exchange condition, or `undefined` when the cache always takes part. */
+  when: ((exchange: Exchange<Current>) => boolean) | undefined;
   /**
    * The provider the call site supplied, or `undefined` when it supplied
    * none: the `CACHE` provider then uses its own, which the default plugin
@@ -190,8 +206,33 @@ export function resolveCacheOptions<Current = unknown>(
       options.ttl === undefined
         ? undefined
         : parseDuration(options.ttl, "cache({ ttl })"),
+    when: options.when,
     provider: options.provider,
   };
+}
+
+/**
+ * Whether a cache with `when` sits this exchange out. A `when` that throws
+ * is the author's bug, reported as `RC5029` with the site named, the way a
+ * throwing `key` is.
+ *
+ * @internal
+ */
+export function cacheBypassed(
+  options: Pick<ResolvedCacheOptions, "when">,
+  exchange: Exchange,
+  site: string,
+): boolean {
+  if (options.when === undefined) return false;
+  try {
+    return options.when(exchange) === false;
+  } catch (err) {
+    throw isRoutecraftError(err)
+      ? err
+      : rcError("RC5029", err, {
+          message: `cache({ when }) for ${site} threw while deciding whether to cache`,
+        });
+  }
 }
 
 /**
@@ -395,6 +436,7 @@ export class CacheWrapperStep<
   // The resolved `key` wraps a custom key in one adapter lambda whose
   // source is the same for every cache, so fingerprint the original.
   readonly #customKey: CacheOptions["key"];
+  readonly #customWhen: CacheOptions["when"];
   #site: string | undefined;
   readonly #runs = new WeakMap<object, CacheStep>();
 
@@ -402,10 +444,15 @@ export class CacheWrapperStep<
     super(inner);
     this.#options = resolveCacheOptions(options);
     this.#customKey = options.key;
+    this.#customWhen = options.when;
   }
 
   protected override describeOptions(): unknown {
-    return { key: this.#customKey ?? null, ttl: this.#options.ttl ?? null };
+    return {
+      key: this.#customKey ?? null,
+      when: this.#customWhen ?? null,
+      ttl: this.#options.ttl ?? null,
+    };
   }
 
   /**
@@ -441,6 +488,32 @@ export class CacheWrapperStep<
       this,
     );
     const site = (this.#site ??= `unbuilt:${randomUUID()}`);
+
+    let bypass: boolean;
+    try {
+      bypass = cacheBypassed(this.#options, exchange, `"${stepLabel}"`);
+    } catch (err) {
+      context?.emit("route:cache:failed", {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel,
+        scope: "step",
+        phase: "when",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+    if (bypass) {
+      context?.emit("route:cache:bypassed", {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel,
+        scope: "step",
+      });
+      return this.inner.execute(exchange, ctx);
+    }
 
     let key: string;
     try {

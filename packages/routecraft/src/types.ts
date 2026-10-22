@@ -945,6 +945,11 @@ export interface EventDetailsMap {
     /** True when the wrapped step dropped the exchange (filter/halt). */
     dropped?: boolean;
   };
+  "route:cache:bypassed": ExchangeScoped & {
+    /** The cache's `when` returned false: neither read nor written for this exchange. */
+    stepLabel: string;
+    scope: "route" | "step";
+  };
   "route:cache:stored": ExchangeScoped & {
     stepLabel: string;
     scope: "route" | "step";
@@ -956,11 +961,12 @@ export interface EventDetailsMap {
     stepLabel: string;
     scope: "route" | "step";
     /**
-     * Where the failure occurred: `"key"` = key derivation threw,
-     * `"get"` = provider read threw, `"inner"` = the wrapped step threw,
-     * `"set"` = the provider write threw after the wrapped step succeeded.
+     * Where the failure occurred: `"when"` = the cache condition threw,
+     * `"key"` = key derivation threw, `"get"` = provider read threw,
+     * `"inner"` = the wrapped step threw, `"set"` = the provider write
+     * threw after the wrapped step succeeded.
      */
-    phase: "key" | "get" | "inner" | "set";
+    phase: "when" | "key" | "get" | "inner" | "set";
     key?: string;
     error: string;
   };

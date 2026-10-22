@@ -16,7 +16,10 @@ import {
   PARSE_DROPPED_REASON,
 } from "../adapters/shared/parse.ts";
 import type { Adapter, Step } from "../types.ts";
-import type { BoundCacheOptions } from "../operations/cache-wrapper.ts";
+import {
+  cacheBypassed,
+  type BoundCacheOptions,
+} from "../operations/cache-wrapper.ts";
 import {
   ThrottleController,
   throttleEmitHooks,
@@ -293,6 +296,34 @@ export function buildCacheCheckStep(
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
       ] as string;
+
+      let bypass: boolean;
+      try {
+        bypass = cacheBypassed(cacheConfig, exchange, `route "${routeId}"`);
+      } catch (err) {
+        context?.emit("route:cache:failed", {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          stepLabel: "route",
+          scope: "route",
+          phase: "when",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+      if (bypass) {
+        // The store step reads the key off the internals, so leaving it
+        // unset is what keeps the write out as well as the read.
+        context?.emit("route:cache:bypassed", {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          stepLabel: "route",
+          scope: "route",
+        });
+        return { kind: "continue", exchange } as const;
+      }
 
       let key: string;
       try {

@@ -1,0 +1,187 @@
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { spy, testContext, type TestContext } from "@routecraft/testing";
+import {
+  craft,
+  direct,
+  MemoryCacheProvider,
+  noop,
+} from "@routecraft/routecraft";
+
+/**
+ * `.cache({ when })`: the per-exchange condition beside `key`. A false
+ * `when` sits the cache out for that exchange, both the read and the write,
+ * at route scope and at step scope alike.
+ */
+describe(".cache({ when })", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /** Every cache event name emitted on the context, in order. */
+  function captureCacheEvents(ctx: TestContext): string[] {
+    const events: string[] = [];
+    for (const name of [
+      "hit",
+      "miss",
+      "stored",
+      "failed",
+      "bypassed",
+    ] as const) {
+      ctx.ctx.on(`route:cache:${name}` as never, () => {
+        events.push(name);
+      });
+    }
+    return events;
+  }
+
+  /**
+   * @case Route scope: a false `when` neither reads nor writes, and the pipeline runs every time
+   * @preconditions craft().cache({ provider, when: body !== "fresh" }).from(direct()); two sends of "fresh" and two of "stale"
+   * @expectedResult "fresh" runs the pipeline twice and stores nothing; "stale" runs once and hits once; the bypassed sends emit route:cache:bypassed and no hit, miss or stored
+   */
+  test("route scope skips the read and the write when the condition is false", async () => {
+    const provider = new MemoryCacheProvider();
+    const compute = mock((b: string) => `out:${b}`);
+    const sink = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("route-cache-when")
+          .cache({
+            provider,
+            when: (ex) => ex.body !== "fresh",
+          })
+          .from<string>(direct())
+          .transform(compute)
+          .to(sink),
+      )
+      .build();
+    const events = captureCacheEvents(t);
+
+    await t.startAndWaitReady();
+    await t.client.sendDirect("route-cache-when", "fresh");
+    await t.client.sendDirect("route-cache-when", "fresh");
+    await t.client.sendDirect("route-cache-when", "stale");
+    const hit = await t.client.sendDirect("route-cache-when", "stale");
+
+    expect(compute).toHaveBeenCalledTimes(3);
+    expect(hit).toBe("out:stale");
+    expect(sink.received.map((ex) => ex.body)).toEqual([
+      "out:fresh",
+      "out:fresh",
+      "out:stale",
+    ]);
+    expect(events).toEqual(["bypassed", "bypassed", "miss", "stored", "hit"]);
+  });
+
+  /**
+   * @case Step scope: a false `when` runs the wrapped step and stores nothing
+   * @preconditions .from(direct()).cache({ provider, when: body !== "fresh" }).transform(compute); two sends of "fresh" and two of "stale"
+   * @expectedResult compute runs three times; the bypassed sends emit route:cache:bypassed with scope "step" and nothing else
+   */
+  test("step scope skips the cache when the condition is false", async () => {
+    const provider = new MemoryCacheProvider();
+    const compute = mock((b: string) => `out:${b}`);
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("step-cache-when")
+          .from<string>(direct())
+          .cache({ provider, when: (ex) => ex.body !== "fresh" })
+          .transform(compute)
+          .to(noop()),
+      )
+      .build();
+    const scopes: string[] = [];
+    t.ctx.on(
+      "route:cache:bypassed" as never,
+      (payload: { details: { scope: string } }) => {
+        scopes.push(payload.details.scope);
+      },
+    );
+    const events = captureCacheEvents(t);
+
+    await t.startAndWaitReady();
+    await t.client.sendDirect("step-cache-when", "fresh");
+    await t.client.sendDirect("step-cache-when", "fresh");
+    await t.client.sendDirect("step-cache-when", "stale");
+    await t.client.sendDirect("step-cache-when", "stale");
+
+    expect(compute).toHaveBeenCalledTimes(3);
+    expect(scopes).toEqual(["step", "step"]);
+    expect(events).toEqual(["bypassed", "bypassed", "miss", "stored", "hit"]);
+  });
+
+  /**
+   * @case A `when` that throws fails the exchange as RC5029 and reports the phase
+   * @preconditions Route-scope cache whose `when` throws for every exchange
+   * @expectedResult sendDirect rejects with RC5029; route:cache:failed carries phase "when"; the pipeline never ran
+   */
+  test("a throwing condition fails the exchange with RC5029 and phase when", async () => {
+    const provider = new MemoryCacheProvider();
+    const compute = mock((b: string) => `out:${b}`);
+    const phases: string[] = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("route-cache-when-throws")
+          .cache({
+            provider,
+            when: () => {
+              throw new Error("undecidable");
+            },
+          })
+          .from<string>(direct())
+          .transform(compute)
+          .to(noop()),
+      )
+      .build();
+    t.ctx.on(
+      "route:cache:failed" as never,
+      (payload: { details: { phase: string } }) => {
+        phases.push(payload.details.phase);
+      },
+    );
+
+    await t.startAndWaitReady();
+    await expect(
+      t.client.sendDirect("route-cache-when-throws", "x"),
+    ).rejects.toMatchObject({ rc: "RC5029" });
+
+    expect(compute).not.toHaveBeenCalled();
+    expect(phases).toEqual(["when"]);
+  });
+
+  /**
+   * @case Without `when` the cache behaves as before
+   * @preconditions Route-scope cache with no condition; two identical sends
+   * @expectedResult One miss, one stored, one hit; no bypassed event
+   */
+  test("no condition means the cache always takes part", async () => {
+    const provider = new MemoryCacheProvider();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("route-cache-no-when")
+          .cache({ provider })
+          .from<string>(direct())
+          .transform((b: string) => `out:${b}`)
+          .to(noop()),
+      )
+      .build();
+    const events = captureCacheEvents(t);
+
+    await t.startAndWaitReady();
+    await t.client.sendDirect("route-cache-no-when", "x");
+    await t.client.sendDirect("route-cache-no-when", "x");
+
+    expect(events).toEqual(["miss", "stored", "hit"]);
+  });
+});
