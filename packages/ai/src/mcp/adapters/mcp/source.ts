@@ -298,6 +298,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       ...this.routeToolMetadata(context, routeId, discovery),
     };
     if (this.options.name !== undefined) registration.name = this.options.name;
+    if (ref.exclude !== undefined) registration.exclude = ref.exclude;
     if (discovery?.description !== undefined) {
       if (discovery.description.length === 0) {
         throw rcError("RC5003", undefined, {
@@ -314,7 +315,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
 }
 
 /**
- * Validate the `proxy`, `prefix` and `name` options when `mcp()` is called,
+ * Validate the `proxy`, `prefix`, `name` and `exclude` options when `mcp()` is called,
  * not when the route starts, and parse the ref once.
  */
 function assertValidProxyOptions(
@@ -327,9 +328,13 @@ function assertValidProxyOptions(
     });
   };
   if (options.proxy === undefined) {
-    if (options.prefix !== undefined || options.name !== undefined) {
+    if (
+      options.prefix !== undefined ||
+      options.name !== undefined ||
+      options.exclude !== undefined
+    ) {
       invalid(
-        "prefix and name apply to a proxy source only",
+        "prefix, name and exclude apply to a proxy source only",
         'Pass proxy: "server:*" or "server:tool" beside them, or drop them: a route that is its own tool is named by its .id().',
       );
     }
@@ -352,6 +357,27 @@ function assertValidProxyOptions(
   }
   if (options.prefix !== undefined && typeof options.prefix !== "string") {
     invalid("prefix must be a string", 'Use prefix: "" for bare remote names.');
+  }
+  if (options.exclude !== undefined) {
+    if (ref.tool !== "*") {
+      invalid(
+        `exclude cannot be set with the exact proxy "${options.proxy}"`,
+        "exclude leaves tools out of a star proxy; an exact proxy names the one tool it serves.",
+      );
+    }
+    if (
+      !Array.isArray(options.exclude) ||
+      options.exclude.length === 0 ||
+      options.exclude.some(
+        (tool) => typeof tool !== "string" || !MCP_TOOL_NAME_PATTERN.test(tool),
+      )
+    ) {
+      invalid(
+        "exclude must be a non-empty array of remote tool names",
+        'Name the tools as the remote lists them, for example exclude: ["create_issue"].',
+      );
+    }
+    ref = { ...ref, exclude: [...options.exclude] };
   }
   if (options.name !== undefined) {
     if (ref.tool === "*") {

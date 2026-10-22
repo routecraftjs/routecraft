@@ -436,17 +436,19 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:mcp:tool:called` | Tool invocation started | `{ tool, args, proxied?, serverId?, remoteTool?, routeId? }` |
-| `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool, proxied?, serverId?, remoteTool?, routeId? }` |
-| `plugin:mcp:tool:deferred` | The route deferred at a durable deferral; execution one answered with the `Deferred` acknowledgment | `{ tool, deferralId, proxied?, serverId?, remoteTool?, routeId? }` |
-| `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool?, routeId? }` |
-| `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason, proxied?, serverId?, remoteTool?, routeId? }` |
+| `plugin:mcp:tool:called` | Tool invocation started | `{ tool, args, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
+| `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
+| `plugin:mcp:tool:deferred` | The route deferred at a durable deferral; execution one answered with the `Deferred` acknowledgment | `{ tool, deferralId, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
+| `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
+| `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
 
 `deferred` is deliberately not `completed`. A deferred run is neither finished nor failed: the real result belongs to execution two, which flows to the route's destinations when the answer arrives, so counting the deferral as a completion would publish a false receipt to every dashboard. The wire result is an ordinary `isError: false` answer whose `structuredContent` is the acknowledgment.
 
 `declined` is deliberately not `failed`. A tool whose route filters (a guard branch, a "only answer for X" predicate) declines as a matter of course, and counting those as errors would make an error-rate alert fire on ordinary traffic. The caller still receives `isError: true`, because MCP has no other channel to say "no result"; see [AI2002](/docs/reference/errors#ai-2002).
 
 For a tool a route proxies from a registered client ([`mcp({ proxy })`](/docs/reference/adapters/mcp#proxying-a-remote-server)), every tool-call event carries `proxied: true`, the registered client id as `serverId`, the tool's name on the remote server as `remoteTool` (`tool` is the exposed, prefixed name), and the proxying route as `routeId`, since the exposed name is not a route id there. The call runs the proxy route, so it defers and declines like any local tool. A remote result flagged `isError` fails the route's hop (`AI2003`) and fires `plugin:mcp:tool:failed` with the remote's text.
+
+A call that arrived on a [mount](/docs/reference/plugins/mcpplugin#mounts) below the root carries the mount's segment as `mount`; a call on the root omits it. On a client mount `tool` is the remote's bare name, so `mount` with `serverId` is what says which server's tool was called.
 
 ### View events
 

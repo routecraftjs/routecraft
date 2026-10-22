@@ -6,6 +6,7 @@ import "./config.ts";
 // Side-effect import: declares and registers this package's AI#### error
 // codes in the core error registry (declaration merge + runtime metadata).
 import "./errors.ts";
+export type { McpToolMount, McpToolProvenance } from "./errors.ts";
 
 // Side-effect import: registers the `skills` and `agents` project
 // discoverers so `craft start` can give those folders meaning without

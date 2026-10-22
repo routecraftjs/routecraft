@@ -18,6 +18,8 @@ import {
 export interface McpProxyRef {
   serverId: string;
   tool: string;
+  /** Remote tools a star ref leaves out. */
+  exclude?: readonly string[];
 }
 
 /**
@@ -67,10 +69,18 @@ export function coveringProxy(
   serverId: string,
   tool: string,
 ): McpProxyRegistration | undefined {
-  return (
-    service.proxies.get(proxyRegistrationKey(serverId, tool)) ??
-    service.proxies.get(proxyRegistrationKey(serverId, "*"))
-  );
+  const exact = service.proxies.get(proxyRegistrationKey(serverId, tool));
+  if (exact !== undefined) return exact;
+  const star = service.proxies.get(proxyRegistrationKey(serverId, "*"));
+  return star !== undefined && !excludes(star, tool) ? star : undefined;
+}
+
+/** Whether a star registration or ref leaves `tool` out. */
+function excludes(
+  star: { exclude?: readonly string[] | undefined },
+  tool: string,
+): boolean {
+  return star.exclude !== undefined && star.exclude.includes(tool);
 }
 
 /**
@@ -78,9 +88,10 @@ export function coveringProxy(
  * not: an exact declaration first, else a star over the client. A live
  * registration is what {@link coveringProxy} answers; this reads the route
  * definitions instead, so the agent tool resolver can tell a tool nobody
- * governs from one whose governing route is held back by `.enabled()`.
- * The second is withheld rather than offered raw: a disabled policy must
- * not open the door it was written to close.
+ * governs from one whose governing route is held back by `.enabled()`, or
+ * one a star route leaves out through `exclude` (`excluded`). Both are
+ * withheld rather than offered raw: a policy that is off, or a tool taken
+ * out of the group, must not open the door it was written to close.
  *
  * @internal
  */
@@ -88,15 +99,23 @@ export function declaredProxy(
   context: CraftContext,
   serverId: string,
   tool: string,
-): { routeId: string; tool: string } | undefined {
-  let star: { routeId: string; tool: string } | undefined;
+): { routeId: string; tool: string; excluded: boolean } | undefined {
+  let star: { routeId: string; tool: string; excluded: boolean } | undefined;
   for (const route of context.getRoutes()) {
     for (const source of route.definition.sources) {
       const ref = (source as { proxyRef?: McpProxyRef }).proxyRef;
       if (!isMcpAdapter(source) || ref === undefined) continue;
       if (ref.serverId !== serverId) continue;
-      if (ref.tool === tool) return { routeId: route.definition.id, tool };
-      if (ref.tool === "*") star ??= { routeId: route.definition.id, tool };
+      if (ref.tool === tool) {
+        return { routeId: route.definition.id, tool, excluded: false };
+      }
+      if (ref.tool === "*") {
+        star ??= {
+          routeId: route.definition.id,
+          tool,
+          excluded: excludes(ref, tool),
+        };
+      }
     }
   }
   return star;
@@ -112,6 +131,18 @@ export interface McpProxiedEntry {
   entry: McpLocalToolEntry;
   registration: McpProxyRegistration;
   remote: McpToolRegistryEntry;
+}
+
+/**
+ * A client mount's tool: served under the remote name, judged by the
+ * `tools` filter as the root would list it, so one filter means one thing
+ * on every mount.
+ *
+ * @internal
+ */
+export interface McpClientEntry extends McpProxiedEntry {
+  /** The entry as the root exposes it, under the prefixed or renamed name. */
+  exposed: McpLocalToolEntry;
 }
 
 /**
@@ -143,6 +174,25 @@ export function resolveProxiedEntries(
 ): Map<string, McpProxiedEntry> {
   const resolved = new Map<string, McpProxiedEntry>();
   for (const registration of service.proxies.values()) {
+    if (registration.tool === "*" && registration.exclude !== undefined) {
+      const listed = new Set(
+        service.tools
+          .getToolsByServer(registration.serverId)
+          .map((remote) => remote.name),
+      );
+      for (const name of registration.exclude) {
+        if (listed.has(name)) continue;
+        warn(
+          `proxy:exclude-unmatched:${registration.serverId}:${name}`,
+          "mcp({ proxy }): exclude names a tool the client does not list; a misspelt name leaves the tool it meant in the group.",
+          {
+            route: registration.routeId,
+            server: registration.serverId,
+            tool: name,
+          },
+        );
+      }
+    }
     const remotes =
       registration.tool === "*"
         ? service.tools
@@ -200,6 +250,56 @@ export function resolveProxiedEntries(
         remote,
       });
     }
+  }
+  return resolved;
+}
+
+/**
+ * The tools a client's proxy routes expose on that client's own mount,
+ * keyed by the remote's names: every tool of the client that a registration
+ * covers, exact over star. The root mount's prefixes and its collision
+ * rules do not apply here, since the mount already names the client; a
+ * remote name that is not a valid tool name is still skipped, with a
+ * warning through `warn`.
+ *
+ * @internal
+ */
+export function resolveClientEntries(
+  service: McpService,
+  serverId: string,
+  warn: (
+    key: string,
+    message: string,
+    bindings: Record<string, unknown>,
+  ) => void,
+): Map<string, McpClientEntry> {
+  const resolved = new Map<string, McpClientEntry>();
+  for (const remote of service.tools.getToolsByServer(serverId)) {
+    const registration = coveringProxy(service, serverId, remote.name);
+    if (registration === undefined) continue;
+    if (!MCP_TOOL_NAME_PATTERN.test(remote.name)) {
+      warn(
+        `proxy:remote-name:${serverId}:${remote.name}`,
+        "mcp({ proxy }): a remote tool's name is not a valid MCP tool name; skipping it on the client's mount.",
+        {
+          route: registration.routeId,
+          server: serverId,
+          tool: remote.name,
+          pattern: String(MCP_TOOL_NAME_PATTERN),
+        },
+      );
+      continue;
+    }
+    resolved.set(remote.name, {
+      entry: proxiedEntry(remote.name, registration, remote),
+      exposed: proxiedEntry(
+        registration.name ?? `${registration.prefix}${remote.name}`,
+        registration,
+        remote,
+      ),
+      registration,
+      remote,
+    });
   }
   return resolved;
 }

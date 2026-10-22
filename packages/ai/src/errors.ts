@@ -36,6 +36,13 @@ export type McpToolProvenance =
   | { proxied: true; serverId: string; remoteTool: string; routeId: string };
 
 /**
+ * The mount a tool call arrived on, absent for the root: a client mount
+ * names a tool by its remote name, so without the mount the name alone
+ * does not say which server's tool was called.
+ */
+export type McpToolMount = { mount?: string };
+
+/**
  * What every tool-call event carries.
  *
  * `session` names the conversation the call was made in, when the agent
@@ -305,9 +312,11 @@ declare module "@routecraft/routecraft" {
     "plugin:mcp:tool:called": {
       tool: string;
       args: unknown;
-    } & McpToolProvenance;
+    } & McpToolProvenance &
+      McpToolMount;
     /** MCP tool call completed successfully. */
-    "plugin:mcp:tool:completed": { tool: string } & McpToolProvenance;
+    "plugin:mcp:tool:completed": { tool: string } & McpToolProvenance &
+      McpToolMount;
     /**
      * MCP tool call deferred at a durable deferral: execution one answered
      * with the `Deferred` acknowledgment and the real result belongs to
@@ -320,12 +329,14 @@ declare module "@routecraft/routecraft" {
     "plugin:mcp:tool:deferred": {
       tool: string;
       deferralId: string;
-    } & McpToolProvenance;
+    } & McpToolProvenance &
+      McpToolMount;
     /** MCP tool call failed. */
     "plugin:mcp:tool:failed": {
       tool: string;
       error: string;
-    } & McpToolProvenance;
+    } & McpToolProvenance &
+      McpToolMount;
     /**
      * MCP tool call declined: the route ran and dropped the exchange rather
      * than producing a result. Separate from `failed` so a tool that filters
@@ -337,7 +348,8 @@ declare module "@routecraft/routecraft" {
     "plugin:mcp:tool:declined": {
       tool: string;
       reason: string;
-    } & McpToolProvenance;
+    } & McpToolProvenance &
+      McpToolMount;
     /** An MCP Apps view was served for `resources/read`. */
     "plugin:mcp:ui:served": {
       tool: string;

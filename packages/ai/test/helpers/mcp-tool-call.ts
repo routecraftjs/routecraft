@@ -1,5 +1,5 @@
 import type { Principal } from "@routecraft/routecraft";
-import type { McpServer } from "../../src/mcp/server.ts";
+import type { McpMount, McpServer } from "../../src/mcp/server.ts";
 
 /** Shape of the tool result the server hands back to a client. */
 export type ToolResult = {
@@ -10,13 +10,15 @@ export type ToolResult = {
 
 /**
  * Call a tool the way the SDK does, bypassing the JSON-RPC transport.
- * `principal` is the identity the HTTP transport would hand over.
+ * `principal` is the identity the HTTP transport would hand over; `mount`
+ * is where the call arrives, the root when omitted.
  */
 export async function callTool(
   srv: McpServer,
   tool: string,
   args: Record<string, unknown>,
   principal?: Principal,
+  mount?: McpMount,
 ): Promise<ToolResult> {
   return (await (
     srv as unknown as {
@@ -24,7 +26,8 @@ export async function callTool(
         tool: string,
         args: Record<string, unknown>,
         principal: Principal | undefined,
+        mount?: McpMount,
       ): Promise<ToolResult>;
     }
-  ).handleToolCall(tool, args, principal)) as ToolResult;
+  ).handleToolCall(tool, args, principal, mount)) as ToolResult;
 }
