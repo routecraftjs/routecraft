@@ -98,7 +98,7 @@ With no `key`, the key is a SHA-256 over:
 3. **The body**, as a SHA-256 of `JSON.stringify(body)`.
 4. **The discriminator**, when a source sets the `routecraft.cache.discriminator` header (`HeadersKeys.CACHE_DISCRIMINATOR`): the one header the default key reads, for a source that delivers several operations into one route. The [`mcp()` proxy source](/docs/reference/adapters/mcp#proxying-a-remote-server) sets it to the remote tool's name, so two tools called with equal arguments never share an entry. It inherits into a `direct()` target like any other header, where it narrows that route's key the same way.
 
-Nothing else is in it. Any other header that selects the answer, such as a tenant or a locale the application reads from `routecraft.http.headers` without establishing it as the principal, is invisible to the default key, so two callers that differ only in that header share an entry. Establish identity with `.authenticate()` so it reaches the principal, or put the header into a custom `key`.
+Nothing else is in it. Any other header that selects the answer, such as a tenant or a locale the application reads from `routecraft.http.headers` without establishing it as the principal, is invisible to the default key, so two callers that differ only in that header share an entry. Establish identity before the cache check so it reaches the principal: at the source (`http({ auth })`, the MCP server's `auth`) for a route-scope cache, or with `.authenticate()` followed by a step-scope `.cache()` when the pipeline is where the credential is read. Otherwise put the header into a custom `key`.
 
 Every part is derived from the route definition and the exchange, so processes running the same built route code compute the same keys and can share an external provider. Callable source is read verbatim, as for the [deferral hash](/docs/reference/configuration#deferral): a formatting pass, a checkout with different line endings, or a build that changes emitted code (a different minifier, new bundler settings, a TypeScript target bump) changes the keys. That only ever causes misses, never a hit on another entry, so run one build everywhere that shares a provider and expect a cold cache after such a change. The route id is part of the key: give every cached route an `.id()`, because an unnamed route gets a fresh id on every start and its entries stop matching after a restart (the route logs a warning when this applies).
 
@@ -147,7 +147,7 @@ craft()
 
 A route that fronts a set of remote MCP tools is the other case: the writing tools and the read-only ones share one `.cache()`, and only the read-only ones may be served from it. The [`mcp()` proxy source](/docs/reference/adapters/mcp#proxying-a-remote-server) sets the remote tool's annotations on a header for exactly this predicate.
 
-`when` decides synchronously, from what the exchange already carries; a lookup it needs belongs in a step above the cache. A `when` that throws, or returns a promise, fails the exchange with [`RC5069`](/docs/reference/errors#rc-5069) and a `route:cache:failed` event with `phase: "when"`.
+`when` decides synchronously, from what the exchange already carries; a lookup it needs belongs in a step above the cache. A `when` that throws, or returns a promise, fails the exchange with [`RC5069`](/docs/reference/errors#rc-5069) and a `route:cache:failed` event with `phase: "when"`; a `RoutecraftError` it throws on purpose keeps its own code, as one a `key` throws does.
 
 ## Route scope
 

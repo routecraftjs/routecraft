@@ -98,8 +98,10 @@ export interface CacheOptions<Current = unknown> {
    * safe to cache (a lookup, but not with `force: true`; a proxied remote
    * tool whose annotations say read-only, but not the writing tools beside
    * it under the same route), or a caller who must always see a fresh
-   * answer. A `when` that throws fails the exchange with `RC5029`, the same
-   * as a `key` that throws.
+   * answer. The condition decides synchronously: one that throws, or
+   * returns a promise, fails the exchange with `RC5069`, while a
+   * `RoutecraftError` it throws on purpose keeps its own code, as one a
+   * `key` throws does.
    */
   when?: (exchange: Exchange<Current>) => boolean;
 }
@@ -252,6 +254,9 @@ export function cacheBypassed(
   try {
     decision = options.when(exchange);
     if (isThenable(decision)) {
+      // The promise is refused, not awaited, so its own rejection would be
+      // nobody's; observing it keeps that off the process.
+      void Promise.resolve(decision).catch(() => undefined);
       throw rcError("RC5069", undefined, {
         message: `cache({ when }) for ${site} returned a promise; the condition decides synchronously`,
       });

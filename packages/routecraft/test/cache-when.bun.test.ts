@@ -173,7 +173,9 @@ describe(".cache({ when })", () => {
           .id("route-cache-when-async")
           .cache({
             provider,
-            when: (() => Promise.resolve(false)) as unknown as () => boolean,
+            // A rejecting promise: the refusal must not leave it unhandled.
+            when: (() =>
+              Promise.reject(new Error("later"))) as unknown as () => boolean,
           })
           .from<string>(direct())
           .transform(compute)

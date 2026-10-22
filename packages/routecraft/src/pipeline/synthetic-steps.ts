@@ -297,8 +297,9 @@ export function buildCacheCheckStep(
         HeadersKeys.CORRELATION_ID
       ] as string;
 
-      // The store step reads the key off the internals, so leaving it
-      // unset is what keeps the write out as well as the read.
+      // The store step reads the key off the internals, so a bypass must
+      // leave none behind: a retry re-runs this check on the same exchange,
+      // and an earlier attempt's key would otherwise store this one.
       const bypassed = cacheBypassed(
         cacheConfig,
         exchange,
@@ -311,7 +312,10 @@ export function buildCacheCheckStep(
         },
         context ? (event, details) => context.emit(event, details) : undefined,
       );
-      if (bypassed) return { kind: "continue", exchange } as const;
+      if (bypassed) {
+        if (internals) delete internals.cacheKey;
+        return { kind: "continue", exchange } as const;
+      }
 
       let key: string;
       try {
