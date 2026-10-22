@@ -313,14 +313,14 @@ declare module "@routecraft/routecraft" {
      * with the `Deferred` acknowledgment and the real result belongs to
      * execution two. Separate from `completed` because a deferred run
      * reported as finished is a false receipt (the same honesty rule that
-     * gives declines their own event).
-     *
-     * Local routes only: a proxied call cannot defer an exchange of ours.
+     * gives declines their own event). A proxied call runs the proxy route,
+     * which can park like any other, so the event carries the provenance
+     * the other tool-call events do.
      */
     "plugin:mcp:tool:deferred": {
       tool: string;
       deferralId: string;
-    };
+    } & McpToolProvenance;
     /** MCP tool call failed. */
     "plugin:mcp:tool:failed": {
       tool: string;
@@ -329,16 +329,15 @@ declare module "@routecraft/routecraft" {
     /**
      * MCP tool call declined: the route ran and dropped the exchange rather
      * than producing a result. Separate from `failed` so a tool that filters
-     * does not report ordinary rejections as errors.
-     *
-     * Local routes only, so it carries no provenance fields: a proxied call
-     * has no exchange of ours to drop, and a remote `isError` result is
-     * reported as `failed`.
+     * does not report ordinary rejections as errors. A proxied call runs the
+     * proxy route, whose steps can drop the exchange, so the event carries
+     * the provenance the other tool-call events do; a remote `isError`
+     * result is reported as `failed`.
      */
     "plugin:mcp:tool:declined": {
       tool: string;
       reason: string;
-    };
+    } & McpToolProvenance;
     /** An MCP Apps view was served for `resources/read`. */
     "plugin:mcp:ui:served": {
       tool: string;

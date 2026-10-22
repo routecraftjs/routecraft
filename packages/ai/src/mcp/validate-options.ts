@@ -42,6 +42,11 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
   if (options.name !== undefined && options.name.trim().length === 0) {
     throw new TypeError("mcpPlugin: name must not be empty");
   }
+  if ((options as { proxy?: unknown }).proxy !== undefined) {
+    throw new TypeError(
+      "mcpPlugin: `proxy` was removed. A client's tools are re-exposed by a route: .from(mcp({ proxy: 'server:*' })).to(mcp('server:*')) for every tool of a client, .from(mcp({ proxy: 'server:tool' })) for one, with .authorize() and the route's steps where a guard used to be. See the 0.7 to 0.8 migration guide, section 8.",
+    );
+  }
   if (options.transport === "http") {
     const removed = options as McpPluginOptions & {
       port?: unknown;

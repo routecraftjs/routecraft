@@ -764,6 +764,13 @@ export class McpServer {
     this.stdioHandle = serveStdio(() => {
       const instance = this.createServerInstance(undefined);
       this.stdioServers.add(instance);
+      // A closed connection is not told anything; the set holds only
+      // connections a notification can still reach.
+      const onclose = instance.onclose;
+      instance.onclose = () => {
+        this.stdioServers.delete(instance);
+        onclose?.();
+      };
       return instance;
     });
   }
@@ -793,11 +800,14 @@ export class McpServer {
     );
   }
 
+  /**
+   * What `tools/list` would answer now, as one string: a changed name,
+   * description, schema or annotation is a change a client must re-list for.
+   */
   private advertisedToolNames(): string {
-    return this.getAvailableTools()
-      .map((tool) => tool.name)
-      .sort()
-      .join("\n");
+    return JSON.stringify(
+      this.getAvailableTools().sort((a, b) => a.name.localeCompare(b.name)),
+    );
   }
 
   private notifyToolsChanged(): void {
@@ -1185,6 +1195,18 @@ export class McpServer {
   }
 
   /**
+   * The local route entry served under `name`, if one is registered and the
+   * `tools` filter admits it. A filtered-out local route neither serves nor
+   * holds the name: a proxied tool exposed under it is served instead.
+   */
+  private servedLocalEntry(name: string): McpLocalToolEntry | undefined {
+    const local = this.service.local.get(name);
+    return local !== undefined && this.passesToolsFilter(local)
+      ? local
+      : undefined;
+  }
+
+  /**
    * Local route tool entries after the `tools` filter, for `resources/list`
    * (a view belongs to a tool a route defines, never to a proxied one).
    */
@@ -1203,7 +1225,7 @@ export class McpServer {
   private getExposedEntries(): McpLocalToolEntry[] {
     const entries = this.getExposedLocalEntries();
     for (const proxied of this.resolveProxied().values()) {
-      if (this.service.local.has(proxied.entry.endpoint)) {
+      if (this.servedLocalEntry(proxied.entry.endpoint) !== undefined) {
         this.warnProxyOnce(
           `proxy:local-conflict:${proxied.entry.endpoint}`,
           "mcp({ proxy }): a proxied tool's exposed name is a local mcp() route's; the route keeps it. Give the proxy a prefix or a name to expose both.",
@@ -1229,10 +1251,8 @@ export class McpServer {
   private lookupTool(
     toolName: string,
   ): { entry: McpLocalToolEntry; proxied?: McpProxiedEntry } | undefined {
-    const local = this.service.local.get(toolName);
-    if (local) {
-      return this.passesToolsFilter(local) ? { entry: local } : undefined;
-    }
+    const local = this.servedLocalEntry(toolName);
+    if (local) return { entry: local };
     const proxied = this.resolveProxied().get(toolName);
     if (!proxied || !this.passesToolsFilter(proxied.entry)) return undefined;
     return { entry: proxied.entry, proxied };

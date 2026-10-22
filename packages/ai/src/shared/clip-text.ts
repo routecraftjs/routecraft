@@ -1,12 +1,13 @@
 /**
- * Cut `text` to at most `max` UTF-16 units, the ellipsis included, by code
- * point, so a cut never splits a surrogate pair. Only the head is walked: a
- * code point spans at most two units, so twice the cap in units holds every
- * code point that can survive.
+ * Cut `text` to at most `max` characters (code points), the ellipsis
+ * included, so a cut never splits a surrogate pair. The cap is in
+ * characters on purpose: it is what a reader counts, and a text of `max`
+ * astral characters is still bounded, at twice `max` UTF-16 units. Only the
+ * head is walked, since a code point spans at most two units.
  *
- * Core's `caller-refusal.ts` keeps the same rule for schema issues; the
- * package boundary keeps it out of core's public entry point, so this is
- * the `@routecraft/ai` copy.
+ * Core's `caller-refusal.ts` keeps the same rule for schema issues, with
+ * tests pinning it; the package boundary keeps it out of core's public
+ * entry point, so this is the `@routecraft/ai` copy.
  *
  * @internal
  */

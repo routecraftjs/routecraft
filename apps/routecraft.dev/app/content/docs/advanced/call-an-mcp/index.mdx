@@ -30,6 +30,7 @@ export const craftConfig = defineConfig({
     clients: {
       browser: { url: 'http://127.0.0.1:8089/mcp' },
       search: { url: 'http://127.0.0.1:9000/mcp' },
+      github: { url: 'https://api.githubcopilot.com/mcp/', auth: { token: process.env.GITHUB_TOKEN! } },
     },
   },
 })
@@ -98,9 +99,9 @@ A raw MCP tool carries no per-call policy. When an agent calls one, the credenti
 | A read-only or otherwise harmless tool, trusted agent | raw `MCP(server:tool)` | nothing | n/a |
 | To block by identity or role, a pure yes/no | a per-tool `guard` on the binding | one inline function | no, per binding |
 | Anything stateful or time-based, or shared across agents | wrap the tool in a route, hand the agent `Direct(<id>)` | a few lines | yes |
-| Policy on a vendor's whole server, or a tool under the remote's own name and schema | a [proxy route](#governing-a-remote-servers-tools), `.from(mcp({ proxy }))`; the agent's `MCP(server:tool)` runs through it | a few lines | yes |
+| Policy on a vendor's whole server, or a tool under the remote's own schema and call contract | a [proxy route](#governing-a-remote-servers-tools), `.from(mcp({ proxy }))`; the agent's `MCP(server:tool)` runs through it | a few lines | yes |
 
-Tiers 1 and 2 are covered on the [agent plugin reference](/docs/reference/plugins/agentplugin). For tier 3, put a route in front of the tool: its entry is a `direct()` endpoint, its exit is the `.to(mcp(...))` call you have already seen, and the guardrails live on the steps between.
+Tiers 1 and 2 are covered on the [agent plugin reference](/docs/reference/plugins/agentplugin). For tier 3, put a route in front of the tool. A route per tool starts at a `direct()` endpoint, ends in the `.to(mcp(...))` call you have already seen, and keeps the guardrails on the steps between; a route over a vendor's whole server starts at the proxy source instead, shown [below](#governing-a-remote-servers-tools).
 
 ```ts
 // capabilities/github-create-issue/route.ts
@@ -147,7 +148,7 @@ export default craft()
   .to(mcp('github:*'))
 ```
 
-Every tool the `github` client lists is now served by your [MCP server](/docs/introduction/expose-to-an-agent) as `github_<tool>`, authorized on the caller's principal, with the read-only ones cached. A tool that needs its own shaping gets its own route, which wins over the star route for that tool:
+Every tool the `github` client lists is now served by your [MCP server](/docs/introduction/expose-to-an-agent) as `github_<tool>`, authorized on the caller's principal, with the read-only ones cached; the exceptions are the server's own `tools` filter, a name a local route already holds, and a prefixed name that is not a valid tool name, each skipped with a warning. A tool that needs its own shaping gets its own route, which wins over the star route for that tool:
 
 ```ts
 // capabilities/github-create-issue/route.ts
@@ -160,7 +161,7 @@ export default craft()
   .from(mcp({ proxy: 'github:create_issue' }))
   .transform((args) => {
     const issue = args as { title: string; body?: string }
-    // Nothing that looks like an IBAN reaches GitHub.
+    // A compact uppercase IBAN never reaches GitHub; a real redaction normalises first.
     return { ...issue, body: issue.body?.replace(/\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g, '[iban]') }
   })
   .to(mcp('github:create_issue'))

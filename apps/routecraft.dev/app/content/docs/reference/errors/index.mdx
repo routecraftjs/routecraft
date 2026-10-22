@@ -1323,7 +1323,7 @@ A remote MCP server answers a failed call with `isError: true` and its content a
 Not a Routecraft or transport failure: a connection that could not be made, a server that is not registered, or a stdio client that is not running is [RC5003](#rc-5003).
 
 **Suggestion**  
-- On a route, handle it where the hop is: `.error()` to recover or `.retry()` when the remote's failure is transient.
+- On a route, handle it where the hop is: `.error()` to recover, or `.retry({ retryOn })` with a predicate that admits `AI2003` when the remote's failure is transient; the code is registered as not retryable, so the default predicate skips it.
 - On a route that proxies the remote (`mcp({ proxy })`), nothing to do: the caller receives the remote's text as a failed call when the hop was to the tool they called. From any other hop, or from a nested route, the caller receives the code alone.
 - When the text names an argument, fix the arguments the route sends; the remote validated them at its door.
 

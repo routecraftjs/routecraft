@@ -299,6 +299,13 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     };
     if (this.options.name !== undefined) registration.name = this.options.name;
     if (discovery?.description !== undefined) {
+      if (discovery.description.length === 0) {
+        throw rcError("RC5003", undefined, {
+          message: `MCP route "${routeId}" declares an empty description`,
+          suggestion:
+            "Leave .description() off to pass the remote's description through, or give one with text; the MCP protocol requires a non-empty description for each tool.",
+        });
+      }
       registration.description = discovery.description;
     }
 

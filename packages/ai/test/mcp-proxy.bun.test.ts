@@ -396,6 +396,40 @@ describe("a route that proxies a remote MCP server", () => {
   });
 
   /**
+   * @case A local route the tools filter excludes does not hold its name over a proxied tool
+   * @preconditions A local route docs_search and a star route over docs, with a server tools filter that excludes the local route's entry
+   * @expectedResult tools/list carries one docs_search, the proxied one, and a call reaches the docs client
+   */
+  test("a filtered-out local route yields its name to the proxied tool", async () => {
+    await serve(
+      [
+        craft()
+          .id("docs_search")
+          .description("Our own search")
+          .from(mcp())
+          .transform(() => ({ local: true }))
+          .to(noop()),
+        craft()
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+      ],
+      { server: { tools: (entry) => entry.description !== "Our own search" } },
+    );
+    const listed = server.getAvailableTools();
+    expect(listed.filter((tool) => tool.name === "docs_search")).toHaveLength(
+      1,
+    );
+    expect(
+      listed.find((tool) => tool.name === "docs_search")?.description,
+    ).not.toBe("Our own search");
+    await call("docs_search", { q: "x" });
+    expect(dispatches).toEqual([
+      { serverId: "docs", toolName: "search", args: { q: "x" } },
+    ]);
+  });
+
+  /**
    * @case A stdio client is told when the advertised tool set changes
    * @preconditions Star route over docs with a stdio instance observing; the registry re-lists docs with a tool added, then re-lists it unchanged; then a local route registers
    * @expectedResult tools/list_changed is sent once for the added tool, not for the unchanged listing, and once more for the local route

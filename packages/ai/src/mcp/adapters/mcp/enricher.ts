@@ -136,6 +136,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
       // The hop to the tool the caller named: its error text is the remote's
       // answer to that caller, which the MCP server relays for this route.
       if (
+        typeof this.options.serverId === "string" &&
         exchange.headers[McpHeadersKeys.CLIENT] === this.options.serverId &&
         exchange.headers[McpHeadersKeys.TOOL] === toolName
       ) {

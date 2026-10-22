@@ -47,9 +47,13 @@ export function parseProxyRef(ref: string): McpProxyRef {
   return { serverId, tool };
 }
 
-/** The key a registration is held under: one exact or one star per client and tool. */
+/**
+ * The key a registration is held under: one exact or one star per client
+ * and tool. Encoded as a JSON pair so a tool name carrying a colon cannot
+ * read as a different client and tool.
+ */
 export function proxyRegistrationKey(serverId: string, tool: string): string {
-  return `${serverId}:${tool}`;
+  return JSON.stringify([serverId, tool]);
 }
 
 /**
@@ -96,6 +100,11 @@ export function declaredProxy(
     }
   }
   return star;
+}
+
+/** A description with text in it, or nothing: an empty one earns the fallback. */
+function nonEmpty(text: string | undefined): string | undefined {
+  return text !== undefined && text.length > 0 ? text : undefined;
 }
 
 /** A tool a proxy registration exposes: a local entry plus where it goes. */
@@ -211,8 +220,8 @@ export function proxiedEntry(
   const entry: McpLocalToolEntry = {
     endpoint: exposedName,
     description:
-      registration.description ??
-      remote.description ??
+      nonEmpty(registration.description) ??
+      nonEmpty(remote.description) ??
       `Tool "${remote.name}" on client "${registration.serverId}".`,
     input: { body: standardSchemaFromJsonSchema(remote.inputSchema) },
     handler: (request) =>

@@ -40,10 +40,14 @@ describe(".cache({ when })", () => {
   /**
    * @case Route scope: a false `when` neither reads nor writes, and the pipeline runs every time
    * @preconditions craft().cache({ provider, when: body !== "fresh" }).from(direct()); two sends of "fresh" and two of "stale"
-   * @expectedResult "fresh" runs the pipeline twice and stores nothing; "stale" runs once and hits once; the bypassed sends emit route:cache:bypassed and no hit, miss or stored
+   * @expectedResult "fresh" runs the pipeline twice and touches the provider for neither a read nor a write; "stale" runs once and hits once; the bypassed sends emit route:cache:bypassed and no hit, miss or stored
    */
   test("route scope skips the read and the write when the condition is false", async () => {
     const provider = new MemoryCacheProvider();
+    const reads = mock(provider.get.bind(provider));
+    const writes = mock(provider.set.bind(provider));
+    provider.get = reads;
+    provider.set = writes;
     const compute = mock((b: string) => `out:${b}`);
     const sink = spy();
 
@@ -65,10 +69,14 @@ describe(".cache({ when })", () => {
     await t.startAndWaitReady();
     await t.client.sendDirect("route-cache-when", "fresh");
     await t.client.sendDirect("route-cache-when", "fresh");
+    expect(reads).not.toHaveBeenCalled();
+    expect(writes).not.toHaveBeenCalled();
     await t.client.sendDirect("route-cache-when", "stale");
     const hit = await t.client.sendDirect("route-cache-when", "stale");
 
     expect(compute).toHaveBeenCalledTimes(3);
+    expect(reads).toHaveBeenCalledTimes(2);
+    expect(writes).toHaveBeenCalledTimes(1);
     expect(hit).toBe("out:stale");
     expect(sink.received.map((ex) => ex.body)).toEqual([
       "out:fresh",
@@ -156,6 +164,29 @@ describe(".cache({ when })", () => {
 
     expect(compute).not.toHaveBeenCalled();
     expect(phases).toEqual(["when"]);
+  });
+
+  /**
+   * @case A false `when` is decided before the key, so an unkeyable body never reaches key derivation
+   * @preconditions Route-scope cache with the default key and `when: () => false`; the body is a function, which the default key cannot serialise
+   * @expectedResult The send succeeds with the pipeline's result instead of failing with RC5029
+   */
+  test("a false condition runs before the key is derived", async () => {
+    const provider = new MemoryCacheProvider();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("route-cache-when-unkeyable")
+          .cache({ provider, when: () => false })
+          .from<unknown>(direct())
+          .transform(() => "ran")
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+    await expect(
+      t.client.sendDirect("route-cache-when-unkeyable", () => undefined),
+    ).resolves.toBe("ran");
   });
 
   /**
