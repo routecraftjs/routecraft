@@ -71,7 +71,6 @@ export const craftConfig: CraftConfig = {
 | `resource` | `McpResourceOptions` (`{ url?: string \| URL; scopesSupported?: string[]; documentationUrl?: string \| URL }`) | -- | RFC 9728 protected-resource metadata (http transport only). `url` is the public URL clients reach, which a proxy hides from the bind address, so outside `NODE_ENV=development` or `test` it is required and must be HTTPS; the server refuses to start with `RC5003` otherwise. `scopesSupported` and `documentationUrl` fill `scopes_supported` and `resource_documentation`. |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of local route tool names to expose, or a filter function. Applies to `tools/list` and `tools/call`, and to `resources/list` and `resources/read` for [MCP Apps views](/docs/reference/adapters/mcp#mcp-apps-views). |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
-| `proxy` | `Array<string \| McpProxyToolConfig>` | -- | Tools from registered `clients` to re-expose through this server (see below) |
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
 | `restartDelay` | `Duration` | `1000` | Initial delay before the first restart attempt |
 | `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
@@ -305,28 +304,6 @@ auth: oauth({
 
 ## Proxying client tools
 
-The `proxy` option re-exposes tools from registered `clients` through this MCP server without a route per tool. Each entry is a ref string or a config object:
-
-| Ref form | Meaning |
-|----------|---------|
-| `'server:tool'` | Proxy one tool from a registered client |
-| `'server:*'` or `'server'` | Proxy every tool the client advertises |
-| `{ ref, name?, description?, annotations? }` | Proxy one tool with overrides |
-
-**`McpProxyToolConfig`:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `ref` | `string` | Yes | Tool ref; the server id must be a key of `clients` |
-| `name` | `string` | No | Exposed tool name override (`[A-Za-z0-9_-]{1,64}`); invalid on wildcard refs |
-| `description` | `string` | No | Description override for `tools/list`; invalid on wildcard refs |
-| `annotations` | `McpToolAnnotations` | No | Merged over the remote tool's annotations (per key) |
-| `guard` | `ToolGuard` | No | Runs before dispatch with `(args, ctx)`; throw to reject the call as an `isError` result. `ctx.principal` carries the MCP caller's identity (HTTP `auth`). On wildcard refs the guard attaches to every expanded tool. Same contract as the agent's `tools([{ name, guard }])`, except the args are the caller's raw input (no local schema validation runs before a proxy guard). |
-
-Refs are validated when the plugin is created: unknown clients, malformed refs, wildcard renames, and statically duplicate exposed names all throw. Colons beyond the first split stay in the tool segment (matching the agent's `MCP(server:tool)` grammar), so a remote tool named `ns:tool` is addressable as `'server:ns:tool'`. Resolution against the tool registry is live, so wildcard entries follow tool refresh and stdio restarts, and a client whose initial listing failed starts serving as soon as its tools appear.
-
-An exact ref and a wildcard covering the same remote tool compose: the exact entry's overrides and guard apply regardless of config order. On a collision between different remote tools, a local `.from(mcp())` route wins over a proxied tool, and earlier `proxy` entries win over later ones; both log a warning once per registry change. Exposed names must match `[A-Za-z0-9_-]{1,64}`; a remote tool whose own name does not conform is skipped with a warning unless renamed via an exact entry's `name` override.
-
-Proxied calls dispatch over the client's registered transport and auth, and the remote result (`content`, `structuredContent`, `isError`) passes through unchanged, apart from the protocol-revision projection applied to every result so it still matches the schema this server advertised. The caller's authenticated principal is not forwarded, and no route pipeline runs (no `authorize()`, validation, or resilience wrappers); a per-entry `guard` covers identity and role checks. Reserve raw `proxy` entries for simple, read-only tools; put anything needing stateful guardrails behind a `.from(mcp())` route. See [Calling an MCP, re-exposing a client's tools](/docs/advanced/call-an-mcp#re-exposing-a-clients-tools).
+A client's tools are re-exposed through this server by a route, not by a plugin option: `.from(mcp({ proxy: 'server:*' }))` for every tool of a registered client, `.from(mcp({ proxy: 'server:tool' }))` for one, with `.to(mcp('server:*'))` as the hop and the route's chain and steps as the policy. The tools the client lists appear under the route's prefix, follow the client's tool refresh and stdio restarts, and are served exactly as a `.from(mcp())` route's tool is: same `tools` filter, same decline and failure mapping, same events with `proxied: true` and the client and remote tool named. The [mcp adapter reference](/docs/reference/adapters/mcp#proxying-a-remote-server) has the options, the headers a proxied exchange carries, the naming rules and the migration from a hand-written wrapping route.
 
 See [Expose to an agent](/docs/introduction/expose-to-an-agent), [Calling an MCP](/docs/advanced/call-an-mcp), and [Securing capabilities](/docs/advanced/securing-capabilities) for usage guides.

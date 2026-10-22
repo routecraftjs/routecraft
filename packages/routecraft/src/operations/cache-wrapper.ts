@@ -237,9 +237,10 @@ export function cacheBypassed(
 
 /**
  * The default cache key: a SHA-256 over the JSON tuple
- * `[scope.kind, routeId, site | pipeline, principalChain | null, bodyHash]`,
+ * `[scope.kind, routeId, site | pipeline, principalChain | null, bodyHash, discriminator | null]`,
  * where `principalChain` is `[issuer | null, subject]` for the principal
- * and each `actor` hop.
+ * and each `actor` hop, and `discriminator` is the
+ * `routecraft.cache.discriminator` header when a source set one.
  * Encoding the tuple as JSON keeps the fields from running into each
  * other; hashing the body first keeps a large body out of the second
  * serialisation.
@@ -274,12 +275,14 @@ export function defaultCacheKey(
         "Supply an explicit `key` function in cache({ key: ... }).",
     });
   }
+  const discriminator = exchange.headers[HeadersKeys.CACHE_DISCRIMINATOR];
   const identity = JSON.stringify([
     scope.kind,
     scope.routeId,
     scope.kind === "step" ? scope.site : scope.pipeline,
     principalIdentity(principalOf(exchange)),
     bodyHash,
+    typeof discriminator === "string" ? discriminator : null,
   ]);
   return createHash("sha256").update(identity).digest("hex");
 }

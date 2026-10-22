@@ -48,6 +48,8 @@ The client is an enricher: in `.to()` and bare `.enrich()` the tool result repla
 .enrich(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'browser_navigate' }, { args: (ex) => ({ url: ex.body.url }) }))
 ```
 
+The result the client hands the route is the remote's `structuredContent` when it published one, otherwise its content: one text block as its string, several blocks as the array, none as the raw result. A result the remote flagged `isError` throws [`AI2003`](/docs/reference/errors#ai-2003) with the remote's text, bounded, so a route fails at its boundary and can `.error()` or `.retry()` around it, and an agent sees a failed call rather than content.
+
 When using the `serverId` path (recommended), auth configured on the client in `mcpPlugin({ clients })` flows to the tool call automatically. Inline `auth` on `McpClientOptions` is available as an escape hatch for the raw `url` path or to override registered config, but prefer centralizing credentials in the plugin config.
 
 **Options (McpServerOptions -- source, protocol extras only):**
@@ -57,6 +59,9 @@ When using the `serverId` path (recommended), auth configured on the client in `
 | `annotations` | `McpToolAnnotations` | No | Behavior hints forwarded to MCP clients in the `tools/list` response |
 | `icons` | `McpIcon[]` | No | Icons forwarded on `tools/list` per the MCP spec |
 | `ui` | `McpUiOptions` | No | An [MCP Apps](#mcp-apps-views) view the host renders the tool result in. Requires `.output()` |
+| `proxy` | `string` | No | Make this route the tools of a registered client (`'github:*'` or `'github'`) or one of them (`'github:create_issue'`). See [Proxying a remote server](#proxying-a-remote-server) |
+| `prefix` | `string` | No | What an exposed proxied tool's name starts with; defaults to the client's name and an underscore (`github_`). `''` exposes the remote names bare. Only with `proxy` |
+| `name` | `string` | No | The exposed name of the one tool an exact `proxy` names, in place of the prefixed remote name. Refused with a star `proxy` |
 
 All other tool metadata (title, description, input / output schemas) comes from the route builder and is enforced framework-wide:
 
@@ -143,6 +148,87 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 .from(mcp({ annotations: { readOnlyHint: true, openWorldHint: true } }))
 ```
 
+#### Proxying a remote server
+
+A route can be the tools of a client registered under `mcpPlugin({ clients })`, or one of them, so that every tool of a vendor's server is governed by one route instead of a hand-written route per tool. The source says which tools, the hop forwards the call, and everything between and after is the ordinary DSL.
+
+```ts skip="fragment: readOnlyTool and stripFields are illustrative"
+// Every tool of the github client, exposed as github_<tool>.
+craft()
+  .id('github')                                   // the route's name in ops and logs, never a tool
+  .authorize({ scopes: ['github:read'] })
+  .cache({ ttl: '2m', when: readOnlyTool })       // serve the read-only tools from the cache
+  .from(mcp({ proxy: 'github:*' }))               // this route IS github's tools
+  .process(refuseSecrets)                         // before: refuse (throw) or rewrite the arguments
+  .to(mcp('github:*'))                            // forward whichever tool was called
+  .transform(stripFields(['author_email']))       // after: rewrite or refuse the result
+
+// One tool, its own route. Wins over the star route for that tool.
+craft()
+  .id('github-create-issue')
+  .tag('approval')
+  .authorize({ roles: ['maintainer'] })
+  .from(mcp({ proxy: 'github:create_issue' }))
+  .transform(redact)
+  .to(mcp('github:create_issue'))
+  .transform(restore)
+```
+
+Three sentences hold the model:
+
+1. `mcp({ proxy: 'github:*' })` as the source means this route is every tool of the client `github`, exposed under the remote's own names with the prefix `github_`. `mcp({ proxy: 'github:create_issue' })` means this route is that one tool.
+2. `.to(mcp('github:*'))` forwards the call to the remote; with a star it forwards whichever tool was called, with the client's registered credentials. Every step above it sees the arguments as the body, every step below it sees the result.
+3. The server advertises what the client currently lists. A call for a tool the client no longer has fails downstream and comes back as a failed call. Nothing in the route refreshes anything; the client's list is what it is.
+
+**What a proxied exchange carries.** The arguments are the body. The headers say where the call goes:
+
+| Header | Value |
+|--------|-------|
+| `McpHeadersKeys.TOOL` (`routecraft.mcp.tool`) | The remote tool's name, which the star hop forwards to |
+| `McpHeadersKeys.CLIENT` (`routecraft.mcp.client`) | The registered client |
+| `McpHeadersKeys.ANNOTATIONS` (`routecraft.mcp.annotations`) | The remote tool's annotations as the client listed them, for a `.cache({ when })` that serves only `readOnlyHint` tools, or any step that treats a destructive tool differently |
+| `HeadersKeys.CACHE_DISCRIMINATOR` | The remote tool's name, folded into the default cache key so two tools called with equal arguments never share an entry |
+
+```ts skip="fragment: the predicate a cache on a star route uses"
+const readOnlyTool = (ex: Exchange) =>
+  (ex.headers[McpHeadersKeys.ANNOTATIONS] as McpToolAnnotations | undefined)?.readOnlyHint === true
+```
+
+**Names.** A proxied tool is exposed as `<client>_<tool>` (`github_create_issue`; a Claude client sees `mcp__<server>__github_create_issue`). The prefix is what keeps the tool list stable: a remote adding a tool can never collide with another server's tool, so the only collision possible is one you wrote. `prefix: ''` on a star route exposes the remote names bare and accepts the collisions that come with it; `name` on an exact route renames the one tool. Two routes that would expose the same name keep the first (in registration order) and warn; a local `.from(mcp())` route keeps a name over a proxied tool and warns. An exposed name must still match `[A-Za-z0-9_-]{1,64}`, so a remote tool whose prefixed name does not conform is skipped with a warning until a `prefix` or `name` makes it conform.
+
+**Rules.**
+
+- An exact route wins over a star route for the tool it names. Two exact routes for one tool, or two star routes for one client, are refused at start (`RC5003`).
+- The route id names the route, never a tool. `.description()` and `.title()` replace the remote's for every tool the route exposes; leave them off to pass the remote's through. `.tag()` and `annotations` merge over the remote's annotations per key.
+- The remote's JSON Schemas pass through to `tools/list` and to an agent's catalogue; the remote validates at its door. A remote tool with an `outputSchema` publishes its result as `structuredContent`.
+- A route that can park (a `.defer()`, or an approval hook on a tag) advertises the `Deferred` arm on every tool it exposes, and an agent holding one of those tools holds it as a background tool, as for any parking route.
+- The caller's principal selects policy on the route (`.authorize()`, your steps) and is never forwarded. The hop authenticates with the client's registered `auth`.
+- `ui` is refused on a proxy source: a view belongs to a tool a route defines.
+
+**Agents.** An agent's `MCP(github:create_issue)` reference resolves to the route that proxies it when one exists, under the reference's own name (`mcp__github__create_issue`), so your own agent is under the same policy as an external client. Reaching the client directly needs an explicit `{ name: 'MCP(github:create_issue)', direct: true }`, which the resolver logs. A tool no route covers stays raw.
+
+**Migrating a hand-written wrapping route.** Before this source existed, policy on a remote tool meant a `direct()` route per tool that called `.to(mcp('github:create_issue'))`, and either an agent holding `Direct(<id>)` or an `mcpPlugin({ proxy })` entry re-exposing the tool. The same policy now sits on one route per server, or per tool where a tool needs its own:
+
+```ts skip="fragment: before and after of the same policy"
+// Before: one route per tool, reachable as Direct(github-create-issue)
+craft()
+  .id('github-create-issue')
+  .description('Create a GitHub issue')
+  .input({ body: CreateIssue })
+  .authorize({ roles: ['maintainer'] })
+  .from(direct())
+  .to(mcp('github:create_issue'))
+
+// After: the same tool, same policy, exposed by the MCP server and resolved by MCP(github:create_issue)
+craft()
+  .id('github-create-issue')
+  .authorize({ roles: ['maintainer'] })
+  .from(mcp({ proxy: 'github:create_issue' }))
+  .to(mcp('github:create_issue'))
+```
+
+What changes in the move: the input schema comes from the remote, so `.input()` goes unless you want a narrower one; the route is exposed as `github_create_issue` rather than by its id; an agent references it as `MCP(github:create_issue)` rather than `Direct(github-create-issue)`; a set of tools that shared a policy collapses into one star route; and an `mcpPlugin({ proxy })` entry, with or without a `guard`, becomes a route (a `guard` that checked the caller becomes `.authorize()` or a `.process()` that throws). The hand-written route with its own `.input()` and `.enrich(mcp('server:tool'))` remains the escape hatch for a tool whose name, schema or shape you want to change, or that composes two upstream calls.
+
 #### MCP Apps views
 
 By default a host shows a tool's result as JSON. A host that supports the [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) extension (Claude web and desktop, ChatGPT, VS Code with GitHub Copilot) can render it in an HTML view instead. `ui` attaches one: the tool advertises `_meta.ui.resourceUri` on `tools/list`, and the server serves the view at that `ui://` URI through `resources/read` with MIME type `text/html;profile=mcp-app`. Hosts without MCP Apps support read the text result as before.
@@ -223,7 +309,7 @@ Rules the adapter enforces:
 |--------|------|----------|-------------|
 | `url` | `string` | One of url/serverId | Direct HTTP URL of the remote MCP server |
 | `serverId` | `string` | One of url/serverId | Named server registered via `mcpPlugin({ clients })` |
-| `tool` | `string` | No | Tool name to invoke (or set `exchange.body.tool`) |
+| `tool` | `string` | Yes | Tool name to invoke, or `'*'` to invoke the tool named on `McpHeadersKeys.TOOL`, which a route proxying a remote server carries on every exchange |
 | `args` | `(exchange) => Record<string, unknown>` | No | Extractor for tool arguments; defaults to `exchange.body` |
 | `auth` | `McpClientAuthOptions` | No | Auth credentials for HTTP requests. Auto-inherited from `mcpPlugin({ clients })` when using `serverId`; use to override or for inline `url` connections |
 

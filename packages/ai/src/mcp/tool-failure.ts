@@ -41,6 +41,11 @@ export function toolFailureText(
 ): string {
   if (refusal !== undefined) return refusalText(tool, refusal);
   const code = rcCodeOf(error);
+  // The remote's own error text is its answer to this caller, bounded at the
+  // dispatch; nothing of this instance is in it.
+  if (code === "AI2003") {
+    return (error as { meta: { message: string } }).meta.message;
+  }
   const cause = (error as { cause?: unknown } | null)?.cause;
   if (
     code !== undefined &&

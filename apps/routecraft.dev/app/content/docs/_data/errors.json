@@ -654,6 +654,12 @@
     "retryable": false
   },
   {
+    "code": "AI2003",
+    "category": "Adapter",
+    "message": "Remote MCP tool reported an error",
+    "retryable": false
+  },
+  {
     "code": "OS1001",
     "category": "Adapter",
     "message": "Isolation tier unavailable",

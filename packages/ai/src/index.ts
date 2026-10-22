@@ -134,7 +134,7 @@ export {
   type McpToolRequest,
   type McpOptions,
   type McpPluginOptions,
-  type McpProxyToolConfig,
+  type McpProxyRegistration,
   type McpRawToolResult,
   type McpResourceOptions,
   type McpServerOptions,

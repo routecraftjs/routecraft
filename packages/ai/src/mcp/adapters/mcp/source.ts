@@ -8,10 +8,12 @@ import {
 import { MCP } from "../../port.ts";
 import type {
   McpLocalToolEntry,
+  McpProxyRegistration,
   McpServerOptions,
   McpToolRequest,
   McpUiOptions,
 } from "../../types.ts";
+import { parseProxyRef, type McpProxyRef } from "../../proxy.ts";
 import type { McpMessage } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
 import {
@@ -91,9 +93,12 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
 
   private options: McpServerOptions;
 
+  private readonly proxyRef: McpProxyRef | undefined;
+
   constructor(options: McpServerOptions = {}) {
     (this as unknown as Record<symbol, boolean>)[BRAND_MCP_ADAPTER] = true;
     if (options.ui !== undefined) assertValidUiOptions(options.ui);
+    this.proxyRef = assertValidProxyOptions(options);
     this.options = options;
   }
 
@@ -109,6 +114,9 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     }
 
     const endpoint = meta.routeId;
+    if (this.proxyRef !== undefined) {
+      return this.subscribeProxy(sub, this.proxyRef);
+    }
     assertValidMcpToolName(endpoint);
 
     const discovery = meta.discovery;
@@ -219,4 +227,139 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       });
     });
   }
+
+  /**
+   * The proxy half of the source, split out of `subscribe` so the two paths
+   * read on their own: a route that is its own tool registers one local
+   * entry; a route that proxies a client registers once and the server
+   * turns it into one tool per remote tool the client lists.
+   */
+  private async subscribeProxy(
+    sub: Subscription<McpMessage<undefined>>,
+    ref: McpProxyRef,
+  ): Promise<void> {
+    const { context, meta } = sub;
+    const routeId = meta!.routeId!;
+    const service = context.lookup(MCP);
+    if (!service) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "MCP plugin required: routes using .from(mcp({ proxy })) require the MCP plugin. Add `mcp: {}` to defineConfig({...}) in craft.config.ts, or mcpPlugin() to the plugins of a context you build yourself.",
+      });
+    }
+    if (!service.clients.has(ref.serverId)) {
+      const known = [...service.clients.keys()];
+      throw rcError("RC5003", undefined, {
+        message: `Route "${routeId}" proxies client "${ref.serverId}", which is not registered`,
+        suggestion:
+          known.length > 0
+            ? `Register it under mcpPlugin({ clients }). Registered clients: ${known.map((k) => `"${k}"`).join(", ")}.`
+            : "Register it under mcpPlugin({ clients }); no clients are registered in this context.",
+      });
+    }
+
+    const discovery = meta?.discovery;
+    const registration: McpProxyRegistration = {
+      serverId: ref.serverId,
+      tool: ref.tool,
+      prefix: this.options.prefix ?? `${ref.serverId}_`,
+      routeId,
+      handler: (request: McpToolRequest) =>
+        sub.emit({
+          message: request.body as McpMessage<undefined>,
+          headers: request.headers,
+        }),
+    };
+    if (this.options.name !== undefined) registration.name = this.options.name;
+    if (discovery?.description !== undefined) {
+      registration.description = discovery.description;
+    }
+    if (discovery?.title !== undefined) registration.title = discovery.title;
+    const annotations = mergeAnnotations(
+      deriveAnnotationsFromTags(discovery?.tags),
+      this.options.annotations,
+    );
+    if (annotations !== undefined) registration.annotations = annotations;
+    if (this.options.icons !== undefined) {
+      registration.icons = this.options.icons;
+    }
+    const definition = context.getRouteById(routeId)?.definition;
+    if (definition && routeCanDefer(definition, context)) {
+      registration.deferrable = true;
+    }
+
+    if (sub.signal.aborted) return;
+    const withdraw = service.registerProxy(registration);
+    sub.signal.addEventListener("abort", withdraw, { once: true });
+
+    sub.ready();
+
+    await new Promise<void>((resolve) => {
+      if (sub.signal.aborted) {
+        resolve();
+        return;
+      }
+      sub.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+  }
+}
+
+/**
+ * Validate the `proxy`, `prefix` and `name` options when `mcp()` is called,
+ * not when the route starts, and parse the ref once.
+ */
+function assertValidProxyOptions(
+  options: McpServerOptions,
+): McpProxyRef | undefined {
+  const invalid = (message: string, suggestion: string): never => {
+    throw rcError("RC5003", undefined, {
+      message: `mcp(): ${message}`,
+      suggestion,
+    });
+  };
+  if (options.proxy === undefined) {
+    if (options.prefix !== undefined || options.name !== undefined) {
+      invalid(
+        "prefix and name apply to a proxy source only",
+        'Pass proxy: "server:*" or "server:tool" beside them, or drop them: a route that is its own tool is named by its .id().',
+      );
+    }
+    return undefined;
+  }
+  let ref: McpProxyRef;
+  try {
+    ref = parseProxyRef(options.proxy);
+  } catch (error) {
+    return invalid(
+      error instanceof Error ? error.message : String(error),
+      'Use proxy: "server:*" for every tool of a registered client, or proxy: "server:tool" for one of them.',
+    );
+  }
+  if (options.ui !== undefined) {
+    invalid(
+      "a proxy source cannot carry a ui view",
+      "A view is served for a tool this route defines; a proxied tool is defined by the remote. Drop ui, or wrap the one tool in its own .from(mcp()) route.",
+    );
+  }
+  if (options.prefix !== undefined && typeof options.prefix !== "string") {
+    invalid("prefix must be a string", 'Use prefix: "" for bare remote names.');
+  }
+  if (options.name !== undefined) {
+    if (ref.tool === "*") {
+      invalid(
+        `name cannot be set with the star proxy "${options.proxy}"`,
+        "A name renames one tool. Name the tool in the proxy ref, or set prefix for the whole client.",
+      );
+    }
+    if (
+      typeof options.name !== "string" ||
+      !MCP_TOOL_NAME_PATTERN.test(options.name)
+    ) {
+      invalid(
+        `name "${String(options.name)}" is not a valid MCP tool name`,
+        "MCP tool names must match /^[A-Za-z0-9_-]{1,64}$/.",
+      );
+    }
+  }
+  return ref;
 }

@@ -216,7 +216,9 @@ export function directTool<TIn = unknown>(
  * id so traces stay linked, and the calling principal, forwarded as a
  * fresh mutable copy (see {@link cloneFrozenPrincipal}).
  */
-function dispatchHeaders(hctx: FnHandlerContext): Record<string, unknown> {
+export function dispatchHeaders(
+  hctx: FnHandlerContext,
+): Record<string, unknown> {
   const headers: Record<string, unknown> = {};
   if (hctx.correlationId) {
     headers[HeadersKeys.CORRELATION_ID] = hctx.correlationId;
@@ -247,12 +249,14 @@ function dispatchHeaders(hctx: FnHandlerContext): Record<string, unknown> {
  *
  * @internal
  */
-async function dispatchBackground<TIn>(
+export async function dispatchBackground<TIn>(
   host: ToolHost,
   hctx: FnHandlerContext,
   routeId: string,
   toolName: string,
   input: TIn,
+  deliver: (headers: ExchangeHeaders) => Promise<unknown> = (headers) =>
+    host.deliver(routeId, input, headers),
 ): Promise<BackgroundToolHandle> {
   // Wiring defence: the enricher refuses a background tool on a sessionless
   // dispatch before the model can call it, so reaching here without a
@@ -287,7 +291,7 @@ async function dispatchBackground<TIn>(
   const report = (work: Promise<unknown>): void => runtime.track(work, about);
   // Deliberately not awaited: the turn continues, and the settlement is
   // the runtime's business.
-  void host.deliver(routeId, input, headers).then(
+  void deliver(headers).then(
     (result) => {
       // Only the id is read: the acknowledgment carries a live resume
       // token, and the model must never hold its own park's token.
@@ -396,7 +400,7 @@ async function dispatchDirect<TIn>(
  *
  * @internal
  */
-function raceAbort(
+export function raceAbort(
   dispatch: Promise<unknown>,
   signal: AbortSignal,
   routeId: string,

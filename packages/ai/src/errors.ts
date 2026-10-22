@@ -26,7 +26,7 @@ import {
  * registered client the call was forwarded to; a local `.from(mcp())` route
  * call omits `proxied` (or sets it false) and carries neither identifier.
  */
-type McpToolProvenance =
+export type McpToolProvenance =
   | { proxied?: false; serverId?: undefined; remoteTool?: undefined }
   | { proxied: true; serverId: string; remoteTool: string };
 
@@ -425,6 +425,7 @@ declare module "@routecraft/routecraft" {
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
     AI2002: RCMeta;
+    AI2003: RCMeta;
   }
 }
 
@@ -599,6 +600,14 @@ registerErrorCodes(
       suggestion:
         "The route behind this tool dropped the exchange instead of completing it (a `.filter()` rejected it, a `.choice()` matched no branch, or an error handler returned `recovery.drop()`), so there is no result to return. Give the route a branch that produces a result the caller can use (an empty list, an explicit not-found shape) if the caller should receive a value. Mirrors RC5031 on the direct and forward surfaces.",
       docs: `${DOCS_BASE}#ai-2002`,
+      retryable: false,
+    },
+    AI2003: {
+      category: "Adapter",
+      message: "Remote MCP tool reported an error",
+      suggestion:
+        "The remote server answered the call with isError: true, so its content is an error text, not a result. The message carries that text, bounded. On a route, handle it with .error() or .retry(); on a proxied tool the caller receives the text. Not a Routecraft or transport failure (those are RC5003).",
+      docs: `${DOCS_BASE}#ai-2003`,
       retryable: false,
     },
   },

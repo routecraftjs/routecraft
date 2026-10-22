@@ -1305,6 +1305,19 @@ This is the MCP-side equivalent of [RC5031](#rc-5031) on the direct and forward 
 - Recover with a body in `.error()` rather than dropping, when the drop is an error path.
 - Keep the drop if declining is genuinely correct for that input; the client sees an error result, which is the honest answer.
 
+## AI2003
+Remote MCP tool reported an error
+
+**Why it happens**  
+A remote MCP server answers a failed call with `isError: true` and its content as the error text. The `mcp()` client, on a route's `.to(mcp(...))` hop and on an agent's `MCP(server:tool)` tool alike, throws this instead of handing that text on as a result a route would process or a model would summarise as content. The message names the server and the tool and carries the remote's text, bounded.
+
+Not a Routecraft or transport failure: a connection that could not be made, a server that is not registered, or a stdio client that is not running is [RC5003](#rc-5003).
+
+**Suggestion**  
+- On a route, handle it where the hop is: `.error()` to recover or `.retry()` when the remote's failure is transient.
+- On a route that proxies the remote (`mcp({ proxy })`), nothing to do: the caller receives the remote's text as a failed call.
+- When the text names an argument, fix the arguments the route sends; the remote validated them at its door.
+
 ## OS1001
 Isolation tier unavailable
 

@@ -1,4 +1,6 @@
 import { isRoutecraftError, rcError } from "@routecraft/routecraft";
+// Registers AI2003 before any dispatch can throw it.
+import "../errors.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
 import { extractContent } from "./extract-content.ts";
 import type { McpService } from "./port.ts";
@@ -36,9 +38,51 @@ export async function dispatchMcpCall(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  return extractContent(
+  return toolResultBody(
     await dispatchMcpCallRaw(service, serverId, toolName, args),
+    `"${serverId}:${toolName}"`,
   );
+}
+
+/** How much of a remote error text reaches a message and a log line. */
+const REMOTE_ERROR_TEXT_LIMIT = 500;
+
+/**
+ * The body a remote `tools/call` result becomes for a route or an agent
+ * tool: the structured content when the remote published one, otherwise
+ * the extracted content (one text block as its string, several as the
+ * array, none as the raw result).
+ *
+ * A result flagged `isError` is the remote reporting failure, so it throws
+ * rather than arriving as content a route would process or a model would
+ * summarise. The error names the tool and carries the remote's text,
+ * bounded, because that text is the remote's answer to the caller.
+ *
+ * @throws AI2003 when the result is flagged `isError`
+ * @internal
+ */
+export function toolResultBody(raw: McpRawToolResult, where: string): unknown {
+  if (raw.isError === true) {
+    const text = remoteErrorText(raw);
+    throw rcError("AI2003", undefined, {
+      message: `Remote MCP tool ${where} reported an error${text === "" ? "" : `: ${text}`}`,
+    });
+  }
+  return raw.structuredContent !== undefined
+    ? raw.structuredContent
+    : extractContent(raw);
+}
+
+/** The text blocks of an error result, joined and bounded. */
+function remoteErrorText(raw: McpRawToolResult): string {
+  const text = (raw.content ?? [])
+    .map((block) => (typeof block.text === "string" ? block.text : ""))
+    .filter((part) => part !== "")
+    .join("\n")
+    .trim();
+  return text.length > REMOTE_ERROR_TEXT_LIMIT
+    ? `${text.slice(0, REMOTE_ERROR_TEXT_LIMIT)}...`
+    : text;
 }
 
 /**
@@ -125,8 +169,9 @@ export async function callRemoteTool(
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
 ): Promise<unknown> {
-  return extractContent(
+  return toolResultBody(
     await callRemoteToolRaw(serverUrl, toolName, args, auth),
+    `"${toolName}" at "${serverUrl}"`,
   );
 }
 

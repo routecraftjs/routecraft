@@ -19,7 +19,7 @@ export {
   type McpToolRequest,
   type McpOptions,
   type McpPluginOptions,
-  type McpProxyToolConfig,
+  type McpProxyRegistration,
   type McpRawToolResult,
   type McpStdioToolCaller,
   type McpResourceOptions,
