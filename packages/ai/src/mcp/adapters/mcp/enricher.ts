@@ -1,5 +1,9 @@
 import type { Exchange, Enricher } from "@routecraft/routecraft";
-import { getExchangeContext } from "@routecraft/routecraft";
+import {
+  getExchangeContext,
+  HeadersKeys,
+  rcError,
+} from "@routecraft/routecraft";
 import type {
   McpClientOptions,
   McpArgsExtractor,
@@ -7,8 +11,13 @@ import type {
   McpClientHttpConfig,
 } from "../../types.ts";
 import { MCP } from "../../port.ts";
+import { McpHeadersKeys } from "../../types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
-import { callRemoteTool, dispatchMcpCall } from "../../dispatch.ts";
+import {
+  callRemoteTool,
+  dispatchMcpCall,
+  relayRemoteError,
+} from "../../dispatch.ts";
 
 /** Ensure inline url is HTTP(S) only. Stdio clients are reached via dispatchMcpCall. */
 function assertHttpUrl(url: string): void {
@@ -77,6 +86,9 @@ function resolveConnection(
   );
 }
 
+/** Where a call's metadata lives, beside the result rather than inside it. */
+const metadataOf = new WeakMap<object, Record<string, unknown>>();
+
 /**
  * Default args extractor: use exchange body as tool arguments.
  * If body is a non-null object, use it as the args; otherwise use { input: body }.
@@ -117,20 +129,31 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
   }
 
   async fetch(exchange: Exchange<unknown>): Promise<unknown> {
-    const context = getExchangeContext(exchange);
-    const toolName =
-      this.options.tool ??
-      (typeof exchange.body === "object" &&
-      exchange.body !== null &&
-      "tool" in exchange.body &&
-      typeof (exchange.body as { tool: string }).tool === "string"
-        ? (exchange.body as { tool: string }).tool
-        : undefined);
-    if (!toolName) {
-      throw new Error(
-        "MCP client: tool name required. Set options.tool or exchange.body.tool.",
-      );
+    const toolName = this.resolveToolName(exchange);
+    try {
+      return await this.call(exchange, toolName);
+    } catch (error) {
+      // The hop to the tool the caller named: its error text is the remote's
+      // answer to that caller, which the MCP server relays for this route.
+      if (
+        typeof this.options.serverId === "string" &&
+        exchange.headers[McpHeadersKeys.CLIENT] === this.options.serverId &&
+        exchange.headers[McpHeadersKeys.TOOL] === toolName
+      ) {
+        relayRemoteError(
+          error,
+          exchange.headers[HeadersKeys.ROUTE_ID] as string,
+        );
+      }
+      throw error;
     }
+  }
+
+  private async call(
+    exchange: Exchange<unknown>,
+    toolName: string,
+  ): Promise<unknown> {
+    const context = getExchangeContext(exchange);
     const argsExtractor = this.options.args ?? defaultArgs;
     const args = argsExtractor(exchange);
 
@@ -153,11 +176,11 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
         args,
       );
       if (result && typeof result === "object") {
-        (result as Record<string, unknown>)["metadata"] = {
+        metadataOf.set(result, {
           toolName,
           transport,
           serverId: this.options.serverId,
-        };
+        });
       }
       return result;
     }
@@ -169,23 +192,64 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     const { url, auth } = resolveConnection(this.options, context);
     const result = await callRemoteTool(url, toolName, args, auth);
     if (result && typeof result === "object") {
-      (result as Record<string, unknown>)["metadata"] = {
-        toolName,
-        url,
-        transport: "http",
-      };
+      metadataOf.set(result, { toolName, url, transport: "http" });
     }
     return result;
   }
 
   /**
+   * The tool this call invokes. `"*"` forwards the tool a route proxying
+   * this same client named on the exchange: `McpHeadersKeys.CLIENT` must be
+   * this client and `McpHeadersKeys.TOOL` the remote tool. The client check
+   * is what keeps the star form from forwarding a local `.from(mcp())`
+   * route's own name (the server sets `TOOL` on every call) or another
+   * client's tool names with this client's credentials; either is a wiring
+   * error, named as such.
+   */
+  private resolveToolName(exchange: Exchange<unknown>): string {
+    const tool = this.options.tool;
+    if (typeof tool !== "string" || tool === "") {
+      throw rcError("RC5003", undefined, {
+        message: "mcp(): tool name required",
+        suggestion:
+          'Set tool on the client options, use the mcp("server:tool") shorthand, or mcp("server:*") on a route that proxies the server.',
+      });
+    }
+    if (tool !== "*") return tool;
+    const serverId = this.options.serverId;
+    const named = exchange.headers[McpHeadersKeys.TOOL];
+    const client = exchange.headers[McpHeadersKeys.CLIENT];
+    if (
+      serverId === undefined ||
+      typeof named !== "string" ||
+      named === "" ||
+      typeof client !== "string"
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `mcp("${serverId ?? this.options.url}:*"): the exchange names no proxied tool`,
+        suggestion:
+          'The star form forwards the tool a route proxying a registered client (.from(mcp({ proxy }))) named on the routecraft.mcp.tool and routecraft.mcp.client headers. On any other route name the tool: mcp("server:tool").',
+      });
+    }
+    if (client !== serverId) {
+      throw rcError("RC5003", undefined, {
+        message: `mcp("${serverId}:*") on a route proxying client "${client}"`,
+        suggestion: `The star form forwards to the client the route proxies. Use mcp("${client}:*"), or name the tool: mcp("${serverId}:tool").`,
+      });
+    }
+    return named;
+  }
+
+  /**
    * Extract metadata from MCP adapter execution.
-   * Reads metadata from the result object to avoid race conditions with concurrent exchanges.
+   * Keyed on the result object rather than written into it, so concurrent
+   * exchanges cannot see each other's metadata and a result that is the
+   * remote's structured content reaches the route exactly as published.
    */
   getMetadata(result: unknown): Record<string, unknown> {
-    if (result && typeof result === "object" && "metadata" in result) {
-      return (result as { metadata: Record<string, unknown> }).metadata;
-    }
+    const known =
+      result && typeof result === "object" ? metadataOf.get(result) : undefined;
+    if (known !== undefined) return known;
     return {
       toolName: "unknown",
       transport: "unknown",

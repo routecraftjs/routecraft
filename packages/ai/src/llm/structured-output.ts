@@ -4,34 +4,6 @@ import { Output, jsonSchema } from "ai";
 import { isThenable } from "../shared/thenable.ts";
 
 /**
- * Lightweight Standard Schema wrapper around a raw JSON Schema. The
- * `~standard.validate` is a pass-through (the consuming boundary validates);
- * the `~standard.jsonSchema` extension hands the JSON Schema to the Vercel
- * AI SDK bridge via `toAiInputSchema`. The one home for this construction,
- * so the cast away from the spec type (the extension is non-standard) lives
- * in a single place.
- *
- * @internal
- */
-export function wrapJsonSchemaAsStandard(
-  schema: Record<string, unknown>,
-): StandardSchemaV1<unknown, unknown> {
-  return {
-    "~standard": {
-      version: 1,
-      vendor: "routecraft",
-      validate(value) {
-        return { value };
-      },
-      jsonSchema: {
-        input: () => schema,
-        output: () => schema,
-      },
-    } as StandardSchemaV1<unknown, unknown>["~standard"],
-  };
-}
-
-/**
  * Build an AI SDK schema (`jsonSchema(...)`) from a Standard Schema. The
  * `direction` argument selects which JSON-schema variant the underlying
  * Standard Schema exposes:

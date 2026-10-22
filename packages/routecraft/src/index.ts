@@ -291,6 +291,7 @@ export {
   type RuntimeVersion,
 } from "./shared/runtime-version.ts";
 export { remotesPlugin } from "./plugins/remotes/plugin.ts";
+export { standardSchemaFromJsonSchema } from "./plugins/remotes/schema.ts";
 export {
   REMOTES,
   type RemoteRoute,

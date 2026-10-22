@@ -130,6 +130,8 @@ export interface ErrorCodeRegistry {
   RC5066: RCMeta;
   RC5067: RCMeta;
   RC5068: RCMeta;
+  /** Cache condition failed: `cache({ when })` threw or returned a promise */
+  RC5069: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -841,6 +843,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A plugin's validate hook refused this exchange; the message names the hook and its reason. A refusal reaches the error slot like any failure, so a route can answer it. If the refusal is wrong for this route, the application can disable the hook by id with hooks.disable.",
     docs: `${DOCS_BASE}#rc-5068`,
+    retryable: false,
+  },
+  RC5069: {
+    category: "Adapter",
+    message: "Cache condition failed",
+    suggestion:
+      "The cache({ when }) condition threw, or returned a promise where a boolean is expected: it decides synchronously, before the key is derived. Make it return true or false from what the exchange already carries, and move any lookup it needs into a step above the cache. Retrying will not help: the same exchange fails the same way.",
+    docs: `${DOCS_BASE}#rc-5069`,
     retryable: false,
   },
   RC9901: {

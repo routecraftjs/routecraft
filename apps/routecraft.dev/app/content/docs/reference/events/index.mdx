@@ -273,9 +273,11 @@ A failure at slot scope is also the one case where `route:error-handler:failed` 
 | `route:cache:hit` | A cached value was reused; the wrapped step (or whole pipeline, at route scope) was skipped | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", key }` |
 | `route:cache:miss` | No cached value; the wrapped step ran (or was dropped) | Same plus `dropped?: true` when the wrapped step dropped the exchange |
 | `route:cache:stored` | A fresh value was written to the cache | Same plus `ttl?: number` when a per-call TTL was set |
-| `route:cache:failed` | Key derivation, a provider read/write, or the wrapped step threw | `{ ..., stepLabel, scope: "route" \| "step", phase: "key" \| "get" \| "inner" \| "set", error, key? }` |
+| `route:cache:bypassed` | The cache's `when` returned false: neither read nor written for this exchange | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step" }` |
+| `route:cache:failed` | The cache condition, key derivation, a provider read/write, or the wrapped step threw | `{ ..., stepLabel, scope: "route" \| "step", phase: "when" \| "key" \| "get" \| "inner" \| "set", error, key? }` |
 
 Failure phases:
+- `phase: "when"` - the cache condition threw or returned a promise, so the exchange failed before any key or provider call (no `key` field). Raised as `RC5069` (not retryable).
 - `phase: "key"` - key derivation threw (no `key` field, since none was produced). Raised as `RC5029` (not retryable).
 - `phase: "get"` - the provider read threw before the wrapped step ran. Non-RoutecraftError provider failures are raised as `RC5028` (retryable).
 - `phase: "inner"` - the wrapped step itself threw. The original error is rethrown unchanged so outer wrappers / route-level handlers cascade as usual. This event fires **alongside** the wrapped step's own `route:step:failed` event for the same exchange; they describe one failure, so do not double-count them.
@@ -434,17 +436,17 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:mcp:tool:called` | Tool invocation started | `{ tool, args, proxied?, serverId?, remoteTool? }` |
-| `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool, proxied?, serverId?, remoteTool? }` |
-| `plugin:mcp:tool:deferred` | The route deferred at a durable deferral; execution one answered with the `Deferred` acknowledgment | `{ tool, deferralId }` |
-| `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool? }` |
-| `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason }` |
+| `plugin:mcp:tool:called` | Tool invocation started | `{ tool, args, proxied?, serverId?, remoteTool?, routeId? }` |
+| `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool, proxied?, serverId?, remoteTool?, routeId? }` |
+| `plugin:mcp:tool:deferred` | The route deferred at a durable deferral; execution one answered with the `Deferred` acknowledgment | `{ tool, deferralId, proxied?, serverId?, remoteTool?, routeId? }` |
+| `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool?, routeId? }` |
+| `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason, proxied?, serverId?, remoteTool?, routeId? }` |
 
-`deferred` is deliberately not `completed`. A deferred run is neither finished nor failed: the real result belongs to execution two, which flows to the route's destinations when the answer arrives, so counting the deferral as a completion would publish a false receipt to every dashboard. The wire result is an ordinary `isError: false` answer whose `structuredContent` is the acknowledgment. Local routes only: a proxied call has no exchange of ours to defer.
+`deferred` is deliberately not `completed`. A deferred run is neither finished nor failed: the real result belongs to execution two, which flows to the route's destinations when the answer arrives, so counting the deferral as a completion would publish a false receipt to every dashboard. The wire result is an ordinary `isError: false` answer whose `structuredContent` is the acknowledgment.
 
-`declined` is deliberately not `failed`. A tool whose route filters (a guard branch, a "only answer for X" predicate) declines as a matter of course, and counting those as errors would make an error-rate alert fire on ordinary traffic. The caller still receives `isError: true`, because MCP has no other channel to say "no result"; see [AI2002](/docs/reference/errors#ai-2002). It fires for local routes only and carries no provenance fields: a proxied call has no exchange of ours to drop, and a remote error result is reported as `failed`.
+`declined` is deliberately not `failed`. A tool whose route filters (a guard branch, a "only answer for X" predicate) declines as a matter of course, and counting those as errors would make an error-rate alert fire on ordinary traffic. The caller still receives `isError: true`, because MCP has no other channel to say "no result"; see [AI2002](/docs/reference/errors#ai-2002).
 
-For tools proxied from registered clients via [`mcpPlugin({ proxy })`](/docs/reference/plugins/mcpplugin#proxying-client-tools), the same three events fire with `proxied: true`, the registered client id as `serverId`, and the tool's name on the remote server as `remoteTool` (`tool` is the exposed, possibly renamed, name). A proxied call whose remote result carries `isError: true` fires `plugin:mcp:tool:failed`.
+For a tool a route proxies from a registered client ([`mcp({ proxy })`](/docs/reference/adapters/mcp#proxying-a-remote-server)), every tool-call event carries `proxied: true`, the registered client id as `serverId`, the tool's name on the remote server as `remoteTool` (`tool` is the exposed, prefixed name), and the proxying route as `routeId`, since the exposed name is not a route id there. The call runs the proxy route, so it defers and declines like any local tool. A remote result flagged `isError` fails the route's hop (`AI2003`) and fires `plugin:mcp:tool:failed` with the remote's text.
 
 ### View events
 

@@ -30,6 +30,7 @@ export const craftConfig = defineConfig({
     clients: {
       browser: { url: 'http://127.0.0.1:8089/mcp' },
       search: { url: 'http://127.0.0.1:9000/mcp' },
+      github: { url: 'https://api.githubcopilot.com/mcp/', auth: { token: process.env.GITHUB_TOKEN! } },
     },
   },
 })
@@ -98,8 +99,9 @@ A raw MCP tool carries no per-call policy. When an agent calls one, the credenti
 | A read-only or otherwise harmless tool, trusted agent | raw `MCP(server:tool)` | nothing | n/a |
 | To block by identity or role, a pure yes/no | a per-tool `guard` on the binding | one inline function | no, per binding |
 | Anything stateful or time-based, or shared across agents | wrap the tool in a route, hand the agent `Direct(<id>)` | a few lines | yes |
+| Policy on a vendor's whole server, or a tool under the remote's own schema and call contract | a [proxy route](#governing-a-remote-servers-tools), `.from(mcp({ proxy }))`; the agent's `MCP(server:tool)` runs through it | a few lines | yes |
 
-Tiers 1 and 2 are covered on the [agent plugin reference](/docs/reference/plugins/agentplugin). For tier 3, put a route in front of the tool: its entry is a `direct()` endpoint, its exit is the `.to(mcp(...))` call you have already seen, and the guardrails live on the steps between.
+Tiers 1 and 2 are covered on the [agent plugin reference](/docs/reference/plugins/agentplugin). For tier 3, put a route in front of the tool. A route per tool starts at a `direct()` endpoint, ends in the `.to(mcp(...))` call you have already seen, and keeps the guardrails on the steps between; a route over a vendor's whole server starts at the proxy source instead, shown [below](#governing-a-remote-servers-tools).
 
 ```ts
 // capabilities/github-create-issue/route.ts
@@ -113,7 +115,7 @@ export default craft()
   .to(mcp('github:create_issue'))
 ```
 
-Hand the agent the governed route instead of the raw tool. The same underlying tool can be exposed both ways: wrap the ones that need policy (one route per tool), leave harmless read-only tools raw. The same tiering applies when re-exposing client tools through your own MCP server: a plain [`proxy`](#re-exposing-a-clients-tools) entry is the raw tier, a proxy entry with a `guard` is the guarded tier, and a `.from(mcp())` route is the governed tier.
+Hand the agent the governed route instead of the raw tool. The same underlying tool can be exposed both ways: wrap the ones that need policy, leave harmless read-only tools raw. A route per tool is the shape for a tool whose schema or name you want to change; for a vendor's whole server, or a tool you want exposed under the remote's own contract, a [proxy route](#governing-a-remote-servers-tools) governs it without a route per tool, and an agent's `MCP(server:tool)` reference goes through it on its own.
 
 ```ts skip="fragment: shows only the tools option"
 agent({
@@ -126,52 +128,48 @@ agent({
 
 Why a route and not a richer guard? A guard runs once and holds no state. Caching, timeouts, throttling, retries, and fallbacks each need something wrapped around the call with its own state and lifecycle, which is exactly what a route step is. A wrapped route gives you [`authorize()`](/docs/reference/operations/authorize), [`error()`](/docs/reference/operations/error) fallbacks, [`cache()`](/docs/reference/operations/cache), [`throttle()`](/docs/reference/operations/throttle), [`timeout()`](/docs/reference/operations/timeout), [`retry()`](/docs/reference/operations/retry), and `.tap(log())` for an audit trail, all without changing how the agent consumes the tool. The route is the only place that behaviour can ever live.
 
-## Re-exposing a client's tools
+## Governing a remote server's tools
 
-Any MCP client registered under the `mcp` key's `clients` can have tools re-exposed through your own [MCP server](/docs/introduction/expose-to-an-agent) without writing a route per tool. Use the `proxy` option to select them:
+A vendor's server lists dozens of tools, and wrapping each in a route is the slow way to put policy on them. A route can instead be the tools of a client registered under the `mcp` key's `clients`, or one of them: the source names the client, the hop forwards the call, and the chain and the steps between are the policy.
 
 ```ts
-// craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
-import '@routecraft/ai'
+// capabilities/github/route.ts
+import { mcp, McpHeadersKeys, type McpToolAnnotations } from '@routecraft/ai'
+import { craft, type Exchange } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
-  mcp: {
-    clients: {
-      docs: { transport: 'stdio', command: 'docs-mcp' },
-      billing: { url: 'https://billing.example.com/mcp', auth: { token: process.env.BILLING_TOKEN! } },
-    },
-    proxy: [
-      'docs:get_document',                          // one tool
-      'docs:*',                                     // every docs tool ("docs" works too)
-      { ref: 'billing:search', name: 'billing_search', description: 'Search invoices (read-only)' },
-    ],
-  },
-})
+const readOnlyTool = (ex: Exchange) =>
+  (ex.headers[McpHeadersKeys.ANNOTATIONS] as McpToolAnnotations | undefined)?.readOnlyHint === true
+
+export default craft()
+  .id('github')
+  .authorize({ scopes: ['github:read'] })
+  .cache({ ttl: '2m', when: readOnlyTool })
+  .from(mcp({ proxy: 'github:*' }))
+  .to(mcp('github:*'))
 ```
 
-Proxied tools appear in `tools/list` with the remote input and output schema, title, description, annotations and icons (the server's own icons when the remote tool has none), and calls dispatch over the client's own transport and auth. A remote tool's `_meta` is not passed through, so a proxied tool never carries the remote's [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views): this server cannot serve the remote's `ui://` resource, and hosts show the result without it. How wildcards and exact refs compose, how name collisions resolve, and which names are exposable are in the [mcpPlugin reference](/docs/reference/plugins/mcpplugin#proxying-client-tools).
+Every tool the `github` client lists is now served by your [MCP server](/docs/introduction/expose-to-an-agent) as `github_<tool>`, authorized on the caller's principal, with the read-only ones cached; the exceptions are the server's own `tools` filter, a name a local route already holds, and a prefixed name that is not a valid tool name, each skipped with a warning. A tool that needs its own shaping gets its own route, which wins over the star route for that tool:
 
-### Guarding proxied tools
+```ts
+// capabilities/github-create-issue/route.ts
+import { mcp } from '@routecraft/ai'
+import { craft } from '@routecraft/routecraft'
 
-A proxy entry can carry a `guard`, the same per-tool check the agent's `tools([{ name, guard }])` supports. It runs before the call dispatches, receives the raw tool arguments and a handler context carrying the MCP caller's read-only `principal` (populated by the HTTP transport's `auth`), and rejects the call by throwing (the client sees an `isError` result). Unlike agent tools, no schema validation runs before a proxy guard (the remote server validates after it), so treat the input as untrusted and check structure before dereferencing:
-
-```ts skip="fragment: one property of the mcp options"
-proxy: [
-  {
-    ref: 'billing:search',
-    guard: (_input, ctx) => {
-      if (!ctx.principal?.roles?.includes('finance')) {
-        throw new Error('finance role required')
-      }
-    },
-  },
-  // On a wildcard ref the guard attaches to every expanded tool:
-  { ref: 'docs:*', guard: (input, ctx) => { /* ... */ } },
-]
+export default craft()
+  .id('github-create-issue')
+  .authorize({ roles: ['maintainer'] })
+  .from(mcp({ proxy: 'github:create_issue' }))
+  .transform((args) => {
+    const issue = args as { title: string; body?: string }
+    // A compact uppercase IBAN never reaches GitHub; a real redaction normalises first.
+    return { ...issue, body: issue.body?.replace(/\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g, '[iban]') }
+  })
+  .to(mcp('github:create_issue'))
 ```
 
-**When to proxy and when to write a route.** A proxied call runs no route pipeline: no `authorize()`, no input validation, no caching, throttling, or timeouts. The caller's authenticated principal is also not forwarded to the remote server; the Routecraft-to-client hop authenticates with the client's registered `auth`. Proxy simple, read-only tools (a document fetch, a search) raw, add a `guard` when a tool needs an identity or role check, and the moment a tool needs anything stateful or time-based (caching, throttling, retries, audit), put a `.from(mcp())` route in front of it instead. The [Guardrails](#guardrails-raw-guarded-or-wrapped) section above applies the same tiering to agent tools.
+Steps above the hop see the arguments; throw to refuse, return to rewrite. Steps below it see the result, with the same two moves. A `.defer()` before the hop, or an approval hook on a tag, parks the call until a person answers. The caller's principal selects policy and never reaches the remote; the hop authenticates with the client's registered `auth`.
+
+An agent that lists `MCP(github:create_issue)` goes through that route too, so your own agent is under the same policy as an external client. The [mcp adapter reference](/docs/reference/adapters/mcp#proxying-a-remote-server) has the options, the headers a proxied exchange carries, the naming rules, and the migration from a hand-written wrapping route or a former `mcpPlugin({ proxy })` entry.
 
 ---
 

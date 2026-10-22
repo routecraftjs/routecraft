@@ -1,4 +1,7 @@
 import { isRoutecraftError, rcError } from "@routecraft/routecraft";
+import { clipText } from "../shared/clip-text.ts";
+// Registers AI2003 before any dispatch can throw it.
+import "../errors.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
 import { extractContent } from "./extract-content.ts";
 import type { McpService } from "./port.ts";
@@ -12,8 +15,8 @@ import {
  * Dispatch an MCP tool call against a server registered via
  * `mcpPlugin({ clients })` and extract the result content. Used by both
  * the `mcp(...)` destination adapter and the agent `tools([...])`
- * resolver. Thin wrapper over {@link dispatchMcpCallRaw} so the two
- * dispatch flavours (raw for the proxy, extracted here) can never drift.
+ * resolver. Thin wrapper over {@link dispatchMcpCallRaw}, which fetches the
+ * raw result that {@link toolResultBody} interprets.
  *
  * - For stdio clients (the service's `stdio` manager), delegates
  *   to the long-lived `StdioClientManager.callToolRaw`.
@@ -36,16 +39,95 @@ export async function dispatchMcpCall(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  return extractContent(
+  return toolResultBody(
     await dispatchMcpCallRaw(service, serverId, toolName, args),
+    `"${serverId}:${toolName}"`,
   );
+}
+
+/** How much of a remote error text reaches a message and a log line. */
+const REMOTE_ERROR_TEXT_LIMIT = 500;
+
+/** The bounded remote text of each AI2003, beside the error, never parsed out of its message. */
+const REMOTE_TEXT = new WeakMap<Error, string>();
+
+/** The route whose own proxied hop raised an AI2003, bound by the enricher. */
+const RELAYED = new WeakMap<Error, string>();
+
+/**
+ * Bind an `AI2003` to the route whose hop to the proxied tool raised it.
+ * The MCP server relays the remote's text to the caller of that route and
+ * of no other: a caller who addressed the remote gets the remote's answer,
+ * while the same code from a different hop or a nested route stays generic,
+ * as the wire rules require. Anything but an `AI2003` is left alone.
+ *
+ * @internal
+ */
+export function relayRemoteError(error: unknown, routeId: string): void {
+  if (error instanceof Error && REMOTE_TEXT.has(error)) {
+    RELAYED.set(error, routeId);
+  }
+}
+
+/**
+ * The relay {@link relayRemoteError} bound, when the error is an `AI2003`
+ * a proxying route's own hop raised.
+ *
+ * @internal
+ */
+export function relayedRemoteErrorOf(
+  error: unknown,
+): { routeId: string; text: string } | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const routeId = RELAYED.get(error);
+  const text = REMOTE_TEXT.get(error);
+  return routeId === undefined || text === undefined
+    ? undefined
+    : { routeId, text };
+}
+
+/**
+ * The body a remote `tools/call` result becomes for a route or an agent
+ * tool: the structured content when the remote published one, otherwise
+ * the extracted content (one text block as its string, several as the
+ * array, none as the raw result).
+ *
+ * A result flagged `isError` is the remote reporting failure, so it throws
+ * rather than arriving as content a route would process or a model would
+ * summarise. The error names the tool and carries the remote's text,
+ * bounded, because that text is the remote's answer to the caller.
+ *
+ * @throws AI2003 when the result is flagged `isError`
+ * @internal
+ */
+export function toolResultBody(raw: McpRawToolResult, where: string): unknown {
+  if (raw.isError === true) {
+    const text = remoteErrorText(raw);
+    const error = rcError("AI2003", undefined, {
+      message: `Remote MCP tool ${where} reported an error${text === "" ? "" : `: ${text}`}`,
+    });
+    REMOTE_TEXT.set(error, text);
+    throw error;
+  }
+  return raw.structuredContent !== undefined
+    ? raw.structuredContent
+    : extractContent(raw);
+}
+
+/** The text blocks of an error result, joined and bounded. */
+function remoteErrorText(raw: McpRawToolResult): string {
+  const text = (raw.content ?? [])
+    .map((block) => (typeof block.text === "string" ? block.text : ""))
+    .filter((part) => part !== "")
+    .join("\n")
+    .trim();
+  return clipText(text, REMOTE_ERROR_TEXT_LIMIT);
 }
 
 /**
  * Dispatch an MCP tool call like {@link dispatchMcpCall} but return the raw
- * MCP `tools/call` result (content array, structuredContent, isError) without
- * content extraction. Used by the MCP server's proxy path so remote results
- * pass through to the calling client verbatim.
+ * MCP `tools/call` result (content array, structuredContent, isError) that
+ * {@link toolResultBody} interprets.
  *
  * Throws `RC5003` under the same conditions as {@link dispatchMcpCall}.
  *
@@ -125,14 +207,17 @@ export async function callRemoteTool(
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
 ): Promise<unknown> {
-  return extractContent(
+  // The URL is configuration, not part of the answer: the message can
+  // reach a caller, the route's own log carries the URL.
+  return toolResultBody(
     await callRemoteToolRaw(serverUrl, toolName, args, auth),
+    `"${toolName}"`,
   );
 }
 
 /**
  * Like {@link callRemoteTool} but returns the raw MCP `tools/call` result
- * without content extraction. Used by the MCP server's proxy path.
+ * that {@link toolResultBody} interprets.
  *
  * @internal
  */

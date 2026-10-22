@@ -1,26 +1,21 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { craft, noop } from "@routecraft/routecraft";
-import { testContext, type TestContext } from "@routecraft/testing";
+import {
+  authorityOf,
+  craft,
+  noop,
+  type AnyRouteBuilder,
+  type Exchange,
+} from "@routecraft/routecraft";
+import { deferring, testContext, type TestContext } from "@routecraft/testing";
 import type { McpServer } from "../src/mcp/server.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
+import { callTool } from "./helpers/mcp-tool-call.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
-import { mcp, mcpPlugin } from "../src/index.ts";
-import type { McpRawToolResult, McpTool } from "../src/mcp/types.ts";
-import type { FnHandlerContext } from "../src/fn/types.ts";
-import http from "node:http";
-import { rpcResult } from "./fixtures/rpc-body.ts";
-
-/** Private surface of McpServer used by these tests. */
-type TestableServer = {
-  handleToolCall(
-    name: string,
-    args: Record<string, unknown>,
-  ): Promise<{
-    content: Array<{ type: string; text?: string; [key: string]: unknown }>;
-    structuredContent?: Record<string, unknown>;
-    isError?: boolean;
-  }>;
-};
+import { mcp, McpHeadersKeys, sessionsPlugin, tools } from "../src/index.ts";
+import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
+import { MemorySessionStore } from "../src/agent/session/memory-store.ts";
+import type { McpClientConfig } from "../src/mcp/port.ts";
+import type { McpRawToolResult } from "../src/mcp/types.ts";
 
 /** Recorded dispatches from the fake stdio managers. */
 let dispatches: Array<{
@@ -29,7 +24,7 @@ let dispatches: Array<{
   args: Record<string, unknown>;
 }> = [];
 
-/** Build a registry with remote tools for the "docs" and "billing" clients. */
+/** The remote tools the "docs" and "billing" clients list. */
 function buildRegistry(): McpToolRegistry {
   const registry = new McpToolRegistry();
   registry.setToolsForSource("docs", "stdio", [
@@ -53,6 +48,13 @@ function buildRegistry(): McpToolRegistry {
       name: "search",
       description: "Search documents",
       inputSchema: { type: "object", properties: { q: { type: "string" } } },
+      annotations: { readOnlyHint: true },
+    },
+    {
+      name: "delete_document",
+      description: "Delete one document",
+      inputSchema: { type: "object", properties: { id: { type: "string" } } },
+      annotations: { destructiveHint: true },
     },
   ]);
   registry.setToolsForSource("billing", "stdio", [
@@ -65,27 +67,28 @@ function buildRegistry(): McpToolRegistry {
   return registry;
 }
 
-/** Fake stdio manager map recording calls and returning a raw MCP result. */
-function buildManagers(rawResult?: McpRawToolResult): Map<
-  string,
-  {
-    callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
-    callToolRaw(
-      name: string,
-      args: Record<string, unknown>,
-    ): Promise<McpRawToolResult>;
-  }
-> {
-  const managers = new Map<
-    string,
-    {
-      callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
-      callToolRaw(
-        name: string,
-        args: Record<string, unknown>,
-      ): Promise<McpRawToolResult>;
-    }
-  >();
+/** The clients the registry's tools belong to, as the plugin registers them. */
+function buildClients(): Map<string, McpClientConfig> {
+  return new Map<string, McpClientConfig>([
+    ["docs", { transport: "stdio", command: "docs-server" }],
+    ["billing", { transport: "stdio", command: "billing-server" }],
+  ]);
+}
+
+/** The slice of a stdio client manager the service dispatches through. */
+type FakeManager = {
+  callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+  callToolRaw(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<McpRawToolResult>;
+};
+
+/** Fake stdio managers recording calls and answering with a raw MCP result. */
+function buildManagers(
+  answer?: (toolName: string) => McpRawToolResult,
+): Map<string, FakeManager> {
+  const managers = new Map<string, FakeManager>();
   for (const serverId of ["docs", "billing"]) {
     managers.set(serverId, {
       async callTool(name, args) {
@@ -95,7 +98,7 @@ function buildManagers(rawResult?: McpRawToolResult): Map<
       async callToolRaw(name, args) {
         dispatches.push({ serverId, toolName: name, args });
         return (
-          rawResult ?? {
+          answer?.(name) ?? {
             content: [{ type: "text", text: `raw:${serverId}:${name}` }],
           }
         );
@@ -105,7 +108,7 @@ function buildManagers(rawResult?: McpRawToolResult): Map<
   return managers;
 }
 
-describe("MCP tool proxying", () => {
+describe("a route that proxies a remote MCP server", () => {
   let t: TestContext;
   let server: McpServer;
 
@@ -124,449 +127,342 @@ describe("MCP tool proxying", () => {
   });
 
   /**
-   * @case Exact proxy ref exposes the remote tool in tools/list with metadata passthrough
-   * @preconditions Registry has docs:get_document with schema, title, description, annotations, output schema, and icons; proxy is ["docs:get_document"]
-   * @expectedResult getAvailableTools() lists "get_document" carrying the remote inputSchema, outputSchema, title, description, annotations, and icons verbatim
+   * Build a context holding `routes` over the fake docs and billing clients,
+   * start it, and return an McpServer reading from it.
    */
-  test("exact ref passes remote tool metadata through to tools/list", async () => {
+  async function serve(
+    routes: AnyRouteBuilder[],
+    options: {
+      registry?: McpToolRegistry;
+      answer?: (toolName: string) => McpRawToolResult;
+      server?: ConstructorParameters<typeof McpServer>[1];
+    } = {},
+  ): Promise<McpServer> {
     t = await testContext()
-      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
+      .routes(routes)
+      .with({
+        plugins: [
+          mcpPort({
+            tools: options.registry ?? buildRegistry(),
+            stdio: buildManagers(options.answer),
+            clients: buildClients(),
+          }),
+        ],
+      })
       .build();
-    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
+    await t.startAndWaitReady();
+    server = mcpServerFor(t.ctx, options.server);
+    return server;
+  }
 
-    const tools = server.getAvailableTools();
-    expect(tools.map((tool) => tool.name)).toEqual(["get_document"]);
-    const tool = tools[0] as McpTool;
-    expect(tool.description).toBe("Read one document by id");
-    expect(tool.title).toBe("Get document");
-    expect(tool.inputSchema).toEqual({
+  function call(name: string, args: Record<string, unknown>) {
+    return callTool(server, name, args);
+  }
+
+  /**
+   * @case A star route exposes every tool of the client, prefixed, with the remote's metadata passed through
+   * @preconditions craft().from(mcp({ proxy: "docs:*" })).to(mcp("docs:*")); the docs client lists three tools
+   * @expectedResult tools/list carries docs_get_document, docs_search and docs_delete_document with the remote inputSchema, outputSchema, title, description, annotations and icons; the route id is not a tool
+   */
+  test("a star route exposes the client's tools under the prefix with metadata through", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+    ]);
+
+    const listed = server.getAvailableTools();
+    expect(listed.map((tool) => tool.name).sort()).toEqual([
+      "docs_delete_document",
+      "docs_get_document",
+      "docs_search",
+    ]);
+    const get = listed.find((tool) => tool.name === "docs_get_document")!;
+    expect(get.title).toBe("Get document");
+    expect(get.description).toBe("Read one document by id");
+    expect(get.inputSchema).toEqual({
       type: "object",
       properties: { id: { type: "string" } },
       required: ["id"],
     });
-    expect(tool.outputSchema).toEqual({
+    expect(get.outputSchema).toEqual({
       type: "object",
       properties: { text: { type: "string" } },
     });
-    expect(tool.annotations).toEqual({ readOnlyHint: true });
-    expect(tool.icons).toEqual([{ src: "https://docs.example/icon.svg" }]);
+    expect(get.annotations).toEqual({ readOnlyHint: true });
+    expect(get.icons).toEqual([{ src: "https://docs.example/icon.svg" }]);
   });
 
   /**
-   * @case Wildcard and bare-server refs expose every tool of the client
-   * @preconditions Registry has two docs tools; proxy is ["docs:*"] then ["docs"]
-   * @expectedResult Both forms list get_document and search
+   * @case A call runs the route: steps before the hop see the arguments, the hop forwards the named tool, steps after see the result
+   * @preconditions Star route with a transform before .to(mcp("docs:*")) and a transform after it
+   * @expectedResult The remote receives the rewritten arguments under the remote tool name; the caller receives the rewritten result as structured content, because the remote advertises an output schema
    */
-  test("wildcard and bare-server refs expose all client tools", async () => {
-    t = await testContext()
-      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
-      .build();
-
-    server = mcpServerFor(t.ctx, { proxy: ["docs:*"] });
-    expect(
-      server
-        .getAvailableTools()
-        .map((tool) => tool.name)
-        .sort(),
-    ).toEqual(["get_document", "search"]);
-    await server.stop();
-
-    server = mcpServerFor(t.ctx, { proxy: ["docs"] });
-    expect(
-      server
-        .getAvailableTools()
-        .map((tool) => tool.name)
-        .sort(),
-    ).toEqual(["get_document", "search"]);
-  });
-
-  /**
-   * @case Per-entry overrides rename the tool and replace description / merge annotations
-   * @preconditions Proxy entry { ref: "docs:get_document", name: "read_doc", description: "override", annotations: { idempotentHint: true } }
-   * @expectedResult Listed tool is "read_doc" with the override description and merged annotations (remote readOnlyHint kept)
-   */
-  test("overrides apply to name, description, and annotations", async () => {
-    t = await testContext()
-      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
-      .build();
-    server = mcpServerFor(t.ctx, {
-      proxy: [
-        {
-          ref: "docs:get_document",
-          name: "read_doc",
-          description: "override",
-          annotations: { idempotentHint: true },
-        },
-      ],
-    });
-
-    const tools = server.getAvailableTools();
-    expect(tools.map((tool) => tool.name)).toEqual(["read_doc"]);
-    expect(tools[0].description).toBe("override");
-    expect(tools[0].annotations).toEqual({
-      readOnlyHint: true,
-      idempotentHint: true,
-    });
-  });
-
-  /**
-   * @case Proxied tool call dispatches to the client and passes the raw result through
-   * @preconditions Fake stdio manager returns a raw result with content, structuredContent, and no error; proxy is ["docs:get_document"]
-   * @expectedResult handleToolCall returns content and structuredContent verbatim and dispatched with the remote tool name and args
-   */
-  test("proxied call dispatches raw and passes result through", async () => {
-    const raw: McpRawToolResult = {
-      content: [{ type: "text", text: "the doc" }],
-      structuredContent: { text: "the doc" },
-    };
-    t = await testContext()
-      .with({
-        plugins: [
-          mcpPort({ tools: buildRegistry(), stdio: buildManagers(raw) }),
-        ],
-      })
-      .build();
-    server = mcpServerFor(t.ctx, {
-      proxy: [{ ref: "docs:get_document", name: "read_doc" }],
-    });
-
-    const result = await (server as unknown as TestableServer).handleToolCall(
-      "read_doc",
-      { id: "42" },
-    );
-    expect(result.content).toEqual([{ type: "text", text: "the doc" }]);
-    expect(result.structuredContent).toEqual({ text: "the doc" });
-    expect(result.isError).toBeUndefined();
-    expect(dispatches).toEqual([
-      { serverId: "docs", toolName: "get_document", args: { id: "42" } },
-    ]);
-  });
-
-  /**
-   * @case A raw JSON-string arguments payload is normalized before reaching the proxied dispatch
-   * @preconditions handleToolCall invoked with args as a JSON string (as the SDK may deliver); proxy is ["docs:get_document"]
-   * @expectedResult The remote receives the parsed object, matching the normalization the local path applies
-   */
-  test("string arguments are normalized on the proxied path", async () => {
-    t = await testContext()
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
-      .build();
-    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
-
-    await (
-      server as unknown as {
-        handleToolCall(name: string, args: unknown): Promise<unknown>;
-      }
-    ).handleToolCall("get_document", '{"id":"42"}');
-    expect(dispatches).toEqual([
-      { serverId: "docs", toolName: "get_document", args: { id: "42" } },
-    ]);
-  });
-
-  /**
-   * @case Non-object arguments are coerced to the safe fallback before proxied dispatch
-   * @preconditions handleToolCall invoked with an actual array and with a JSON primitive string; proxy is ["docs:get_document"]
-   * @expectedResult The remote receives {} for the array and { input } for a primitive string, never a raw array or primitive
-   */
-  test("non-object arguments normalize to a safe object on the proxied path", async () => {
-    t = await testContext()
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
-      .build();
-    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
-
-    const call = (args: unknown) =>
-      (
-        server as unknown as {
-          handleToolCall(name: string, args: unknown): Promise<unknown>;
-        }
-      ).handleToolCall("get_document", args);
-
-    await call([1, 2, 3]); // a non-string, non-object value
-    await call("42"); // valid JSON primitive string
-    expect(dispatches.map((d) => d.args)).toEqual([
-      {}, // array is not a plain object -> {}
-      { input: "42" }, // primitive JSON string kept as raw input
-    ]);
-  });
-
-  /**
-   * @case Remote isError results pass through instead of being swallowed
-   * @preconditions Fake stdio manager returns { isError: true, content: [error text] }
-   * @expectedResult handleToolCall returns isError true with the remote error content
-   */
-  test("remote error results pass through with isError", async () => {
-    const raw: McpRawToolResult = {
-      isError: true,
-      content: [{ type: "text", text: "remote boom" }],
-    };
-    t = await testContext()
-      .with({
-        plugins: [
-          mcpPort({ tools: buildRegistry(), stdio: buildManagers(raw) }),
-        ],
-      })
-      .build();
-    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
-
-    const result = await (server as unknown as TestableServer).handleToolCall(
-      "get_document",
-      { id: "42" },
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toEqual([{ type: "text", text: "remote boom" }]);
-  });
-
-  /**
-   * @case A passing guard runs before dispatch and receives the raw args and a handler context
-   * @preconditions Proxy entry with a guard that records its input and context; fake manager dispatches normally
-   * @expectedResult Guard sees the call args, a logger, and an abort signal; the call dispatches and succeeds
-   */
-  test("guard runs before dispatch with args and handler context", async () => {
-    const seen: Array<{ input: unknown; ctx: FnHandlerContext }> = [];
-    t = await testContext()
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .build();
-    server = mcpServerFor(t.ctx, {
-      proxy: [
-        {
-          ref: "docs:get_document",
-          guard: (input, ctx) => {
-            seen.push({ input, ctx });
-          },
-        },
-      ],
-    });
-
-    const result = await (server as unknown as TestableServer).handleToolCall(
-      "get_document",
-      { id: "42" },
-    );
-    expect(result.isError).toBeUndefined();
-    expect(seen).toHaveLength(1);
-    expect(seen[0].input).toEqual({ id: "42" });
-    expect(seen[0].ctx.logger).toBeDefined();
-    expect(seen[0].ctx.abortSignal).toBeInstanceOf(AbortSignal);
-    expect(dispatches).toHaveLength(1);
-  });
-
-  /**
-   * @case A throwing guard rejects the call before any dispatch happens
-   * @preconditions Proxy entry whose guard always throws; fake manager would dispatch normally
-   * @expectedResult handleToolCall returns isError with the guard's message and the manager is never called
-   */
-  test("guard rejection blocks dispatch and surfaces as isError", async () => {
-    t = await testContext()
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .build();
-    server = mcpServerFor(t.ctx, {
-      proxy: [
-        {
-          ref: "docs:get_document",
-          guard: () => {
-            throw new Error("admins only");
-          },
-        },
-      ],
-    });
-
-    const result = await (server as unknown as TestableServer).handleToolCall(
-      "get_document",
-      { id: "42" },
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("admins only");
-    expect(dispatches).toHaveLength(0);
-  });
-
-  /**
-   * @case A wildcard ref's guard is attached to every expanded tool
-   * @preconditions Proxy entry { ref: "docs:*", guard } rejecting every call; docs advertises two tools
-   * @expectedResult Both expanded tools reject with the guard's message and nothing dispatches
-   */
-  test("wildcard guard applies to every expanded tool", async () => {
-    t = await testContext()
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .build();
-    server = mcpServerFor(t.ctx, {
-      proxy: [
-        {
-          ref: "docs:*",
-          guard: () => {
-            throw new Error("blocked by wildcard guard");
-          },
-        },
-      ],
-    });
-
-    for (const tool of ["get_document", "search"]) {
-      const result = await (server as unknown as TestableServer).handleToolCall(
-        tool,
-        {},
-      );
-      expect(result.isError).toBe(true);
-      expect(result.content[0]?.text).toContain("blocked by wildcard guard");
-    }
-    expect(dispatches).toHaveLength(0);
-  });
-
-  /**
-   * @case Dispatch failures surface as isError with a generic message, not the framework error detail
-   * @preconditions No stdio manager and no HTTP config for "docs" (dispatch throws RC5003 whose message names the server)
-   * @expectedResult handleToolCall returns isError true; the client text is the generic proxied-failure message and does not leak the RC5003 dispatch detail
-   */
-  test("dispatch failure returns a generic isError result without leaking detail", async () => {
-    t = await testContext()
-      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
-      .build();
-    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
-
-    const result = await (server as unknown as TestableServer).handleToolCall(
-      "get_document",
-      { id: "42" },
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain(
-      'Proxied tool "get_document" could not be called',
-    );
-    // The RC5003 dispatch message ("... server \"docs\" is not registered ...")
-    // must not reach the caller.
-    expect(result.content[0]?.text).not.toContain("not registered");
-    expect(result.content[0]?.text).not.toContain("mcp dispatch");
-  });
-
-  /**
-   * @case Local mcp() route wins a name collision with a proxied tool
-   * @preconditions Route id get_document with mcp() source; registry proxies docs:get_document under the same name
-   * @expectedResult tools/list has one get_document (the route's description), and calling it runs the route rather than dispatching to the client
-   */
-  test("local route tool wins name collision over proxied tool", async () => {
-    t = await testContext()
-      .routes([
+  test("a call runs the route around the hop", async () => {
+    const seen: Array<{ tool: unknown; client: unknown }> = [];
+    await serve(
+      [
         craft()
-          .id("get_document")
-          .description("Local route doc reader")
-          .from(mcp())
-          .to(noop()),
-      ])
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .build();
-    server = mcpServerFor(t.ctx, { proxy: ["docs:get_document"] });
-    await t.startAndWaitReady();
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .transform((args, ex: Exchange) => {
+            seen.push({
+              tool: ex.headers[McpHeadersKeys.TOOL],
+              client: ex.headers[McpHeadersKeys.CLIENT],
+            });
+            const given = args as Record<string, unknown>;
+            return { ...given, id: `doc-${String(given["id"])}` };
+          })
+          .to(mcp("docs:*"))
+          .transform((result) => ({ text: (result as { text: string }).text })),
+      ],
+      {
+        answer: () => ({
+          content: [{ type: "text", text: "ignored when structured" }],
+          structuredContent: { text: "hello", author_email: "a@b.c" },
+        }),
+      },
+    );
 
-    const tools = server.getAvailableTools();
-    const matches = tools.filter((tool) => tool.name === "get_document");
-    expect(matches).toHaveLength(1);
-    expect(matches[0].description).toBe("Local route doc reader");
+    const result = await call("docs_get_document", { id: "42" });
 
-    await (server as unknown as TestableServer).handleToolCall("get_document", {
-      id: "42",
-    });
-    expect(dispatches).toHaveLength(0);
+    expect(dispatches).toEqual([
+      { serverId: "docs", toolName: "get_document", args: { id: "doc-42" } },
+    ]);
+    expect(seen).toEqual([{ tool: "get_document", client: "docs" }]);
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toEqual({ text: "hello" });
   });
 
   /**
-   * @case Proxied tools from two clients colliding on a name resolve first-wins in config order
-   * @preconditions docs and billing both advertise "search"; proxy is ["docs:search", "billing:search"] without overrides
-   * @expectedResult One "search" tool is listed and it dispatches to docs
+   * @case An exact route exposes one tool and wins over the star route for it
+   * @preconditions A star route over docs and an exact route over docs:get_document with its own description and a name override
+   * @expectedResult tools/list carries "fetch_doc" with the route's description beside the star's other two tools; a call to fetch_doc runs the exact route
    */
-  test("proxied name collision resolves first-wins in config order", async () => {
-    t = await testContext()
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .build();
-    server = mcpServerFor(t.ctx, {
-      proxy: ["docs:search", { ref: "billing:search" }],
-    });
+  test("an exact route wins over the star route for the tool it names", async () => {
+    const ran: string[] = [];
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .process((ex) => {
+          ran.push("star");
+          return ex;
+        })
+        .to(mcp("docs:*")),
+      craft()
+        .id("fetch")
+        .description("Fetch a document, our way")
+        .from(mcp({ proxy: "docs:get_document", name: "fetch_doc" }))
+        .process((ex) => {
+          ran.push("exact");
+          return ex;
+        })
+        .to(mcp("docs:get_document")),
+    ]);
 
-    const matches = server
-      .getAvailableTools()
-      .filter((tool) => tool.name === "search");
-    expect(matches).toHaveLength(1);
-    expect(matches[0].description).toBe("Search documents");
+    const listed = server.getAvailableTools();
+    expect(listed.map((tool) => tool.name).sort()).toEqual([
+      "docs_delete_document",
+      "docs_search",
+      "fetch_doc",
+    ]);
+    expect(listed.find((tool) => tool.name === "fetch_doc")?.description).toBe(
+      "Fetch a document, our way",
+    );
 
-    await (server as unknown as TestableServer).handleToolCall("search", {
-      q: "x",
-    });
+    const fetched = await call("fetch_doc", { id: "1" });
+    expect(fetched.content[0]?.text).not.toContain("Error");
+    expect(ran).toEqual(["exact"]);
     expect(dispatches).toEqual([
-      { serverId: "docs", toolName: "search", args: { q: "x" } },
+      { serverId: "docs", toolName: "get_document", args: { id: "1" } },
     ]);
   });
 
   /**
-   * @case Name overrides let two same-named remote tools be exposed side by side
-   * @preconditions proxy renames docs:search to docs_search and billing:search to billing_search
-   * @expectedResult Both renamed tools are listed and dispatch to their own client
+   * @case A bare prefix exposes the remote names as they are
+   * @preconditions Star route over docs with prefix ""
+   * @expectedResult tools/list carries get_document, search and delete_document
    */
-  test("name overrides disambiguate colliding remote tools", async () => {
-    t = await testContext()
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .build();
-    server = mcpServerFor(t.ctx, {
-      proxy: [
-        { ref: "docs:search", name: "docs_search" },
-        { ref: "billing:search", name: "billing_search" },
-      ],
-    });
+  test('prefix: "" exposes the remote names bare', async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*", prefix: "" }))
+        .to(mcp("docs:*")),
+    ]);
+    expect(
+      server
+        .getAvailableTools()
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(["delete_document", "get_document", "search"]);
+  });
 
+  /**
+   * @case Two clients with a tool of the same name never collide under the default prefix
+   * @preconditions Star routes over docs and billing, both of which list "search"
+   * @expectedResult docs_search and billing_search are both exposed and each forwards to its own client
+   */
+  test("the default prefix keeps two clients' equal tool names apart", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+      craft()
+        .id("billing")
+        .from(mcp({ proxy: "billing:*" }))
+        .to(mcp("billing:*")),
+    ]);
     const names = server.getAvailableTools().map((tool) => tool.name);
-    expect(names.sort()).toEqual(["billing_search", "docs_search"]);
+    expect(names).toContain("docs_search");
+    expect(names).toContain("billing_search");
 
-    await (server as unknown as TestableServer).handleToolCall(
-      "billing_search",
-      { q: "inv" },
-    );
+    await call("billing_search", { q: "inv" });
     expect(dispatches).toEqual([
       { serverId: "billing", toolName: "search", args: { q: "inv" } },
     ]);
   });
 
   /**
-   * @case Unresolved proxy refs are skipped without breaking tools/list
-   * @preconditions Registry has docs tools only; proxy references a client with no registered tools and a missing tool name
-   * @expectedResult tools/list still returns the resolvable entries
+   * @case Bare prefixes that collide keep the first route's tool and warn
+   * @preconditions Star routes over docs and billing, both with prefix ""; both list "search"
+   * @expectedResult One "search" is exposed, forwarding to docs; a warning names both routes
    */
-  test("unresolved refs skip gracefully", async () => {
-    t = await testContext()
-      .with({ plugins: [mcpPort({ tools: buildRegistry() })] })
-      .build();
-    server = mcpServerFor(t.ctx, {
-      proxy: ["ghost:*", "docs:missing_tool", "docs:get_document"],
-    });
-
+  test("a collision between bare names keeps the first and warns", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*", prefix: "" }))
+        .to(mcp("docs:*")),
+      craft()
+        .id("billing")
+        .from(mcp({ proxy: "billing:*", prefix: "" }))
+        .to(mcp("billing:*")),
+    ]);
     const names = server.getAvailableTools().map((tool) => tool.name);
-    expect(names).toEqual(["get_document"]);
+    expect(names.filter((name) => name === "search")).toHaveLength(1);
+    await call("search", {});
+    expect(dispatches.map((d) => d.serverId)).toEqual(["docs"]);
+    const warned = t.contextLogger.warn.mock.calls.find(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && c[1].includes("the first keeps it"),
+    );
+    expect(warned?.[0]).toMatchObject({
+      exposed: "search",
+      route: "docs",
+      otherRoute: "billing",
+    });
   });
 
   /**
-   * @case Wildcard selection follows registry refresh
-   * @preconditions proxy is ["docs:*"]; a tool is added to the docs source after the first tools/list
-   * @expectedResult The newly registered tool appears on the next tools/list without restart
+   * @case A local mcp() route keeps a name a proxied tool would take
+   * @preconditions A local route named docs_search and a star route over docs
+   * @expectedResult tools/list carries one docs_search, the local one; a call runs the local route and reaches no client; a warning names the proxy route
    */
-  test("wildcard selection is dynamic across registry refresh", async () => {
-    const registry = buildRegistry();
-    t = await testContext()
-      .with({ plugins: [mcpPort({ tools: registry })] })
-      .build();
-    server = mcpServerFor(t.ctx, { proxy: ["docs:*"] });
+  test("a local route wins a name over a proxied tool", async () => {
+    await serve([
+      craft()
+        .id("docs_search")
+        .description("Our own search")
+        .from(mcp())
+        .transform(() => ({ local: true }))
+        .to(noop()),
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+    ]);
+    const listed = server.getAvailableTools();
+    expect(listed.filter((tool) => tool.name === "docs_search")).toHaveLength(
+      1,
+    );
+    expect(
+      listed.find((tool) => tool.name === "docs_search")?.description,
+    ).toBe("Our own search");
+    const result = await call("docs_search", {});
+    expect(dispatches).toEqual([]);
+    expect(result.content[0]?.text).toContain("local");
+    const warned = t.contextLogger.warn.mock.calls.find(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && c[1].includes("the route keeps it"),
+    );
+    expect(warned?.[0]).toMatchObject({
+      route: "docs",
+      exposed: "docs_search",
+    });
+  });
 
-    expect(server.getAvailableTools()).toHaveLength(2);
+  /**
+   * @case A local route the tools filter excludes does not hold its name over a proxied tool
+   * @preconditions A local route docs_search and a star route over docs, with a server tools filter that excludes the local route's entry
+   * @expectedResult tools/list carries one docs_search, the proxied one, and a call reaches the docs client
+   */
+  test("a filtered-out local route yields its name to the proxied tool", async () => {
+    await serve(
+      [
+        craft()
+          .id("docs_search")
+          .description("Our own search")
+          .from(mcp())
+          .transform(() => ({ local: true }))
+          .to(noop()),
+        craft()
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+      ],
+      { server: { tools: (entry) => entry.description !== "Our own search" } },
+    );
+    const listed = server.getAvailableTools();
+    expect(listed.filter((tool) => tool.name === "docs_search")).toHaveLength(
+      1,
+    );
+    expect(
+      listed.find((tool) => tool.name === "docs_search")?.description,
+    ).not.toBe("Our own search");
+    await call("docs_search", { q: "x" });
+    expect(dispatches).toEqual([
+      { serverId: "docs", toolName: "search", args: { q: "x" } },
+    ]);
+  });
+
+  /**
+   * @case A stdio client is told when the advertised tool set changes
+   * @preconditions Star route over docs with a stdio instance observing; the registry re-lists docs with a tool added, then re-lists it unchanged; then a local route registers
+   * @expectedResult tools/list_changed is sent once for the added tool, not for the unchanged listing, and once more for the local route
+   */
+  test("a changed tool set notifies the stdio client once per change", async () => {
+    const registry = buildRegistry();
+    await serve(
+      [
+        craft()
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+      ],
+      { registry },
+    );
+    let sent = 0;
+    const observing = server as unknown as {
+      stdioServers: Set<{ sendToolListChanged(): void }>;
+      observeClientListings(): void;
+    };
+    observing.stdioServers.add({
+      sendToolListChanged() {
+        sent++;
+      },
+    });
+    observing.observeClientListings();
+    const listed = () =>
+      t.ctx.emit(
+        "plugin:mcp:client:docs:tools:listed" as never,
+        {
+          serverId: "docs",
+        } as never,
+      );
 
     registry.setToolsForSource("docs", "stdio", [
       {
@@ -580,485 +476,667 @@ describe("MCP tool proxying", () => {
         inputSchema: { type: "object" },
       },
       {
+        name: "delete_document",
+        description: "Delete a document",
+        inputSchema: { type: "object" },
+      },
+      {
         name: "list_documents",
         description: "List documents",
         inputSchema: { type: "object" },
       },
     ]);
-    expect(
-      server
-        .getAvailableTools()
-        .map((tool) => tool.name)
-        .sort(),
-    ).toEqual(["get_document", "list_documents", "search"]);
+    listed();
+    expect(sent).toBe(1);
+    listed();
+    expect(sent).toBe(1);
+
+    const service = t.ctx.lookup((await import("../src/mcp/port.ts")).MCP)!;
+    const withdraw = service.registerLocal({
+      endpoint: "late",
+      description: "A route that registered after the client connected",
+      handler: async () => {
+        throw new Error("never called");
+      },
+    });
+    expect(sent).toBe(2);
+    withdraw();
+    expect(sent).toBe(3);
   });
 
   /**
-   * @case An exact entry's guard and overrides survive an overlapping wildcard in either order
-   * @preconditions Guarded exact ref for docs:search plus docs:* wildcard, in both config orders
-   * @expectedResult The guard runs (rejecting the call) and the exact description is listed, regardless of order
+   * @case A remote error on a hop that is not the proxied tool stays generic
+   * @preconditions A local mcp() route "own" whose hop calls docs:get_document; the docs client answers with isError and "File not found"
+   * @expectedResult The caller gets the generic failure text with AI2003 and none of the remote's text
    */
-  test("exact entry wins over overlapping wildcard in both orders", async () => {
-    const orders: Array<
-      Array<string | import("../src/mcp/types.ts").McpProxyToolConfig>
-    > = [
-      ["docs:*", { ref: "docs:search", description: "exact", guard: deny }],
-      [{ ref: "docs:search", description: "exact", guard: deny }, "docs:*"],
-    ];
-    function deny(): void {
-      throw new Error("guard ran");
-    }
-    for (const proxy of orders) {
-      t = await testContext()
-        .with({
-          plugins: [
-            mcpPort({ tools: buildRegistry(), stdio: buildManagers() }),
-          ],
-        })
-        .build();
-      server = mcpServerFor(t.ctx, { proxy });
-
-      const listed = server
-        .getAvailableTools()
-        .find((tool) => tool.name === "search");
-      expect(listed?.description).toBe("exact");
-
-      const result = await (server as unknown as TestableServer).handleToolCall(
-        "search",
-        {},
-      );
-      expect(result.isError).toBe(true);
-      expect(result.content[0]?.text).toContain("guard ran");
-      expect(dispatches).toHaveLength(0);
-
-      await server.stop();
-      await t.stop();
-      dispatches = [];
-    }
+  test("a remote error off the proxied hop does not cross the wire", async () => {
+    await serve(
+      [
+        craft()
+          .id("own")
+          .description("Reads a document through our own route")
+          .from(mcp())
+          .to(mcp("docs:get_document")),
+      ],
+      {
+        answer: () => ({
+          content: [{ type: "text", text: "File not found" }],
+          isError: true,
+        }),
+      },
+    );
+    const result = await call("own", {});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toBe('Error: Tool "own" failed (AI2003).');
   });
 
   /**
-   * @case A remote tool advertising icons: [] is listed without icons instead of inheriting the server icon
-   * @preconditions Registry entry for docs:search carries icons: []; proxy exposes it
-   * @expectedResult The listed tool has no icons field (empty array is the documented "no icon" opt-out)
+   * @case The star hop refuses a local mcp() route's own exchange
+   * @preconditions A local mcp() route "own" ending in .to(mcp("docs:*")); the server sets the tool header to "own" but no client header
+   * @expectedResult The call fails with RC5003 and the docs client is never reached
    */
-  test("remote icons opt-out ([]) is honored on proxied tools", async () => {
-    const registry = new McpToolRegistry();
+  test("the star enricher refuses a local route's exchange", async () => {
+    await serve([
+      craft()
+        .id("own")
+        .description("Forwards nothing")
+        .from(mcp())
+        .to(mcp("docs:*")),
+    ]);
+    const result = await call("own", {});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("RC5003");
+    expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case The star hop refuses another client's proxied exchange
+   * @preconditions A star route over docs whose hop is .to(mcp("billing:*"))
+   * @expectedResult The call fails with RC5003 and neither client is reached
+   */
+  test("the star enricher refuses a hop to a different client", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("billing:*")),
+    ]);
+    const result = await call("docs_get_document", { id: "1" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("RC5003");
+    expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case The exposed set follows the client's live tool list
+   * @preconditions Star route over docs; the registry re-lists docs with one tool added and one removed
+   * @expectedResult The new tool is listed and callable, the removed one is gone and answers tool-not-found
+   */
+  test("a star route follows the client's tool list", async () => {
+    const registry = buildRegistry();
+    await serve(
+      [
+        craft()
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+      ],
+      { registry },
+    );
+    expect(server.getAvailableTools().map((tool) => tool.name)).toContain(
+      "docs_search",
+    );
+
     registry.setToolsForSource("docs", "stdio", [
       {
-        name: "search",
-        description: "Search documents",
+        name: "get_document",
+        description: "Read one document by id",
         inputSchema: { type: "object" },
-        icons: [],
+      },
+      {
+        name: "list_documents",
+        description: "List documents",
+        inputSchema: { type: "object" },
       },
     ]);
-    t = await testContext()
-      .with({ plugins: [mcpPort({ tools: registry })] })
-      .build();
-    server = mcpServerFor(t.ctx, { proxy: ["docs:search"] });
 
-    const tools = server.getAvailableTools();
-    expect(tools).toHaveLength(1);
-    expect(tools[0].icons).toBeUndefined();
+    const names = server.getAvailableTools().map((tool) => tool.name);
+    expect(names).toContain("docs_list_documents");
+    expect(names).not.toContain("docs_search");
+    await call("docs_list_documents", {});
+    expect(dispatches.at(-1)).toEqual({
+      serverId: "docs",
+      toolName: "list_documents",
+      args: {},
+    });
+    const gone = await call("docs_search", {});
+    expect(gone.isError).toBe(true);
+    expect(gone.content[0]?.text).toContain("Tool not found");
   });
 
   /**
-   * @case Guard rejections emit plugin:mcp:tool:failed with the proxied metadata fields
-   * @preconditions Proxy entry whose guard throws; listener captures tool events
-   * @expectedResult The failed event carries proxied: true, serverId, and remoteTool alongside tool and error
+   * @case A remote error result fails the call and carries the remote's text to the caller
+   * @preconditions Star route over docs; the docs client answers get_document with isError and "File not found"
+   * @expectedResult The caller receives isError with the remote text; plugin:mcp:tool:failed carries proxied provenance
    */
-  test("guard rejection failed event carries proxied metadata", async () => {
+  test("a remote error result reaches the caller as a failure with the remote's text", async () => {
+    await serve(
+      [
+        craft()
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+      ],
+      {
+        answer: () => ({
+          content: [{ type: "text", text: "File not found" }],
+          isError: true,
+        }),
+      },
+    );
     const failures: Array<Record<string, unknown>> = [];
-    t = await testContext()
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .build();
     t.ctx.on("plugin:mcp:tool:failed", (event) => {
       failures.push((event as { details: Record<string, unknown> }).details);
     });
-    server = mcpServerFor(t.ctx, {
-      proxy: [
-        {
-          ref: "docs:get_document",
-          guard: () => {
-            throw new Error("denied");
-          },
-        },
-      ],
-    });
 
-    await (server as unknown as TestableServer).handleToolCall("get_document", {
-      id: "42",
-    });
+    const result = await call("docs_get_document", { id: "gone" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("File not found");
     expect(failures).toHaveLength(1);
     expect(failures[0]).toMatchObject({
-      tool: "get_document",
+      tool: "docs_get_document",
       proxied: true,
       serverId: "docs",
       remoteTool: "get_document",
     });
-    expect(String(failures[0]["error"])).toContain("denied");
   });
 
   /**
-   * @case Remote tool names that violate the MCP name pattern are skipped unless renamed
-   * @preconditions Registry has a tool named "bad.name"; proxied via wildcard, then via exact ref with a name override
-   * @expectedResult The wildcard skips it; the renamed exact entry exposes and dispatches it
+   * @case The route's chain applies: an authorize refuses an anonymous caller before the hop
+   * @preconditions Star route with .authorize({ roles: ["admin"] }); a call with no principal
+   * @expectedResult The caller receives an isError refusal and the client is never reached
    */
-  test("non-conforming remote names are skipped unless renamed", async () => {
-    const registry = new McpToolRegistry();
-    registry.setToolsForSource("docs", "stdio", [
-      {
-        name: "bad.name",
-        description: "Dotted name",
-        inputSchema: { type: "object" },
-      },
+  test("authorize on the proxy route refuses before the hop", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .authorize({ roles: ["admin"] })
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
     ]);
-    t = await testContext()
-      .with({ plugins: [mcpPort({ tools: registry, stdio: buildManagers() })] })
-      .build();
+    const result = await call("docs_get_document", { id: "1" });
+    expect(result.isError).toBe(true);
+    expect(dispatches).toEqual([]);
+  });
 
-    server = mcpServerFor(t.ctx, { proxy: ["docs:*"] });
-    expect(server.getAvailableTools()).toHaveLength(0);
-    await server.stop();
-
-    server = mcpServerFor(t.ctx, {
-      proxy: [{ ref: "docs:bad.name", name: "bad_name" }],
-    });
+  /**
+   * @case The tools filter applies to proxied tools by their exposed name
+   * @preconditions Star route over docs; server tools filter allows docs_search only
+   * @expectedResult tools/list carries docs_search alone and docs_get_document answers tool-not-found
+   */
+  test("the tools filter applies to proxied tools", async () => {
+    await serve(
+      [
+        craft()
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+      ],
+      { server: { tools: ["docs_search"] } },
+    );
     expect(server.getAvailableTools().map((tool) => tool.name)).toEqual([
-      "bad_name",
+      "docs_search",
     ]);
-    await (server as unknown as TestableServer).handleToolCall("bad_name", {});
-    expect(dispatches).toEqual([
-      { serverId: "docs", toolName: "bad.name", args: {} },
+    const hidden = await call("docs_get_document", { id: "1" });
+    expect(hidden.isError).toBe(true);
+    expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case A cache on a star route serves the read-only tools only, and keeps two tools' equal arguments apart
+   * @preconditions Star route with .cache({ when: annotations say read-only }); get_document (read-only) and delete_document (destructive) called twice each with {}, and search (read-only) once with {}
+   * @expectedResult get_document reaches the client once; delete_document reaches it twice; search reaches it once rather than hitting get_document's entry
+   */
+  test("cache when serves read-only tools and tells tools apart", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .cache({
+          when: (ex) =>
+            (
+              ex.headers[McpHeadersKeys.ANNOTATIONS] as
+                { readOnlyHint?: boolean } | undefined
+            )?.readOnlyHint === true,
+        })
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+    ]);
+
+    await call("docs_get_document", {});
+    await call("docs_get_document", {});
+    await call("docs_delete_document", {});
+    await call("docs_delete_document", {});
+    await call("docs_search", {});
+
+    expect(dispatches.map((d) => d.toolName)).toEqual([
+      "get_document",
+      "delete_document",
+      "delete_document",
+      "search",
     ]);
   });
 
   /**
-   * @case tools filter hides local tools from tools/call as well as tools/list
-   * @preconditions Two mcp() routes; tools filter allows only tool1
-   * @expectedResult Calling tool2 returns a tool-not-found error result
+   * @case Tool call events carry where a proxied call went
+   * @preconditions Star route over docs; one successful call
+   * @expectedResult plugin:mcp:tool:called and plugin:mcp:tool:completed carry proxied: true, serverId "docs" and remoteTool "get_document"
    */
-  test("tools filter applies to tool calls, not just listing", async () => {
+  test("call events carry proxied provenance", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+    ]);
+    const events: Array<Record<string, unknown>> = [];
+    for (const name of ["called", "completed"] as const) {
+      t.ctx.on(`plugin:mcp:tool:${name}`, (event) => {
+        events.push({
+          name,
+          ...(event as { details: Record<string, unknown> }).details,
+        });
+      });
+    }
+    await call("docs_get_document", { id: "1" });
+    expect(events).toEqual([
+      expect.objectContaining({
+        name: "called",
+        tool: "docs_get_document",
+        proxied: true,
+        serverId: "docs",
+        remoteTool: "get_document",
+      }),
+      expect.objectContaining({
+        name: "completed",
+        tool: "docs_get_document",
+        proxied: true,
+        serverId: "docs",
+        remoteTool: "get_document",
+      }),
+    ]);
+  });
+
+  /**
+   * @case Two routes proxying the same thing are refused at start
+   * @preconditions Two star routes over docs; then two exact routes over docs:get_document
+   * @expectedResult Each context fails to start with RC5003 naming both routes
+   */
+  test("two routes proxying the same tool or client are refused", async () => {
+    const start = async (routes: AnyRouteBuilder[]) => {
+      const ctx = await testContext()
+        .routes(routes)
+        .with({
+          plugins: [
+            mcpPort({
+              tools: buildRegistry(),
+              stdio: buildManagers(),
+              clients: buildClients(),
+            }),
+          ],
+        })
+        .build();
+      try {
+        await ctx.startAndWaitReady();
+      } finally {
+        await ctx.stop();
+      }
+    };
+    await expect(
+      start([
+        craft()
+          .id("a")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+        craft()
+          .id("b")
+          .from(mcp({ proxy: "docs" }))
+          .to(mcp("docs:*")),
+      ]),
+    ).rejects.toMatchObject({
+      rc: "RC5003",
+      message: expect.stringMatching(/"a".*"b"|"b".*"a"/),
+    });
+    await expect(
+      start([
+        craft()
+          .id("a")
+          .from(mcp({ proxy: "docs:get_document" }))
+          .to(mcp("docs:get_document")),
+        craft()
+          .id("b")
+          .from(mcp({ proxy: "docs:get_document" }))
+          .to(mcp("docs:get_document")),
+      ]),
+    ).rejects.toMatchObject({
+      rc: "RC5003",
+      message: expect.stringMatching(/"a".*"b"|"b".*"a"/),
+    });
+  });
+
+  /**
+   * @case A proxy over an unregistered client is refused at start
+   * @preconditions Star route over "nope"; only docs and billing are registered
+   * @expectedResult The context fails to start with RC5003 naming the registered clients
+   */
+  test("a proxy over an unregistered client is refused", async () => {
+    const ctx = await testContext()
+      .routes([
+        craft()
+          .id("nope")
+          .from(mcp({ proxy: "nope:*" }))
+          .to(mcp("nope:*")),
+      ])
+      .with({
+        plugins: [
+          mcpPort({
+            tools: buildRegistry(),
+            stdio: buildManagers(),
+            clients: buildClients(),
+          }),
+        ],
+      })
+      .build();
+    try {
+      await expect(ctx.startAndWaitReady()).rejects.toMatchObject({
+        rc: "RC5003",
+      });
+    } finally {
+      await ctx.stop();
+    }
+  });
+
+  /**
+   * @case Proxy options are validated when mcp() is called
+   * @preconditions name with a star proxy; prefix without proxy; ui with proxy; a malformed ref; an invalid name
+   * @expectedResult Each throws RC5003 at construction
+   */
+  test("proxy options are validated at construction", () => {
+    expect(() => mcp({ proxy: "docs:*", name: "x" })).toThrow();
+    expect(() => mcp({ prefix: "x_" })).toThrow();
+    expect(() =>
+      mcp({ proxy: "docs:*", ui: { html: "<p>view</p>" } }),
+    ).toThrow();
+    expect(() => mcp({ proxy: ":tool" })).toThrow();
+    expect(() =>
+      mcp({ proxy: "docs:get_document", name: "bad.name" }),
+    ).toThrow();
+  });
+
+  /**
+   * @case The star enricher refuses an exchange that names no tool
+   * @preconditions A plain direct route ending in .to(mcp("docs:*")), so no routecraft.mcp.tool header is set
+   * @expectedResult The send fails with RC5003 saying the exchange names no tool
+   */
+  test("the star enricher refuses an exchange without a tool header", async () => {
     t = await testContext()
       .routes([
-        craft().id("tool1").description("First").from(mcp()).to(noop()),
-        craft().id("tool2").description("Second").from(mcp()).to(noop()),
+        craft()
+          .id("plain")
+          .from<Record<string, unknown>>(
+            (await import("@routecraft/routecraft")).direct(),
+          )
+          .to(mcp("docs:*")),
       ])
-      .with({ plugins: [mcpPort()] })
+      .with({
+        plugins: [
+          mcpPort({
+            tools: buildRegistry(),
+            stdio: buildManagers(),
+            clients: buildClients(),
+          }),
+        ],
+      })
       .build();
-    server = mcpServerFor(t.ctx, { tools: ["tool1"] });
     await t.startAndWaitReady();
-
-    expect(server.getAvailableTools().map((tool) => tool.name)).toEqual([
-      "tool1",
-    ]);
-    const result = await (server as unknown as TestableServer).handleToolCall(
-      "tool2",
-      {},
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("Tool not found");
+    await expect(
+      t.client.sendDirect("plain", { id: "1" }),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+    expect(dispatches).toEqual([]);
   });
 });
 
-describe("MCP tool proxying over HTTP with auth", () => {
+describe("an agent's MCP reference to a proxied tool", () => {
   let t: TestContext;
-  let server: McpServer;
 
   afterEach(async () => {
     dispatches = [];
-    if (server) {
-      try {
-        await server.stop();
-      } catch {
-        // ignore
-      }
-    }
-    if (t) {
-      await t.stop();
-    }
+    if (t) await t.stop();
   });
 
-  /** POST a JSON-RPC body to /mcp on the given port. */
-  function post(
-    port: number,
-    body: string,
-    headers: Record<string, string>,
-  ): Promise<{ statusCode: number; body: string; sessionId?: string }> {
-    return new Promise((resolve, reject) => {
-      const req = http.request(
-        {
-          host: "127.0.0.1",
-          port,
-          path: "/mcp",
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json, text/event-stream",
-            Connection: "close",
-            ...headers,
-          },
-        },
-        (res) => {
-          let data = "";
-          res.on("data", (chunk) => (data += chunk));
-          res.on("end", () => {
-            const sid = res.headers["mcp-session-id"];
-            resolve({
-              statusCode: res.statusCode ?? 0,
-              body: data,
-              ...(sid ? { sessionId: Array.isArray(sid) ? sid[0] : sid } : {}),
-            });
-          });
-        },
-      );
-      req.on("error", reject);
-      req.write(body);
-      req.end();
-    });
+  let sessions: MemorySessionStore;
+
+  async function build(routes: AnyRouteBuilder[]): Promise<TestContext> {
+    sessions = new MemorySessionStore();
+    t = await testContext()
+      .routes(routes)
+      .with({
+        plugins: [
+          mcpPort({
+            tools: buildRegistry(),
+            stdio: buildManagers(),
+            clients: buildClients(),
+          }),
+          sessionsPlugin({ store: sessions }),
+        ],
+      })
+      .with(deferring())
+      .build();
+    await t.startAndWaitReady();
+    return t;
+  }
+
+  function handlerContext(
+    toolName: string,
+    session?: { id: string; agent: string },
+  ) {
+    return makeFnHandlerContext(
+      toolName,
+      new AbortController().signal,
+      undefined,
+      undefined,
+      session,
+      undefined,
+      authorityOf(t.ctx),
+    );
   }
 
   /**
-   * @case Guard sees the authenticated MCP caller's principal and can authorise by role
-   * @preconditions HTTP server with a token validator mapping admin-token to an admin-role principal; proxied tool guarded on the admin role
-   * @expectedResult The admin token's call dispatches and succeeds; the user token's call returns an isError result without dispatching
+   * @case MCP(server:tool) resolves to the proxying route and runs it
+   * @preconditions Star route over docs with a transform before the hop; the agent lists MCP(docs:get_document)
+   * @expectedResult The tool keeps its mcp__docs__get_document name, its source names the governing route, and calling it reaches the client with the route's rewritten arguments
    */
-  test("guard authorises proxied calls by caller principal over HTTP", async () => {
-    t = await testContext()
-      .with({
-        plugins: [mcpPort({ tools: buildRegistry(), stdio: buildManagers() })],
-      })
-      .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
-      .build();
-    server = mcpServerFor(t.ctx, {
-      transport: "http",
-      auth: {
-        validator: (token: string) => ({
-          kind: "custom" as const,
-          subject: token === "admin-token" ? "admin-1" : "user-1",
-          scheme: "bearer" as const,
-          roles: token === "admin-token" ? ["admin"] : ["user"],
-        }),
-      },
-      proxy: [
-        {
-          ref: "docs:get_document",
-          guard: (_input, ctx) => {
-            if (!ctx.principal?.roles?.includes("admin")) {
-              throw new Error("admin role required");
-            }
-          },
-        },
-      ],
+  test("the reference runs through the proxying route", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .transform((args) => ({
+          ...(args as Record<string, unknown>),
+          via: "route",
+        }))
+        .to(mcp("docs:*")),
+    ]);
+
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    expect(tool.name).toBe("mcp__docs__get_document");
+    expect(tool.source).toMatchObject({
+      kind: "mcp",
+      server: "docs",
+      tool: "get_document",
+      routeId: "docs",
     });
-    await server.prepare();
-    await t.startAndWaitReady();
-    await server.start();
-    const port = server.getHttpPort()!;
+    expect(tool.background).toBeUndefined();
 
-    async function callTool(token: string): Promise<Record<string, unknown>> {
-      const call = await post(
-        port,
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: 2,
-          method: "tools/call",
-          params: { name: "get_document", arguments: { id: "42" } },
-        }),
-        { Authorization: `Bearer ${token}` },
-      );
-      expect(call.statusCode).toBe(200);
-      return rpcResult(call.body);
+    const result = await tool.handler({ id: "7" }, handlerContext(tool.name));
+    expect(dispatches).toEqual([
+      {
+        serverId: "docs",
+        toolName: "get_document",
+        args: { id: "7", via: "route" },
+      },
+    ]);
+    expect(result).toBe("raw:docs:get_document");
+  });
+
+  /**
+   * @case raw: true reaches the client without the route, and says so once
+   * @preconditions Same star route; the agent lists { name: "MCP(docs:get_document)", raw: true }
+   * @expectedResult The call reaches the client with the arguments as given, the source carries no governing route, and a warning names the bypass
+   */
+  test("raw: true bypasses the route with a warning", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .transform((args) => ({
+          ...(args as Record<string, unknown>),
+          via: "route",
+        }))
+        .to(mcp("docs:*")),
+    ]);
+
+    const [tool] = tools([
+      { name: "MCP(docs:get_document)", raw: true },
+    ]).resolve(t.ctx);
+    expect(tool.source).not.toHaveProperty("routeId");
+    await tool.handler({ id: "7" }, handlerContext(tool.name));
+    expect(dispatches).toEqual([
+      { serverId: "docs", toolName: "get_document", args: { id: "7" } },
+    ]);
+    const warned = t.contextLogger.warn.mock.calls.some(
+      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("raw: true"),
+    );
+    expect(warned).toBe(true);
+  });
+
+  /**
+   * @case A route that declines leaves the agent with a failed call, not an echoed request
+   * @preconditions Star route whose filter drops every exchange
+   * @expectedResult The handler rejects with AI2002 and the client is never reached
+   */
+  test("a declining route fails the agent's call", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .filter(() => false)
+        .to(mcp("docs:*")),
+    ]);
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    await expect(
+      tool.handler({ id: "7" }, handlerContext(tool.name)),
+    ).rejects.toMatchObject({ rc: "AI2002" });
+    expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case A parking route that declines settles the background call as failed, not as the echoed request
+   * @preconditions Star route with a filter dropping every exchange before a .defer(); the agent calls the background tool in a session
+   * @expectedResult The handle is returned running, the session inbox then carries a failed settlement for that handle with AI2002, and the client is never reached
+   */
+  test("a declining parking route fails the background call", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .filter(() => false)
+        .defer({ ttl: "1h" })
+        .to(mcp("docs:*")),
+    ]);
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    expect(tool.background).toBe(true);
+    const session = { id: "s", agent: "bot" };
+    const handle = (await tool.handler(
+      { id: "7" },
+      handlerContext(tool.name, session),
+    )) as { status: string; handle: string };
+    expect(handle.status).toBe("running");
+
+    const inbox = async () =>
+      ((await sessions.get("s"))?.value as { inbox?: unknown[] } | undefined)
+        ?.inbox ?? [];
+    for (let i = 0; i < 50 && (await inbox()).length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
+    expect(await inbox()).toEqual([
+      expect.objectContaining({
+        handle: handle.handle,
+        status: "failed",
+        error: expect.objectContaining({ rc: "AI2002" }),
+      }),
+    ]);
+    expect(dispatches).toEqual([]);
+  });
 
-    const adminResult = await callTool("admin-token");
-    expect(adminResult["isError"]).toBeUndefined();
-    expect(dispatches).toHaveLength(1);
-
-    const userResult = await callTool("user-token");
-    expect(userResult["isError"]).toBe(true);
-    expect(JSON.stringify(userResult["content"])).toContain(
-      "admin role required",
+  /**
+   * @case A tool whose proxy route is declared but not live is withheld
+   * @preconditions Star route over docs held back by .enabled(() => false); the agent lists MCP(docs:get_document), then the same with raw: true
+   * @expectedResult The plain reference resolves to no tool, with a warning naming the route; raw: true resolves the tool without a governing route
+   */
+  test("a disabled proxy route withholds the tool", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .enabled(() => false)
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+    ]);
+    expect(tools(["MCP(docs:get_document)"]).resolve(t.ctx)).toEqual([]);
+    const warned = t.contextLogger.warn.mock.calls.find(
+      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("not live"),
     );
-    expect(dispatches).toHaveLength(1);
-  });
-});
-
-describe("mcpPlugin proxy option validation", () => {
-  /**
-   * @case Proxy refs referencing unregistered clients fail at plugin creation
-   * @preconditions proxy references "ghost:tool" while clients only registers "docs"
-   * @expectedResult mcpPlugin throws a TypeError naming the unknown client
-   */
-  test("unknown client in proxy ref throws", () => {
-    expect(() =>
-      mcpPlugin({
-        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
-        proxy: ["ghost:tool"],
-      }),
-    ).toThrow('unknown client "ghost"');
+    expect(warned?.[0]).toMatchObject({ route: "docs", tool: "get_document" });
+    const [raw] = tools([
+      { name: "MCP(docs:get_document)", raw: true },
+    ]).resolve(t.ctx);
+    expect(raw.source).not.toHaveProperty("routeId");
   });
 
   /**
-   * @case Proxy without any clients fails at plugin creation
-   * @preconditions proxy is set but clients is absent
-   * @expectedResult mcpPlugin throws a TypeError
+   * @case A proxying route that can park makes the tool background
+   * @preconditions Star route with a .defer() before the hop
+   * @expectedResult The resolved tool is background and its description says so
    */
-  test("proxy without clients throws", () => {
-    expect(() => mcpPlugin({ proxy: ["docs:tool"] })).toThrow(
-      'unknown client "docs"',
-    );
+  test("a parking proxy route makes the tool background", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .defer({ ttl: "1h" })
+        .to(mcp("docs:*")),
+    ]);
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    expect(tool.background).toBe(true);
+    expect(tool.description).toContain("runs in the background");
   });
 
   /**
-   * @case Wildcard refs cannot carry name or description overrides
-   * @preconditions proxy entry { ref: "docs:*", name: "renamed" }
-   * @expectedResult mcpPlugin throws a TypeError about wildcard overrides
+   * @case Tools the route does not cover stay raw
+   * @preconditions Exact route over docs:get_document only; the agent lists MCP(docs:search)
+   * @expectedResult The search tool has no governing route and reaches the client directly
    */
-  test("wildcard with name override throws", () => {
-    expect(() =>
-      mcpPlugin({
-        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
-        proxy: [{ ref: "docs:*", name: "renamed" }],
-      }),
-    ).toThrow("wildcard");
-  });
-
-  /**
-   * @case Name overrides must match the MCP tool name pattern
-   * @preconditions proxy entry with name "bad name!" (space and punctuation)
-   * @expectedResult mcpPlugin throws a TypeError about the allowed pattern
-   */
-  test("invalid name override throws", () => {
-    expect(() =>
-      mcpPlugin({
-        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
-        proxy: [{ ref: "docs:tool", name: "bad name!" }],
-      }),
-    ).toThrow("A-Za-z0-9_-");
-  });
-
-  /**
-   * @case Statically duplicate exposed names fail at plugin creation
-   * @preconditions Two exact refs from different clients resolve to the same exposed name
-   * @expectedResult mcpPlugin throws a TypeError suggesting name overrides
-   */
-  test("duplicate exposed names throw", () => {
-    expect(() =>
-      mcpPlugin({
-        clients: {
-          docs: { transport: "stdio", command: "docs-mcp" },
-          billing: { transport: "stdio", command: "billing-mcp" },
-        },
-        proxy: ["docs:search", "billing:search"],
-      }),
-    ).toThrow("more than once");
-  });
-
-  /**
-   * @case Duplicate refs fail at plugin creation
-   * @preconditions The same ref appears twice, once as string and once as config object
-   * @expectedResult mcpPlugin throws a TypeError about the duplicate ref
-   */
-  test("duplicate refs throw", () => {
-    expect(() =>
-      mcpPlugin({
-        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
-        proxy: ["docs:tool", { ref: "docs:tool", name: "other" }],
-      }),
-    ).toThrow("duplicate proxy ref");
-  });
-
-  /**
-   * @case Malformed refs fail at plugin creation; extra colons stay in the tool segment
-   * @preconditions Refs with empty parts; a ref with a colon-containing tool name
-   * @expectedResult Empty segments throw a TypeError; "docs:a:b" is accepted (tool "a:b", matching the agent ref grammar)
-   */
-  test("malformed refs throw; colons in the tool segment parse", () => {
-    const clients = {
-      docs: { transport: "stdio", command: "docs-mcp" },
-    } as const;
-    expect(() => mcpPlugin({ clients, proxy: [":tool"] })).toThrow("malformed");
-    expect(() => mcpPlugin({ clients, proxy: ["docs:"] })).toThrow("malformed");
-    expect(() => mcpPlugin({ clients, proxy: [""] })).toThrow(
-      "non-empty string",
-    );
-    // Colons beyond the first split are part of the remote tool name,
-    // matching parseMcpRef's grammar for agent tool refs.
-    expect(() =>
-      mcpPlugin({
-        clients,
-        proxy: [{ ref: "docs:a:b", name: "a_b" }],
-      }),
-    ).not.toThrow();
-  });
-
-  /**
-   * @case A ref naming an inherited Object property is rejected as an unknown client
-   * @preconditions proxy ref "constructor:tool"; clients only registers "docs"
-   * @expectedResult mcpPlugin throws unknown-client (own-property check, not `in`)
-   */
-  test("inherited property names are not accepted as clients", () => {
-    expect(() =>
-      mcpPlugin({
-        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
-        proxy: ["constructor:tool"],
-      }),
-    ).toThrow('unknown client "constructor"');
-  });
-
-  /**
-   * @case A non-string name override is rejected before the pattern test
-   * @preconditions proxy entry with name set to a number (untyped-JS caller)
-   * @expectedResult mcpPlugin throws instead of coercing the number to a string that passes the pattern
-   */
-  test("non-string name override throws", () => {
-    expect(() =>
-      mcpPlugin({
-        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
-        proxy: [{ ref: "docs:tool", name: 42 as unknown as string }],
-      }),
-    ).toThrow("must be a string");
-  });
-
-  /**
-   * @case Non-function guard values fail at plugin creation
-   * @preconditions proxy entry with guard set to a string
-   * @expectedResult mcpPlugin throws a TypeError about the guard
-   */
-  test("non-function guard throws", () => {
-    expect(() =>
-      mcpPlugin({
-        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
-        proxy: [
-          {
-            ref: "docs:tool",
-            guard: "nope" as unknown as () => void,
-          },
-        ],
-      }),
-    ).toThrow("guard");
-  });
-
-  /**
-   * @case Non-array proxy and non-string/object entries fail at plugin creation
-   * @preconditions proxy is an object; then an array containing a number
-   * @expectedResult mcpPlugin throws a TypeError in both cases
-   */
-  test("invalid proxy shapes throw", () => {
-    expect(() =>
-      mcpPlugin({
-        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
-        proxy: { ref: "docs:tool" } as unknown as string[],
-      }),
-    ).toThrow("must be an array");
-    expect(() =>
-      mcpPlugin({
-        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
-        proxy: [42 as unknown as string],
-      }),
-    ).toThrow("ref string");
+  test("an uncovered tool stays raw", async () => {
+    await build([
+      craft()
+        .id("fetch")
+        .from(mcp({ proxy: "docs:get_document" }))
+        .to(mcp("docs:get_document")),
+    ]);
+    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
+    expect(tool.source).not.toHaveProperty("routeId");
+    await tool.handler({ q: "x" }, handlerContext(tool.name));
+    expect(dispatches).toEqual([
+      { serverId: "docs", toolName: "search", args: { q: "x" } },
+    ]);
   });
 });

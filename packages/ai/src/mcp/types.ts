@@ -1,7 +1,6 @@
 import type { Duration } from "@routecraft/routecraft";
 import type { Exchange, Tag } from "@routecraft/routecraft";
 import type { Principal, ValidatorAuthOptions } from "@routecraft/routecraft";
-import type { ToolGuard } from "../fn/types.ts";
 import { TOOL_NAME_PATTERN } from "../tool-name.ts";
 import type { McpCorsOptions } from "./cors.ts";
 import type { UserinfoOption } from "./userinfo.ts";
@@ -91,12 +90,51 @@ export interface McpLocalToolEntry {
   handler: (request: McpToolRequest) => Promise<Exchange>;
 }
 
+/**
+ * A route that proxies a registered client's tools, as the `mcp({ proxy })`
+ * source registers it with the MCP service. The server turns it into one
+ * advertised tool per remote tool it covers, following the client's live
+ * tool list; the registration itself is static.
+ */
+export interface McpProxyRegistration {
+  /** The registered client whose tools this route proxies. */
+  serverId: string;
+  /** The one remote tool an exact registration names, or `"*"` for every tool. */
+  tool: string;
+  /** What an exposed name starts with; `""` for the bare remote name. */
+  prefix: string;
+  /** Exposed name override, exact registrations only. */
+  name?: string;
+  /** The route behind the registration, for the log and the ops listing. */
+  routeId: string;
+  /** The route's `.description()`, replacing the remote's when set. */
+  description?: string;
+  /** The route's `.title()`, replacing the remote's when set. */
+  title?: string;
+  /** Annotation overrides merged over the remote's, per key. */
+  annotations?: McpToolAnnotations;
+  /** Icons for every exposed tool, replacing the remote's when set. */
+  icons?: McpIcon[];
+  /** The route can park, so every exposed tool advertises the `Deferred` arm. */
+  deferrable?: boolean;
+  /**
+   * Runs the route with the arguments as the body. The server adds the
+   * remote tool's name, the client and the annotations to the headers it
+   * passes, beside the request and auth headers every tool call carries.
+   */
+  handler: (request: McpToolRequest) => Promise<Exchange>;
+}
+
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** The MCP tool name that triggered this exchange. */
     "routecraft.mcp.tool"?: string;
     /** Correlation id for the single MCP request that produced this exchange. */
     "routecraft.mcp.request"?: string;
+    /** The registered client a proxied call is forwarded to. */
+    "routecraft.mcp.client"?: string;
+    /** The remote tool's annotations, on a proxied call. */
+    "routecraft.mcp.annotations"?: McpToolAnnotations;
   }
 }
 
@@ -155,6 +193,19 @@ export enum McpHeadersKeys {
   TOOL = "routecraft.mcp.tool",
   /** Correlation id for the single MCP request that produced this exchange. */
   REQUEST = "routecraft.mcp.request",
+  /**
+   * On a route that proxies a remote server (`mcp({ proxy })`): the
+   * registered client the call is forwarded to. The star form of the
+   * `mcp()` enricher reads {@link TOOL} and this to know what to call.
+   */
+  CLIENT = "routecraft.mcp.client",
+  /**
+   * On a route that proxies a remote server: the remote tool's annotations
+   * as the client listed them, for a `.cache({ when })` that serves only
+   * the read-only tools, or any step that treats a destructive tool
+   * differently.
+   */
+  ANNOTATIONS = "routecraft.mcp.annotations",
 }
 
 /**
@@ -426,44 +477,6 @@ export interface McpPluginOptions {
   clients?: Record<string, McpClientHttpConfig | McpClientStdioConfig>;
 
   /**
-   * Proxy selected tools from registered `clients` through this MCP server,
-   * without writing a route per tool. Each entry is either a ref string or a
-   * config object with per-tool overrides:
-   *
-   * - `"server:tool"` -- proxy one tool from a registered client.
-   * - `"server:*"` or `"server"` -- proxy every tool the client advertises.
-   * - `{ ref: "server:tool", name?, description?, annotations? }` -- proxy one
-   *   tool with overrides (exact refs only; wildcards cannot be renamed).
-   *
-   * Proxied tools appear in `tools/list` under their original name (or the
-   * `name` override) with the remote schema, description, and annotations
-   * passed through. `tools/call` dispatches over the client's registered
-   * transport and auth, and the remote result (content, structuredContent,
-   * isError) is returned verbatim.
-   *
-   * Selection resolves against the live tool registry, so wildcard entries
-   * follow tool refresh and stdio restarts. An exact ref and a wildcard
-   * covering the same remote tool compose: the exact entry's overrides and
-   * guard win regardless of config order. Collisions between different
-   * remote tools on one exposed name are deterministic: a local
-   * `.from(mcp())` route always wins over a proxied tool, and earlier
-   * `proxy` entries win over later ones (a warning is logged either way;
-   * use the `name` override to disambiguate). Exposed names must match
-   * `[A-Za-z0-9_-]{1,64}`; a remote tool whose own name does not conform
-   * is skipped with a warning unless renamed via an exact entry's `name`.
-   *
-   * Trust boundary: the caller's authenticated principal is NOT forwarded to
-   * the remote server; the Routecraft -> MCP hop authenticates with the
-   * client's registered `auth`. Route-scope guardrails (`authorize()`, input
-   * validation, throttling) do not run for proxied calls, but a per-entry
-   * `guard` can reject a call by caller identity before it dispatches (same
-   * contract as the agent's `tools([{ name, guard }])`). Proxy simple,
-   * read-only tools, guard the ones that need an identity check, and put
-   * anything needing stateful guardrails behind a `.from(mcp())` route.
-   */
-  proxy?: Array<string | McpProxyToolConfig>;
-
-  /**
    * Max auto-restart attempts for stdio clients before giving up.
    * Applies to all stdio clients. Default: 5.
    */
@@ -486,44 +499,6 @@ export interface McpPluginOptions {
    * Set to 0 to disable periodic refresh. Default: 60000 (60s).
    */
   toolRefreshInterval?: Duration;
-}
-
-/**
- * Config-object form of an `mcpPlugin({ proxy })` entry. Proxies one tool
- * from a registered client with optional overrides for how it is exposed.
- */
-export interface McpProxyToolConfig {
-  /**
-   * Tool reference: `"server:tool"` for one tool, or `"server:*"` / `"server"`
-   * for every tool the client advertises. `server` must be a key of
-   * `mcpPlugin({ clients })`.
-   */
-  ref: string;
-  /**
-   * Exposed tool name override. Defaults to the remote tool's own name.
-   * Must match `[A-Za-z0-9_-]{1,64}` and is invalid on wildcard refs.
-   */
-  name?: string;
-  /**
-   * Description override shown in `tools/list`. Defaults to the remote
-   * tool's description. Invalid on wildcard refs.
-   */
-  description?: string;
-  /**
-   * Annotation overrides merged over the remote tool's annotations
-   * (per-key; an override key wins over the remote value).
-   */
-  annotations?: McpToolAnnotations;
-  /**
-   * Guard run before the call is dispatched to the remote server. Same
-   * contract as the agent's `tools([{ name, guard }])`: receives the raw
-   * tool arguments and a handler context carrying the MCP caller's
-   * read-only `principal` (when the HTTP transport authenticated one);
-   * throw to reject the call, which surfaces to the client as an
-   * `isError` result. On a wildcard ref the guard is attached to every
-   * expanded tool.
-   */
-  guard?: ToolGuard;
 }
 
 /**
@@ -611,6 +586,50 @@ export interface McpServerOptions {
    * @see https://github.com/modelcontextprotocol/ext-apps
    */
   ui?: McpUiOptions;
+
+  /**
+   * Make this route the tools of a registered client, or one of them.
+   *
+   * `"github:*"` (or `"github"`) exposes every tool the `github` client
+   * lists; `"github:create_issue"` exposes that one tool. Each exposed tool
+   * carries the remote's name, description, schemas, annotations and icons,
+   * and a call runs this route with the arguments as the body, the remote
+   * tool's name on `McpHeadersKeys.TOOL`, the client on
+   * `McpHeadersKeys.CLIENT` and the annotations on
+   * `McpHeadersKeys.ANNOTATIONS`. The route forwards with
+   * `.to(mcp("github:*"))` (or the exact form), and everything above that
+   * step sees the arguments, everything below it the result.
+   *
+   * The route id names the route, never a tool. An exact route wins over a
+   * star route for the tool it names; two exact routes for one tool, or two
+   * star routes for one client, are refused at start (`RC5003`).
+   *
+   *
+   * ```ts
+   * craft()
+   *   .id("github")
+   *   .authorize({ scopes: ["github:read"] })
+   *   .from(mcp({ proxy: "github:*" }))
+   *   .to(mcp("github:*"))
+   * ```
+   */
+  proxy?: string;
+
+  /**
+   * What an exposed proxied tool's name starts with. Defaults to the
+   * client's name and an underscore (`github_create_issue`), so two
+   * clients that both list a `search` never collide and the model can see
+   * where a call goes. `""` exposes the remote names bare, and accepts the
+   * collisions that come with it. Only with `proxy`.
+   */
+  prefix?: string;
+
+  /**
+   * The exposed name of the one tool an exact `proxy` names, in place of
+   * the prefixed remote name. Must match `[A-Za-z0-9_-]{1,64}`. Refused
+   * with a star `proxy`.
+   */
+  name?: string;
 }
 
 /**
@@ -665,8 +684,12 @@ export type McpArgsExtractor = (
 export interface McpClientOptions {
   /** URL of the remote MCP server (HTTP/HTTPS only). Omit when using serverId. */
   url?: string;
-  /** Tool name to invoke. If omitted, exchange body may specify it or a default applies. */
-  tool?: string;
+  /**
+   * Tool name to invoke, or `"*"` to invoke the tool named on
+   * `McpHeadersKeys.TOOL`, which a route proxying a remote server
+   * (`mcp({ proxy })`) carries on every exchange.
+   */
+  tool: string;
   /** Server id from context store; resolved to URL at runtime. Use when URL is registered via mcpPlugin({ clients }). */
   serverId?: string;
   /**
@@ -759,9 +782,8 @@ export interface McpToolRegistryEntry {
 
 /**
  * Raw MCP `tools/call` result as returned by the SDK, before any content
- * extraction. Used by the raw dispatch path so proxied tool calls can pass
- * the remote result through verbatim (content array of any spec type,
- * structured content, and the error flag).
+ * extraction: content blocks of any spec type, structured content, and the
+ * error flag, which `toolResultBody` interprets.
  */
 export interface McpRawToolResult {
   content?: Array<{

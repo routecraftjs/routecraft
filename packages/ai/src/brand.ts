@@ -4,7 +4,7 @@
  */
 
 export const BRAND = {
-  McpAdapter: Symbol.for("routecraft.ai.McpAdapter"),
+  McpAdapter: Symbol.for("routecraft.mcp.adapter"),
 } as const;
 
 function isBranded(obj: unknown, key: symbol): boolean {

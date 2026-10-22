@@ -16,7 +16,10 @@ import {
   PARSE_DROPPED_REASON,
 } from "../adapters/shared/parse.ts";
 import type { Adapter, Step } from "../types.ts";
-import type { BoundCacheOptions } from "../operations/cache-wrapper.ts";
+import {
+  cacheBypassed,
+  type BoundCacheOptions,
+} from "../operations/cache-wrapper.ts";
 import {
   ThrottleController,
   throttleEmitHooks,
@@ -293,6 +296,26 @@ export function buildCacheCheckStep(
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
       ] as string;
+
+      // The store step reads the key off the internals, so a bypass must
+      // leave none behind: a retry re-runs this check on the same exchange,
+      // and an earlier attempt's key would otherwise store this one.
+      const bypassed = cacheBypassed(
+        cacheConfig,
+        exchange,
+        {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          stepLabel: "route",
+          scope: "route",
+        },
+        context ? (event, details) => context.emit(event, details) : undefined,
+      );
+      if (bypassed) {
+        if (internals) delete internals.cacheKey;
+        return { kind: "continue", exchange } as const;
+      }
 
       let key: string;
       try {

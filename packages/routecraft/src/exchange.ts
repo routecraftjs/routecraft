@@ -115,6 +115,14 @@ export const HeadersKeys = {
    * callables and `principalOf(ex)` elsewhere read it.
    */
   AUTH_PRINCIPAL: "routecraft.auth.principal",
+  /**
+   * What the default cache key folds in beside the body, for a source that
+   * delivers several operations into one route: a route proxying a remote
+   * MCP server sets it to the remote tool's name, so two tools called with
+   * equal arguments never share an entry. A string; absent on most
+   * exchanges.
+   */
+  CACHE_DISCRIMINATOR: "routecraft.cache.discriminator",
 } as const satisfies Record<string, string>;
 
 /**
@@ -155,6 +163,8 @@ export interface RoutecraftHeaders {
 
   /** Hierarchy path for split operations */
   "routecraft.split_hierarchy"?: readonly string[];
+  /** Folded into the default cache key beside the body, when a source sets it. */
+  "routecraft.cache.discriminator"?: string;
 }
 
 /**

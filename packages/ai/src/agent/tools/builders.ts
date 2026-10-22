@@ -245,14 +245,20 @@ function dispatchHeaders(hctx: FnHandlerContext): Record<string, unknown> {
  * so the model keeps holding a `running` handle, which is true, and the
  * session runtime settles it from execution two's terminal event.
  *
+ * `deliver` runs the dispatch under the headers built here. It defaults to
+ * delivering `input` to the direct route; a tool that runs a proxying
+ * route's handler instead supplies its own.
+ *
  * @internal
  */
-async function dispatchBackground<TIn>(
+export async function dispatchBackground<TIn>(
   host: ToolHost,
   hctx: FnHandlerContext,
   routeId: string,
   toolName: string,
   input: TIn,
+  deliver: (headers: ExchangeHeaders) => Promise<unknown> = (headers) =>
+    host.deliver(routeId, input, headers),
 ): Promise<BackgroundToolHandle> {
   // Wiring defence: the enricher refuses a background tool on a sessionless
   // dispatch before the model can call it, so reaching here without a
@@ -287,7 +293,7 @@ async function dispatchBackground<TIn>(
   const report = (work: Promise<unknown>): void => runtime.track(work, about);
   // Deliberately not awaited: the turn continues, and the settlement is
   // the runtime's business.
-  void host.deliver(routeId, input, headers).then(
+  void deliver(headers).then(
     (result) => {
       // Only the id is read: the acknowledgment carries a live resume
       // token, and the model must never hold its own park's token.
@@ -357,11 +363,24 @@ function readDirectRoute(
   return route;
 }
 
-async function dispatchDirect<TIn>(
+/**
+ * Dispatch the route and resolve with its result, or reject as soon as the
+ * run is cancelled. `deliver` runs the dispatch under the headers built
+ * here (none when there are none to carry); it defaults to delivering
+ * `input` to the direct route, and a tool that runs a proxying route's
+ * handler instead supplies its own, so both kinds of tool share one
+ * cancellation contract.
+ *
+ * @internal
+ */
+export async function dispatchDirect<TIn>(
   host: ToolHost,
   hctx: FnHandlerContext,
   routeId: string,
   input: TIn,
+  deliver: (headers: ExchangeHeaders | undefined) => Promise<unknown> = (
+    headers,
+  ) => host.deliver(routeId, input, headers),
 ): Promise<unknown> {
   // A cancelled run must not START new downstream work; a dispatch already
   // in flight when the abort fires unwinds the agent promptly below while
@@ -379,10 +398,8 @@ async function dispatchDirect<TIn>(
   // attach a different principal; the tool handler's own snapshot
   // stays frozen and unaffected.
   const headers = dispatchHeaders(hctx);
-  const dispatch = host.deliver(
-    routeId,
-    input,
-    Object.keys(headers).length > 0 ? headers : undefined,
+  const dispatch = deliver(
+    Object.keys(headers).length > 0 ? (headers as ExchangeHeaders) : undefined,
   );
   return raceAbort(dispatch, hctx.abortSignal, routeId);
 }
@@ -393,8 +410,6 @@ async function dispatchDirect<TIn>(
  * out a downstream route it no longer wants the answer from. The dispatch
  * promise is left to settle on its own (and observed, so an eventual
  * rejection is not an unhandled one).
- *
- * @internal
  */
 function raceAbort(
   dispatch: Promise<unknown>,

@@ -1,13 +1,30 @@
-import { rcError, type CraftContext, type Tag } from "@routecraft/routecraft";
+import { randomUUID } from "node:crypto";
+import {
+  rcError,
+  type CraftContext,
+  type ExchangeHeaders,
+  type Tag,
+} from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { wrapJsonSchemaAsStandard } from "../../llm/structured-output.ts";
-import type { FnOptions, ToolGuard } from "../../fn/types.ts";
+import { standardSchemaFromJsonSchema } from "@routecraft/routecraft";
+import type { FnHandlerContext, FnOptions, ToolGuard } from "../../fn/types.ts";
 import { dispatchMcpCall } from "../../mcp/dispatch.ts";
 import { MCP } from "../../mcp/port.ts";
-import type { McpToolRegistryEntry } from "../../mcp/types.ts";
+import { coveringProxy, declaredProxy, proxiedEntry } from "../../mcp/proxy.ts";
+import {
+  McpHeadersKeys,
+  type McpProxyRegistration,
+  type McpToolRegistryEntry,
+} from "../../mcp/types.ts";
 import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
 import { AGENTS } from "../port.ts";
-import { directTool } from "./builders.ts";
+import {
+  BACKGROUND_DESCRIPTION_SUFFIX,
+  directTool,
+  dispatchBackground,
+  dispatchDirect,
+} from "./builders.ts";
+import { declinedError } from "../../mcp/tool-result-guards.ts";
 import {
   backgroundReasonOf,
   FN_BACKGROUND,
@@ -98,9 +115,8 @@ function assertValidDirectToolName(
 }
 
 /**
- * Re-exported from `fn/types.ts`, where the guard type lives so both the
- * agent tool bridge and the MCP proxy (`mcpPlugin({ proxy })`) share one
- * guard contract. Kept here so existing imports keep working.
+ * Re-exported from `fn/types.ts`, where the guard type lives. Kept here so
+ * existing imports keep working.
  */
 export type { ToolGuard } from "../../fn/types.ts";
 
@@ -145,6 +161,14 @@ export type ToolsItem =
       guard?: ToolGuard;
       description?: string;
       background?: never;
+      /**
+       * On an `MCP(server:tool)` reference: reach the client raw, even when
+       * a route proxies the tool (`.from(mcp({ proxy }))`). By default such
+       * a reference runs through the proxying route, so the agent is under
+       * the same policy as an external client; `true` bypasses it, and the
+       * resolver warns that it did.
+       */
+      raw?: boolean;
     };
 
 /**
@@ -401,6 +425,17 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): { name: "${item.name}", background } applies to a Direct(<routeId>) reference only.`,
           });
         }
+        const raw = (item as { raw?: unknown }).raw;
+        if (raw !== undefined && typeof raw !== "boolean") {
+          throw rcError("RC5003", undefined, {
+            message: `tools(): { name: "${item.name}", raw } must be a boolean when present.`,
+          });
+        }
+        if (raw !== undefined && !mcpRef) {
+          throw rcError("RC5003", undefined, {
+            message: `tools(): { name: "${item.name}", raw } applies to an MCP(<server>:<tool>) reference only.`,
+          });
+        }
         // MCP refs reject any description override (empty or not) so
         // users see the precise "MCP server is the source of truth"
         // message instead of the generic empty-string error.
@@ -410,7 +445,12 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
               message: `tools(): { name: "${item.name}", description } is not supported for MCP tools. The MCP server is the source of truth for description and schema; do not override.`,
             });
           }
-          for (const tool of resolveMcpRefs(ctx, item.name, item.guard)) {
+          for (const tool of resolveMcpRefs(
+            ctx,
+            item.name,
+            item.guard,
+            raw === true,
+          )) {
             record(out, tool);
           }
           continue;
@@ -987,6 +1027,7 @@ function resolveMcpRefs(
   ctx: CraftContext,
   ref: string,
   guard: ToolGuard | undefined,
+  raw = false,
 ): ResolvedTool[] {
   const { clientName, toolName } = parseMcpRef(ref);
   const registry = ctx.lookup(MCP)?.tools;
@@ -1008,7 +1049,7 @@ function resolveMcpRefs(
   }
   if (toolName === "*") {
     return clientTools
-      .map((entry) => mcpEntryToResolvedTool(ctx, registry, entry, guard))
+      .map((entry) => mcpEntryToResolvedTool(ctx, registry, entry, guard, raw))
       .filter((tool): tool is ResolvedTool => tool !== undefined);
   }
   const entry = clientTools.find((t) => t.name === toolName);
@@ -1020,7 +1061,7 @@ function resolveMcpRefs(
         `Known tools on "${clientName}": ${knownTools.map((n) => `"${n}"`).join(", ")}.`,
     });
   }
-  const resolved = mcpEntryToResolvedTool(ctx, registry, entry, guard);
+  const resolved = mcpEntryToResolvedTool(ctx, registry, entry, guard, raw);
   return resolved === undefined ? [] : [resolved];
 }
 
@@ -1056,6 +1097,7 @@ function mcpEntryToResolvedTool(
   registry: McpToolRegistry,
   entry: McpToolRegistryEntry,
   guard: ToolGuard | undefined,
+  raw: boolean,
 ): ResolvedTool | undefined {
   // Both name problems below are properties of the registered tool, not
   // of the dispatch being served, and `resolve()` runs per dispatch.
@@ -1111,8 +1153,8 @@ function mcpEntryToResolvedTool(
   // The remote names its own tools, so this is the one composed name
   // built from input nobody in this repository authored. An unusable
   // name is dropped with a warning rather than thrown, matching what
-  // the MCP proxy already does for the same registry entries
-  // (`mcp/proxy.ts`): a throw here would let one malformed remote tool
+  // the MCP server does for a proxied tool whose exposed name does not
+  // conform (`mcp/proxy.ts`): a throw here would let one malformed remote tool
   // fail every dispatch of every agent bound to that server, and
   // because `resolve()` runs per dispatch, a remote renaming a tool
   // would become a live route outage rather than a startup error.
@@ -1128,25 +1170,43 @@ function mcpEntryToResolvedTool(
     entry.description && entry.description.trim() !== ""
       ? entry.description
       : `MCP tool "${entry.name}" on client "${entry.source}".`;
-  const input = wrapJsonSchemaAsStandard(entry.inputSchema);
-  const handler: FnOptions["handler"] = async (rawInput) => {
-    // MCP tools expect a JSON-object argument. Silently coercing a
-    // non-object value to `{}` would discard the LLM's args and surface
-    // an unrelated server-side error; fail loudly so the model sees a
-    // precise correction message and can retry with the right shape.
-    if (
-      rawInput === null ||
-      rawInput === undefined ||
-      typeof rawInput !== "object" ||
-      Array.isArray(rawInput)
-    ) {
-      throw rcError("RC5003", undefined, {
-        message: `mcp tool "${name}" expects an object argument; received ${rawInput === null ? "null" : Array.isArray(rawInput) ? "array" : typeof rawInput}.`,
-      });
+  // A route that proxies this tool is the policy on it, for this agent as
+  // for an external client, unless the item said `raw: true`, which is
+  // worth a line in the log because it is the one way round that policy.
+  const service = ctx.lookup(MCP);
+  const covering =
+    service === undefined
+      ? undefined
+      : coveringProxy(service, entry.source, entry.name);
+  if (covering !== undefined) {
+    if (!raw) return governedMcpTool(ctx, name, entry, covering, guard);
+    if (registry.shouldReport(`mcp-raw:${name}`)) {
+      ctx.logger.warn(
+        { server: entry.source, tool: entry.name, route: covering.routeId },
+        "MCP tool is proxied by a route, and an agent references it with raw: true, so its calls bypass that route's policy.",
+      );
     }
-    const args = rawInput as Record<string, unknown>;
-    return dispatchMcpCall(ctx.lookup(MCP), entry.source, entry.name, args);
-  };
+  } else if (!raw) {
+    // A proxy route that is declared but not live (held back by
+    // `.enabled()`, or not yet started) withholds the tool: the policy the
+    // operator wrote for it is off, and off is closed, not open.
+    const declared = declaredProxy(ctx, entry.source, entry.name);
+    if (declared !== undefined) {
+      return dropOnce(
+        `mcp-withheld:${name}`,
+        { server: entry.source, tool: entry.name, route: declared.routeId },
+        "MCP tool is proxied by a route that is not live, so the agent is not offered it. Enable the route, or reference the tool with raw: true to reach the client without it.",
+      );
+    }
+  }
+  const input = standardSchemaFromJsonSchema(entry.inputSchema);
+  const handler: FnOptions["handler"] = async (rawInput) =>
+    dispatchMcpCall(
+      ctx.lookup(MCP),
+      entry.source,
+      entry.name,
+      objectArguments(name, rawInput),
+    );
   const tool: ResolvedTool = {
     name,
     description,
@@ -1168,6 +1228,111 @@ function mcpEntryToResolvedTool(
   }
   if (guard) tool.guard = guard;
   return tool;
+}
+
+/**
+ * MCP tools expect a JSON-object argument. Silently coercing a non-object
+ * value to `{}` would discard the LLM's args and surface an unrelated
+ * server-side error; fail loudly so the model sees a precise correction
+ * message and can retry with the right shape.
+ */
+function objectArguments(
+  name: string,
+  rawInput: unknown,
+): Record<string, unknown> {
+  if (
+    rawInput === null ||
+    rawInput === undefined ||
+    typeof rawInput !== "object" ||
+    Array.isArray(rawInput)
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `mcp tool "${name}" expects an object argument; received ${rawInput === null ? "null" : Array.isArray(rawInput) ? "array" : typeof rawInput}.`,
+    });
+  }
+  return rawInput as Record<string, unknown>;
+}
+
+/**
+ * An `MCP(server:tool)` reference whose tool a route proxies: the tool the
+ * model sees keeps the reference's name and the remote's schema, and a call
+ * runs the proxying route the way the MCP server runs it for an external
+ * client, with the agent's principal on the exchange. The route's chain,
+ * steps and hooks therefore govern the agent's call too.
+ *
+ * A route that can park makes the tool background, as `directTool` does for
+ * a parking direct route: the dispatch answers with a `Deferred`
+ * acknowledgment, which is a receipt the model could not use as a result.
+ */
+function governedMcpTool(
+  ctx: CraftContext,
+  name: string,
+  entry: McpToolRegistryEntry,
+  covering: McpProxyRegistration,
+  guard: ToolGuard | undefined,
+): ResolvedTool {
+  const governed = proxiedEntry(name, covering, entry);
+  const host = toolHostOf(ctx);
+  const source: AgentToolSource = {
+    kind: "mcp",
+    server: entry.source,
+    tool: entry.name,
+    ...(entry.annotations ? { annotations: entry.annotations } : {}),
+    routeId: covering.routeId,
+  };
+  // The route's answer as the MCP server reads it: a decline is a failed
+  // call, because an echoed request is not a result under any schema.
+  const run = async (
+    args: Record<string, unknown>,
+    headers: ExchangeHeaders | undefined,
+  ): Promise<unknown> => {
+    const exchange = await governed.handler({
+      body: args,
+      headers: {
+        ...headers,
+        [McpHeadersKeys.REQUEST]: randomUUID(),
+      } as ExchangeHeaders,
+    });
+    const declined = declinedError(governed, exchange);
+    if (declined) throw declined;
+    return exchange.body;
+  };
+  const fields = {
+    input: standardSchemaFromJsonSchema(entry.inputSchema),
+    ...(entry.tags && entry.tags.length > 0 ? { tags: [...entry.tags] } : {}),
+  };
+  if (covering.deferrable) {
+    const background: RegisteredFn = Object.assign(
+      {
+        ...fields,
+        description: `${governed.description}${BACKGROUND_DESCRIPTION_SUFFIX}`,
+        handler: (rawInput: unknown, hctx: FnHandlerContext) => {
+          const args = objectArguments(name, rawInput);
+          return dispatchBackground(
+            host,
+            hctx,
+            covering.routeId,
+            name,
+            args,
+            (headers) => run(args, headers),
+          );
+        },
+      },
+      { [FN_BACKGROUND]: "parks" as const },
+    );
+    return toResolvedTool(name, background, guard, source);
+  }
+  const fn: RegisteredFn = {
+    ...fields,
+    description: governed.description,
+    handler: (rawInput: unknown, hctx: FnHandlerContext) => {
+      const args = objectArguments(name, rawInput);
+      return dispatchDirect(host, hctx, covering.routeId, args, (headers) =>
+        run(args, headers),
+      );
+    },
+  };
+  return toResolvedTool(name, fn, guard, source);
 }
 
 function listKnownMcpClients(registry: McpToolRegistry): string[] {

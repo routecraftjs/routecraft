@@ -276,6 +276,12 @@
     "retryable": false
   },
   {
+    "code": "RC5069",
+    "category": "Adapter",
+    "message": "Cache condition failed",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",
@@ -651,6 +657,12 @@
     "code": "AI2002",
     "category": "Adapter",
     "message": "MCP tool declined the request",
+    "retryable": false
+  },
+  {
+    "code": "AI2003",
+    "category": "Adapter",
+    "message": "Remote MCP tool reported an error",
     "retryable": false
   },
   {

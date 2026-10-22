@@ -11,6 +11,7 @@ import {
 import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
+import { isThenable } from "../shared/thenable.ts";
 import { hashExchangeBody } from "./hash-body.ts";
 import { principalIdentity } from "./principal-identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
@@ -87,6 +88,22 @@ export interface CacheOptions<Current = unknown> {
    * handing it in here.
    */
   provider?: CacheProvider;
+  /**
+   * Decide per exchange whether the cache takes part at all. Evaluated
+   * before the key is derived; a `false` skips both the read and the write
+   * for this exchange, with a `route:cache:bypassed` event in place of a
+   * hit or a miss, and the route or step runs as if no cache were declared.
+   *
+   * For the cases a key cannot express: an operation that is only sometimes
+   * safe to cache (a lookup, but not with `force: true`; a proxied remote
+   * tool whose annotations say read-only, but not the writing tools beside
+   * it under the same route), or a caller who must always see a fresh
+   * answer. The condition decides synchronously: one that throws, or
+   * returns a promise, fails the exchange with `RC5069`, while a
+   * `RoutecraftError` it throws on purpose keeps its own code, as one a
+   * `key` throws does.
+   */
+  when?: (exchange: Exchange<Current>) => boolean;
 }
 
 /**
@@ -140,6 +157,8 @@ export interface ResolvedCacheOptions<Current = unknown> {
   /** No custom `key` was supplied, so `key` is {@link defaultCacheKey}. */
   usesDefaultKey: boolean;
   ttl: number | undefined;
+  /** The per-exchange condition, or `undefined` when the cache always takes part. */
+  when: ((exchange: Exchange<Current>) => boolean) | undefined;
   /**
    * The provider the call site supplied, or `undefined` when it supplied
    * none: the `CACHE` provider then uses its own, which the default plugin
@@ -190,15 +209,82 @@ export function resolveCacheOptions<Current = unknown>(
       options.ttl === undefined
         ? undefined
         : parseDuration(options.ttl, "cache({ ttl })"),
+    when: options.when,
     provider: options.provider,
   };
 }
 
+/** Where a cache sits, as its events name it. */
+export interface CacheEventScope {
+  routeId: string;
+  exchangeId: string;
+  correlationId: string;
+  stepLabel: string;
+  scope: "route" | "step";
+}
+
+/** The two cache events `when` decides between, with their payloads. */
+type CacheConditionEmit = (
+  ...args:
+    | ["route:cache:bypassed", CacheEventScope]
+    | ["route:cache:failed", CacheEventScope & { phase: "when"; error: string }]
+) => void;
+
+/**
+ * Whether a cache with `when` sits this exchange out, emitting
+ * `route:cache:bypassed` when it does. The condition decides synchronously,
+ * so a promise is refused rather than read as truthy: a `when` that throws
+ * or returns one is the author's bug, reported as `RC5069` with the site
+ * named and `route:cache:failed` in phase `when`.
+ *
+ * @internal
+ */
+export function cacheBypassed(
+  options: Pick<ResolvedCacheOptions, "when">,
+  exchange: Exchange,
+  scope: CacheEventScope,
+  emit: CacheConditionEmit | undefined,
+): boolean {
+  if (options.when === undefined) return false;
+  const site =
+    scope.scope === "route"
+      ? `route "${scope.routeId}"`
+      : `"${scope.stepLabel}"`;
+  let decision: unknown;
+  try {
+    decision = options.when(exchange);
+    if (isThenable(decision)) {
+      // The promise is refused, not awaited, so its own rejection would be
+      // nobody's; observing it keeps that off the process.
+      void Promise.resolve(decision).catch(() => undefined);
+      throw rcError("RC5069", undefined, {
+        message: `cache({ when }) for ${site} returned a promise; the condition decides synchronously`,
+      });
+    }
+  } catch (err) {
+    const error = isRoutecraftError(err)
+      ? err
+      : rcError("RC5069", err, {
+          message: `cache({ when }) for ${site} threw while deciding whether to cache`,
+        });
+    emit?.("route:cache:failed", {
+      ...scope,
+      phase: "when",
+      error: error.message,
+    });
+    throw error;
+  }
+  if (decision !== false) return false;
+  emit?.("route:cache:bypassed", scope);
+  return true;
+}
+
 /**
  * The default cache key: a SHA-256 over the JSON tuple
- * `[scope.kind, routeId, site | pipeline, principalChain | null, bodyHash]`,
+ * `[scope.kind, routeId, site | pipeline, principalChain | null, bodyHash, discriminator | null]`,
  * where `principalChain` is `[issuer | null, subject]` for the principal
- * and each `actor` hop.
+ * and each `actor` hop, and `discriminator` is the
+ * `routecraft.cache.discriminator` header when a source set one.
  * Encoding the tuple as JSON keeps the fields from running into each
  * other; hashing the body first keeps a large body out of the second
  * serialisation.
@@ -233,12 +319,14 @@ export function defaultCacheKey(
         "Supply an explicit `key` function in cache({ key: ... }).",
     });
   }
+  const discriminator = exchange.headers[HeadersKeys.CACHE_DISCRIMINATOR];
   const identity = JSON.stringify([
     scope.kind,
     scope.routeId,
     scope.kind === "step" ? scope.site : scope.pipeline,
     principalIdentity(principalOf(exchange)),
     bodyHash,
+    typeof discriminator === "string" ? discriminator : null,
   ]);
   return createHash("sha256").update(identity).digest("hex");
 }
@@ -395,6 +483,7 @@ export class CacheWrapperStep<
   // The resolved `key` wraps a custom key in one adapter lambda whose
   // source is the same for every cache, so fingerprint the original.
   readonly #customKey: CacheOptions["key"];
+  readonly #customWhen: CacheOptions["when"];
   #site: string | undefined;
   readonly #runs = new WeakMap<object, CacheStep>();
 
@@ -402,10 +491,15 @@ export class CacheWrapperStep<
     super(inner);
     this.#options = resolveCacheOptions(options);
     this.#customKey = options.key;
+    this.#customWhen = options.when;
   }
 
   protected override describeOptions(): unknown {
-    return { key: this.#customKey ?? null, ttl: this.#options.ttl ?? null };
+    return {
+      key: this.#customKey ?? null,
+      when: this.#customWhen ?? null,
+      ttl: this.#options.ttl ?? null,
+    };
   }
 
   /**
@@ -441,6 +535,20 @@ export class CacheWrapperStep<
       this,
     );
     const site = (this.#site ??= `unbuilt:${randomUUID()}`);
+
+    const bypassed = cacheBypassed(
+      this.#options,
+      exchange,
+      {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel,
+        scope: "step",
+      },
+      context ? (event, details) => context.emit(event, details) : undefined,
+    );
+    if (bypassed) return this.inner.execute(exchange, ctx);
 
     let key: string;
     try {

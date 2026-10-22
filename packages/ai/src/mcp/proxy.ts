@@ -1,239 +1,257 @@
-import type { McpService } from "./port.ts";
+import {
+  HeadersKeys,
+  standardSchemaFromJsonSchema,
+  type CraftContext,
+} from "@routecraft/routecraft";
+import { isMcpAdapter } from "../brand.ts";
 import { mergeAnnotations } from "./annotation-tags.ts";
-import { TOOL_NAME_PATTERN_SOURCE } from "../tool-name.ts";
-import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
-import type {
-  McpProxyToolConfig,
-  McpTool,
-  McpToolRegistryEntry,
+import type { McpService } from "./port.ts";
+import {
+  MCP_TOOL_NAME_PATTERN,
+  McpHeadersKeys,
+  type McpLocalToolEntry,
+  type McpProxyRegistration,
+  type McpToolRegistryEntry,
 } from "./types.ts";
 
-/** Parsed `mcpPlugin({ proxy })` ref. `toolName` is `"*"` for wildcards. */
+/** A parsed `mcp({ proxy })` ref. `tool` is `"*"` for a whole client. */
 export interface McpProxyRef {
   serverId: string;
-  toolName: string;
+  tool: string;
 }
 
 /**
- * Parse a proxy ref string: `"server:tool"`, `"server:*"`, or bare
- * `"server"` (equivalent to `"server:*"`, matching the agent's
- * whole-server `MCP(server)` form). Colons beyond the first split stay in
- * the tool segment, matching the agent ref grammar (`parseMcpRef`), so a
- * remote tool named `ns:tool` is addressable as `"server:ns:tool"`. Such
- * a name needs a `name` override to be exposed (exposed names must match
- * {@link MCP_TOOL_NAME_PATTERN}).
+ * Parse a proxy ref: `"server:tool"`, `"server:*"`, or bare `"server"`
+ * (the same as `"server:*"`). Colons beyond the first stay in the tool
+ * segment, as in the agent's `MCP(server:ns:tool)` grammar.
  *
- * Throws `TypeError` on malformed refs so both option validation and
- * runtime resolution fail with the same message.
- *
+ * @throws TypeError on a malformed ref, so option validation and the
+ *   source's subscribe fail with one message
  * @internal
  */
 export function parseProxyRef(ref: string): McpProxyRef {
   if (typeof ref !== "string" || ref.trim() === "") {
     throw new TypeError(
-      'mcpPlugin: proxy ref must be a non-empty string like "server:tool", "server:*", or "server"',
+      'mcp({ proxy }): proxy must be a non-empty string like "server:tool", "server:*", or "server"',
     );
   }
   const idx = ref.indexOf(":");
-  if (idx === -1) {
-    return { serverId: ref, toolName: "*" };
-  }
+  if (idx === -1) return { serverId: ref, tool: "*" };
   const serverId = ref.slice(0, idx);
-  const toolName = ref.slice(idx + 1);
-  if (serverId === "" || toolName === "") {
+  const tool = ref.slice(idx + 1);
+  if (serverId === "" || tool === "") {
     throw new TypeError(
-      `mcpPlugin: proxy ref "${ref}" is malformed. Use "server:tool", "server:*", or "server".`,
+      `mcp({ proxy }): proxy "${ref}" is malformed. Use "server:tool", "server:*", or "server".`,
     );
   }
-  return { serverId, toolName };
+  return { serverId, tool };
 }
 
 /**
- * Normalize a `proxy` option array to config-object form (`string` entries
- * become `{ ref }`).
+ * The key a registration is held under: one exact or one star per client
+ * and tool. Encoded as a JSON pair so a tool name carrying a colon cannot
+ * read as a different client and tool.
+ */
+export function proxyRegistrationKey(serverId: string, tool: string): string {
+  return JSON.stringify([serverId, tool]);
+}
+
+/**
+ * The registration that covers a remote tool: the exact one when there is
+ * one, otherwise the client's star registration, otherwise undefined.
  *
  * @internal
  */
-export function normalizeProxyEntries(
-  proxy: Array<string | McpProxyToolConfig>,
-): McpProxyToolConfig[] {
-  return proxy.map((entry) =>
-    typeof entry === "string" ? { ref: entry } : entry,
+export function coveringProxy(
+  service: McpService,
+  serverId: string,
+  tool: string,
+): McpProxyRegistration | undefined {
+  return (
+    service.proxies.get(proxyRegistrationKey(serverId, tool)) ??
+    service.proxies.get(proxyRegistrationKey(serverId, "*"))
   );
 }
 
 /**
- * The name a proxy entry exposes a remote tool under: the entry's `name`
- * override when set, otherwise the remote tool's own name. Shared by
- * static validation and runtime resolution so the two can never disagree.
+ * The route whose source declares a proxy over `serverId:tool`, live or
+ * not: an exact declaration first, else a star over the client. A live
+ * registration is what {@link coveringProxy} answers; this reads the route
+ * definitions instead, so the agent tool resolver can tell a tool nobody
+ * governs from one whose governing route is held back by `.enabled()`.
+ * The second is withheld rather than offered raw: a disabled policy must
+ * not open the door it was written to close.
  *
  * @internal
  */
-export function exposedNameFor(
-  config: McpProxyToolConfig,
-  remoteToolName: string,
-): string {
-  return config.name ?? remoteToolName;
-}
-
-/**
- * A client tool selected for proxying, resolved against the live tool
- * registry. Carries everything `tools/list` and `tools/call` need.
- */
-export interface McpProxiedTool {
-  /** Name this server exposes the tool under (override or remote name). */
-  exposedName: string;
-  /** Registered client the tool dispatches to. */
-  serverId: string;
-  /** Tool name on the remote server (dispatch target). */
-  toolName: string;
-  /** The registry entry the tool resolved from. */
-  entry: McpToolRegistryEntry;
-  /** Per-entry config overrides (description, annotations, guard). */
-  config: McpProxyToolConfig;
-}
-
-/**
- * Resolve the `proxy` selection against the current MCP tool registry.
- *
- * Resolution follows the live registry (the server memoizes per registry
- * version, so this runs when the registry changes, not per request).
- * Entries that do not resolve (client not yet listed, tool gone after
- * refresh) are skipped via `warn` rather than thrown, because client
- * availability is transient by design (the plugin already tolerates a
- * failed initial listing).
- *
- * Collision policy:
- * - Two entries covering the SAME remote tool (an exact ref overlapping a
- *   wildcard) compose rather than collide: the exact entry's config
- *   (overrides, guard) wins regardless of config order, so a wildcard can
- *   never silently strip an explicitly configured guard.
- * - Two DIFFERENT remote tools mapping to one exposed name are first-wins
- *   in config order; the loser is reported through `warn`.
- * - Exposed names must match {@link MCP_TOOL_NAME_PATTERN}; non-conforming
- *   remote names are skipped via `warn` unless renamed. Collisions with
- *   local route tools are the caller's concern (the server checks its
- *   local registry).
- *
- * @internal
- */
-export function resolveProxiedTools(
-  service: McpService | undefined,
-  proxy: Array<string | McpProxyToolConfig>,
-  warn: (key: string, message: string) => void,
-): Map<string, McpProxiedTool> {
-  const resolved = new Map<string, McpProxiedTool>();
-  const registry = service?.tools;
-  if (!registry) {
-    warn(
-      "proxy:no-registry",
-      "mcpPlugin proxy: no MCP tool registry present; proxied tools are unavailable.",
-    );
-    return resolved;
-  }
-
-  const add = (
-    entry: McpToolRegistryEntry,
-    config: McpProxyToolConfig,
-    isExact: boolean,
-  ): void => {
-    const exposedName = exposedNameFor(config, entry.name);
-    if (!MCP_TOOL_NAME_PATTERN.test(exposedName)) {
-      warn(
-        `proxy:invalid-name:${exposedName}`,
-        `mcpPlugin proxy: remote tool "${entry.source}:${entry.name}" has a name that does not match ${TOOL_NAME_PATTERN_SOURCE} and is skipped. Proxy it with an exact ref and a "name" override to expose it.`,
-      );
-      return;
+export function declaredProxy(
+  context: CraftContext,
+  serverId: string,
+  tool: string,
+): { routeId: string; tool: string } | undefined {
+  let star: { routeId: string; tool: string } | undefined;
+  for (const route of context.getRoutes()) {
+    for (const source of route.definition.sources) {
+      const ref = (source as { proxyRef?: McpProxyRef }).proxyRef;
+      if (!isMcpAdapter(source) || ref === undefined) continue;
+      if (ref.serverId !== serverId) continue;
+      if (ref.tool === tool) return { routeId: route.definition.id, tool };
+      if (ref.tool === "*") star ??= { routeId: route.definition.id, tool };
     }
-    const existing = resolved.get(exposedName);
-    if (existing) {
-      const sameRemoteTool =
-        existing.serverId === entry.source && existing.toolName === entry.name;
-      if (!sameRemoteTool) {
+  }
+  return star;
+}
+
+/** A description with text in it, or nothing: an empty one earns the fallback. */
+function nonEmpty(text: string | undefined): string | undefined {
+  return text !== undefined && text.length > 0 ? text : undefined;
+}
+
+/** A tool a proxy registration exposes: a local entry plus where it goes. */
+export interface McpProxiedEntry {
+  entry: McpLocalToolEntry;
+  registration: McpProxyRegistration;
+  remote: McpToolRegistryEntry;
+}
+
+/**
+ * The tools the proxy registrations expose right now, by exposed name,
+ * resolved against the clients' live tool lists.
+ *
+ * Each is an ordinary {@link McpLocalToolEntry}: the remote's metadata
+ * under the exposed name, the remote's JSON Schemas as pass-through
+ * Standard Schemas (the remote validates at its door), and a handler that
+ * runs the registered route with the remote tool's name, the client and
+ * the annotations on the headers. The server lists and calls it exactly
+ * as it lists and calls a `.from(mcp())` route's entry, so every rule that
+ * applies to one applies to the other.
+ *
+ * A remote tool is not exposed, with a warning through `warn`, when its
+ * exposed name does not conform to the tool name pattern or when two
+ * registrations expose the same name (the first in registration order
+ * wins). Which registration covers a tool follows {@link coveringProxy}.
+ *
+ * @internal
+ */
+export function resolveProxiedEntries(
+  service: McpService,
+  warn: (
+    key: string,
+    message: string,
+    bindings: Record<string, unknown>,
+  ) => void,
+): Map<string, McpProxiedEntry> {
+  const resolved = new Map<string, McpProxiedEntry>();
+  for (const registration of service.proxies.values()) {
+    const remotes =
+      registration.tool === "*"
+        ? service.tools
+            .getToolsByServer(registration.serverId)
+            .filter(
+              (remote) =>
+                coveringProxy(service, registration.serverId, remote.name) ===
+                registration,
+            )
+        : [
+            service.tools.getToolBySource(
+              registration.serverId,
+              registration.tool,
+            ),
+          ].filter(
+            (remote): remote is McpToolRegistryEntry => remote !== undefined,
+          );
+    for (const remote of remotes) {
+      const exposedName =
+        registration.name ?? `${registration.prefix}${remote.name}`;
+      if (!MCP_TOOL_NAME_PATTERN.test(exposedName)) {
         warn(
-          `proxy:conflict:${exposedName}`,
-          `mcpPlugin proxy: tool name "${exposedName}" from "${config.ref}" collides with "${existing.serverId}:${existing.toolName}"; first entry wins. Use a name override to expose both.`,
+          `proxy:name:${exposedName}`,
+          "mcp({ proxy }): a proxied tool's exposed name is not a valid MCP tool name; skipping it. Set a prefix or a name that matches the pattern.",
+          {
+            route: registration.routeId,
+            server: registration.serverId,
+            tool: remote.name,
+            exposed: exposedName,
+            pattern: String(MCP_TOOL_NAME_PATTERN),
+          },
         );
-        return;
+        continue;
       }
-      // Exact and wildcard entries covering the same remote tool compose:
-      // the exact entry's config is the operator's specific intent (its
-      // guard and overrides must never be dropped by a broader wildcard),
-      // so specific-wins regardless of config order.
-      if (!isExact) return;
+      const existing = resolved.get(exposedName);
+      if (existing) {
+        warn(
+          `proxy:collision:${exposedName}`,
+          "mcp({ proxy }): two routes expose a proxied tool under one name; the first keeps it. Give one of them a prefix or a name.",
+          {
+            exposed: exposedName,
+            route: existing.registration.routeId,
+            server: existing.registration.serverId,
+            tool: existing.remote.name,
+            otherRoute: registration.routeId,
+            otherServer: registration.serverId,
+            otherTool: remote.name,
+          },
+        );
+        continue;
+      }
+      resolved.set(exposedName, {
+        entry: proxiedEntry(exposedName, registration, remote),
+        registration,
+        remote,
+      });
     }
-    resolved.set(exposedName, {
-      exposedName,
-      serverId: entry.source,
-      toolName: entry.name,
-      entry,
-      config,
-    });
-  };
-
-  for (const config of normalizeProxyEntries(proxy)) {
-    const { serverId, toolName } = parseProxyRef(config.ref);
-    const clientTools = registry.getToolsByServer(serverId);
-    if (clientTools.length === 0) {
-      warn(
-        `proxy:unresolved:${serverId}`,
-        `mcpPlugin proxy: client "${serverId}" has no registered tools (not yet listed, or listing failed); its proxy entries are skipped until tools appear.`,
-      );
-      continue;
-    }
-    if (toolName === "*") {
-      for (const entry of clientTools) add(entry, config, false);
-      continue;
-    }
-    const entry = clientTools.find((t) => t.name === toolName);
-    if (!entry) {
-      warn(
-        `proxy:unresolved:${config.ref}`,
-        `mcpPlugin proxy: tool "${toolName}" is not registered under client "${serverId}". Known tools: ${clientTools
-          .map((t) => `"${t.name}"`)
-          .sort()
-          .join(", ")}.`,
-      );
-      continue;
-    }
-    add(entry, config, true);
   }
-
   return resolved;
 }
 
 /**
- * Convert a resolved proxied tool to the MCP `tools/list` wire shape.
- * Remote schema, title, description, and annotations pass through;
- * per-entry `description` overrides replace and `annotations` overrides
- * merge over the remote values. Icons are NOT set here: the server applies
- * the same inheritance rule it applies to local tools (`entry.icons ??`
- * server icons, omitted when empty), reading the tri-state (unset / [] /
- * set) off `proxied.entry.icons`.
+ * The local entry a registration exposes a remote tool as, under
+ * `exposedName`. Shared with the agent tool resolver, which sends an
+ * `MCP(server:tool)` reference through the covering route under the
+ * reference's own name.
  *
  * @internal
  */
-export function proxiedToolToMcpTool(proxied: McpProxiedTool): McpTool {
-  const { entry, config } = proxied;
-  const tool: McpTool = {
-    name: proxied.exposedName,
-    inputSchema: entry.inputSchema as McpTool["inputSchema"],
+export function proxiedEntry(
+  exposedName: string,
+  registration: McpProxyRegistration,
+  remote: McpToolRegistryEntry,
+): McpLocalToolEntry {
+  const entry: McpLocalToolEntry = {
+    endpoint: exposedName,
+    description:
+      nonEmpty(registration.description) ??
+      nonEmpty(remote.description) ??
+      `Tool "${remote.name}" on client "${registration.serverId}".`,
+    input: { body: standardSchemaFromJsonSchema(remote.inputSchema) },
+    handler: (request) =>
+      registration.handler({
+        body: request.body,
+        headers: {
+          ...request.headers,
+          [McpHeadersKeys.TOOL]: remote.name,
+          [McpHeadersKeys.CLIENT]: registration.serverId,
+          // Two tools under one star route share the route id and may share
+          // arguments; the default cache key tells them apart by this.
+          [HeadersKeys.CACHE_DISCRIMINATOR]: remote.name,
+          ...(remote.annotations !== undefined
+            ? { [McpHeadersKeys.ANNOTATIONS]: remote.annotations }
+            : {}),
+        },
+      }),
   };
-  const description = config.description ?? entry.description;
-  if (description !== undefined) {
-    tool.description = description;
+  const title = registration.title ?? remote.title;
+  if (title !== undefined) entry.title = title;
+  if (remote.outputSchema !== undefined) {
+    entry.output = { body: standardSchemaFromJsonSchema(remote.outputSchema) };
   }
-  if (entry.title !== undefined) {
-    tool.title = entry.title;
-  }
-  if (entry.outputSchema !== undefined) {
-    tool.outputSchema = entry.outputSchema as NonNullable<
-      McpTool["outputSchema"]
-    >;
-  }
-  const annotations = mergeAnnotations(entry.annotations, config.annotations);
-  if (annotations !== undefined) {
-    tool.annotations = annotations;
-  }
-  return tool;
+  const annotations = mergeAnnotations(
+    remote.annotations,
+    registration.annotations,
+  );
+  if (annotations !== undefined) entry.annotations = annotations;
+  const icons = registration.icons ?? remote.icons;
+  if (icons !== undefined) entry.icons = icons;
+  if (registration.deferrable) entry.deferrable = true;
+  return entry;
 }

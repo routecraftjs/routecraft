@@ -26,9 +26,14 @@ import {
  * registered client the call was forwarded to; a local `.from(mcp())` route
  * call omits `proxied` (or sets it false) and carries neither identifier.
  */
-type McpToolProvenance =
-  | { proxied?: false; serverId?: undefined; remoteTool?: undefined }
-  | { proxied: true; serverId: string; remoteTool: string };
+export type McpToolProvenance =
+  | {
+      proxied?: false;
+      serverId?: undefined;
+      remoteTool?: undefined;
+      routeId?: undefined;
+    }
+  | { proxied: true; serverId: string; remoteTool: string; routeId: string };
 
 /**
  * What every tool-call event carries.
@@ -308,14 +313,14 @@ declare module "@routecraft/routecraft" {
      * with the `Deferred` acknowledgment and the real result belongs to
      * execution two. Separate from `completed` because a deferred run
      * reported as finished is a false receipt (the same honesty rule that
-     * gives declines their own event).
-     *
-     * Local routes only: a proxied call cannot defer an exchange of ours.
+     * gives declines their own event). A proxied call runs the proxy route,
+     * which can park like any other, so the event carries the provenance
+     * the other tool-call events do.
      */
     "plugin:mcp:tool:deferred": {
       tool: string;
       deferralId: string;
-    };
+    } & McpToolProvenance;
     /** MCP tool call failed. */
     "plugin:mcp:tool:failed": {
       tool: string;
@@ -324,16 +329,15 @@ declare module "@routecraft/routecraft" {
     /**
      * MCP tool call declined: the route ran and dropped the exchange rather
      * than producing a result. Separate from `failed` so a tool that filters
-     * does not report ordinary rejections as errors.
-     *
-     * Local routes only, so it carries no provenance fields: a proxied call
-     * has no exchange of ours to drop, and a remote `isError` result is
-     * reported as `failed`.
+     * does not report ordinary rejections as errors. A proxied call runs the
+     * proxy route, whose steps can drop the exchange, so the event carries
+     * the provenance the other tool-call events do; a remote `isError`
+     * result is reported as `failed`.
      */
     "plugin:mcp:tool:declined": {
       tool: string;
       reason: string;
-    };
+    } & McpToolProvenance;
     /** An MCP Apps view was served for `resources/read`. */
     "plugin:mcp:ui:served": {
       tool: string;
@@ -425,6 +429,8 @@ declare module "@routecraft/routecraft" {
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
     AI2002: RCMeta;
+    /** Remote MCP tool reported an error: the result was flagged isError */
+    AI2003: RCMeta;
   }
 }
 
@@ -599,6 +605,14 @@ registerErrorCodes(
       suggestion:
         "The route behind this tool dropped the exchange instead of completing it (a `.filter()` rejected it, a `.choice()` matched no branch, or an error handler returned `recovery.drop()`), so there is no result to return. Give the route a branch that produces a result the caller can use (an empty list, an explicit not-found shape) if the caller should receive a value. Mirrors RC5031 on the direct and forward surfaces.",
       docs: `${DOCS_BASE}#ai-2002`,
+      retryable: false,
+    },
+    AI2003: {
+      category: "Adapter",
+      message: "Remote MCP tool reported an error",
+      suggestion:
+        "The remote server answered the call with isError: true, so its content is an error text, not a result. The message carries that text, bounded. On a route, handle it with .error() or .retry(); on a route that proxies the remote, the caller receives the remote's text as a failed call. Not a Routecraft or transport failure (those are RC5003).",
+      docs: `${DOCS_BASE}#ai-2003`,
       retryable: false,
     },
   },
