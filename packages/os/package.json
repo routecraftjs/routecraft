@@ -30,7 +30,7 @@
     "dockerode": "^5.0.1",
     "execa": "^9.6.0",
     "shescape": "^3.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   },
   "peerDependencies": {
     "@routecraft/routecraft": ">=0.8.0-0 <1.0.0",

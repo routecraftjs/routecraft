@@ -22,13 +22,13 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^1.7.0",
+    "@agentclientprotocol/sdk": "^1.9.0",
     "@routecraft/routecraft": "^0.7.2",
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
     "ink": "^7.1.1",
     "pino-pretty": "^13.2.0",
-    "react": "^19.2.0",
+    "react": "^19.2.9",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

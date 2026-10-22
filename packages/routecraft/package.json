@@ -32,7 +32,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "@opentelemetry/sdk-trace-base": "^2.12.0",
     "@routecraft/testing": "workspace:*",
     "@sinonjs/fake-timers": "^11.3.1",
     "@types/better-sqlite3": "^7.6.13",
@@ -46,13 +46,13 @@
     "croner": "^10.0.1",
     "fast-xml-parser": "^5.11.2",
     "imapflow": "^1.7.8",
-    "mailauth": "^7.1.1",
-    "mailparser": "^3.9.38",
-    "nodemailer": "^10.0.13",
+    "mailauth": "^7.3.1",
+    "mailparser": "^3.9.47",
+    "nodemailer": "^10.1.7",
     "papaparse": "^5.7.0",
     "semver": "^7.8.5",
-    "tsdav": "^2.3.5",
-    "vitest": "^4.1.11",
+    "tsdav": "^2.5.0",
+    "vitest": "^4.1.12",
     "zod": "^4.6.6"
   },
   "repository": "https://github.com/routecraftjs/routecraft",
