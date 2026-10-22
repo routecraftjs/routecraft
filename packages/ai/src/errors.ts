@@ -26,13 +26,6 @@ import {
  * registered client the call was forwarded to; a local `.from(mcp())` route
  * call omits `proxied` (or sets it false) and carries neither identifier.
  */
-/**
- * The mount a tool call arrived on, absent for the root: a client mount
- * names a tool by its remote name, so without the mount the name alone
- * does not say which server's tool was called.
- */
-export type McpToolMount = { mount?: string };
-
 export type McpToolProvenance =
   | {
       proxied?: false;
@@ -41,6 +34,13 @@ export type McpToolProvenance =
       routeId?: undefined;
     }
   | { proxied: true; serverId: string; remoteTool: string; routeId: string };
+
+/**
+ * The mount a tool call arrived on, absent for the root: a client mount
+ * names a tool by its remote name, so without the mount the name alone
+ * does not say which server's tool was called.
+ */
+export type McpToolMount = { mount?: string };
 
 /**
  * What every tool-call event carries.

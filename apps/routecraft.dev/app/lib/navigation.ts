@@ -138,6 +138,10 @@ export const navigation = [
     links: [
       { title: 'Changelog', href: '/changelog' },
       {
+        title: 'Migrating from 0.7',
+        href: '/docs/migrating/0.7-to-0.8',
+      },
+      {
         title: 'Migrating from 0.6',
         href: '/docs/migrating/0.6-to-0.7',
       },

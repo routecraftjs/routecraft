@@ -115,6 +115,18 @@ export interface McpProxiedEntry {
 }
 
 /**
+ * A client mount's tool: served under the remote name, judged by the
+ * `tools` filter as the root would list it, so one filter means one thing
+ * on every mount.
+ *
+ * @internal
+ */
+export interface McpClientEntry extends McpProxiedEntry {
+  /** The entry as the root exposes it, under the prefixed or renamed name. */
+  exposed: McpLocalToolEntry;
+}
+
+/**
  * The tools the proxy registrations expose right now, by exposed name,
  * resolved against the clients' live tool lists.
  *
@@ -222,8 +234,8 @@ export function resolveClientEntries(
     message: string,
     bindings: Record<string, unknown>,
   ) => void,
-): Map<string, McpProxiedEntry> {
-  const resolved = new Map<string, McpProxiedEntry>();
+): Map<string, McpClientEntry> {
+  const resolved = new Map<string, McpClientEntry>();
   for (const remote of service.tools.getToolsByServer(serverId)) {
     const registration = coveringProxy(service, serverId, remote.name);
     if (registration === undefined) continue;
@@ -242,6 +254,11 @@ export function resolveClientEntries(
     }
     resolved.set(remote.name, {
       entry: proxiedEntry(remote.name, registration, remote),
+      exposed: proxiedEntry(
+        registration.name ?? `${registration.prefix}${remote.name}`,
+        registration,
+        remote,
+      ),
       registration,
       remote,
     });

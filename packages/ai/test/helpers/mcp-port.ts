@@ -1,5 +1,5 @@
 import type { CraftContext, Plugin } from "@routecraft/routecraft";
-import { authorityOf } from "@routecraft/routecraft";
+import { AUTHORITY, WEB_INGRESS, authorityOf } from "@routecraft/routecraft";
 import { MCP, createMcpService, type McpService } from "../../src/mcp/port.ts";
 import { McpServer } from "../../src/mcp/server.ts";
 import type { McpPluginOptions } from "../../src/mcp/types.ts";
@@ -48,4 +48,44 @@ export function mcpServerFor(
     },
     options,
   );
+}
+
+/**
+ * The MCP plugin's server over a seeded service, for an HTTP suite that
+ * needs registered clients with tools but no real client process: provides
+ * the port from the seed and mounts the server the way `mcpPlugin` does.
+ */
+export function mcpServerPlugin(
+  seed: McpSeed,
+  options: McpPluginOptions,
+): Plugin {
+  let server: McpServer | undefined;
+  return {
+    id: "test.mcp.server",
+    provides: [MCP],
+    requires: [AUTHORITY],
+    optional: [WEB_INGRESS],
+    async bind(c) {
+      const service = createMcpService(seed);
+      c.provide(MCP, service);
+      server = new McpServer(
+        {
+          logger: c.logger,
+          emit: (event, details) => c.emit(event, details),
+          observe: (event, handler) => c.observe(event, handler),
+          service,
+          ingress: c,
+          authority: c.require(AUTHORITY),
+        },
+        options,
+      );
+      c.onDispose(async () => {
+        await server?.stop();
+      });
+      await server.prepare();
+    },
+    async start() {
+      await server?.start();
+    },
+  };
 }
