@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
-  isDropped,
   rcError,
   type CraftContext,
-  type Exchange,
   type ExchangeHeaders,
   type Tag,
 } from "@routecraft/routecraft";
@@ -24,11 +22,9 @@ import {
   BACKGROUND_DESCRIPTION_SUFFIX,
   directTool,
   dispatchBackground,
-  dispatchHeaders,
-  raceAbort,
+  dispatchDirect,
 } from "./builders.ts";
-// Registers AI2002 before a governed tool can decline with it.
-import "../../errors.ts";
+import { declinedError } from "../../mcp/tool-result-guards.ts";
 import {
   backgroundReasonOf,
   FN_BACKGROUND,
@@ -166,13 +162,13 @@ export type ToolsItem =
       description?: string;
       background?: never;
       /**
-       * On an `MCP(server:tool)` reference: reach the client directly even
-       * when a route proxies the tool (`.from(mcp({ proxy }))`). By default
-       * such a reference runs through the proxying route, so the agent is
-       * under the same policy as an external client; `true` bypasses it,
-       * and the resolver logs that it did.
+       * On an `MCP(server:tool)` reference: reach the client raw, even when
+       * a route proxies the tool (`.from(mcp({ proxy }))`). By default such
+       * a reference runs through the proxying route, so the agent is under
+       * the same policy as an external client; `true` bypasses it, and the
+       * resolver warns that it did.
        */
-      direct?: boolean;
+      raw?: boolean;
     };
 
 /**
@@ -429,15 +425,15 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): { name: "${item.name}", background } applies to a Direct(<routeId>) reference only.`,
           });
         }
-        const direct = (item as { direct?: unknown }).direct;
-        if (direct !== undefined && typeof direct !== "boolean") {
+        const raw = (item as { raw?: unknown }).raw;
+        if (raw !== undefined && typeof raw !== "boolean") {
           throw rcError("RC5003", undefined, {
-            message: `tools(): { name: "${item.name}", direct } must be a boolean when present.`,
+            message: `tools(): { name: "${item.name}", raw } must be a boolean when present.`,
           });
         }
-        if (direct !== undefined && !mcpRef) {
+        if (raw !== undefined && !mcpRef) {
           throw rcError("RC5003", undefined, {
-            message: `tools(): { name: "${item.name}", direct } applies to an MCP(<server>:<tool>) reference only.`,
+            message: `tools(): { name: "${item.name}", raw } applies to an MCP(<server>:<tool>) reference only.`,
           });
         }
         // MCP refs reject any description override (empty or not) so
@@ -453,7 +449,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             ctx,
             item.name,
             item.guard,
-            direct === true,
+            raw === true,
           )) {
             record(out, tool);
           }
@@ -1031,7 +1027,7 @@ function resolveMcpRefs(
   ctx: CraftContext,
   ref: string,
   guard: ToolGuard | undefined,
-  direct = false,
+  raw = false,
 ): ResolvedTool[] {
   const { clientName, toolName } = parseMcpRef(ref);
   const registry = ctx.lookup(MCP)?.tools;
@@ -1053,9 +1049,7 @@ function resolveMcpRefs(
   }
   if (toolName === "*") {
     return clientTools
-      .map((entry) =>
-        mcpEntryToResolvedTool(ctx, registry, entry, guard, direct),
-      )
+      .map((entry) => mcpEntryToResolvedTool(ctx, registry, entry, guard, raw))
       .filter((tool): tool is ResolvedTool => tool !== undefined);
   }
   const entry = clientTools.find((t) => t.name === toolName);
@@ -1067,7 +1061,7 @@ function resolveMcpRefs(
         `Known tools on "${clientName}": ${knownTools.map((n) => `"${n}"`).join(", ")}.`,
     });
   }
-  const resolved = mcpEntryToResolvedTool(ctx, registry, entry, guard, direct);
+  const resolved = mcpEntryToResolvedTool(ctx, registry, entry, guard, raw);
   return resolved === undefined ? [] : [resolved];
 }
 
@@ -1103,7 +1097,7 @@ function mcpEntryToResolvedTool(
   registry: McpToolRegistry,
   entry: McpToolRegistryEntry,
   guard: ToolGuard | undefined,
-  direct: boolean,
+  raw: boolean,
 ): ResolvedTool | undefined {
   // Both name problems below are properties of the registered tool, not
   // of the dispatch being served, and `resolve()` runs per dispatch.
@@ -1177,7 +1171,7 @@ function mcpEntryToResolvedTool(
       ? entry.description
       : `MCP tool "${entry.name}" on client "${entry.source}".`;
   // A route that proxies this tool is the policy on it, for this agent as
-  // for an external client, unless the item said `direct: true`, which is
+  // for an external client, unless the item said `raw: true`, which is
   // worth a line in the log because it is the one way round that policy.
   const service = ctx.lookup(MCP);
   const covering =
@@ -1185,11 +1179,11 @@ function mcpEntryToResolvedTool(
       ? undefined
       : coveringProxy(service, entry.source, entry.name);
   if (covering !== undefined) {
-    if (!direct) return governedMcpTool(ctx, name, entry, covering, guard);
-    if (registry.shouldReport(`mcp-direct:${name}`)) {
+    if (!raw) return governedMcpTool(ctx, name, entry, covering, guard);
+    if (registry.shouldReport(`mcp-raw:${name}`)) {
       ctx.logger.warn(
         { server: entry.source, tool: entry.name, route: covering.routeId },
-        "MCP tool is proxied by a route, and an agent references it with direct: true, so its calls bypass that route's policy.",
+        "MCP tool is proxied by a route, and an agent references it with raw: true, so its calls bypass that route's policy.",
       );
     }
   }
@@ -1272,21 +1266,27 @@ function governedMcpTool(
     server: entry.source,
     tool: entry.name,
     ...(entry.annotations ? { annotations: entry.annotations } : {}),
-    governed: covering.routeId,
+    routeId: covering.routeId,
   };
-  const run = (
+  // The route's answer as the MCP server reads it: a decline is a failed
+  // call, because an echoed request is not a result under any schema.
+  const run = async (
     args: Record<string, unknown>,
-    headers: Record<string, unknown>,
-  ): Promise<Exchange> =>
-    governed.handler({
+    headers: ExchangeHeaders | undefined,
+  ): Promise<unknown> => {
+    const exchange = await governed.handler({
       body: args,
       headers: {
         ...headers,
         [McpHeadersKeys.REQUEST]: randomUUID(),
       } as ExchangeHeaders,
     });
+    const declined = declinedError(governed, exchange);
+    if (declined) throw declined;
+    return exchange.body;
+  };
   const fields = {
-    input: governed.input!.body as StandardSchemaV1,
+    input: standardSchemaFromJsonSchema(entry.inputSchema),
     ...(entry.tags && entry.tags.length > 0 ? { tags: [...entry.tags] } : {}),
   };
   if (covering.deferrable) {
@@ -1302,7 +1302,7 @@ function governedMcpTool(
             covering.routeId,
             name,
             args,
-            (headers) => run(args, headers).then((exchange) => exchange.body),
+            (headers) => run(args, headers),
           );
         },
       },
@@ -1313,26 +1313,11 @@ function governedMcpTool(
   const fn: RegisteredFn = {
     ...fields,
     description: governed.description,
-    handler: async (rawInput: unknown, hctx: FnHandlerContext) => {
+    handler: (rawInput: unknown, hctx: FnHandlerContext) => {
       const args = objectArguments(name, rawInput);
-      if (hctx.abortSignal.aborted) {
-        throw rcError("RC5003", undefined, {
-          message: `mcp tool "${name}": the agent run was cancelled.`,
-        });
-      }
-      const exchange = (await raceAbort(
-        run(args, dispatchHeaders(hctx)),
-        hctx.abortSignal,
-        covering.routeId,
-      )) as Exchange;
-      // The route declined, so there is no result; an echoed request is not
-      // one under any schema. The same decline the MCP server answers with.
-      if (isDropped(exchange)) {
-        throw rcError("AI2002", undefined, {
-          message: `MCP tool "${name}" declined the request and produced no result`,
-        });
-      }
-      return exchange.body;
+      return dispatchDirect(host, hctx, covering.routeId, args, (headers) =>
+        run(args, headers),
+      );
     },
   };
   return toResolvedTool(name, fn, guard, source);

@@ -187,6 +187,13 @@ agent can read `ctx.principal` in a guard or in its own handler and put a
 that argument against its own policy. Never repurpose a credential field as
 a per-user parameter; never reuse a per-user bearer as an MCP credential.
 
+When a route proxies the tool (`.from(mcp({ proxy }))`), the agent's
+`MCP(server:tool)` reference runs through that route, and the dispatch
+carries the agent's principal exactly as a `directTool` dispatch does, so
+the route's `.authorize()` and steps judge the agent. The hop from that
+route to the MCP server still authenticates with the client's registered
+`auth` alone; the principal stops at the route.
+
 ## 12. Agent identity and delegation
 
 Anchors `packages/routecraft/src/auth/delegate.ts` and the delegation-aware

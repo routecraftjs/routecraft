@@ -18,7 +18,7 @@ Within a namespace, the leading digit reserves a range for one subsystem, so two
 | --- | --- | --- |
 | `RC****` | `@routecraft/routecraft` | Core: routes, exchanges, adapters, auth, deferral. The digit after `RC` is the category, not a subsystem range. |
 | `AI1xxx` | `@routecraft/ai` | Agent blocks, configuration, and runtime (run cancellation, deferral surface, the editor surface) |
-| `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client |
+| `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client, and a remote's result received by one |
 | `AI3xxx` | `@routecraft/ai` | Built-in agent tools |
 | `OS1xxx` | `@routecraft/os` | Subprocess execution and isolation tiers |
 
@@ -1046,6 +1046,15 @@ A door that dispatched the route answers the caller with the kind and the reason
 **Suggestion**  
 Read the reason in the message: it is usually a property of the request (a missing header, a principal outside a tenant). A route can answer the refusal in its own `.error()`. If the hook is wrong for this application, switch it off by id with `hooks.disable`, or scope it with the hook's `routes` or `tags`. Writing a hook, pick the kind the caller can act on and write the reason for the caller: both cross the wire.
 
+## RC5069
+Cache condition failed
+
+**Why it happens**  
+The [`cache({ when })`](/docs/reference/operations/cache#cache-condition) condition threw, or returned a promise where a boolean is expected. The condition runs before the key is derived, at route scope and at step scope alike, and decides synchronously; a promise would otherwise read as truthy and cache what the condition meant to keep out. The exchange fails before any key or provider call, and `route:cache:failed` carries `phase: "when"`.
+
+**Suggestion**  
+Make the condition return `true` or `false` from what the exchange already carries (its body, its headers, its principal), and move any lookup it needs into a step above the cache. Retrying will not help: the same exchange fails the same way.
+
 ## RC9901
 Unknown error
 
@@ -1128,10 +1137,10 @@ Cancellation is terminal: re-dispatch the work as a new exchange if it should ru
 Agent deferral unavailable on this surface
 
 **Why it happens**  
-`ctx.defer()` was called where no exchange can be durably deferred: a proxied MCP tool guard, a `testFn` dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the moment of the call, before anything could be written, so there is never a half-created record.
+`ctx.defer()` was called where no exchange can be durably deferred: a `testFn` dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the moment of the call, before anything could be written, so there is never a half-created record.
 
 **Suggestion**  
-Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable defer site, and `ctx.defer()` defers. If this surface genuinely cannot defer (an MCP proxy guard), drop the deferral from the handler; a guard's job is admission, not waiting.
+Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable defer site, and `ctx.defer()` defers.
 
 A [background tool](/docs/reference/plugins/agentplugin#background-tools) also reports this code when its route answers with another route's `Deferred` acknowledgment without having parked itself: that park's stored exchange does not carry the handle, so nothing will ever settle it. The downstream record already exists and stays pending; only background result delivery fails. Resolve the existing action through the application's approval flow instead of retrying it. The receipt's bearer token is withheld from the model and session inbox. A route that parks itself, or forwards to one with its headers, is settled from execution two instead.
 
@@ -1309,13 +1318,13 @@ This is the MCP-side equivalent of [RC5031](#rc-5031) on the direct and forward 
 Remote MCP tool reported an error
 
 **Why it happens**  
-A remote MCP server answers a failed call with `isError: true` and its content as the error text. The `mcp()` client, on a route's `.to(mcp(...))` hop and on an agent's `MCP(server:tool)` tool alike, throws this instead of handing that text on as a result a route would process or a model would summarise as content. The message names the server and the tool and carries the remote's text, bounded.
+A remote MCP server answers a failed call with `isError: true` and its content as the error text. The `mcp()` client, on a route's `.to(mcp(...))` hop and on an agent's `MCP(server:tool)` tool alike, throws this instead of handing that text on as a result a route would process or a model would summarise as content. The message names the tool, and the registered client when there is one, and carries the remote's text, bounded; a configured URL stays out of it.
 
 Not a Routecraft or transport failure: a connection that could not be made, a server that is not registered, or a stdio client that is not running is [RC5003](#rc-5003).
 
 **Suggestion**  
 - On a route, handle it where the hop is: `.error()` to recover or `.retry()` when the remote's failure is transient.
-- On a route that proxies the remote (`mcp({ proxy })`), nothing to do: the caller receives the remote's text as a failed call.
+- On a route that proxies the remote (`mcp({ proxy })`), nothing to do: the caller receives the remote's text as a failed call when the hop was to the tool they called. From any other hop, or from a nested route, the caller receives the code alone.
 - When the text names an argument, fix the arguments the route sends; the remote validated them at its door.
 
 ## OS1001

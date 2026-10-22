@@ -27,8 +27,13 @@ import {
  * call omits `proxied` (or sets it false) and carries neither identifier.
  */
 export type McpToolProvenance =
-  | { proxied?: false; serverId?: undefined; remoteTool?: undefined }
-  | { proxied: true; serverId: string; remoteTool: string };
+  | {
+      proxied?: false;
+      serverId?: undefined;
+      remoteTool?: undefined;
+      routeId?: undefined;
+    }
+  | { proxied: true; serverId: string; remoteTool: string; routeId: string };
 
 /**
  * What every tool-call event carries.
@@ -425,6 +430,7 @@ declare module "@routecraft/routecraft" {
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
     AI2002: RCMeta;
+    /** Remote MCP tool reported an error: the result was flagged isError */
     AI2003: RCMeta;
   }
 }
@@ -606,7 +612,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Remote MCP tool reported an error",
       suggestion:
-        "The remote server answered the call with isError: true, so its content is an error text, not a result. The message carries that text, bounded. On a route, handle it with .error() or .retry(); on a proxied tool the caller receives the text. Not a Routecraft or transport failure (those are RC5003).",
+        "The remote server answered the call with isError: true, so its content is an error text, not a result. The message carries that text, bounded. On a route, handle it with .error() or .retry(); on a route that proxies the remote, the caller receives the remote's text as a failed call. Not a Routecraft or transport failure (those are RC5003).",
       docs: `${DOCS_BASE}#ai-2003`,
       retryable: false,
     },

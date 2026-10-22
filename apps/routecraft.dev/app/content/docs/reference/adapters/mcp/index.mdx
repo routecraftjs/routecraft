@@ -187,9 +187,9 @@ Three sentences hold the model:
 | `McpHeadersKeys.TOOL` (`routecraft.mcp.tool`) | The remote tool's name, which the star hop forwards to |
 | `McpHeadersKeys.CLIENT` (`routecraft.mcp.client`) | The registered client |
 | `McpHeadersKeys.ANNOTATIONS` (`routecraft.mcp.annotations`) | The remote tool's annotations as the client listed them, for a `.cache({ when })` that serves only `readOnlyHint` tools, or any step that treats a destructive tool differently |
-| `HeadersKeys.CACHE_DISCRIMINATOR` | The remote tool's name, folded into the default cache key so two tools called with equal arguments never share an entry |
+| `HeadersKeys.CACHE_DISCRIMINATOR` | The remote tool's name, folded into the default cache key so two tools called with equal arguments never share an entry. A custom `key` on a star route is used verbatim, so it has to carry the tool name itself, beside the principal and the route |
 
-```ts skip="fragment: the predicate a cache on a star route uses"
+```ts
 const readOnlyTool = (ex: Exchange) =>
   (ex.headers[McpHeadersKeys.ANNOTATIONS] as McpToolAnnotations | undefined)?.readOnlyHint === true
 ```
@@ -200,12 +200,12 @@ const readOnlyTool = (ex: Exchange) =>
 
 - An exact route wins over a star route for the tool it names. Two exact routes for one tool, or two star routes for one client, are refused at start (`RC5003`).
 - The route id names the route, never a tool. `.description()` and `.title()` replace the remote's for every tool the route exposes; leave them off to pass the remote's through. `.tag()` and `annotations` merge over the remote's annotations per key.
-- The remote's JSON Schemas pass through to `tools/list` and to an agent's catalogue; the remote validates at its door. A remote tool with an `outputSchema` publishes its result as `structuredContent`.
+- The remote's JSON Schemas pass through to `tools/list` and to an agent's catalogue; the remote validates the arguments at its door. A remote tool with an `outputSchema` publishes its result as `structuredContent`, and the server holds what the route finally returns to that advertised schema (`AI2001`), so a step below the hop that rewrites the result has to keep its shape. A `.to(mcp('github:*'))` hop forwards to the client the route proxies and refuses any other exchange (`RC5003`): a local `.from(mcp())` route's own call, or a route proxying a different client.
 - A route that can park (a `.defer()`, or an approval hook on a tag) advertises the `Deferred` arm on every tool it exposes, and an agent holding one of those tools holds it as a background tool, as for any parking route.
-- The caller's principal selects policy on the route (`.authorize()`, your steps) and is never forwarded. The hop authenticates with the client's registered `auth`.
+- The caller's principal selects policy on the route (`.authorize()`, your steps) and is never forwarded. The hop authenticates with the client's registered `auth`. A remote result flagged `isError` fails the hop with [`AI2003`](/docs/reference/errors#ai-2003), and the caller receives the remote's text: they addressed the remote, so its answer is theirs. The same code from any other hop, or from a nested route, answers with the code alone.
 - `ui` is refused on a proxy source: a view belongs to a tool a route defines.
 
-**Agents.** An agent's `MCP(github:create_issue)` reference resolves to the route that proxies it when one exists, under the reference's own name (`mcp__github__create_issue`), so your own agent is under the same policy as an external client. Reaching the client directly needs an explicit `{ name: 'MCP(github:create_issue)', direct: true }`, which the resolver logs. A tool no route covers stays raw.
+**Agents.** An agent's `MCP(github:create_issue)` reference resolves to the route that proxies it when one exists, under the reference's own name (`mcp__github__create_issue`), so your own agent is under the same policy as an external client: the call carries the agent's principal, so the route's `.authorize()` judges it the way it judges a `Direct(<id>)` call, and a route that declines fails the call (`AI2002`) instead of echoing the arguments. Reaching the client raw needs an explicit `{ name: 'MCP(github:create_issue)', raw: true }`, which the resolver warns about once. A tool no route covers stays raw, and so does one whose route is held back by `.enabled()`: the registry of live routes is what resolution reads.
 
 **Migrating a hand-written wrapping route.** Before this source existed, policy on a remote tool meant a `direct()` route per tool that called `.to(mcp('github:create_issue'))`, and either an agent holding `Direct(<id>)` or an `mcpPlugin({ proxy })` entry re-exposing the tool. The same policy now sits on one route per server, or per tool where a tool needs its own:
 

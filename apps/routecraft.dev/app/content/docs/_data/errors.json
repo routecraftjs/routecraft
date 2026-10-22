@@ -276,6 +276,12 @@
     "retryable": false
   },
   {
+    "code": "RC5069",
+    "category": "Adapter",
+    "message": "Cache condition failed",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",

@@ -406,8 +406,13 @@ export class McpServer {
    * subscribing, and an empty `resources/list` costs a client nothing.
    */
   private buildServerOptions(): SdkServerOptions {
+    // Only the stdio transport holds a connection to notify; a client may
+    // ignore `tools/list_changed` from a server that did not declare it.
     const options: SdkServerOptions = {
-      capabilities: { tools: {}, resources: {} },
+      capabilities: {
+        tools: this.options.transport === "http" ? {} : { listChanged: true },
+        resources: {},
+      },
     };
     const instructions = this.defaultUnlessEmpty(this.options.instructions, "");
     if (instructions !== undefined) {
@@ -771,6 +776,10 @@ export class McpServer {
    * client, because the listing event is named per client.
    */
   private observeClientListings(): void {
+    // The baseline is what a client connecting now would be told, so the
+    // first listing after start, often the one that brings the proxied
+    // tools, is a change and not a seed.
+    this.advertisedNames = this.advertisedToolNames();
     for (const serverId of this.service.clients.keys()) {
       this.stopObservingClients.push(
         this.host.observe(
@@ -779,17 +788,20 @@ export class McpServer {
         ),
       );
     }
+    this.stopObservingClients.push(
+      this.service.onChange(() => this.notifyToolsChanged()),
+    );
   }
 
-  private notifyToolsChanged(): void {
-    const names = this.getAvailableTools()
+  private advertisedToolNames(): string {
+    return this.getAvailableTools()
       .map((tool) => tool.name)
       .sort()
       .join("\n");
-    if (this.advertisedNames === undefined) {
-      this.advertisedNames = names;
-      return;
-    }
+  }
+
+  private notifyToolsChanged(): void {
+    const names = this.advertisedToolNames();
     if (names === this.advertisedNames) return;
     this.advertisedNames = names;
     for (const instance of this.stdioServers) {
@@ -1194,7 +1206,13 @@ export class McpServer {
       if (this.service.local.has(proxied.entry.endpoint)) {
         this.warnProxyOnce(
           `proxy:local-conflict:${proxied.entry.endpoint}`,
-          `mcp({ proxy }): route "${proxied.registration.routeId}" would expose "${proxied.registration.serverId}:${proxied.remote.name}" as "${proxied.entry.endpoint}", the name of a local mcp() route; the route keeps it. Give the proxy a prefix or a name to expose both.`,
+          "mcp({ proxy }): a proxied tool's exposed name is a local mcp() route's; the route keeps it. Give the proxy a prefix or a name to expose both.",
+          {
+            route: proxied.registration.routeId,
+            server: proxied.registration.serverId,
+            tool: proxied.remote.name,
+            exposed: proxied.entry.endpoint,
+          },
         );
         continue;
       }
@@ -1234,18 +1252,23 @@ export class McpServer {
     const version = `${this.service.tools.version}:${this.service.proxiesVersion}`;
     if (version === this.proxyResolvedVersion) return this.proxyResolved;
     this.proxyWarnings.clear();
-    this.proxyResolved = resolveProxiedEntries(this.service, (key, msg) =>
-      this.warnProxyOnce(key, msg),
+    this.proxyResolved = resolveProxiedEntries(
+      this.service,
+      (key, message, bindings) => this.warnProxyOnce(key, message, bindings),
     );
     this.proxyResolvedVersion = version;
     return this.proxyResolved;
   }
 
   /** Log a proxy-resolution warning once per dedup key. */
-  private warnProxyOnce(key: string, message: string): void {
+  private warnProxyOnce(
+    key: string,
+    message: string,
+    bindings: Record<string, unknown>,
+  ): void {
     if (this.proxyWarnings.has(key)) return;
     this.proxyWarnings.add(key);
-    this.host.logger.warn({}, message);
+    this.host.logger.warn(bindings, message);
   }
 
   /**
@@ -1365,10 +1388,15 @@ export class McpServer {
    * on normal traffic. MCP has no channel but `isError` to tell the caller,
    * so the wire result matches a failure while the log and the event do not.
    */
-  private declineToolCall(toolName: string, error: Error): McpToolCallResult {
+  private declineToolCall(
+    toolName: string,
+    error: Error,
+    provenance: McpToolProvenance,
+  ): McpToolCallResult {
     const message = toolErrorLogMessage(error);
     this.host.logger.warn({ tool: toolName, err: error }, message);
     this.host.emit(`plugin:mcp:tool:declined`, {
+      ...provenance,
       tool: toolName,
       reason: message,
     });
@@ -1411,14 +1439,15 @@ export class McpServer {
       const { entry } = found;
       // Where a proxied call goes, on every event of the call, so called,
       // completed and failed stay correlatable per client.
-      provenance = found.proxied
-        ? {
-            proxied: true,
-            serverId: found.proxied.registration.serverId,
-            remoteTool: found.proxied.remote.name,
-          }
-        : {};
-      routeId = found.proxied?.registration.routeId ?? toolName;
+      if (found.proxied) {
+        routeId = found.proxied.registration.routeId;
+        provenance = {
+          proxied: true,
+          serverId: found.proxied.registration.serverId,
+          remoteTool: found.proxied.remote.name,
+          routeId,
+        };
+      }
 
       this.host.logger.debug(
         { bodyType: typeof body, body },
@@ -1458,7 +1487,9 @@ export class McpServer {
       // A decline is the route's answer, not a failure, so it returns here
       // rather than throwing into the catch below.
       const declined = declinedError(entry, resultExchange);
-      if (declined) return this.declineToolCall(toolName, declined);
+      if (declined) {
+        return this.declineToolCall(toolName, declined, provenance);
+      }
 
       // Publishes what the schema accepted, not what the handler offered:
       // for a transforming schema those differ, and the client was promised
@@ -1479,6 +1510,7 @@ export class McpServer {
       // "deferred" status and declines their own event (#576).
       if (isDeferred(publishedBody)) {
         this.host.emit(`plugin:mcp:tool:deferred`, {
+          ...provenance,
           tool: toolName,
           deferralId: publishedBody.deferralId,
         });

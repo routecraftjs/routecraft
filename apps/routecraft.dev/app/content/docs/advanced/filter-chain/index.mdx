@@ -32,7 +32,7 @@ Outside in (position 1 wraps everything below):
 | 7 | `retry` | `.retry({...})` | final attempt's throw | re-runs everything below on failure |
 | 8 | `timeout` | `.timeout(ms)` | `RC5011` | per-attempt deadline |
 | 8.5 | `concurrency` | `.concurrency({ max })` | `RC5026` (`mode: 'reject'` or full `maxQueue`; default `'queue'` paces) | bulkhead; bounds simultaneous in-flight (innermost resilience, so a slot is held per attempt) |
-| 9 | `cacheCheck` | `.cache({...})` | `RC5028` / `RC5029` | route id, pipeline fingerprint, principal, validated body → cache key |
+| 9 | `cacheCheck` | `.cache({...})` | `RC5028` / `RC5029` / `RC5069` | `when` first, then route id, pipeline fingerprint, principal, validated body, discriminator header → cache key |
 | - | **your pipeline** | `.transform()`, `.to()`, `.process()`, ... | - | the work |
 | 10 | `cacheStore` | `.cache({...})` | swallows (`route:cache:failed phase:"set"`) | terminal body, written best-effort |
 

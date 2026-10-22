@@ -118,11 +118,11 @@ describe(".cache({ when })", () => {
   });
 
   /**
-   * @case A `when` that throws fails the exchange as RC5029 and reports the phase
+   * @case A `when` that throws fails the exchange as RC5069 and reports the phase
    * @preconditions Route-scope cache whose `when` throws for every exchange
-   * @expectedResult sendDirect rejects with RC5029; route:cache:failed carries phase "when"; the pipeline never ran
+   * @expectedResult sendDirect rejects with RC5069; route:cache:failed carries phase "when"; the pipeline never ran
    */
-  test("a throwing condition fails the exchange with RC5029 and phase when", async () => {
+  test("a throwing condition fails the exchange with RC5069 and phase when", async () => {
     const provider = new MemoryCacheProvider();
     const compute = mock((b: string) => `out:${b}`);
     const phases: string[] = [];
@@ -152,10 +152,40 @@ describe(".cache({ when })", () => {
     await t.startAndWaitReady();
     await expect(
       t.client.sendDirect("route-cache-when-throws", "x"),
-    ).rejects.toMatchObject({ rc: "RC5029" });
+    ).rejects.toMatchObject({ rc: "RC5069" });
 
     expect(compute).not.toHaveBeenCalled();
     expect(phases).toEqual(["when"]);
+  });
+
+  /**
+   * @case A `when` that returns a promise is refused rather than read as truthy
+   * @preconditions Route-scope cache whose `when` is an async function
+   * @expectedResult sendDirect rejects with RC5069; the pipeline never ran
+   */
+  test("a condition returning a promise fails the exchange with RC5069", async () => {
+    const provider = new MemoryCacheProvider();
+    const compute = mock((b: string) => `out:${b}`);
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("route-cache-when-async")
+          .cache({
+            provider,
+            when: (() => Promise.resolve(false)) as unknown as () => boolean,
+          })
+          .from<string>(direct())
+          .transform(compute)
+          .to(noop()),
+      )
+      .build();
+
+    await t.startAndWaitReady();
+    await expect(
+      t.client.sendDirect("route-cache-when-async", "x"),
+    ).rejects.toMatchObject({ rc: "RC5069" });
+    expect(compute).not.toHaveBeenCalled();
   });
 
   /**

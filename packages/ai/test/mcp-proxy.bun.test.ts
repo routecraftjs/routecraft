@@ -9,23 +9,12 @@ import {
 import { deferring, testContext, type TestContext } from "@routecraft/testing";
 import type { McpServer } from "../src/mcp/server.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
+import { callTool } from "./helpers/mcp-tool-call.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { mcp, McpHeadersKeys, tools } from "../src/index.ts";
 import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
 import type { McpClientConfig } from "../src/mcp/port.ts";
 import type { McpRawToolResult } from "../src/mcp/types.ts";
-
-/** Private surface of McpServer used by these tests. */
-type TestableServer = {
-  handleToolCall(
-    name: string,
-    args: Record<string, unknown>,
-  ): Promise<{
-    content: Array<{ type: string; text?: string; [key: string]: unknown }>;
-    structuredContent?: unknown;
-    isError?: boolean;
-  }>;
-};
 
 /** Recorded dispatches from the fake stdio managers. */
 let dispatches: Array<{
@@ -85,27 +74,20 @@ function buildClients(): Map<string, McpClientConfig> {
   ]);
 }
 
+/** The slice of a stdio client manager the service dispatches through. */
+type FakeManager = {
+  callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+  callToolRaw(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<McpRawToolResult>;
+};
+
 /** Fake stdio managers recording calls and answering with a raw MCP result. */
-function buildManagers(answer?: (toolName: string) => McpRawToolResult): Map<
-  string,
-  {
-    callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
-    callToolRaw(
-      name: string,
-      args: Record<string, unknown>,
-    ): Promise<McpRawToolResult>;
-  }
-> {
-  const managers = new Map<
-    string,
-    {
-      callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
-      callToolRaw(
-        name: string,
-        args: Record<string, unknown>,
-      ): Promise<McpRawToolResult>;
-    }
-  >();
+function buildManagers(
+  answer?: (toolName: string) => McpRawToolResult,
+): Map<string, FakeManager> {
+  const managers = new Map<string, FakeManager>();
   for (const serverId of ["docs", "billing"]) {
     managers.set(serverId, {
       async callTool(name, args) {
@@ -173,7 +155,7 @@ describe("a route that proxies a remote MCP server", () => {
   }
 
   function call(name: string, args: Record<string, unknown>) {
-    return (server as unknown as TestableServer).handleToolCall(name, args);
+    return callTool(server, name, args);
   }
 
   /**
@@ -363,11 +345,15 @@ describe("a route that proxies a remote MCP server", () => {
     expect(names.filter((name) => name === "search")).toHaveLength(1);
     await call("search", {});
     expect(dispatches.map((d) => d.serverId)).toEqual(["docs"]);
-    const warned = t.contextLogger.warn.mock.calls.some(
+    const warned = t.contextLogger.warn.mock.calls.find(
       (c: unknown[]) =>
-        typeof c[1] === "string" && c[1].includes('both expose "search"'),
+        typeof c[1] === "string" && c[1].includes("the first keeps it"),
     );
-    expect(warned).toBe(true);
+    expect(warned?.[0]).toMatchObject({
+      exposed: "search",
+      route: "docs",
+      otherRoute: "billing",
+    });
   });
 
   /**
@@ -398,11 +384,152 @@ describe("a route that proxies a remote MCP server", () => {
     const result = await call("docs_search", {});
     expect(dispatches).toEqual([]);
     expect(result.content[0]?.text).toContain("local");
-    const warned = t.contextLogger.warn.mock.calls.some(
+    const warned = t.contextLogger.warn.mock.calls.find(
       (c: unknown[]) =>
         typeof c[1] === "string" && c[1].includes("the route keeps it"),
     );
-    expect(warned).toBe(true);
+    expect(warned?.[0]).toMatchObject({
+      route: "docs",
+      exposed: "docs_search",
+    });
+  });
+
+  /**
+   * @case A stdio client is told when the advertised tool set changes
+   * @preconditions Star route over docs with a stdio instance observing; the registry re-lists docs with a tool added, then re-lists it unchanged; then a local route registers
+   * @expectedResult tools/list_changed is sent once for the added tool, not for the unchanged listing, and once more for the local route
+   */
+  test("a changed tool set notifies the stdio client once per change", async () => {
+    const registry = buildRegistry();
+    await serve(
+      [
+        craft()
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+      ],
+      { registry },
+    );
+    let sent = 0;
+    const observing = server as unknown as {
+      stdioServers: Set<{ sendToolListChanged(): void }>;
+      observeClientListings(): void;
+    };
+    observing.stdioServers.add({
+      sendToolListChanged() {
+        sent++;
+      },
+    });
+    observing.observeClientListings();
+    const listed = () =>
+      t.ctx.emit(
+        "plugin:mcp:client:docs:tools:listed" as never,
+        {
+          serverId: "docs",
+        } as never,
+      );
+
+    registry.setToolsForSource("docs", "stdio", [
+      {
+        name: "get_document",
+        description: "Read one document by id",
+        inputSchema: { type: "object" },
+      },
+      {
+        name: "search",
+        description: "Search documents",
+        inputSchema: { type: "object" },
+      },
+      {
+        name: "delete_document",
+        description: "Delete a document",
+        inputSchema: { type: "object" },
+      },
+      {
+        name: "list_documents",
+        description: "List documents",
+        inputSchema: { type: "object" },
+      },
+    ]);
+    listed();
+    expect(sent).toBe(1);
+    listed();
+    expect(sent).toBe(1);
+
+    const service = t.ctx.lookup((await import("../src/mcp/port.ts")).MCP)!;
+    const withdraw = service.registerLocal({
+      endpoint: "late",
+      description: "A route that registered after the client connected",
+      handler: async () => {
+        throw new Error("never called");
+      },
+    });
+    expect(sent).toBe(2);
+    withdraw();
+    expect(sent).toBe(3);
+  });
+
+  /**
+   * @case A remote error on a hop that is not the proxied tool stays generic
+   * @preconditions A local mcp() route "own" whose hop calls docs:get_document; the docs client answers with isError and "File not found"
+   * @expectedResult The caller gets the generic failure text with AI2003 and none of the remote's text
+   */
+  test("a remote error off the proxied hop does not cross the wire", async () => {
+    await serve(
+      [
+        craft()
+          .id("own")
+          .description("Reads a document through our own route")
+          .from(mcp())
+          .to(mcp("docs:get_document")),
+      ],
+      {
+        answer: () => ({
+          content: [{ type: "text", text: "File not found" }],
+          isError: true,
+        }),
+      },
+    );
+    const result = await call("own", {});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toBe('Error: Tool "own" failed (AI2003).');
+  });
+
+  /**
+   * @case The star hop refuses a local mcp() route's own exchange
+   * @preconditions A local mcp() route "own" ending in .to(mcp("docs:*")); the server sets the tool header to "own" but no client header
+   * @expectedResult The call fails with RC5003 and the docs client is never reached
+   */
+  test("the star enricher refuses a local route's exchange", async () => {
+    await serve([
+      craft()
+        .id("own")
+        .description("Forwards nothing")
+        .from(mcp())
+        .to(mcp("docs:*")),
+    ]);
+    const result = await call("own", {});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("RC5003");
+    expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case The star hop refuses another client's proxied exchange
+   * @preconditions A star route over docs whose hop is .to(mcp("billing:*"))
+   * @expectedResult The call fails with RC5003 and neither client is reached
+   */
+  test("the star enricher refuses a hop to a different client", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("billing:*")),
+    ]);
+    const result = await call("docs_get_document", { id: "1" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("RC5003");
+    expect(dispatches).toEqual([]);
   });
 
   /**
@@ -640,7 +767,10 @@ describe("a route that proxies a remote MCP server", () => {
           .from(mcp({ proxy: "docs" }))
           .to(mcp("docs:*")),
       ]),
-    ).rejects.toMatchObject({ rc: "RC5003" });
+    ).rejects.toMatchObject({
+      rc: "RC5003",
+      message: expect.stringMatching(/"a".*"b"|"b".*"a"/),
+    });
     await expect(
       start([
         craft()
@@ -652,7 +782,10 @@ describe("a route that proxies a remote MCP server", () => {
           .from(mcp({ proxy: "docs:get_document" }))
           .to(mcp("docs:get_document")),
       ]),
-    ).rejects.toMatchObject({ rc: "RC5003" });
+    ).rejects.toMatchObject({
+      rc: "RC5003",
+      message: expect.stringMatching(/"a".*"b"|"b".*"a"/),
+    });
   });
 
   /**
@@ -798,7 +931,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
       kind: "mcp",
       server: "docs",
       tool: "get_document",
-      governed: "docs",
+      routeId: "docs",
     });
     expect(tool.background).toBeUndefined();
 
@@ -814,11 +947,11 @@ describe("an agent's MCP reference to a proxied tool", () => {
   });
 
   /**
-   * @case direct: true reaches the client without the route, and says so once
-   * @preconditions Same star route; the agent lists { name: "MCP(docs:get_document)", direct: true }
+   * @case raw: true reaches the client without the route, and says so once
+   * @preconditions Same star route; the agent lists { name: "MCP(docs:get_document)", raw: true }
    * @expectedResult The call reaches the client with the arguments as given, the source carries no governing route, and a warning names the bypass
    */
-  test("direct: true bypasses the route with a warning", async () => {
+  test("raw: true bypasses the route with a warning", async () => {
     await build([
       craft()
         .id("docs")
@@ -831,16 +964,15 @@ describe("an agent's MCP reference to a proxied tool", () => {
     ]);
 
     const [tool] = tools([
-      { name: "MCP(docs:get_document)", direct: true },
+      { name: "MCP(docs:get_document)", raw: true },
     ]).resolve(t.ctx);
-    expect(tool.source).not.toHaveProperty("governed");
+    expect(tool.source).not.toHaveProperty("routeId");
     await tool.handler({ id: "7" }, handlerContext(tool.name));
     expect(dispatches).toEqual([
       { serverId: "docs", toolName: "get_document", args: { id: "7" } },
     ]);
     const warned = t.contextLogger.warn.mock.calls.some(
-      (c: unknown[]) =>
-        typeof c[1] === "string" && c[1].includes("direct: true"),
+      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("raw: true"),
     );
     expect(warned).toBe(true);
   });
@@ -896,7 +1028,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .to(mcp("docs:get_document")),
     ]);
     const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
-    expect(tool.source).not.toHaveProperty("governed");
+    expect(tool.source).not.toHaveProperty("routeId");
     await tool.handler({ q: "x" }, handlerContext(tool.name));
     expect(dispatches).toEqual([
       { serverId: "docs", toolName: "search", args: { q: "x" } },

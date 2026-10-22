@@ -130,7 +130,7 @@ To decide whether a compaction is needed at all, catch
 
 ## Where deferral is refused
 
-- **Outside an agent dispatch on a route-bound exchange** ([`AI1006`](/docs/reference/errors#ai-1006)): a proxied MCP tool guard, `testFn`, or an agent invoked over a synthetic exchange. The refusal happens at the `ctx.defer()` call; nothing is written.
+- **Outside an agent dispatch on a route-bound exchange** ([`AI1006`](/docs/reference/errors#ai-1006)): `testFn`, or an agent invoked over a synthetic exchange. The refusal happens at the `ctx.defer()` call; nothing is written.
 - **In a context with no [`deferral`](/docs/reference/configuration#deferral) block** ([`RC5052`](/docs/reference/errors#rc-5052)): agent routes do not require the runtime at startup (most agents never defer), so the deferral itself fails as an ordinary step error naming the one config line.
 - **Inside a `.split()` fan-out or a `.multicast()` / `.dispatch()` side flow** ([`RC5051`](/docs/reference/errors#rc-5051)): the route builds (whether an agent defers is dynamic), and the first actual deferral from such a position is refused with the same explanation a static `.defer()` gets at build time.
 

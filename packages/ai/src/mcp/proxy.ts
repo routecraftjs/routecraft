@@ -95,7 +95,11 @@ export interface McpProxiedEntry {
  */
 export function resolveProxiedEntries(
   service: McpService,
-  warn: (key: string, message: string) => void,
+  warn: (
+    key: string,
+    message: string,
+    bindings: Record<string, unknown>,
+  ) => void,
 ): Map<string, McpProxiedEntry> {
   const resolved = new Map<string, McpProxiedEntry>();
   for (const registration of service.proxies.values()) {
@@ -122,7 +126,14 @@ export function resolveProxiedEntries(
       if (!MCP_TOOL_NAME_PATTERN.test(exposedName)) {
         warn(
           `proxy:name:${exposedName}`,
-          `mcp({ proxy }): route "${registration.routeId}" would expose "${registration.serverId}:${remote.name}" as "${exposedName}", which is not a valid MCP tool name; skipping it. Set a prefix or name that matches ${MCP_TOOL_NAME_PATTERN}.`,
+          "mcp({ proxy }): a proxied tool's exposed name is not a valid MCP tool name; skipping it. Set a prefix or a name that matches the pattern.",
+          {
+            route: registration.routeId,
+            server: registration.serverId,
+            tool: remote.name,
+            exposed: exposedName,
+            pattern: String(MCP_TOOL_NAME_PATTERN),
+          },
         );
         continue;
       }
@@ -130,7 +141,16 @@ export function resolveProxiedEntries(
       if (existing) {
         warn(
           `proxy:collision:${exposedName}`,
-          `mcp({ proxy }): routes "${existing.registration.routeId}" and "${registration.routeId}" both expose "${exposedName}" (${existing.registration.serverId}:${existing.remote.name} and ${registration.serverId}:${remote.name}); the first keeps it. Give one of them a prefix or a name.`,
+          "mcp({ proxy }): two routes expose a proxied tool under one name; the first keeps it. Give one of them a prefix or a name.",
+          {
+            exposed: exposedName,
+            route: existing.registration.routeId,
+            server: existing.registration.serverId,
+            tool: existing.remote.name,
+            otherRoute: registration.routeId,
+            otherServer: registration.serverId,
+            otherTool: remote.name,
+          },
         );
         continue;
       }

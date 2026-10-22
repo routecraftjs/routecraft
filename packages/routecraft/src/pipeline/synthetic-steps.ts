@@ -297,33 +297,21 @@ export function buildCacheCheckStep(
         HeadersKeys.CORRELATION_ID
       ] as string;
 
-      let bypass: boolean;
-      try {
-        bypass = cacheBypassed(cacheConfig, exchange, `route "${routeId}"`);
-      } catch (err) {
-        context?.emit("route:cache:failed", {
+      // The store step reads the key off the internals, so leaving it
+      // unset is what keeps the write out as well as the read.
+      const bypassed = cacheBypassed(
+        cacheConfig,
+        exchange,
+        {
           routeId,
           exchangeId: exchange.id,
           correlationId,
           stepLabel: "route",
           scope: "route",
-          phase: "when",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        throw err;
-      }
-      if (bypass) {
-        // The store step reads the key off the internals, so leaving it
-        // unset is what keeps the write out as well as the read.
-        context?.emit("route:cache:bypassed", {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel: "route",
-          scope: "route",
-        });
-        return { kind: "continue", exchange } as const;
-      }
+        },
+        context ? (event, details) => context.emit(event, details) : undefined,
+      );
+      if (bypassed) return { kind: "continue", exchange } as const;
 
       let key: string;
       try {

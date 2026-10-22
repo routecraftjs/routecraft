@@ -5,6 +5,7 @@ import {
   type CallerRefusal,
   type WireIssues,
 } from "@routecraft/routecraft";
+import { relayedRemoteErrorOf } from "./dispatch.ts";
 
 /**
  * The text a failed local tool call answers with.
@@ -19,6 +20,12 @@ import {
  * fields too. That schema is published as the tool's `outputSchema`, so its
  * paths and messages tell the caller nothing `tools/list` did not. The
  * output headers schema is never published, so its issues stay off the wire.
+ *
+ * A remote tool's own error text crosses when the route that ran is the one
+ * proxying that tool (`mcp({ proxy })`) and the text came from its hop to
+ * that tool: the caller addressed the remote, so the remote's answer is
+ * theirs. The same `AI2003` from any other hop, or from a nested route,
+ * stays generic.
  *
  * Everything else answers with the tool name and the error code only. An
  * error message routinely interpolates its cause, and the cause of a route
@@ -41,10 +48,11 @@ export function toolFailureText(
 ): string {
   if (refusal !== undefined) return refusalText(tool, refusal);
   const code = rcCodeOf(error);
-  // The remote's own error text is its answer to this caller, bounded at the
-  // dispatch; nothing of this instance is in it.
-  if (code === "AI2003") {
-    return (error as { meta: { message: string } }).meta.message;
+  const relayed = relayedRemoteErrorOf(error);
+  if (relayed !== undefined && relayed.routeId === routeId) {
+    return relayed.text === ""
+      ? `Tool "${tool}" failed (AI2003): the remote tool reported an error.`
+      : `Tool "${tool}" failed (AI2003): ${relayed.text}`;
   }
   const cause = (error as { cause?: unknown } | null)?.cause;
   if (

@@ -327,9 +327,14 @@ accordingly.
   pre-order index, the cache's index in the full wrapper stack, the
   kind and `describeOptions()` fingerprint of each wrapper below it,
   and the innermost step's definition fingerprint), the principal's
-  issuer and subject with each `actor` hop, and the body; a custom
-  `key` is verbatim (see
-  `.standards/security.md` § 4). Only wrappers below the cache enter
+  issuer and subject with each `actor` hop, the body, and the
+  `routecraft.cache.discriminator` header when a source set one (the
+  `mcp()` proxy source sets it to the remote tool's name, since one
+  route serves many tools there); a custom `key` is verbatim (see
+  `.standards/security.md` § 4). A `when` condition runs before the
+  key at both scopes and emits `route:cache:bypassed` when it returns
+  `false`; it decides synchronously, so a thrown error or a returned
+  promise is `RC5069`. Only wrappers below the cache enter
   the site with their options: they shape what the cache stores, while
   a wrapper above it runs outside the cached computation and passes the
   exchange inward unchanged, so its options cannot change an entry and

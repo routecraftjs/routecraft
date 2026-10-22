@@ -11,6 +11,7 @@ import {
 import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
+import { isThenable } from "../shared/thenable.ts";
 import { hashExchangeBody } from "./hash-body.ts";
 import { principalIdentity } from "./principal-identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
@@ -211,28 +212,66 @@ export function resolveCacheOptions<Current = unknown>(
   };
 }
 
+/** Where a cache sits, as its events name it. */
+export interface CacheEventScope {
+  routeId: string;
+  exchangeId: string;
+  correlationId: string;
+  stepLabel: string;
+  scope: "route" | "step";
+}
+
+/** The two cache events `when` decides between, with their payloads. */
+type CacheConditionEmit = (
+  ...args:
+    | ["route:cache:bypassed", CacheEventScope]
+    | ["route:cache:failed", CacheEventScope & { phase: "when"; error: string }]
+) => void;
+
 /**
- * Whether a cache with `when` sits this exchange out. A `when` that throws
- * is the author's bug, reported as `RC5029` with the site named, the way a
- * throwing `key` is.
+ * Whether a cache with `when` sits this exchange out, emitting
+ * `route:cache:bypassed` when it does. The condition decides synchronously,
+ * so a promise is refused rather than read as truthy: a `when` that throws
+ * or returns one is the author's bug, reported as `RC5069` with the site
+ * named and `route:cache:failed` in phase `when`.
  *
  * @internal
  */
 export function cacheBypassed(
   options: Pick<ResolvedCacheOptions, "when">,
   exchange: Exchange,
-  site: string,
+  scope: CacheEventScope,
+  emit: CacheConditionEmit | undefined,
 ): boolean {
   if (options.when === undefined) return false;
+  const site =
+    scope.scope === "route"
+      ? `route "${scope.routeId}"`
+      : `"${scope.stepLabel}"`;
+  let decision: unknown;
   try {
-    return options.when(exchange) === false;
+    decision = options.when(exchange);
+    if (isThenable(decision)) {
+      throw rcError("RC5069", undefined, {
+        message: `cache({ when }) for ${site} returned a promise; the condition decides synchronously`,
+      });
+    }
   } catch (err) {
-    throw isRoutecraftError(err)
+    const error = isRoutecraftError(err)
       ? err
-      : rcError("RC5029", err, {
+      : rcError("RC5069", err, {
           message: `cache({ when }) for ${site} threw while deciding whether to cache`,
         });
+    emit?.("route:cache:failed", {
+      ...scope,
+      phase: "when",
+      error: error.message,
+    });
+    throw error;
   }
+  if (decision !== false) return false;
+  emit?.("route:cache:bypassed", scope);
+  return true;
 }
 
 /**
@@ -492,31 +531,19 @@ export class CacheWrapperStep<
     );
     const site = (this.#site ??= `unbuilt:${randomUUID()}`);
 
-    let bypass: boolean;
-    try {
-      bypass = cacheBypassed(this.#options, exchange, `"${stepLabel}"`);
-    } catch (err) {
-      context?.emit("route:cache:failed", {
+    const bypassed = cacheBypassed(
+      this.#options,
+      exchange,
+      {
         routeId,
         exchangeId: exchange.id,
         correlationId,
         stepLabel,
         scope: "step",
-        phase: "when",
-        error: err instanceof Error ? err.message : String(err),
-      });
-      throw err;
-    }
-    if (bypass) {
-      context?.emit("route:cache:bypassed", {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        stepLabel,
-        scope: "step",
-      });
-      return this.inner.execute(exchange, ctx);
-    }
+      },
+      context ? (event, details) => context.emit(event, details) : undefined,
+    );
+    if (bypassed) return this.inner.execute(exchange, ctx);
 
     let key: string;
     try {

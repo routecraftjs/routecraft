@@ -66,6 +66,7 @@ craft()
 
 **Options:**
 - `key` (optional) - Function to derive the cache key from the exchange. If omitted, the key combines the route (with a fingerprint of the cached pipeline at route scope, or the step's site at step scope), the principal, and a SHA-256 of `JSON.stringify(body)`; see [Cache key](#cache-key). Supply an explicit `key` when the body is `undefined` or not JSON-serialisable, or when a stable identity lives in headers. A custom key is used verbatim.
+- `when` (optional) - Per-exchange condition. `false` skips both the read and the write for that exchange; see [Cache condition](#cache-condition).
 - `ttl` (optional) - Time to live in milliseconds. After expiry, the next execution recomputes the value. When omitted, the provider's default expiry applies (the bundled in-memory provider keeps entries until LRU eviction).
 - `provider` (optional) - A `CacheProvider` implementation. Defaults to the application's own `MemoryCacheProvider` backed by `lru-cache`, one per context, created by the default `CACHE` plugin. Pass a custom provider to plug in Redis, multi-tier, or file-backed stores.
 
@@ -95,8 +96,9 @@ With no `key`, the key is a SHA-256 over:
 1. **The scope.** At route scope, the route id plus a fingerprint of the whole pipeline a hit skips: every step's definition, the kind and options of every wrapper, and every `.choice()` branch with its predicate. At step scope, the route id plus the cache's site: the step's pre-order index in the route, the cache's position in the step's stack of wrappers (`.error()`, `.retry()`, and so on), the kind and a fingerprint of the options of each wrapper inside it, and a fingerprint of the step's definition (operation, label, adapter and options, callable source). Two cached steps in one route never share entries.
 2. **The principal**, when the exchange carries one: its `issuer` and `subject`, and those of every delegation `actor`. Two callers sending the same body get separate entries, and so do two delegates acting for the same subject.
 3. **The body**, as a SHA-256 of `JSON.stringify(body)`.
+4. **The discriminator**, when a source sets the `routecraft.cache.discriminator` header (`HeadersKeys.CACHE_DISCRIMINATOR`): the one header the default key reads, for a source that delivers several operations into one route. The [`mcp()` proxy source](/docs/reference/adapters/mcp#proxying-a-remote-server) sets it to the remote tool's name, so two tools called with equal arguments never share an entry. It inherits into a `direct()` target like any other header, where it narrows that route's key the same way.
 
-Nothing else is in it. A header that selects the answer, such as a tenant or a locale the application reads from `routecraft.http.headers` without establishing it as the principal, is invisible to the default key, so two callers that differ only in that header share an entry. Establish identity with `.authenticate()` so it reaches the principal, or put the header into a custom `key`.
+Nothing else is in it. Any other header that selects the answer, such as a tenant or a locale the application reads from `routecraft.http.headers` without establishing it as the principal, is invisible to the default key, so two callers that differ only in that header share an entry. Establish identity with `.authenticate()` so it reaches the principal, or put the header into a custom `key`.
 
 Every part is derived from the route definition and the exchange, so processes running the same built route code compute the same keys and can share an external provider. Callable source is read verbatim, as for the [deferral hash](/docs/reference/configuration#deferral): a formatting pass, a checkout with different line endings, or a build that changes emitted code (a different minifier, new bundler settings, a TypeScript target bump) changes the keys. That only ever causes misses, never a hit on another entry, so run one build everywhere that shares a provider and expect a cold cache after such a change. The route id is part of the key: give every cached route an `.id()`, because an unnamed route gets a fresh id on every start and its entries stop matching after a restart (the route logs a warning when this applies).
 
@@ -134,8 +136,9 @@ craft()
   .id('report')
   .cache({
     ttl: '5m',
-    // A forced refresh runs the pipeline and stores nothing.
-    when: (ex) => ex.body.force !== true,
+    // A forced refresh runs the pipeline and stores nothing. Before .from()
+    // the body is unknown, so the condition says what it reads.
+    when: (ex) => (ex.body as { force?: boolean }).force !== true,
   })
   .from<{ id: string; force?: boolean }>(direct())
   .enrich(loadReport)
@@ -144,7 +147,7 @@ craft()
 
 A route that fronts a set of remote MCP tools is the other case: the writing tools and the read-only ones share one `.cache()`, and only the read-only ones may be served from it. The [`mcp()` proxy source](/docs/reference/adapters/mcp#proxying-a-remote-server) sets the remote tool's annotations on a header for exactly this predicate.
 
-A `when` that throws fails the exchange with [`RC5029`](/docs/reference/errors#rc-5029) and a `route:cache:failed` event with `phase: "when"`, the same as a `key` that throws.
+`when` decides synchronously, from what the exchange already carries; a lookup it needs belongs in a step above the cache. A `when` that throws, or returns a promise, fails the exchange with [`RC5069`](/docs/reference/errors#rc-5069) and a `route:cache:failed` event with `phase: "when"`.
 
 ## Route scope
 
@@ -203,4 +206,4 @@ A shared entry is safe because authorization runs before the cache check: a call
 
 **Stampede protection:** route scope does NOT dedupe concurrent same-key callers in this release. Each concurrent caller runs the pipeline once before the cache is populated. Use step-scope `.cache()` around the expensive step if stampede dedupe matters.
 
-**Failure mode:** provider read failures throw `RC5028` (retryable). Key derivation failures throw `RC5029` (not retryable), including a default key on an exchange with no body. Provider write failures emit `route:cache:failed phase:"set"` but do NOT fail the exchange (the result was already computed and returned).
+**Failure mode:** provider read failures throw `RC5028` (retryable). Key derivation failures throw `RC5029` (not retryable), including a default key on an exchange with no body; a `when` that throws or returns a promise throws `RC5069` (not retryable). Provider write failures emit `route:cache:failed phase:"set"` but do NOT fail the exchange (the result was already computed and returned).

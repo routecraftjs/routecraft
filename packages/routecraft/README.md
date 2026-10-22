@@ -153,7 +153,7 @@ route:exchange:started / completed / failed / dropped / restored
 route:step:started / completed / failed / error
 route:batch:started / flushed / stopped
 route:error-handler:invoked / recovered / failed
-route:cache:hit / miss / stored / failed
+route:cache:hit / miss / stored / bypassed / failed
 route:exchange:deferred / resumed / expired
 route:enablement:changed
 server:listening / failed / closed

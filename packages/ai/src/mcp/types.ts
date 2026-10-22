@@ -687,9 +687,9 @@ export interface McpClientOptions {
   /**
    * Tool name to invoke, or `"*"` to invoke the tool named on
    * `McpHeadersKeys.TOOL`, which a route proxying a remote server
-   * (`mcp({ proxy })`) carries on every exchange. Required.
+   * (`mcp({ proxy })`) carries on every exchange.
    */
-  tool?: string;
+  tool: string;
   /** Server id from context store; resolved to URL at runtime. Use when URL is registered via mcpPlugin({ clients }). */
   serverId?: string;
   /**
@@ -782,9 +782,8 @@ export interface McpToolRegistryEntry {
 
 /**
  * Raw MCP `tools/call` result as returned by the SDK, before any content
- * extraction. Used by the raw dispatch path so proxied tool calls can pass
- * the remote result through verbatim (content array of any spec type,
- * structured content, and the error flag).
+ * extraction: content blocks of any spec type, structured content, and the
+ * error flag, which `toolResultBody` interprets.
  */
 export interface McpRawToolResult {
   content?: Array<{

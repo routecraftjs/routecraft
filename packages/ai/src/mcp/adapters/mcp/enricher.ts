@@ -1,5 +1,9 @@
 import type { Exchange, Enricher } from "@routecraft/routecraft";
-import { getExchangeContext, rcError } from "@routecraft/routecraft";
+import {
+  getExchangeContext,
+  HeadersKeys,
+  rcError,
+} from "@routecraft/routecraft";
 import type {
   McpClientOptions,
   McpArgsExtractor,
@@ -9,7 +13,11 @@ import type {
 import { MCP } from "../../port.ts";
 import { McpHeadersKeys } from "../../types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
-import { callRemoteTool, dispatchMcpCall } from "../../dispatch.ts";
+import {
+  callRemoteTool,
+  dispatchMcpCall,
+  relayRemoteError,
+} from "../../dispatch.ts";
 
 /** Ensure inline url is HTTP(S) only. Stdio clients are reached via dispatchMcpCall. */
 function assertHttpUrl(url: string): void {
@@ -121,8 +129,30 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
   }
 
   async fetch(exchange: Exchange<unknown>): Promise<unknown> {
-    const context = getExchangeContext(exchange);
     const toolName = this.resolveToolName(exchange);
+    try {
+      return await this.call(exchange, toolName);
+    } catch (error) {
+      // The hop to the tool the caller named: its error text is the remote's
+      // answer to that caller, which the MCP server relays for this route.
+      if (
+        exchange.headers[McpHeadersKeys.CLIENT] === this.options.serverId &&
+        exchange.headers[McpHeadersKeys.TOOL] === toolName
+      ) {
+        relayRemoteError(
+          error,
+          exchange.headers[HeadersKeys.ROUTE_ID] as string,
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async call(
+    exchange: Exchange<unknown>,
+    toolName: string,
+  ): Promise<unknown> {
+    const context = getExchangeContext(exchange);
     const argsExtractor = this.options.args ?? defaultArgs;
     const args = argsExtractor(exchange);
 
@@ -167,14 +197,17 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
   }
 
   /**
-   * The tool this call invokes. `"*"` forwards whichever tool the exchange
-   * names on `McpHeadersKeys.TOOL`, which is what a route proxying a remote
-   * server carries; any other exchange on a star enricher is a wiring
+   * The tool this call invokes. `"*"` forwards the tool a route proxying
+   * this same client named on the exchange: `McpHeadersKeys.CLIENT` must be
+   * this client and `McpHeadersKeys.TOOL` the remote tool. The client check
+   * is what keeps the star form from forwarding a local `.from(mcp())`
+   * route's own name (the server sets `TOOL` on every call) or another
+   * client's tool names with this client's credentials; either is a wiring
    * error, named as such.
    */
   private resolveToolName(exchange: Exchange<unknown>): string {
     const tool = this.options.tool;
-    if (tool === undefined || tool === "") {
+    if (typeof tool !== "string" || tool === "") {
       throw rcError("RC5003", undefined, {
         message: "mcp(): tool name required",
         suggestion:
@@ -182,13 +215,25 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
       });
     }
     if (tool !== "*") return tool;
+    const serverId = this.options.serverId;
     const named = exchange.headers[McpHeadersKeys.TOOL];
-    if (typeof named !== "string" || named === "") {
-      const target = this.options.serverId ?? this.options.url;
+    const client = exchange.headers[McpHeadersKeys.CLIENT];
+    if (
+      serverId === undefined ||
+      typeof named !== "string" ||
+      named === "" ||
+      typeof client !== "string"
+    ) {
       throw rcError("RC5003", undefined, {
-        message: `mcp("${target}:*"): the exchange names no tool`,
+        message: `mcp("${serverId ?? this.options.url}:*"): the exchange names no proxied tool`,
         suggestion:
-          'The star form forwards the tool on the routecraft.mcp.tool header, which a route proxying a remote server (.from(mcp({ proxy }))) sets on every exchange. On any other route name the tool: mcp("server:tool").',
+          'The star form forwards the tool a route proxying a registered client (.from(mcp({ proxy }))) named on the routecraft.mcp.tool and routecraft.mcp.client headers. On any other route name the tool: mcp("server:tool").',
+      });
+    }
+    if (client !== serverId) {
+      throw rcError("RC5003", undefined, {
+        message: `mcp("${serverId}:*") on a route proxying client "${client}"`,
+        suggestion: `The star form forwards to the client the route proxies. Use mcp("${client}:*"), or name the tool: mcp("${serverId}:tool").`,
       });
     }
     return named;
