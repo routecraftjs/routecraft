@@ -313,7 +313,7 @@ Over HTTP the server answers at `path` and at one segment below it per name it k
 | URL | Serves | Tool names |
 |-----|--------|------------|
 | `/mcp` | Everything: every local route's tool and every proxied tool | As exposed: the local names, and `<client>_<tool>` for a proxied tool unless `prefix` or `name` changed it |
-| `/mcp/<client>` | The tools a route proxies from that registered client | The remote's own names, unprefixed; an exact route wins over a star route for its tool |
+| `/mcp/<client>` | The tools a route proxies from that registered client, less what the star route's `exclude` leaves out | The remote's own names, unprefixed; an exact route wins over a star route for its tool |
 | `/mcp/<name>` | The application's own tools: every local `.from(mcp())` route and every exact proxy route | As exposed, so an exact proxy route's `name` |
 
 `<name>` is the `name` option: `mcpPlugin({ name: 'eywa' })` serves its own tools at `/mcp/eywa`. Over HTTP a client id equal to the server name is refused at bind with `RC5003`, since both would mount at one path, and so is a name or client id that is not one path segment (`[A-Za-z0-9_.-]+`, and neither `.` nor `..`); stdio serves the root alone and checks neither. Every registered client has its mount whether or not a route proxies it yet, so a route that starts later is served without a restart; until then the mount lists no tools. A path below `path` that is no mount is a 404. A reverse proxy that forwards exactly `/mcp` leaves the mounts unreachable, so forward the prefix.

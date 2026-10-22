@@ -62,6 +62,7 @@ When using the `serverId` path (recommended), auth configured on the client in `
 | `proxy` | `string` | No | Make this route the tools of a registered client (`'github:*'` or `'github'`) or one of them (`'github:create_issue'`). See [Proxying a remote server](#proxying-a-remote-server) |
 | `prefix` | `string` | No | What an exposed proxied tool's name starts with; defaults to the client's name and an underscore (`github_`). `''` exposes the remote names bare. Only with `proxy` |
 | `name` | `string` | No | The exposed name of the one tool an exact `proxy` names, in place of the prefixed remote name. Refused with a star `proxy` |
+| `exclude` | `string[]` | No | Remote tools a star `proxy` leaves out, by their names on the remote (`['create_issue']`). Refused with an exact `proxy` |
 
 All other tool metadata (title, description, input / output schemas) comes from the route builder and is enforced framework-wide:
 
@@ -200,7 +201,7 @@ const readOnlyTool = (ex: Exchange) =>
 
 **Rules.**
 
-- An exact route wins over a star route for the tool it names. Two exact routes for one tool, or two star routes for one client, are refused at start (`RC5003`).
+- An exact route wins over a star route for the tool it names while it is live, and the star route serves the tool again when the exact route goes, whether removed or held back by `.enabled()`. `exclude` on the star route leaves named tools out of the group for good, so an exact route over one of them stands alone and nothing serves the tool when it goes. Two exact routes for one tool, or two star routes for one client, are refused at start (`RC5003`).
 - The route id names the route, never a tool. `.description()` and `.title()` replace the remote's for every tool the route exposes; leave them off to pass the remote's through. `.tag()` and `annotations` merge over the remote's annotations per key.
 - The remote's JSON Schemas pass through to `tools/list` and to an agent's catalogue; the remote validates the arguments at its door. A remote tool with an `outputSchema` publishes its result as `structuredContent`, and the server holds what the route finally returns to that advertised schema (`AI2001`), so a step below the hop that rewrites the result has to keep its shape. A `.to(mcp('github:*'))` hop forwards to the client the route proxies and refuses any other exchange (`RC5003`): a local `.from(mcp())` route's own call, or a route proxying a different client.
 - A route that can park (a `.defer()`, or an approval hook on a tag) advertises the `Deferred` arm on every tool it exposes, and an agent holding one of those tools holds it as a background tool, as for any parking route.

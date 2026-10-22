@@ -18,6 +18,8 @@ import {
 export interface McpProxyRef {
   serverId: string;
   tool: string;
+  /** Remote tools a star ref leaves out. */
+  exclude?: readonly string[];
 }
 
 /**
@@ -67,10 +69,18 @@ export function coveringProxy(
   serverId: string,
   tool: string,
 ): McpProxyRegistration | undefined {
-  return (
-    service.proxies.get(proxyRegistrationKey(serverId, tool)) ??
-    service.proxies.get(proxyRegistrationKey(serverId, "*"))
-  );
+  const exact = service.proxies.get(proxyRegistrationKey(serverId, tool));
+  if (exact !== undefined) return exact;
+  const star = service.proxies.get(proxyRegistrationKey(serverId, "*"));
+  return star !== undefined && !excludes(star, tool) ? star : undefined;
+}
+
+/** Whether a star registration or ref leaves `tool` out. */
+function excludes(
+  star: { exclude?: readonly string[] | undefined },
+  tool: string,
+): boolean {
+  return star.exclude !== undefined && star.exclude.includes(tool);
 }
 
 /**
@@ -96,7 +106,9 @@ export function declaredProxy(
       if (!isMcpAdapter(source) || ref === undefined) continue;
       if (ref.serverId !== serverId) continue;
       if (ref.tool === tool) return { routeId: route.definition.id, tool };
-      if (ref.tool === "*") star ??= { routeId: route.definition.id, tool };
+      if (ref.tool === "*" && !excludes(ref, tool)) {
+        star ??= { routeId: route.definition.id, tool };
+      }
     }
   }
   return star;

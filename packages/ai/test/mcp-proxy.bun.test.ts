@@ -281,6 +281,50 @@ describe("a route that proxies a remote MCP server", () => {
   });
 
   /**
+   * @case A star route's exclude leaves tools out of the group on every mount, and an exact route over one of them stands alone
+   * @preconditions Star route over docs excluding search and get_document, an exact route over get_document
+   * @expectedResult The root lists docs_delete_document and docs_get_document only, the docs mount delete_document and get_document; a call to docs_search is not found; get_document runs the exact route
+   */
+  test("a star route can exclude tools", async () => {
+    const ran: string[] = [];
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*", exclude: ["search", "get_document"] }))
+        .process((ex) => {
+          ran.push("star");
+          return ex;
+        })
+        .to(mcp("docs:*")),
+      craft()
+        .id("fetch")
+        .from(mcp({ proxy: "docs:get_document" }))
+        .process((ex) => {
+          ran.push("exact");
+          return ex;
+        })
+        .to(mcp("docs:get_document")),
+    ]);
+    expect(
+      server
+        .getAvailableTools()
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(["docs_delete_document", "docs_get_document"]);
+    expect(
+      server
+        .getAvailableTools("docs")
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(["delete_document", "get_document"]);
+    const missing = await call("docs_search", {});
+    expect(missing.isError).toBe(true);
+    expect(missing.content[0]?.text).toContain("Tool not found");
+    await call("docs_get_document", { id: "1" });
+    expect(ran).toEqual(["exact"]);
+  });
+
+  /**
    * @case A bare prefix exposes the remote names as they are
    * @preconditions Star route over docs with prefix ""
    * @expectedResult tools/list carries get_document, search and delete_document
@@ -863,6 +907,12 @@ describe("a route that proxies a remote MCP server", () => {
   test("proxy options are validated at construction", () => {
     expect(() => mcp({ proxy: "docs:*", name: "x" })).toThrow();
     expect(() => mcp({ prefix: "x_" })).toThrow();
+    expect(() => mcp({ exclude: ["x"] })).toThrow();
+    expect(() =>
+      mcp({ proxy: "docs:get_document", exclude: ["search"] }),
+    ).toThrow();
+    expect(() => mcp({ proxy: "docs:*", exclude: [] })).toThrow();
+    expect(() => mcp({ proxy: "docs:*", exclude: ["bad.name"] })).toThrow();
     expect(() =>
       mcp({ proxy: "docs:*", ui: { html: "<p>view</p>" } }),
     ).toThrow();
@@ -1121,9 +1171,48 @@ describe("an agent's MCP reference to a proxied tool", () => {
   });
 
   /**
-   * @case Tools the route does not cover stay raw
-   * @preconditions Exact route over docs:get_document only; the agent lists MCP(docs:search)
-   * @expectedResult The search tool has no governing route and reaches the client directly
+   * @case A tool the star route excludes is not governed by it
+   * @preconditions Star route over docs excluding search; the agent lists MCP(docs:search) and MCP(docs:get_document)
+   * @expectedResult search resolves raw, get_document runs through the star route
+   */
+  test("a tool the star route excludes stays raw for the agent", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*", exclude: ["search"] }))
+        .to(mcp("docs:*")),
+    ]);
+    const [search] = tools(["MCP(docs:search)"]).resolve(t.ctx);
+    expect(search.source).not.toHaveProperty("routeId");
+    const [fetched] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    expect(fetched.source).toMatchObject({ routeId: "docs" });
+  });
+
+  /**
+   * @case A disabled exact route hands its tool back to the live star route
+   * @preconditions Star route over docs and an exact route over get_document held back by .enabled()
+   * @expectedResult The agent's MCP(docs:get_document) runs through the star route, not withheld and not raw
+   */
+  test("a disabled exact route yields to the live star route", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+      craft()
+        .id("fetch")
+        .enabled(() => false)
+        .from(mcp({ proxy: "docs:get_document" }))
+        .to(mcp("docs:get_document")),
+    ]);
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    expect(tool.source).toMatchObject({ routeId: "docs" });
+  });
+
+  /**
+   * @case A proxied tool no route covers is offered raw
+   * @preconditions An exact route over get_document only
+   * @expectedResult MCP(docs:search) resolves raw and its call reaches the client
    */
   test("an uncovered tool stays raw", async () => {
     await build([

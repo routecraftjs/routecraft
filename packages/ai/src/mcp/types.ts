@@ -105,6 +105,8 @@ export interface McpProxyRegistration {
   prefix: string;
   /** Exposed name override, exact registrations only. */
   name?: string;
+  /** Remote tools a star registration leaves out, star registrations only. */
+  exclude?: readonly string[];
   /** The route behind the registration, for the log and the ops listing. */
   routeId: string;
   /** The route's `.description()`, replacing the remote's when set. */
@@ -623,6 +625,15 @@ export interface McpServerOptions {
    * collisions that come with it. Only with `proxy`.
    */
   prefix?: string;
+
+  /**
+   * Remote tools a star `proxy` leaves out, by their names on the remote.
+   * An excluded tool is not served by this route on any mount, and an
+   * exact route over it stands alone instead of taking precedence; without
+   * the exclusion an exact route wins while it is live and the star route
+   * serves the tool again when it goes. Refused with an exact `proxy`.
+   */
+  exclude?: string[];
 
   /**
    * The exposed name of the one tool an exact `proxy` names, in place of
