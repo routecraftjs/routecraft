@@ -325,6 +325,37 @@ describe("a route that proxies a remote MCP server", () => {
   });
 
   /**
+   * @case An exclude name the client does not list is warned about once
+   * @preconditions Star route over docs excluding "serch", a name the client never lists
+   * @expectedResult Listing the tools logs one warning naming the route, the client and the unmatched name, and the group is unchanged
+   */
+  test("an exclude name the client does not list warns", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*", exclude: ["serch"] }))
+        .to(mcp("docs:*")),
+    ]);
+    expect(
+      server
+        .getAvailableTools()
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(["docs_delete_document", "docs_get_document", "docs_search"]);
+    server.getAvailableTools();
+    const warnings = t.contextLogger.warn.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && c[1].includes("exclude names a tool"),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.[0]).toMatchObject({
+      route: "docs",
+      server: "docs",
+      tool: "serch",
+    });
+  });
+
+  /**
    * @case A bare prefix exposes the remote names as they are
    * @preconditions Star route over docs with prefix ""
    * @expectedResult tools/list carries get_document, search and delete_document
@@ -901,18 +932,28 @@ describe("a route that proxies a remote MCP server", () => {
 
   /**
    * @case Proxy options are validated when mcp() is called
-   * @preconditions name with a star proxy; prefix without proxy; ui with proxy; a malformed ref; an invalid name
-   * @expectedResult Each throws RC5003 at construction
+   * @preconditions name with a star proxy; prefix without proxy; exclude without proxy, with an exact proxy, empty, and with an invalid tool name; ui with proxy; a malformed ref; an invalid name
+   * @expectedResult Each throws RC5003 at construction, the exclude cases with a message naming exclude
    */
   test("proxy options are validated at construction", () => {
+    const refusesExclude = (build: () => unknown) => {
+      try {
+        build();
+      } catch (error) {
+        expect(error).toMatchObject({ rc: "RC5003" });
+        expect((error as Error).message).toMatch(/exclude/);
+        return;
+      }
+      throw new Error("expected mcp() to refuse the exclude");
+    };
     expect(() => mcp({ proxy: "docs:*", name: "x" })).toThrow();
     expect(() => mcp({ prefix: "x_" })).toThrow();
-    expect(() => mcp({ exclude: ["x"] })).toThrow();
-    expect(() =>
+    refusesExclude(() => mcp({ exclude: ["x"] }));
+    refusesExclude(() =>
       mcp({ proxy: "docs:get_document", exclude: ["search"] }),
-    ).toThrow();
-    expect(() => mcp({ proxy: "docs:*", exclude: [] })).toThrow();
-    expect(() => mcp({ proxy: "docs:*", exclude: ["bad.name"] })).toThrow();
+    );
+    refusesExclude(() => mcp({ proxy: "docs:*", exclude: [] }));
+    refusesExclude(() => mcp({ proxy: "docs:*", exclude: ["bad.name"] }));
     expect(() =>
       mcp({ proxy: "docs:*", ui: { html: "<p>view</p>" } }),
     ).toThrow();
@@ -1171,21 +1212,34 @@ describe("an agent's MCP reference to a proxied tool", () => {
   });
 
   /**
-   * @case A tool the star route excludes is not governed by it
-   * @preconditions Star route over docs excluding search; the agent lists MCP(docs:search) and MCP(docs:get_document)
-   * @expectedResult search resolves raw, get_document runs through the star route
+   * @case A tool the star route excludes is withheld from the agent, as from the server
+   * @preconditions Star route over docs excluding search; the agent lists MCP(docs:search), MCP(docs:*) and MCP(docs:get_document)
+   * @expectedResult search is not offered, with a warning naming the exclusion; the star expansion omits it; get_document runs through the star route; raw: true reaches search without the route
    */
-  test("a tool the star route excludes stays raw for the agent", async () => {
+  test("a tool the star route excludes is withheld from the agent", async () => {
     await build([
       craft()
         .id("docs")
         .from(mcp({ proxy: "docs:*", exclude: ["search"] }))
         .to(mcp("docs:*")),
     ]);
-    const [search] = tools(["MCP(docs:search)"]).resolve(t.ctx);
-    expect(search.source).not.toHaveProperty("routeId");
+    expect(tools(["MCP(docs:search)"]).resolve(t.ctx)).toEqual([]);
+    const warned = t.contextLogger.warn.mock.calls.find(
+      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("excluded"),
+    );
+    expect(warned?.[0]).toMatchObject({ route: "docs", tool: "search" });
+    expect(
+      tools(["MCP(docs:*)"])
+        .resolve(t.ctx)
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(["mcp__docs__delete_document", "mcp__docs__get_document"]);
     const [fetched] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
     expect(fetched.source).toMatchObject({ routeId: "docs" });
+    const [raw] = tools([{ name: "MCP(docs:search)", raw: true }]).resolve(
+      t.ctx,
+    );
+    expect(raw.source).not.toHaveProperty("routeId");
   });
 
   /**

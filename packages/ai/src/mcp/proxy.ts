@@ -88,9 +88,10 @@ function excludes(
  * not: an exact declaration first, else a star over the client. A live
  * registration is what {@link coveringProxy} answers; this reads the route
  * definitions instead, so the agent tool resolver can tell a tool nobody
- * governs from one whose governing route is held back by `.enabled()`.
- * The second is withheld rather than offered raw: a disabled policy must
- * not open the door it was written to close.
+ * governs from one whose governing route is held back by `.enabled()`, or
+ * one a star route leaves out through `exclude` (`excluded`). Both are
+ * withheld rather than offered raw: a policy that is off, or a tool taken
+ * out of the group, must not open the door it was written to close.
  *
  * @internal
  */
@@ -98,16 +99,22 @@ export function declaredProxy(
   context: CraftContext,
   serverId: string,
   tool: string,
-): { routeId: string; tool: string } | undefined {
-  let star: { routeId: string; tool: string } | undefined;
+): { routeId: string; tool: string; excluded: boolean } | undefined {
+  let star: { routeId: string; tool: string; excluded: boolean } | undefined;
   for (const route of context.getRoutes()) {
     for (const source of route.definition.sources) {
       const ref = (source as { proxyRef?: McpProxyRef }).proxyRef;
       if (!isMcpAdapter(source) || ref === undefined) continue;
       if (ref.serverId !== serverId) continue;
-      if (ref.tool === tool) return { routeId: route.definition.id, tool };
-      if (ref.tool === "*" && !excludes(ref, tool)) {
-        star ??= { routeId: route.definition.id, tool };
+      if (ref.tool === tool) {
+        return { routeId: route.definition.id, tool, excluded: false };
+      }
+      if (ref.tool === "*") {
+        star ??= {
+          routeId: route.definition.id,
+          tool,
+          excluded: excludes(ref, tool),
+        };
       }
     }
   }
@@ -167,6 +174,25 @@ export function resolveProxiedEntries(
 ): Map<string, McpProxiedEntry> {
   const resolved = new Map<string, McpProxiedEntry>();
   for (const registration of service.proxies.values()) {
+    if (registration.tool === "*" && registration.exclude !== undefined) {
+      const listed = new Set(
+        service.tools
+          .getToolsByServer(registration.serverId)
+          .map((remote) => remote.name),
+      );
+      for (const name of registration.exclude) {
+        if (listed.has(name)) continue;
+        warn(
+          `proxy:exclude-unmatched:${registration.serverId}:${name}`,
+          "mcp({ proxy }): exclude names a tool the client does not list; a misspelt name leaves the tool it meant in the group.",
+          {
+            route: registration.routeId,
+            server: registration.serverId,
+            tool: name,
+          },
+        );
+      }
+    }
     const remotes =
       registration.tool === "*"
         ? service.tools

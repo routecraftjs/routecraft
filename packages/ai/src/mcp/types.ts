@@ -627,11 +627,12 @@ export interface McpServerOptions {
   prefix?: string;
 
   /**
-   * Remote tools a star `proxy` leaves out, by their names on the remote.
-   * An excluded tool is not served by this route on any mount, and an
-   * exact route over it stands alone instead of taking precedence; without
-   * the exclusion an exact route wins while it is live and the star route
-   * serves the tool again when it goes. Refused with an exact `proxy`.
+   * Remote tools a star `proxy` leaves out, by their names on the remote:
+   * a non-empty list of valid tool names. An excluded tool is not served
+   * by this route on any mount and is withheld from an agent that references
+   * it, so an exact route over it stands alone instead of taking precedence;
+   * without the exclusion an exact route wins while it is live and the star
+   * route serves the tool again when it goes. Only with a star `proxy`.
    */
   exclude?: string[];
 

@@ -315,7 +315,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
 }
 
 /**
- * Validate the `proxy`, `prefix` and `name` options when `mcp()` is called,
+ * Validate the `proxy`, `prefix`, `name` and `exclude` options when `mcp()` is called,
  * not when the route starts, and parse the ref once.
  */
 function assertValidProxyOptions(

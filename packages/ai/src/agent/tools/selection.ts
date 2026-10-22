@@ -1188,14 +1188,17 @@ function mcpEntryToResolvedTool(
     }
   } else if (!raw) {
     // A proxy route that is declared but not live (held back by
-    // `.enabled()`, or not yet started) withholds the tool: the policy the
-    // operator wrote for it is off, and off is closed, not open.
+    // `.enabled()`, or not yet started), or a star route that leaves the
+    // tool out, withholds it: the policy the operator wrote for it is off,
+    // and off is closed, not open.
     const declared = declaredProxy(ctx, entry.source, entry.name);
     if (declared !== undefined) {
       return dropOnce(
         `mcp-withheld:${name}`,
         { server: entry.source, tool: entry.name, route: declared.routeId },
-        "MCP tool is proxied by a route that is not live, so the agent is not offered it. Enable the route, or reference the tool with raw: true to reach the client without it.",
+        declared.excluded
+          ? "MCP tool is excluded from the route that proxies its client, so the agent is not offered it. Proxy it with its own route, or reference the tool with raw: true to reach the client without one."
+          : "MCP tool is proxied by a route that is not live, so the agent is not offered it. Enable the route, or reference the tool with raw: true to reach the client without it.",
       );
     }
   }

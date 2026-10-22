@@ -148,7 +148,7 @@ export default craft()
   .to(mcp('github:*'))
 ```
 
-Every tool the `github` client lists is now served by your [MCP server](/docs/introduction/expose-to-an-agent) as `github_<tool>`, authorized on the caller's principal, with the read-only ones cached; the exceptions are the server's own `tools` filter, a name a local route already holds, and a prefixed name that is not a valid tool name, each skipped with a warning. A tool that needs its own shaping gets its own route, which wins over the star route for that tool:
+Every tool the `github` client lists is now served by your [MCP server](/docs/introduction/expose-to-an-agent) as `github_<tool>`, authorized on the caller's principal, with the read-only ones cached; the exceptions are the server's own `tools` filter, a name a local route already holds, and a prefixed name that is not a valid tool name, each skipped with a warning. A tool that needs its own shaping gets its own route, which wins over the star route for that tool while it is live; if the tool must not fall back to the star route when its own route is off, leave it out of the group with `mcp({ proxy: 'github:*', exclude: ['create_issue'] })`:
 
 ```ts
 // capabilities/github-create-issue/route.ts
