@@ -205,6 +205,51 @@ export function resolveProxiedEntries(
 }
 
 /**
+ * The tools a client's proxy routes expose on that client's own mount,
+ * keyed by the remote's names: every tool of the client that a registration
+ * covers, exact over star. The root mount's prefixes and its collision
+ * rules do not apply here, since the mount already names the client; a
+ * remote name that is not a valid tool name is still skipped, with a
+ * warning through `warn`.
+ *
+ * @internal
+ */
+export function resolveClientEntries(
+  service: McpService,
+  serverId: string,
+  warn: (
+    key: string,
+    message: string,
+    bindings: Record<string, unknown>,
+  ) => void,
+): Map<string, McpProxiedEntry> {
+  const resolved = new Map<string, McpProxiedEntry>();
+  for (const remote of service.tools.getToolsByServer(serverId)) {
+    const registration = coveringProxy(service, serverId, remote.name);
+    if (registration === undefined) continue;
+    if (!MCP_TOOL_NAME_PATTERN.test(remote.name)) {
+      warn(
+        `proxy:remote-name:${serverId}:${remote.name}`,
+        "mcp({ proxy }): a remote tool's name is not a valid MCP tool name; skipping it on the client's mount.",
+        {
+          route: registration.routeId,
+          server: serverId,
+          tool: remote.name,
+          pattern: String(MCP_TOOL_NAME_PATTERN),
+        },
+      );
+      continue;
+    }
+    resolved.set(remote.name, {
+      entry: proxiedEntry(remote.name, registration, remote),
+      registration,
+      remote,
+    });
+  }
+  return resolved;
+}
+
+/**
  * The local entry a registration exposes a remote tool as, under
  * `exposedName`. Shared with the agent tool resolver, which sends an
  * `MCP(server:tool)` reference through the covering route under the

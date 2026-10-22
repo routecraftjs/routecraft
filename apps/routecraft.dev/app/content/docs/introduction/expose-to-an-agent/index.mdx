@@ -101,7 +101,7 @@ VS Code and Copilot (`.vscode/mcp.json`):
 
 ## Over HTTP, for a team
 
-Serve MCP over HTTP when the tools should run always on and more than one person or agent should reach them: the [team harness](/docs/introduction/local-and-team-harness). The transport mounts at `/mcp` on the instance's `default` server, beside every other door. [Servers and ports](/docs/introduction/servers-and-ports) covers the listener, and how to give MCP a port of its own.
+Serve MCP over HTTP when the tools should run always on and more than one person or agent should reach them: the [team harness](/docs/introduction/local-and-team-harness). The transport mounts at `/mcp` on the instance's `default` server, beside every other door, with one URL below it per slice of the catalogue: `/mcp/<name>` (the plugin's `name`) serves only the application's own tools, and `/mcp/<client>` one registered client's proxied tools under their remote names ([mounts](/docs/reference/plugins/mcpplugin#mounts)). [Servers and ports](/docs/introduction/servers-and-ports) covers the listener, and how to give MCP a port of its own.
 
 ```ts
 // craft.config.ts
@@ -131,7 +131,7 @@ export const craftConfig = defineConfig({
 
 MCP inherits the server's authentication unless it sets its own `auth`, as here. `auth: false` removes the wall: the surface demands no credentials and issues no challenge, but a valid token for the inherited validator still attaches a principal, which is how a tool's `.authorize()` admits on a public mount, and an invalid one is treated as absent. Anything reachable over the network must be authenticated. [Credentials and identity](/docs/introduction/credentials-and-identity) is the model; [Securing capabilities](/docs/advanced/securing-capabilities) has every mode (`jwt()`, `jwks()`, custom validators, `oauth()` as a resource-server gate), identity enrichment and CORS.
 
-Protected-resource metadata is served only at the path-suffixed RFC 9728 URL, which for the default path is `/.well-known/oauth-protected-resource/mcp`.
+Protected-resource metadata is served only at the path-suffixed RFC 9728 URL, which for the default path is `/.well-known/oauth-protected-resource/mcp`, with one document per mount below it (`/.well-known/oauth-protected-resource/mcp/<segment>`).
 
 Connect a client with the URL instead of a command. Claude Code:
 

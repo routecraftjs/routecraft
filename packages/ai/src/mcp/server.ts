@@ -37,7 +37,7 @@ import type {
   ValidatorAuthOptions,
 } from "@routecraft/routecraft";
 import { McpHeadersKeys } from "./types.ts";
-import type { McpToolProvenance } from "../errors.ts";
+import type { McpToolMount, McpToolProvenance } from "../errors.ts";
 import type { McpService } from "./port.ts";
 import type {
   McpIcon,
@@ -47,7 +47,11 @@ import type {
 } from "./types.ts";
 import { refuseBearer } from "../mount/bearer.ts";
 import { normalizeMcpPath } from "./validate-options.ts";
-import { resolveProxiedEntries, type McpProxiedEntry } from "./proxy.ts";
+import {
+  resolveClientEntries,
+  resolveProxiedEntries,
+  type McpProxiedEntry,
+} from "./proxy.ts";
 import {
   buildCorsHeaders,
   PROTECTED_RESOURCE_METADATA_PATH,
@@ -210,6 +214,30 @@ export interface McpServerHost {
 }
 
 /**
+ * One path the server answers at, and the slice of tools it lists there.
+ * The root lists everything under the prefixed names; a client mount lists
+ * that client's proxied tools under their remote names; the own mount,
+ * named after the server, lists the application's own tools, every local
+ * route and every exact proxy route, under their exposed names.
+ */
+export type McpMount =
+  | { readonly kind: "root"; readonly segment: "" }
+  | {
+      readonly kind: "client";
+      readonly segment: string;
+      readonly serverId: string;
+    }
+  | { readonly kind: "own"; readonly segment: string };
+
+const ROOT_MOUNT: McpMount = { kind: "root", segment: "" };
+
+/** What may name a mount, since it becomes one path segment. */
+const MOUNT_SEGMENT_PATTERN = /^[A-Za-z0-9_.-]+$/;
+
+/** Where a tool call arrived, as its events carry it: nothing for the root. */
+type McpToolStamp = McpToolProvenance & McpToolMount;
+
+/**
  * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel
  * infrastructure. It reads the MCP route registry lazily (on first `tools/list`
  * request) to ensure routes have subscribed.
@@ -227,7 +255,8 @@ export class McpServer {
   private readonly service: McpService;
   private context: PortLookup;
   private options: McpServerResolvedOptions;
-  private mcpHandler: McpHttpHandler | null = null;
+  /** One SDK handler per mount: a handler owns the sessions it opens, and a session lists its mount's slice. */
+  private readonly mcpHandlers = new Map<string, McpHttpHandler>();
   private unmountHttp: (() => void) | null = null;
   /** Handle for the stdio transport, used to await shutdown. `null` on HTTP. */
   private stdioHandle: StdioServerHandle | null = null;
@@ -277,6 +306,12 @@ export class McpServer {
 
   /** The exposed tool names last advertised, to tell a change from a refresh. */
   private advertisedNames: string | undefined;
+
+  /** The client mounts' entries, by client, cleared with the proxy resolution. */
+  private readonly clientResolved = new Map<
+    string,
+    Map<string, McpProxiedEntry>
+  >();
 
   /** Unsubscribes from the client listing events `start` observed. */
   private readonly stopObservingClients: Array<() => void> = [];
@@ -470,6 +505,9 @@ export class McpServer {
 
     try {
       const transport = this.options.transport;
+      // Both transports refuse a name clash at start; a client the server's
+      // name shadows would otherwise surface only on the first listing.
+      this.mounts();
 
       if (transport !== "http") {
         await this.startStdio();
@@ -519,7 +557,6 @@ export class McpServer {
     // constructed directly, and an unvalidated path would mount claims the
     // dispatcher can never match.
     const path = normalizeMcpPath(this.options.path);
-    const metadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${path}`;
     const ingress = requireWebIngress(this.context, this.options.server);
     const mountAuth =
       this.options.auth === undefined ||
@@ -528,26 +565,46 @@ export class McpServer {
         ? this.options.auth
         : { ...this.options.auth, validator: verifier };
     this.acceptsCredentials = ingress.resolveMountAuth(mountAuth).configured;
-    this.mcpHandler = createMcpHandler(
-      (requestContext) =>
-        this.createServerInstance(
-          this.authInfoToPrincipal(requestContext.authInfo),
+    const served = this.mounts().map((mount) => {
+      const mountPath = this.mountPath(path, mount);
+      return {
+        mount,
+        path: mountPath,
+        metadataPath: `${PROTECTED_RESOURCE_METADATA_PATH}${mountPath}`,
+      };
+    });
+    for (const { mount } of served) {
+      this.mcpHandlers.set(
+        mount.segment,
+        createMcpHandler(
+          (requestContext) =>
+            this.createServerInstance(
+              this.authInfoToPrincipal(requestContext.authInfo),
+              mount,
+            ),
+          {
+            onerror: (error: Error) => {
+              this.host.logger.error({ err: error }, "MCP handler error");
+            },
+          },
         ),
-      {
-        onerror: (error: Error) => {
-          this.host.logger.error({ err: error }, "MCP handler error");
+      );
+    }
+    const claims: PathClaim[] = served.flatMap(
+      ({ path: mountPath, metadataPath }): PathClaim[] => [
+        {
+          kind: "exact",
+          path: mountPath,
+          methods: ["GET", "POST", "DELETE", "OPTIONS"],
         },
-      },
+        {
+          kind: "exact",
+          path: `${mountPath}/`,
+          methods: ["GET", "POST", "DELETE", "OPTIONS"],
+        },
+        { kind: "exact", path: metadataPath, methods: ["GET", "OPTIONS"] },
+      ],
     );
-    const claims: PathClaim[] = [
-      { kind: "exact", path, methods: ["GET", "POST", "DELETE", "OPTIONS"] },
-      {
-        kind: "exact",
-        path: `${path}/`,
-        methods: ["GET", "POST", "DELETE", "OPTIONS"],
-      },
-      { kind: "exact", path: metadataPath, methods: ["GET", "OPTIONS"] },
-    ];
     this.unmountHttp = ingress.mountHttp({
       id: "mcp",
       requestValidation: {
@@ -581,10 +638,14 @@ export class McpServer {
           );
         }
 
-        const owned =
-          pathname === path ||
-          pathname === `${path}/` ||
-          pathname === metadataPath;
+        const endpoint = served.find(
+          (candidate) =>
+            pathname === candidate.path || pathname === `${candidate.path}/`,
+        );
+        const discovery = served.find(
+          (candidate) => pathname === candidate.metadataPath,
+        );
+        const owned = endpoint !== undefined || discovery !== undefined;
         if (request.method === "OPTIONS" && cors !== null && owned) {
           return new Response(null, {
             status: 204,
@@ -596,15 +657,15 @@ export class McpServer {
         // any credential handling so a client with a stale or malformed
         // token can still learn where to re-authenticate. Never call
         // `authenticate()` on this path.
-        if (pathname === metadataPath) {
+        if (discovery !== undefined) {
           return this.serveMetadataDocument(
             ingress,
-            path,
+            discovery.path,
             mountContext.authPolicy?.issuer,
             corsHeaders,
           );
         }
-        if (pathname !== path && pathname !== `${path}/`) {
+        if (endpoint === undefined) {
           return Response.json(
             { error: "Not Found", path: pathname },
             { status: 404, headers: corsHeaders },
@@ -616,19 +677,21 @@ export class McpServer {
           auth,
           mountContext.auth,
           ingress,
-          path,
+          endpoint.path,
           corsHeaders,
         );
         if (refusal) return refusal;
 
         const principal = auth?.kind === "admit" ? auth.principal : undefined;
         const token = auth?.kind === "admit" ? auth.credential : undefined;
-        const response = await this.mcpHandler!.fetch(
-          request,
-          principal !== undefined && token !== undefined
-            ? { authInfo: this.principalToAuthInfo(principal, token) }
-            : {},
-        );
+        const response = await this.mcpHandlers
+          .get(endpoint.mount.segment)!
+          .fetch(
+            request,
+            principal !== undefined && token !== undefined
+              ? { authInfo: this.principalToAuthInfo(principal, token) }
+              : {},
+          );
         const headers = new Headers(response.headers);
         for (const [name, value] of Object.entries(corsHeaders)) {
           // Vary must merge with any value the SDK already set, or a shared
@@ -717,9 +780,22 @@ export class McpServer {
     return null;
   }
 
+  /**
+   * The public URL of the resource served at `path`, one of the mount paths.
+   * A configured `resource.url` names the root; a mount below it is that URL
+   * with the mount's segment appended, so each mount's metadata document
+   * identifies the resource the client actually addressed.
+   */
   private resourceUrlFor(ingress: WebIngress, path: string): string {
     const explicit = this.options.resource?.url;
-    if (explicit !== undefined) return explicit.toString();
+    if (explicit !== undefined) {
+      const root = normalizeMcpPath(this.options.path);
+      const suffix = path.startsWith(root) ? path.slice(root.length) : "";
+      if (suffix === "") return explicit.toString();
+      const url = new URL(explicit.toString());
+      url.pathname = `${url.pathname.replace(/\/+$/, "")}${suffix}`;
+      return url.toString();
+    }
     const bound = ingress.boundAddress;
     if (bound === undefined) {
       throw new TypeError("mcpPlugin: named server has not bound yet");
@@ -762,7 +838,7 @@ export class McpServer {
     const { serveStdio } = await loadMcpServerStdioSdk("mcp (stdio)");
     await this.prepareServerFactory();
     this.stdioHandle = serveStdio(() => {
-      const instance = this.createServerInstance(undefined);
+      const instance = this.createServerInstance(undefined, ROOT_MOUNT);
       this.stdioServers.add(instance);
       // A closed connection is not told anything; the set holds only
       // connections a notification can still reach.
@@ -855,7 +931,10 @@ export class McpServer {
    * `handleToolCall` stays era-blind and hands back the advertisement its
    * result was produced under.
    */
-  private createServerInstance(principal: Principal | undefined): SdkServer {
+  private createServerInstance(
+    principal: Principal | undefined,
+    mount: McpMount,
+  ): SdkServer {
     if (
       !this.sdkServerCtor ||
       !this.resourceNotFound ||
@@ -876,8 +955,8 @@ export class McpServer {
     // required field on either result is a compile error rather than a
     // protocol error at a client.
     server.setRequestHandler("tools/list", () => {
-      const tools = this.getAvailableTools();
-      this.logExposedToolsOnce();
+      const tools = this.toolsFor(mount);
+      if (mount.kind === "root") this.logExposedToolsOnce();
       return { tools: tools as unknown as ListToolsResult["tools"] };
     });
 
@@ -886,6 +965,7 @@ export class McpServer {
         request.params.name,
         request.params.arguments ?? {},
         principal,
+        mount,
       );
       return server.projectCallToolResult(
         {
@@ -896,8 +976,12 @@ export class McpServer {
       );
     });
 
+    // A view belongs to a tool a route defines, so a client mount, which
+    // lists only proxied tools, has none to serve.
+    const viewEntries = (): McpLocalToolEntry[] =>
+      mount.kind === "client" ? [] : this.getExposedLocalEntries();
     server.setRequestHandler("resources/list", () => ({
-      resources: this.getExposedLocalEntries()
+      resources: viewEntries()
         .filter((entry) => entry.ui !== undefined)
         .map((entry) => ({
           uri: uiResourceUri(this.options.name, entry.endpoint),
@@ -913,7 +997,7 @@ export class McpServer {
 
     const notFound = this.resourceNotFound;
     server.setRequestHandler("resources/read", (request) =>
-      this.readUiResource(request.params.uri, notFound),
+      this.readUiResource(request.params.uri, viewEntries(), notFound),
     );
 
     return server;
@@ -930,9 +1014,10 @@ export class McpServer {
    */
   private async readUiResource(
     uri: string,
+    entries: McpLocalToolEntry[],
     notFound: typeof ResourceNotFoundError,
   ): Promise<ReadResourceResult> {
-    const entry = this.getExposedLocalEntries().find(
+    const entry = entries.find(
       (candidate) =>
         candidate.ui !== undefined &&
         uiResourceUri(this.options.name, candidate.endpoint) === uri,
@@ -1109,7 +1194,7 @@ export class McpServer {
     this.stopListeningForServer();
     for (const stop of this.stopObservingClients.splice(0)) stop();
     this.stdioServers.clear();
-    if (!this.running && !this.unmountHttp && this.mcpHandler === null) {
+    if (!this.running && !this.unmountHttp && this.mcpHandlers.size === 0) {
       return;
     }
 
@@ -1120,18 +1205,17 @@ export class McpServer {
     } finally {
       this.unmountHttp = null;
     }
-    if (this.mcpHandler !== null) {
+    for (const [segment, handler] of this.mcpHandlers) {
       try {
-        await this.mcpHandler.close();
+        await handler.close();
       } catch (error) {
         this.host.logger.error(
-          { err: error },
+          { err: error, mount: segment },
           "Failed to close mounted MCP handler",
         );
-      } finally {
-        this.mcpHandler = null;
       }
     }
+    this.mcpHandlers.clear();
 
     try {
       if (this.stdioHandle) {
@@ -1178,8 +1262,95 @@ export class McpServer {
    * `tools` filter. Reads the MCP local tool registry lazily so routes have
    * time to subscribe before the first `tools/list` request.
    */
-  getAvailableTools(): McpTool[] {
-    return this.getExposedEntries().map((entry) => this.entryToMcpTool(entry));
+  getAvailableTools(mount = ""): McpTool[] {
+    const found = this.mounts().find(
+      (candidate) => candidate.segment === mount,
+    );
+    if (found === undefined) {
+      throw new TypeError(`mcp: no mount named "${mount}"`);
+    }
+    return this.toolsFor(found);
+  }
+
+  /**
+   * The mounts this server answers at: the root, the own mount named after
+   * the server, and one per registered client. Each configured client gets
+   * its mount whether or not a route proxies it yet, so the set is fixed
+   * when the HTTP claims are made and a route starting later is served.
+   */
+  private mounts(): McpMount[] {
+    const own = this.options.name;
+    const mounts: McpMount[] = [ROOT_MOUNT, { kind: "own", segment: own }];
+    for (const serverId of this.service.clients.keys()) {
+      if (serverId === own) {
+        throw new TypeError(
+          `mcpPlugin: client "${serverId}" carries the server's own name, so both would mount at the same path. Rename the client, or give the server another name.`,
+        );
+      }
+      mounts.push({ kind: "client", segment: serverId, serverId });
+    }
+    for (const mount of mounts) {
+      if (mount.kind !== "root" && !MOUNT_SEGMENT_PATTERN.test(mount.segment)) {
+        throw new TypeError(
+          `mcpPlugin: "${mount.segment}" cannot name a mount: a server name or a client id becomes one path segment and must match ${MOUNT_SEGMENT_PATTERN}.`,
+        );
+      }
+    }
+    return mounts;
+  }
+
+  private mountPath(root: string, mount: McpMount): string {
+    return mount.kind === "root" ? root : `${root}/${mount.segment}`;
+  }
+
+  private toolsFor(mount: McpMount): McpTool[] {
+    return this.entriesFor(mount).map((entry) => this.entryToMcpTool(entry));
+  }
+
+  /**
+   * The entries a mount lists. The root is every entry under the prefixed
+   * names with the local-route precedence; a client mount is that client's
+   * proxied tools under their remote names; the own mount is the local
+   * entries plus the exact proxy routes under their exposed names, the
+   * tools the application named itself.
+   */
+  private entriesFor(mount: McpMount): McpLocalToolEntry[] {
+    switch (mount.kind) {
+      case "root":
+        return this.getExposedEntries();
+      case "client":
+        return [...this.clientEntries(mount.serverId).values()]
+          .map((proxied) => proxied.entry)
+          .filter((entry) => this.passesToolsFilter(entry));
+      case "own": {
+        const entries = this.getExposedLocalEntries();
+        for (const proxied of this.resolveProxied().values()) {
+          if (proxied.registration.tool === "*") continue;
+          if (this.servedLocalEntry(proxied.entry.endpoint) !== undefined) {
+            continue;
+          }
+          if (this.passesToolsFilter(proxied.entry)) {
+            entries.push(proxied.entry);
+          }
+        }
+        return entries;
+      }
+    }
+  }
+
+  /** A client mount's entries, resolved once per registry and registration version. */
+  private clientEntries(serverId: string): Map<string, McpProxiedEntry> {
+    this.resolveProxied();
+    let entries = this.clientResolved.get(serverId);
+    if (entries === undefined) {
+      entries = resolveClientEntries(
+        this.service,
+        serverId,
+        (key, message, bindings) => this.warnProxyOnce(key, message, bindings),
+      );
+      this.clientResolved.set(serverId, entries);
+    }
+    return entries;
   }
 
   /**
@@ -1250,11 +1421,20 @@ export class McpServer {
    */
   private lookupTool(
     toolName: string,
+    mount: McpMount,
   ): { entry: McpLocalToolEntry; proxied?: McpProxiedEntry } | undefined {
+    if (mount.kind === "client") {
+      const proxied = this.clientEntries(mount.serverId).get(toolName);
+      if (!proxied || !this.passesToolsFilter(proxied.entry)) return undefined;
+      return { entry: proxied.entry, proxied };
+    }
     const local = this.servedLocalEntry(toolName);
     if (local) return { entry: local };
     const proxied = this.resolveProxied().get(toolName);
     if (!proxied || !this.passesToolsFilter(proxied.entry)) return undefined;
+    if (mount.kind === "own" && proxied.registration.tool === "*") {
+      return undefined;
+    }
     return { entry: proxied.entry, proxied };
   }
 
@@ -1272,6 +1452,7 @@ export class McpServer {
     const version = `${this.service.tools.version}:${this.service.proxiesVersion}`;
     if (version === this.proxyResolvedVersion) return this.proxyResolved;
     this.proxyWarnings.clear();
+    this.clientResolved.clear();
     this.proxyResolved = resolveProxiedEntries(
       this.service,
       (key, message, bindings) => this.warnProxyOnce(key, message, bindings),
@@ -1411,7 +1592,7 @@ export class McpServer {
   private declineToolCall(
     toolName: string,
     error: Error,
-    provenance: McpToolProvenance,
+    provenance: McpToolStamp,
   ): McpToolCallResult {
     const message = toolErrorLogMessage(error);
     this.host.logger.warn({ tool: toolName, err: error }, message);
@@ -1433,9 +1614,12 @@ export class McpServer {
     toolName: string,
     args: Record<string, unknown>,
     principal: Principal | undefined,
+    mount: McpMount = ROOT_MOUNT,
   ): Promise<McpToolCallResult> {
     let admitted: Principal | undefined;
-    let provenance: McpToolProvenance = {};
+    const where: McpToolMount =
+      mount.kind === "root" ? {} : { mount: mount.segment };
+    let provenance: McpToolStamp = { ...where };
     // The route that ran: the tool's own for a local tool, the proxy route
     // for a proxied one. What a refusal is classified against.
     let routeId = toolName;
@@ -1447,10 +1631,11 @@ export class McpServer {
       // record.
       const body = normalizeToolArgs(args);
 
-      const found = this.lookupTool(toolName);
+      const found = this.lookupTool(toolName, mount);
       if (!found) {
         const err = new Error(`Tool not found: ${toolName}`);
         this.host.emit(`plugin:mcp:tool:failed`, {
+          ...where,
           tool: toolName,
           error: err.message,
         });
@@ -1462,6 +1647,7 @@ export class McpServer {
       if (found.proxied) {
         routeId = found.proxied.registration.routeId;
         provenance = {
+          ...where,
           proxied: true,
           serverId: found.proxied.registration.serverId,
           remoteTool: found.proxied.remote.name,

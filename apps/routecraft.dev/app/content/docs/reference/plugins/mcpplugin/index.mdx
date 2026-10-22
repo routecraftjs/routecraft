@@ -55,7 +55,7 @@ export const craftConfig: CraftConfig = {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `name` | `string` | `'routecraft'` | Server name exposed in MCP metadata (`serverInfo.name`) |
+| `name` | `string` | `'routecraft'` | Server name exposed in MCP metadata (`serverInfo.name`); over HTTP also the segment of the [mount](#mounts) that serves the application's own tools |
 | `title` | `string` | -- | Human-readable display title (`serverInfo.title`) |
 | `version` | `string` | `'1.0.0'` | Server version |
 | `description` | `string` | `'Powered by Routecraft.dev'` | `serverInfo.description`; pass `''` to omit |
@@ -64,12 +64,12 @@ export const craftConfig: CraftConfig = {
 | `icons` | `McpIcon[]` | Routecraft logo | `serverInfo.icons`, inherited by tools that set none of their own; pass `[]` to omit. See [Server identity and branding](#server-identity-and-branding). |
 | `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
 | `server` | `string` | `'default'` | Named entry under `defineConfig({ servers })` to mount the HTTP transport on (http transport only) |
-| `path` | `string` | `'/mcp'` | HTTP path for the MCP endpoint on the shared listener (http transport only) |
+| `path` | `string` | `'/mcp'` | HTTP path for the MCP endpoint on the shared listener (http transport only); the [mounts](#mounts) sit one segment below it |
 | `auth` | `McpHttpAuthOptions \| false` | inherits `servers.<name>.auth` | Auth for the HTTP endpoint (http transport only; see below). `false` removes the wall while keeping the inherited validator reachable. |
 | `cors` | `McpCorsOptions \| false` | loopback-only | Response-header policy and additional Origin refusal. `false` delegates CORS handling to the proxy; Host and browser-admission checks remain enforced. |
 | `browserOrigins` | `readonly string[]` | `[]` | Exact HTTP(S) origins allowed to send requests, including port. Required for local browser tools too; independent of CORS. Ignored for MCP stdio. |
 | `resource` | `McpResourceOptions` (`{ url?: string \| URL; scopesSupported?: string[]; documentationUrl?: string \| URL }`) | -- | RFC 9728 protected-resource metadata (http transport only). `url` is the public URL clients reach, which a proxy hides from the bind address, so outside `NODE_ENV=development` or `test` it is required and must be HTTPS; the server refuses to start with `RC5003` otherwise. `scopesSupported` and `documentationUrl` fill `scopes_supported` and `resource_documentation`. |
-| `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of local route tool names to expose, or a filter function. Applies to `tools/list` and `tools/call`, and to `resources/list` and `resources/read` for [MCP Apps views](/docs/reference/adapters/mcp#mcp-apps-views). |
+| `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of local route tool names to expose, or a filter function. Applies to `tools/list` and `tools/call` on every [mount](#mounts), and to `resources/list` and `resources/read` for [MCP Apps views](/docs/reference/adapters/mcp#mcp-apps-views). |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
 | `restartDelay` | `Duration` | `1000` | Initial delay before the first restart attempt |
@@ -304,6 +304,20 @@ auth: oauth({
 
 ## Proxying client tools
 
-A client's tools are re-exposed through this server by a route, not by a plugin option: `.from(mcp({ proxy: 'server:*' }))` for every tool of a registered client, `.from(mcp({ proxy: 'server:tool' }))` for one, with `.to(mcp('server:*'))` as the hop and the route's chain and steps as the policy. The tools the client lists appear as `<client>_<tool>` by default (`prefix` changes that, `name` on an exact route renames its one tool), follow the client's tool refresh and stdio restarts, and are served exactly as a `.from(mcp())` route's tool is: same `tools` filter, same decline and failure mapping, same events with `proxied: true` and the client and remote tool named. The [mcp adapter reference](/docs/reference/adapters/mcp#proxying-a-remote-server) has the options, the headers a proxied exchange carries, the naming rules and the migration from a hand-written wrapping route.
+A client's tools are re-exposed through this server by a route, not by a plugin option: `.from(mcp({ proxy: 'server:*' }))` for every tool of a registered client, `.from(mcp({ proxy: 'server:tool' }))` for one, with `.to(mcp('server:*'))` as the hop and the route's chain and steps as the policy. The tools the client lists appear as `<client>_<tool>` by default (`prefix` changes that, `name` on an exact route renames its one tool), follow the client's tool refresh and stdio restarts, and are served exactly as a `.from(mcp())` route's tool is: same `tools` filter, same decline and failure mapping, same events with `proxied: true` and the client and remote tool named. Over HTTP the same tools are also served under the client's own URL by their remote names; see [Mounts](#mounts). The [mcp adapter reference](/docs/reference/adapters/mcp#proxying-a-remote-server) has the options, the headers a proxied exchange carries, the naming rules and the migration from a hand-written wrapping route.
+
+## Mounts
+
+Over HTTP the server answers at `path` and at one segment below it per name it knows, so a client connects to the slice it needs instead of filtering the whole catalogue. Nothing configures this: the segments are the plugin's `name` and the keys of `clients`.
+
+| URL | Serves | Tool names |
+|-----|--------|------------|
+| `/mcp` | Everything: every local route's tool and every proxied tool | As exposed: the local names, and `<client>_<tool>` for a proxied tool unless `prefix` or `name` changed it |
+| `/mcp/<client>` | The tools a route proxies from that registered client | The remote's own names, unprefixed; an exact route wins over a star route for its tool |
+| `/mcp/<name>` | The application's own tools: every local `.from(mcp())` route and every exact proxy route | As exposed, so an exact proxy route's `name` |
+
+`<name>` is the `name` option: `mcpPlugin({ name: 'eywa' })` serves its own tools at `/mcp/eywa`. A client id equal to the server name is refused at start, since both would mount at one path, and so is a name or client id that is not one path segment (`[A-Za-z0-9_.-]+`). Every registered client has its mount whether or not a route proxies it yet, so a route that starts later is served without a restart; until then the mount lists no tools. A path below `path` that is no mount is a 404.
+
+The mounts share `auth`, `cors`, `browserOrigins` and the `tools` filter. Each has its own RFC 9728 document at `/.well-known/oauth-protected-resource/mcp/<segment>`, whose `resource` is `resource.url` with the segment appended, so a client that discovers through the mount it connected to is told that mount's identity. [MCP Apps views](/docs/reference/adapters/mcp#mcp-apps-views) belong to local tools and are served on the root and on `/mcp/<name>`, not on a client mount. The stdio transport has one surface, the root. A tool-call event for a call that arrived below the root carries the segment as `mount` ([events](/docs/reference/events#mcp-server-events)), since on a client mount `tool` is the remote's bare name and says nothing about which server was called.
 
 See [Expose to an agent](/docs/introduction/expose-to-an-agent), [Calling an MCP](/docs/advanced/call-an-mcp), and [Securing capabilities](/docs/advanced/securing-capabilities) for usage guides.

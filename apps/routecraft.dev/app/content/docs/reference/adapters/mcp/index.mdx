@@ -196,6 +196,8 @@ const readOnlyTool = (ex: Exchange) =>
 
 **Names.** A proxied tool is exposed as `<client>_<tool>` (`github_create_issue`; a Claude client sees `mcp__<server>__github_create_issue`). The prefix is what keeps the tool list stable: a remote adding a tool collides with another server's only where the joined names coincide (`foo` with `bar_baz` and `foo_bar` with `baz` both read `foo_bar_baz`), which distinct prefixes rule out. `prefix: ''` on a star route exposes the remote names bare and accepts the collisions that come with it; `name` on an exact route renames the one tool. Two routes that would expose the same name keep the first (in registration order) and warn; a local `.from(mcp())` route keeps a name over a proxied tool and warns. An exposed name must still match `[A-Za-z0-9_-]{1,64}`, so a remote tool whose prefixed name does not conform is skipped with a warning until a `prefix` or `name` makes it conform.
 
+**Mounts.** Over HTTP the proxied tools are also served under the client's own URL, `/mcp/<client>`, by their remote names with no prefix: the mount already names the client, so there is nothing for a prefix to keep apart. An exact route's tool is there under the remote name too, and under its exposed `name` at `/mcp/<server name>`, the mount for the tools the application named itself, beside the local `.from(mcp())` routes. The root, `/mcp`, is unchanged. The [mcpPlugin reference](/docs/reference/plugins/mcpplugin#mounts) has the table and the rules.
+
 **Rules.**
 
 - An exact route wins over a star route for the tool it names. Two exact routes for one tool, or two star routes for one client, are refused at start (`RC5003`).
