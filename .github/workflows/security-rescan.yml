@@ -103,21 +103,21 @@ jobs:
       # A category per target, so a clean scan of one never closes another's alerts.
       - name: Upload the starter image findings to code scanning
         if: always() && steps.scan.outputs.sarif-starter-image == 'true'
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           sarif_file: ${{ runner.temp }}/sarif/starter-image.sarif
           category: trivy-rescan-starter-image
 
       - name: Upload the adapter dependency findings to code scanning
         if: always() && steps.scan.outputs.sarif-adapters == 'true'
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           sarif_file: ${{ runner.temp }}/sarif/adapters.sarif
           category: trivy-rescan-adapters
 
       - name: Upload the site image findings to code scanning
         if: always() && steps.scan.outputs.sarif-site-image == 'true'
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           sarif_file: ${{ runner.temp }}/sarif/site-image.sarif
           category: trivy-rescan-site-image
