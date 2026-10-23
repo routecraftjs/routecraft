@@ -548,7 +548,7 @@ export function buildSearchCriteriaSets(
 export function toMailMessage(
   msg: {
     uid: number;
-    flags: Set<string>;
+    flags: ReadonlySet<string> | readonly string[];
     envelope: {
       messageId?: string;
       from?: Array<{ address?: string; name?: string }>;
@@ -602,7 +602,7 @@ export function toMailMessage(
     bcc: bccAddrs
       .map((a) => a.address)
       .filter((a): a is string => a !== undefined),
-    flags: msg.flags,
+    flags: [...msg.flags],
     folder,
   };
 
@@ -808,7 +808,7 @@ export async function fetchMessages(
         const mailMessage = toMailMessage(
           {
             uid: msg.uid,
-            flags: msg.flags ?? new Set(),
+            flags: msg.flags ?? [],
             envelope: msg.envelope ?? {},
           },
           folder,

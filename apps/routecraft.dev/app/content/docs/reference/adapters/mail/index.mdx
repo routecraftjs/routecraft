@@ -241,7 +241,7 @@ In source mode (`.from(mail(...))`) the exchange **body** is just the parsed mes
 |-------|------|-------------|
 | `text` | `string?` | Plain text body, when the message included a `text/plain` part. |
 | `html` | `string?` | HTML body, when the message included a `text/html` part. |
-| `attachments` | `MailAttachment[]?` | File attachments. Attachments are message content (not envelope), so they stay on the body alongside `text`/`html`, mirroring how the HTTP source keeps multipart files on the body. |
+| `attachments` | `MailAttachment[]?` | File attachments. Attachments are message content (not envelope), so they stay on the body alongside `text`/`html`, mirroring how the HTTP source keeps multipart files on the body. Each `content` is a `Buffer`, which the deferral store refuses (`RC5042`), so a route that defers drops or transforms the attachments before `.defer()`. |
 
 **Source headers (`routecraft.mail.*`):** \{#source-headers}
 
@@ -259,7 +259,7 @@ In source mode the envelope is attached to `exchange.headers` under the `routecr
 | `routecraft.mail.subject` | `string` | Subject line |
 | `routecraft.mail.date` | `Date` | Date sent |
 | `routecraft.mail.replyTo` | `string?` | Reply-to address |
-| `routecraft.mail.flags` | `ReadonlySet<string>` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
+| `routecraft.mail.flags` | `readonly string[]` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
 | `routecraft.mail.sender` | `MailSender?` | Computed effective sender and forward chain (see below). Absent when `verify: 'off'`. |
 | `routecraft.mail.rawHeaders` | `Record<string, string \| string[]>?` | Raw email headers (when `includeHeaders` is set) |
 
@@ -281,7 +281,7 @@ In the fetch role (`.enrich(mail(...))`) the fetched `MailMessage[]` replaces th
 | `replyTo` | `string?` | Reply-to address |
 | `attachments` | `MailAttachment[]?` | File attachments |
 | `rawHeaders` | `Record<string, string \| string[]>?` | Raw email headers (when `includeHeaders` is set) |
-| `flags` | `Set<string>` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
+| `flags` | `string[]` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
 | `folder` | `string` | The IMAP folder this message was fetched from |
 | `sender` | `MailSender?` | Computed effective sender and forward chain (see below). Omitted when `verify: 'off'`. |
 
