@@ -250,11 +250,12 @@ export async function replaceDeferredThread(
   // in place (a splice is the obvious way to drop old turns) must not be
   // fingerprinted after its own edit.
   const expected = stepStateFingerprint(record.stepState);
-  // A copy, because the rewrite is allowed to edit in place and a custom
-  // store may have handed back its own record rather than a detached one.
-  // Without this, a rewrite that then fails validation, or loses the swap,
-  // would still have corrupted the deferred thread.
-  const messages = await rewrite(structuredClone(state.messages));
+  // No copy here: the revival above already builds a detached thread, so a
+  // rewrite that edits in place and then fails validation, or loses the
+  // swap, touches nothing the store holds. A structuredClone would also
+  // turn a revived Buffer into a plain Uint8Array, so a file part would
+  // change kind on the write back.
+  const messages = await rewrite(state.messages);
   assertResumableThread(messages, state.deferredToolCallId);
 
   return store.replaceStepState(deferralId, expected, { ...state, messages });

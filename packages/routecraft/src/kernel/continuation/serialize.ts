@@ -91,10 +91,6 @@ const RESERVED_TAGS: ReadonlySet<string> = new Set([
   BYTES_TAG,
 ]);
 
-/** Standard base64 with padding, the form `Buffer.toString("base64")` writes. */
-const BASE64 =
-  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-
 /**
  * Convert a live exchange into its persistable form.
  *
@@ -453,15 +449,21 @@ function isArrayIndex(key: string, length: number): boolean {
  * `Buffer.from(text, "base64")` skips characters it does not understand
  * rather than failing, so a corrupted or hand-edited row would otherwise
  * revive as shorter bytes with no error, which is the silent outcome the
- * encode walk exists to prevent.
+ * encode walk exists to prevent. Checked by re-encoding the bytes and
+ * comparing, which is linear and a few milliseconds per 10 MB, rather than
+ * by a regular expression: a repeated group over a megabyte-scale string
+ * overflows the regex stack on Node and answers false on Bun, so the
+ * attachments this envelope exists for would never have revived.
  *
  * @internal
  */
 function reviveBytes(encoded: unknown, what: string): Buffer {
-  if (typeof encoded !== "string" || !BASE64.test(encoded)) {
+  if (typeof encoded !== "string" || encoded.length % 4 !== 0) {
     throw unrevivable(what);
   }
-  return Buffer.from(encoded, "base64");
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.toString("base64") !== encoded) throw unrevivable(what);
+  return bytes;
 }
 
 /**

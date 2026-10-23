@@ -408,18 +408,26 @@ describe("deferral serialization refusals", () => {
   });
 
   /**
-   * @case A byte array is not scanned for string-keyed properties
+   * @case A large byte array round-trips without scanning its indices
    * @preconditions A 10 MB Buffer, and a small one with a string-keyed own
    *   property hung on it
    * @expectedResult The large one serializes in well under a second, which
-   *   an own-names scan (one string per byte) cannot do; the small one's
-   *   property is not carried, the recorded cost of skipping that scan
+   *   an own-names scan (one string per byte) cannot do, and revives byte
+   *   for byte; the small one's property is not carried, the recorded cost
+   *   of skipping that scan
    */
   test("serializes a large byte array without enumerating its indices", () => {
     const large = Buffer.alloc(10 * 1024 * 1024, 1);
     const started = performance.now();
-    serializeExchange(exchangeWith({ large }));
+    const stored = serializeExchange(exchangeWith({ large }));
     expect(performance.now() - started).toBeLessThan(1000);
+    // And back: a regex over the envelope overflowed Node's stack and
+    // answered false on Bun at this size, so the round trip is the test.
+    const back = (
+      deserializeExchange(context, stored).body as { large: Buffer }
+    ).large;
+    expect(back.byteLength).toBe(large.byteLength);
+    expect(back.equals(large)).toBe(true);
 
     const tagged = Buffer.from("x") as Buffer & { origin?: string };
     tagged.origin = "scan";
