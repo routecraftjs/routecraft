@@ -1648,7 +1648,7 @@ describe("Mail Adapter", () => {
             callCount++;
             yield {
               uid: 7,
-              flags: new Set(["\\Seen"]),
+              flags: new Set(["\\Flagged"]),
               envelope: {
                 messageId: "<split@test.com>",
                 from: [{ address: "sender@acme.test" }],
@@ -1726,13 +1726,13 @@ describe("Mail Adapter", () => {
       expect(headers["routecraft.mail.date"]).toEqual(
         new Date("2026-05-01T09:00:00Z"),
       );
-      expect(headers["routecraft.mail.flags"]).toEqual(["\\Seen"]);
+      expect(headers["routecraft.mail.flags"]).toEqual(["\\Flagged"]);
     });
 
     /**
      * @case A mail exchange defers and resumes with its flags intact
-     * @preconditions Source delivers one message flagged \Seen into a route that defers; a direct route resumes it with a token minted for the deferral
-     * @expectedResult The park succeeds (no RC5042), the resume is acknowledged, and the continuation receives the exchange with routecraft.mail.flags equal to ["\Seen"] and the message text on the body
+     * @preconditions Source delivers one unseen message flagged \Flagged into a route that defers; a direct route resumes it with a token minted for the deferral
+     * @expectedResult The park succeeds (no RC5042), the resume is acknowledged, and the continuation receives the exchange with routecraft.mail.flags equal to ["\Flagged"] and the message text on the body
      */
     test("defers and resumes a mail exchange", async () => {
       let callCount = 0;
@@ -1742,7 +1742,7 @@ describe("Mail Adapter", () => {
             callCount++;
             yield {
               uid: 8,
-              flags: new Set(["\\Seen"]),
+              flags: new Set(["\\Flagged"]),
               envelope: {
                 messageId: "<park@test.com>",
                 from: [{ address: "sender@acme.test" }],
@@ -1810,7 +1810,7 @@ describe("Mail Adapter", () => {
       expect(s.received).toHaveLength(1);
       const resumed = s.received[0];
       const headers = resumed.headers as Record<string, unknown>;
-      expect(headers["routecraft.mail.flags"]).toEqual(["\\Seen"]);
+      expect(headers["routecraft.mail.flags"]).toEqual(["\\Flagged"]);
       expect(headers["routecraft.mail.uid"]).toBe(8);
       expect((resumed.body as Record<string, unknown>)["text"]).toBe(
         "Hello world",
@@ -1830,7 +1830,7 @@ describe("Mail Adapter", () => {
             callCount++;
             yield {
               uid: 9,
-              flags: new Set(["\\Seen"]),
+              flags: new Set(["\\Flagged"]),
               envelope: {
                 messageId: "<attach@test.com>",
                 from: [{ address: "sender@acme.test" }],
