@@ -400,10 +400,12 @@ function decode(value: unknown): unknown {
       return revived;
     }
     if (tag === BUFFER_TAG) return reviveBytes(encoded, "buffer");
-    // Copied, not viewed: a short base64 decode lands in Node's shared
-    // Buffer pool, and a plain Uint8Array's `.buffer` would expose the
-    // neighbours (other envelopes of the same stored exchange).
-    if (tag === BYTES_TAG) return new Uint8Array(reviveBytes(encoded, "bytes"));
+    if (tag === BYTES_TAG) {
+      const bytes = reviveBytes(encoded, "bytes");
+      // A view, not a copy: `reviveBytes` already backs the bytes with their
+      // own ArrayBuffer, so the Uint8Array exposes nothing beyond them.
+      return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    }
   }
 
   // Same `__proto__` hazard as `encode`, but the revived value is handed
@@ -461,9 +463,12 @@ function reviveBytes(encoded: unknown, what: string): Buffer {
   if (typeof encoded !== "string" || encoded.length % 4 !== 0) {
     throw unrevivable(what);
   }
-  const bytes = Buffer.from(encoded, "base64");
-  if (bytes.toString("base64") !== encoded) throw unrevivable(what);
-  return bytes;
+  const decoded = Buffer.from(encoded, "base64");
+  if (decoded.toString("base64") !== encoded) throw unrevivable(what);
+  // Backed by its own ArrayBuffer: a short decode lands in Node's shared
+  // Buffer pool, where `.buffer` would expose the neighbours, which during a
+  // resume are the other envelopes of the same stored exchange.
+  return Buffer.from(new Uint8Array(decoded).buffer);
 }
 
 /**

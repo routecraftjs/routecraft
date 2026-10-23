@@ -221,6 +221,7 @@ export function assertResumableThread(
  *   it stands afterwards
  * @throws AI1007 when the stored step state is not an agent record
  * @throws AI1008 when the rewrite produced an unresumable thread
+ * @throws RC5042 when a stored envelope in the thread cannot be revived
  */
 export async function replaceDeferredThread(
   store: DeferralStore,

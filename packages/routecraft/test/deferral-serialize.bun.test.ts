@@ -119,6 +119,8 @@ describe("deferral serialization", () => {
       .attachment.content;
     expect(Buffer.isBuffer(content)).toBe(true);
     expect(content).toEqual(payload);
+    // Its own ArrayBuffer, not a window on Node's shared decode pool.
+    expect((content as Buffer).buffer.byteLength).toBe(payload.byteLength);
     expect(revived.headers["x-sig"]).toEqual(stamp);
   });
 
@@ -356,7 +358,7 @@ describe("deferral serialization refusals", () => {
   });
 
   /**
-   * @case A Buffer subclass is refused like any other class instance
+   * @case A byte array subclass is refused like any other class instance
    * @preconditions A body holding an instance of a class extending
    *   Uint8Array, with a method of its own
    * @expectedResult RC5042, because the envelope keeps the bytes only and
