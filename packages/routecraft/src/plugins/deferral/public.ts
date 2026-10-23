@@ -71,8 +71,10 @@ export {
 } from "../../kernel/continuation/door.ts";
 
 export {
+  BUFFER_TAG,
   BYTES_TAG,
   DATE_TAG,
+  decodePersistable,
   deserializeExchange,
   serializeExchange,
 } from "../../kernel/continuation/serialize.ts";

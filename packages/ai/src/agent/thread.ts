@@ -1,4 +1,5 @@
 import {
+  decodePersistable,
   rcError,
   resumable,
   stepStateFingerprint,
@@ -237,12 +238,17 @@ export async function replaceDeferredThread(
     return { won: false, deferral: record };
   }
 
-  const state = parseStepState(record.stepState);
-  // Taken before the rewrite runs. `parseStepState` hands back the object it
-  // was given, so a rewrite that edits the thread in place (a splice is the
-  // obvious way to drop old turns) would otherwise be fingerprinted after
-  // its own edit, and the compare would ask whether nothing had changed
-  // since it changed it.
+  // Revived first: the store hands back the persisted form, in which a
+  // Date or a file part's bytes sit inside the framework's envelope. The
+  // rewrite sees the thread as the agent ran it, and the store's own
+  // re-encode on the write back refuses an envelope it did not write, so
+  // handing the rewrite the raw form would make every such thread
+  // uncompactable.
+  const state = parseStepState(decodePersistable(record.stepState));
+  // Taken from the stored form, before the rewrite runs: that is what the
+  // store compares on the write back, and a rewrite that edits the thread
+  // in place (a splice is the obvious way to drop old turns) must not be
+  // fingerprinted after its own edit.
   const expected = stepStateFingerprint(record.stepState);
   // A copy, because the rewrite is allowed to edit in place and a custom
   // store may have handed back its own record rather than a detached one.

@@ -13,6 +13,7 @@ import { isRestored } from "../src/auth/restored.ts";
 // The serializer is engine machinery, not public API: it is reached through
 // the intra-package barrel the executor uses, not the package index.
 import {
+  BUFFER_TAG,
   BYTES_TAG,
   DATE_TAG,
   deserializeExchange,
@@ -110,7 +111,7 @@ describe("deferral serialization", () => {
     );
 
     expect(stored.body).toEqual({
-      attachment: { content: { [BYTES_TAG]: payload.toString("base64") } },
+      attachment: { content: { [BUFFER_TAG]: payload.toString("base64") } },
     });
 
     const revived = deserializeExchange(context, stored);
@@ -122,20 +123,22 @@ describe("deferral serialization", () => {
   });
 
   /**
-   * @case A plain Uint8Array goes in and a Buffer comes out
+   * @case A plain Uint8Array comes back a plain Uint8Array
    * @preconditions A body holding a Uint8Array, as an HTTP binary body is
-   * @expectedResult The revived value is a Buffer, which is still a
-   *   Uint8Array, holding the same bytes
+   * @expectedResult The stored form is the bytes envelope, distinct from the
+   *   Buffer one, and the revived value has Uint8Array's own prototype with
+   *   the same bytes: it stringifies, slices and JSON-renders as it did
+   *   before the defer
    */
-  test("revives a Uint8Array as a Buffer", () => {
+  test("revives a Uint8Array as a Uint8Array", () => {
     const bytes = new Uint8Array([7, 8, 9]);
-    const revived = deserializeExchange(
-      context,
-      serializeExchange(exchangeWith({ bytes })),
-    );
+    const stored = serializeExchange(exchangeWith({ bytes }));
+    expect(stored.body).toEqual({ bytes: { [BYTES_TAG]: "BwgJ" } });
+
+    const revived = deserializeExchange(context, stored);
     const out = (revived.body as { bytes: unknown }).bytes;
-    expect(Buffer.isBuffer(out)).toBe(true);
-    expect(out).toBeInstanceOf(Uint8Array);
+    expect(Object.getPrototypeOf(out)).toBe(Uint8Array.prototype);
+    expect(Buffer.isBuffer(out)).toBe(false);
     expect(Array.from(out as Uint8Array)).toEqual([7, 8, 9]);
   });
 
@@ -386,20 +389,46 @@ describe("deferral serialization refusals", () => {
   });
 
   /**
-   * @case A byte array carrying a named property is refused
-   * @preconditions A Buffer with an extra own property riding on it
-   * @expectedResult RC5042 naming the property, rather than deferring and
-   *   losing it
+   * @case A byte array carrying a symbol-keyed property is refused
+   * @preconditions A Buffer with a symbol-keyed own property riding on it
+   * @expectedResult RC5042 naming the symbol-keyed property, rather than
+   *   deferring and losing it
    */
-  test("refuses a byte array carrying extra properties", () => {
-    const bytes = Buffer.from("x") as Buffer & { origin?: string };
-    bytes.origin = "scan";
+  test("refuses a byte array carrying a symbol-keyed property", () => {
+    const bytes = Buffer.from("x") as Buffer & Record<symbol, unknown>;
+    bytes[Symbol("origin")] = "scan";
     expect(() => serializeExchange(exchangeWith({ bytes }))).toThrow(
       expect.objectContaining({
         rc: "RC5042",
-        message: expect.stringContaining('"origin"'),
+        message: expect.stringContaining("symbol-keyed"),
       }),
     );
+  });
+
+  /**
+   * @case A byte array is not scanned for string-keyed properties
+   * @preconditions A 10 MB Buffer, and a small one with a string-keyed own
+   *   property hung on it
+   * @expectedResult The large one serializes in well under a second, which
+   *   an own-names scan (one string per byte) cannot do; the small one's
+   *   property is not carried, the recorded cost of skipping that scan
+   */
+  test("serializes a large byte array without enumerating its indices", () => {
+    const large = Buffer.alloc(10 * 1024 * 1024, 1);
+    const started = performance.now();
+    serializeExchange(exchangeWith({ large }));
+    expect(performance.now() - started).toBeLessThan(1000);
+
+    const tagged = Buffer.from("x") as Buffer & { origin?: string };
+    tagged.origin = "scan";
+    const revived = deserializeExchange(
+      context,
+      serializeExchange(exchangeWith({ tagged })),
+    );
+    const out = (revived.body as { tagged: Buffer & { origin?: string } })
+      .tagged;
+    expect(out.toString()).toBe("x");
+    expect(out.origin).toBeUndefined();
   });
 
   /**
@@ -535,16 +564,18 @@ describe("deferral serialization hostile input", () => {
   });
 
   /**
-   * @case Body data cannot forge the bytes envelope
-   * @preconditions A body field shaped exactly like the internal bytes
-   *   envelope, which attacker-influenced JSON can be
-   * @expectedResult RC5042 at defer time, so a string never changes into a
-   *   Buffer on the way back
+   * @case Body data cannot forge either bytes envelope
+   * @preconditions A body field shaped exactly like the internal buffer or
+   *   bytes envelope, which attacker-influenced JSON can be
+   * @expectedResult RC5042 at defer time for each, so a string never changes
+   *   into bytes on the way back
    */
-  test("refuses a body that forges the bytes envelope", () => {
-    expect(() =>
-      serializeExchange(exchangeWith({ blob: { [BYTES_TAG]: "AAAA" } })),
-    ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+  test("refuses a body that forges a bytes envelope", () => {
+    for (const tag of [BUFFER_TAG, BYTES_TAG]) {
+      expect(() =>
+        serializeExchange(exchangeWith({ blob: { [tag]: "AAAA" } })),
+      ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    }
   });
 
   /**
@@ -554,12 +585,14 @@ describe("deferral serialization hostile input", () => {
    * @expectedResult RC5042 rather than truncated bytes handed to the route
    */
   test("refuses an unparseable stored bytes envelope", () => {
-    expect(() =>
-      deserializeExchange(context, {
-        body: { blob: { [BYTES_TAG]: "not base64!" } },
-        headers: { "routecraft.id": "ex-1" },
-      }),
-    ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    for (const tag of [BUFFER_TAG, BYTES_TAG]) {
+      expect(() =>
+        deserializeExchange(context, {
+          body: { blob: { [tag]: "not base64!" } },
+          headers: { "routecraft.id": "ex-1" },
+        }),
+      ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    }
   });
 
   /**

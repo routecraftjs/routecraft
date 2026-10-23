@@ -1730,24 +1730,28 @@ describe("Mail Adapter", () => {
     });
 
     /**
-     * @case A mail exchange defers and resumes with its flags intact
-     * @preconditions Source delivers one unseen message flagged \Flagged into a route that defers; a direct route resumes it with a token minted for the deferral
-     * @expectedResult The park succeeds (no RC5042), the resume is acknowledged, and the continuation receives the exchange with routecraft.mail.flags equal to ["\Flagged"] and the message text on the body
+     * Park one polled message behind `.defer()` and resume it through a
+     * direct route, the token minted through the port since a mail source
+     * has no reply channel. Returns the spy the continuation delivered to.
      */
-    test("defers and resumes a mail exchange", async () => {
+    async function parkAndResume(message: {
+      uid: number;
+      messageId: string;
+      subject: string;
+    }): Promise<ReturnType<typeof spy>> {
       let callCount = 0;
       mockFetch.mockImplementation(() => ({
         async *[Symbol.asyncIterator]() {
           if (callCount === 0) {
             callCount++;
             yield {
-              uid: 8,
+              uid: message.uid,
               flags: new Set(["\\Flagged"]),
               envelope: {
-                messageId: "<park@test.com>",
+                messageId: message.messageId,
                 from: [{ address: "sender@acme.test" }],
                 to: [{ address: "a@dest.test" }],
-                subject: "Park me",
+                subject: message.subject,
                 date: new Date("2026-05-01T09:00:00Z"),
               },
               source: Buffer.from("raw mime"),
@@ -1806,6 +1810,20 @@ describe("Mail Adapter", () => {
 
       await t.ctx.stop();
       await startPromise.catch(() => {});
+      return s;
+    }
+
+    /**
+     * @case A mail exchange defers and resumes with its flags intact
+     * @preconditions Source delivers one unseen message flagged \Flagged into a route that defers; a direct route resumes it with a token minted for the deferral
+     * @expectedResult The park succeeds (no RC5042), the resume is acknowledged, and the continuation receives the exchange with routecraft.mail.flags equal to ["\Flagged"] and the message text on the body
+     */
+    test("defers and resumes a mail exchange", async () => {
+      const s = await parkAndResume({
+        uid: 8,
+        messageId: "<park@test.com>",
+        subject: "Park me",
+      });
 
       expect(s.received).toHaveLength(1);
       const resumed = s.received[0];
@@ -1823,26 +1841,6 @@ describe("Mail Adapter", () => {
      * @expectedResult The park succeeds, and the continuation receives the attachment with the same filename, contentType, size and content bytes, the content still a Buffer
      */
     test("defers and resumes a mail exchange with an attachment", async () => {
-      let callCount = 0;
-      mockFetch.mockImplementation(() => ({
-        async *[Symbol.asyncIterator]() {
-          if (callCount === 0) {
-            callCount++;
-            yield {
-              uid: 9,
-              flags: new Set(["\\Flagged"]),
-              envelope: {
-                messageId: "<attach@test.com>",
-                from: [{ address: "sender@acme.test" }],
-                to: [{ address: "a@dest.test" }],
-                subject: "With attachment",
-                date: new Date("2026-05-01T09:00:00Z"),
-              },
-              source: Buffer.from("raw mime"),
-            };
-          }
-        },
-      }));
       const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
       (
         simpleParser as unknown as ReturnType<typeof mock>
@@ -1858,55 +1856,11 @@ describe("Mail Adapter", () => {
         ],
       });
 
-      const s = spy();
-      let deferralId: string | undefined;
-
-      t = await testContext()
-        .with({
-          ...deferring(),
-          mail: {
-            accounts: {
-              default: {
-                imap: {
-                  host: "imap.test.com",
-                  auth: { user: "u", pass: "p" },
-                },
-              },
-            },
-          },
-        })
-        .on("route:exchange:deferred", ({ details }) => {
-          deferralId = details.deferralId;
-        })
-        .routes([
-          craft()
-            .id("mail-attachment-approval")
-            .from(
-              mail("INBOX", {
-                markSeen: false,
-                unseen: true,
-                pollInterval: 5,
-                verify: "off",
-              }),
-            )
-            .defer()
-            .to(s),
-          craft().id("answers").from(direct()).resume(),
-        ])
-        .build();
-
-      const startPromise = t.ctx.start();
-      expect(await waitFor(() => deferralId !== undefined)).toBe(true);
-
-      const token = t.ctx.lookup(CONTINUATIONS)!.signer.mint(deferralId!);
-      const ack = (await t.client.sendDirect("answers", {
-        token,
-        result: { approved: true },
-      })) as { status: string };
-      expect(ack.status).toBe("resumed");
-
-      await t.ctx.stop();
-      await startPromise.catch(() => {});
+      const s = await parkAndResume({
+        uid: 9,
+        messageId: "<attach@test.com>",
+        subject: "With attachment",
+      });
 
       expect(s.received).toHaveLength(1);
       const body = s.received[0].body as {

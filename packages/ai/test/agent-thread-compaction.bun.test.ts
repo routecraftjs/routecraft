@@ -189,6 +189,46 @@ describe("replaceDeferredThread", () => {
   });
 
   /**
+   * @case A thread holding a file part's bytes compacts with the bytes intact
+   * @preconditions A deferred record whose first user message carries a Uint8Array file part, as the store persisted it through its envelope
+   * @expectedResult The rewrite sees the part as a Uint8Array rather than the store's envelope, the swap is won, and the stored thread reads back with the same bytes
+   */
+  test("rewrites a thread that carries a file part's bytes", async () => {
+    const store = new MemoryDeferralStore();
+    const bytes = new Uint8Array([1, 2, 3]);
+    const messages: ThreadMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "file", data: bytes, mediaType: "audio/ogg" }],
+      },
+      ...thread().slice(1),
+    ];
+    await store.create(deferred({}, messages));
+
+    let seen: unknown;
+    const result = await replaceDeferredThread(store, "def-1", (thread) => {
+      seen = (thread[0] as { content: Array<{ data?: unknown }> }).content[0]
+        ?.data;
+      return thread;
+    });
+
+    expect(result.won).toBe(true);
+    expect(seen).toBeInstanceOf(Uint8Array);
+    expect(Array.from(seen as Uint8Array)).toEqual([1, 2, 3]);
+    const after = (await store.get("def-1"))?.stepState as {
+      messages: Array<{ content: unknown }>;
+    };
+    expect(after.messages).toHaveLength(3);
+    expect(after.messages[0]?.content).toEqual([
+      {
+        type: "file",
+        data: { "$routecraft.bytes": "AQID" },
+        mediaType: "audio/ogg",
+      },
+    ]);
+  });
+
+  /**
    * @case A rewrite that breaks the thread never reaches the store
    * @preconditions A deferred record and a rewrite that drops the tool result
    * @expectedResult AI1008, and the stored thread is exactly what it was, so a failed compaction costs nothing

@@ -57,6 +57,8 @@ One documented exception to "the serialized exchange is the complete continuatio
 
 The serialization surface is exactly two slots (`body`, `headers`), by construction. A future halt/continue PR does not need to enumerate which fields to serialize; the model dictates it.
 
+"Verbatim" admits two kinds of value JSON cannot carry, each through a tagged envelope the serializer owns (`kernel/continuation/serialize.ts`): a `Date`, and raw bytes as a `Buffer` or a plain `Uint8Array`, revived as the constructor that went in. Everything else that is not plain JSON data is refused at the defer with `RC5042`, never downgraded. The same rule covers the free-form slots (`meta`, `stepState`, a terminal continuation body), which cross the store through the same encoder.
+
 ## Three exchange forms (by design)
 
 The codebase distinguishes three views of an exchange. They are intentionally separate.

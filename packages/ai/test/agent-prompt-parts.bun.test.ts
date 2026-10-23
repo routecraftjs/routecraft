@@ -367,7 +367,7 @@ describe("content parts on the user prompt", () => {
   /**
    * @case Raw bytes in a parts prompt survive the deferral boundary
    * @preconditions The same deferred agent, prompted with a Uint8Array file part instead of base64
-   * @expectedResult The deferral is accepted and the resumed dispatch replays the thread with the part's bytes intact, as a Buffer (the deferral store carries bytes through a base64 envelope, `deferral/serialize.ts`, and revives them as a Buffer, which the SDK accepts as a Uint8Array). An `ArrayBuffer` or a `URL` instance is still refused, as the test above shows for the URL.
+   * @expectedResult The deferral is accepted and the resumed dispatch replays the thread with the part's bytes intact, still a plain Uint8Array (the deferral store carries bytes through a base64 envelope, `deferral/serialize.ts`, and revives the constructor that went in). An `ArrayBuffer` or a `URL` instance is still refused, as the test above shows for the URL.
    */
   test("a Uint8Array part defers and resumes with its bytes intact", async () => {
     const store = new MemoryDeferralStore();
@@ -405,7 +405,7 @@ describe("content parts on the user prompt", () => {
     const part = resumed[0]!.content[0]!;
     expect(part.type).toBe("file");
     expect(part.mediaType).toBe("audio/ogg");
-    expect(Buffer.isBuffer(part.data)).toBe(true);
+    expect(Object.getPrototypeOf(part.data)).toBe(Uint8Array.prototype);
     expect(Array.from(part.data as Uint8Array)).toEqual([1, 2, 3]);
   });
 });
