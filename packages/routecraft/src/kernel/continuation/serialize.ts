@@ -467,7 +467,15 @@ function reviveBytes(encoded: unknown, what: string): Buffer {
   if (decoded.toString("base64") !== encoded) throw unrevivable(what);
   // Backed by its own ArrayBuffer: a short decode lands in Node's shared
   // Buffer pool, where `.buffer` would expose the neighbours, which during a
-  // resume are the other envelopes of the same stored exchange.
+  // resume are the other envelopes of the same stored exchange. A decode
+  // that already owns its buffer (every large one) is returned as is, so an
+  // attachment is not held twice at its peak.
+  if (
+    decoded.byteOffset === 0 &&
+    decoded.byteLength === decoded.buffer.byteLength
+  ) {
+    return decoded;
+  }
   return Buffer.from(new Uint8Array(decoded).buffer);
 }
 
