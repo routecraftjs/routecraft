@@ -136,10 +136,12 @@ describe("deferral serialization", () => {
     expect(stored.body).toEqual({ bytes: { [BYTES_TAG]: "BwgJ" } });
 
     const revived = deserializeExchange(context, stored);
-    const out = (revived.body as { bytes: unknown }).bytes;
+    const out = (revived.body as { bytes: Uint8Array }).bytes;
     expect(Object.getPrototypeOf(out)).toBe(Uint8Array.prototype);
     expect(Buffer.isBuffer(out)).toBe(false);
-    expect(Array.from(out as Uint8Array)).toEqual([7, 8, 9]);
+    expect(Array.from(out)).toEqual([7, 8, 9]);
+    // Its own ArrayBuffer, not a window on Node's shared decode pool.
+    expect(out.buffer.byteLength).toBe(3);
   });
 
   /**
@@ -561,6 +563,48 @@ describe("deferral serialization hostile input", () => {
         exchangeWith({ when: { [DATE_TAG]: "2020-01-01T00:00:00.000Z" } }),
       ),
     ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+  });
+
+  /**
+   * @case A byte array over a transferred ArrayBuffer is refused by name
+   * @preconditions A Uint8Array whose backing ArrayBuffer was detached by a
+   *   transfer, as a worker handoff leaves it
+   * @expectedResult RC5042 naming the path, not the bare TypeError
+   *   Buffer.from would throw
+   */
+  test("refuses a byte array over a detached ArrayBuffer", () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    structuredClone(bytes.buffer, { transfer: [bytes.buffer] });
+    expect(() => serializeExchange(exchangeWith({ bytes }))).toThrow(
+      expect.objectContaining({
+        rc: "RC5042",
+        message: expect.stringContaining(
+          "body.bytes holds a byte array over a detached",
+        ),
+      }),
+    );
+  });
+
+  /**
+   * @case An envelope cannot be forged behind a dropped undefined sibling
+   * @preconditions A body field shaped like an envelope plus one sibling
+   *   whose value is undefined, which the walk drops, as a route that
+   *   spreads inbound JSON into an object with an optional field produces
+   * @expectedResult RC5042 at defer time for every tag, since what would be
+   *   stored is the bare envelope
+   */
+  test("refuses a forged envelope hidden behind an undefined sibling", () => {
+    for (const [tag, text] of [
+      [DATE_TAG, "2020-01-01T00:00:00.000Z"],
+      [BUFFER_TAG, "AAAA"],
+      [BYTES_TAG, "AAAA"],
+    ] as const) {
+      expect(() =>
+        serializeExchange(
+          exchangeWith({ blob: { [tag]: text, gone: undefined } }),
+        ),
+      ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    }
   });
 
   /**

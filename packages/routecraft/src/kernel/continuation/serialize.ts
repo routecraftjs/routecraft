@@ -277,6 +277,11 @@ function encode(
     if (Object.getOwnPropertySymbols(object).length > 0) {
       throw refuse(path, "a byte array with a symbol-keyed property");
     }
+    // A view over a transferred ArrayBuffer reads as empty and makes
+    // `Buffer.from` throw a bare TypeError; refuse it by name like the rest.
+    if ((object.buffer as ArrayBuffer).detached) {
+      throw refuse(path, "a byte array over a detached ArrayBuffer");
+    }
     // From the view's own window, not `object.buffer`: a subarray, or a
     // small Buffer carved from the shared pool, shares an ArrayBuffer with
     // bytes that were never part of the value.
@@ -350,19 +355,25 @@ function encode(
       throw refuse(path, `a non-enumerable property ("${hidden}")`);
     }
 
-    if (keys.length === 1 && RESERVED_TAGS.has(keys[0]!)) {
-      throw refuse(path, `the reserved ${keys[0]} envelope key`);
-    }
-
     // Null-prototype accumulator: `__proto__` is a genuine own key on any
     // object that came from JSON.parse, and assigning it on a normal object
     // literal triggers the Object.prototype setter, which swaps the copy's
     // prototype and loses the field.
     const copy: Record<string, unknown> = Object.create(null);
+    let stored = 0;
+    let last: string | undefined;
     for (const key of keys) {
       const entry = (object as Record<string, unknown>)[key];
       if (entry === undefined) continue;
       copy[key] = encode(entry, `${path}.${key}`, seen);
+      stored += 1;
+      last = key;
+    }
+    // Judged on what is stored, not on the source's keys: a sibling whose
+    // value is `undefined` is dropped above, so `{ [tag]: text, x: undefined }`
+    // would otherwise pass as a two-key object and revive as the tag's type.
+    if (stored === 1 && last !== undefined && RESERVED_TAGS.has(last)) {
+      throw refuse(path, `the reserved ${last} envelope key`);
     }
     return copy;
   } finally {
@@ -393,14 +404,10 @@ function decode(value: unknown): unknown {
       return revived;
     }
     if (tag === BUFFER_TAG) return reviveBytes(encoded, "buffer");
-    if (tag === BYTES_TAG) {
-      const buffer = reviveBytes(encoded, "bytes");
-      return new Uint8Array(
-        buffer.buffer,
-        buffer.byteOffset,
-        buffer.byteLength,
-      );
-    }
+    // Copied, not viewed: a short base64 decode lands in Node's shared
+    // Buffer pool, and a plain Uint8Array's `.buffer` would expose the
+    // neighbours (other envelopes of the same stored exchange).
+    if (tag === BYTES_TAG) return new Uint8Array(reviveBytes(encoded, "bytes"));
   }
 
   // Same `__proto__` hazard as `encode`, but the revived value is handed
