@@ -14,6 +14,8 @@ import {
   type TestContext,
 } from "@routecraft/testing";
 import { craft, simple, mail } from "@routecraft/routecraft";
+import { deferring } from "@routecraft/testing";
+import { CONTINUATIONS, direct, type Exchange } from "../src/index.ts";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import {
   buildSearchCriteriaSets,
@@ -1717,7 +1719,103 @@ describe("Mail Adapter", () => {
       expect(headers["routecraft.mail.date"]).toEqual(
         new Date("2026-05-01T09:00:00Z"),
       );
-      expect(headers["routecraft.mail.flags"]).toEqual(new Set(["\\Seen"]));
+      expect(headers["routecraft.mail.flags"]).toEqual(["\\Seen"]);
+    });
+
+    /**
+     * @case A mail exchange defers and resumes with its flags intact
+     * @preconditions Source delivers one message flagged \Seen into a route that defers; a direct route resumes it with a token minted for the deferral
+     * @expectedResult The park succeeds (no RC5042), the resume is acknowledged, and the continuation receives the exchange with routecraft.mail.flags equal to ["\Seen"] and the message text on the body
+     */
+    test("defers and resumes a mail exchange", async () => {
+      let callCount = 0;
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          if (callCount === 0) {
+            callCount++;
+            yield {
+              uid: 8,
+              flags: new Set(["\\Seen"]),
+              envelope: {
+                messageId: "<park@test.com>",
+                from: [{ address: "sender@acme.test" }],
+                to: [{ address: "a@dest.test" }],
+                subject: "Park me",
+                date: new Date("2026-05-01T09:00:00Z"),
+              },
+              source: Buffer.from("raw mime"),
+            };
+          }
+        },
+      }));
+
+      const s = spy();
+      let deferralId: string | undefined;
+
+      t = await testContext()
+        .with({
+          ...deferring(),
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .on("route:exchange:deferred", ({ details }) => {
+          deferralId = details.deferralId;
+        })
+        .routes([
+          craft()
+            .id("mail-approval")
+            .from(
+              mail("INBOX", {
+                markSeen: false,
+                unseen: true,
+                pollInterval: 5,
+                verify: "off",
+              }),
+            )
+            .defer()
+            .to(s),
+          craft()
+            .id("answers")
+            .from(direct())
+            .resume((ex: Exchange) => ({
+              token: (ex.body as { token: string }).token,
+              result: { approved: true },
+            })),
+        ])
+        .build();
+
+      const startPromise = t.ctx.start();
+      for (let i = 0; i < 100 && deferralId === undefined; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(deferralId).toBeDefined();
+      expect(s.received).toHaveLength(0);
+
+      const token = t.ctx.lookup(CONTINUATIONS)!.signer.mint(deferralId!);
+      const ack = (await t.client.sendDirect("answers", { token })) as {
+        status: string;
+      };
+      expect(ack.status).toBe("resumed");
+
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(s.received).toHaveLength(1);
+      const resumed = s.received[0];
+      const headers = resumed.headers as Record<string, unknown>;
+      expect(headers["routecraft.mail.flags"]).toEqual(["\\Seen"]);
+      expect(headers["routecraft.mail.uid"]).toBe(8);
+      expect((resumed.body as Record<string, unknown>)["text"]).toBe(
+        "Hello world",
+      );
     });
 
     /**

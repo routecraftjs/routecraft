@@ -259,7 +259,7 @@ In source mode the envelope is attached to `exchange.headers` under the `routecr
 | `routecraft.mail.subject` | `string` | Subject line |
 | `routecraft.mail.date` | `Date` | Date sent |
 | `routecraft.mail.replyTo` | `string?` | Reply-to address |
-| `routecraft.mail.flags` | `ReadonlySet<string>` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
+| `routecraft.mail.flags` | `readonly string[]` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
 | `routecraft.mail.sender` | `MailSender?` | Computed effective sender and forward chain (see below). Absent when `verify: 'off'`. |
 | `routecraft.mail.rawHeaders` | `Record<string, string \| string[]>?` | Raw email headers (when `includeHeaders` is set) |
 
@@ -281,7 +281,7 @@ In the fetch role (`.enrich(mail(...))`) the fetched `MailMessage[]` replaces th
 | `replyTo` | `string?` | Reply-to address |
 | `attachments` | `MailAttachment[]?` | File attachments |
 | `rawHeaders` | `Record<string, string \| string[]>?` | Raw email headers (when `includeHeaders` is set) |
-| `flags` | `Set<string>` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
+| `flags` | `string[]` | IMAP flags (e.g. `\Seen`, `\Flagged`) |
 | `folder` | `string` | The IMAP folder this message was fetched from |
 | `sender` | `MailSender?` | Computed effective sender and forward chain (see below). Omitted when `verify: 'off'`. |
 

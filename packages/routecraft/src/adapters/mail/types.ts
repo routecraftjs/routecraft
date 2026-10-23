@@ -479,8 +479,11 @@ export interface MailMessage {
    * multi-value headers (e.g. multiple Received lines).
    */
   rawHeaders?: Record<string, string | string[]>;
-  /** IMAP flags (e.g. \Seen, \Flagged) */
-  flags: Set<string>;
+  /**
+   * IMAP flags (e.g. `\Seen`, `\Flagged`), as an array so the message can
+   * be deferred: the deferral store persists plain data only.
+   */
+  flags: string[];
   /** The IMAP folder this message was fetched from */
   folder: string;
   /**
@@ -600,7 +603,7 @@ declare module "@routecraft/routecraft" {
     /** Reply-To address, when present. */
     [MailHeaders.REPLY_TO]?: string;
     /** IMAP flags (e.g. `\Seen`, `\Flagged`). */
-    [MailHeaders.FLAGS]?: ReadonlySet<string>;
+    [MailHeaders.FLAGS]?: readonly string[];
     /**
      * Computed effective sender with forward-chain and authentication
      * evidence. Absent when the source is configured with `verify: "off"`.
