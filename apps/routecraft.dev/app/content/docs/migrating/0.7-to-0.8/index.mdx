@@ -191,6 +191,8 @@ The `mcp()` client changed with it. `tool` is required: the `exchange.body.tool`
 | `message.flags.has('\\Seen')` | `message.flags.includes('\\Seen')` |
 | `ex.headers[MailHeaders.FLAGS]?.has('\\Flagged')` | `ex.headers[MailHeaders.FLAGS]?.includes('\\Flagged')` |
 
+A message with attachments still cannot defer: each attachment's `content` is a `Buffer`, which the deferral store refuses with the same `RC5042`. A route that defers drops or transforms `body.attachments` before `.defer()`.
+
 ## 10. What is new in 0.8.0 \{#10-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.

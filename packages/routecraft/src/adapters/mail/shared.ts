@@ -548,7 +548,7 @@ export function buildSearchCriteriaSets(
 export function toMailMessage(
   msg: {
     uid: number;
-    flags: Iterable<string>;
+    flags: ReadonlySet<string> | readonly string[];
     envelope: {
       messageId?: string;
       from?: Array<{ address?: string; name?: string }>;
