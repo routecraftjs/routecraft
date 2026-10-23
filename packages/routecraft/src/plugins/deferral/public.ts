@@ -71,6 +71,7 @@ export {
 } from "../../kernel/continuation/door.ts";
 
 export {
+  BYTES_TAG,
   DATE_TAG,
   deserializeExchange,
   serializeExchange,

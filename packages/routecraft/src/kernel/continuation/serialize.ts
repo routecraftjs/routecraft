@@ -20,7 +20,8 @@ import type { SerializedExchange } from "./types.ts";
  *
  * 1. **Nothing but plain JSON data is persisted.** Functions, symbols,
  *    bigints, class instances and circular references are refused with
- *    `RC5042`. This is what keeps a live resolver from being written to the
+ *    `RC5042`; a `Date` and raw bytes are the two admitted exceptions (see
+ *    "The wire form" below). This is what keeps a live resolver from being written to the
  *    store: a `Blocks` record whose entries are functions cannot cross the
  *    boundary, so only resolved string outputs survive. Blocks declared
  *    `lifetime: "context"` are unaffected, because they live in
@@ -37,13 +38,15 @@ import type { SerializedExchange } from "./types.ts";
  * ## The wire form
  *
  * Everything a backend receives is JSON data, which is what lets the
- * in-memory and sqlite backends behave identically. `Date` is the one type
- * JSON cannot carry that exchange bodies routinely hold (a mail `date`, a
- * cron tick), so it travels in a tagged envelope, {@link DATE_TAG}, and is
- * revived on the way back. An object whose only key is that tag is
- * therefore reserved; any other non-plain object (a `Uint8Array`, a `Map`,
- * a class instance) is refused rather than silently downgraded to a
- * differently-behaved object wearing the same fields.
+ * in-memory and sqlite backends behave identically. Two types JSON cannot
+ * carry are admitted because exchange bodies routinely hold them, each in a
+ * tagged envelope revived on the way back: a `Date` (a mail `date`, a cron
+ * tick) travels as {@link DATE_TAG}, and raw bytes (a mail attachment, a
+ * file read, an HTTP body) travel as {@link BYTES_TAG}. An object whose
+ * only key is either tag is therefore reserved; any other non-plain object
+ * (a `Map`, a typed array of another element type, a class instance) is
+ * refused rather than silently downgraded to a differently-behaved object
+ * wearing the same fields.
  */
 
 /**
@@ -52,6 +55,30 @@ import type { SerializedExchange } from "./types.ts";
  * `Date` on resume.
  */
 export const DATE_TAG = "$routecraft.date";
+
+/**
+ * Envelope key that carries raw bytes (a `Buffer` or a plain `Uint8Array`)
+ * through JSON storage as base64. An object whose sole key is this tag is
+ * reserved by the framework and is revived as a `Buffer` on resume.
+ *
+ * Revived as a `Buffer` whichever of the two went in: a `Buffer` is a
+ * `Uint8Array`, so the value satisfies both `instanceof` checks afterwards,
+ * and one envelope keeps the stored form simple. What a view of a larger
+ * buffer loses is the part outside the view, which the route never held in
+ * the value. Base64 costs a third over the raw size for the life of the
+ * hold, which is the route author's trade for deferring a body with bytes
+ * in it.
+ */
+export const BYTES_TAG = "$routecraft.bytes";
+
+/**
+ * Standard base64 with padding, the form `Buffer.toString("base64")`
+ * writes. `Buffer.from(text, "base64")` skips characters it does not
+ * understand rather than failing, so a stored envelope is checked against
+ * this before it is revived.
+ */
+const BASE64 =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 /**
  * Convert a live exchange into its persistable form.
@@ -219,6 +246,42 @@ function encode(
     return { [DATE_TAG]: value.toISOString() };
   }
 
+  // Exact prototypes only, for the reason the Date branch takes an exact
+  // Date: a subclass would resume as a plain Buffer with its added behaviour
+  // gone. Other typed arrays (a Float32Array) fall through to the
+  // class-instance refusal below: their element type is not representable
+  // in a byte envelope without a second tag, and no adapter puts one on a
+  // body.
+  const bytesPrototype = Object.getPrototypeOf(object);
+  if (
+    object instanceof Uint8Array &&
+    (bytesPrototype === Buffer.prototype ||
+      bytesPrototype === Uint8Array.prototype)
+  ) {
+    // Indices are own names on a typed array, so the extra-property check
+    // filters them the way the array branch does. Same reason as the Date
+    // check: a property riding on the bytes would resume gone, in silence.
+    const named = Object.getOwnPropertyNames(object).filter(
+      (key) => !isArrayIndex(key, object.length),
+    );
+    if (named.length > 0) {
+      throw refuse(path, `a byte array with a named property ("${named[0]}")`);
+    }
+    if (Object.getOwnPropertySymbols(object).length > 0) {
+      throw refuse(path, "a byte array with a symbol-keyed property");
+    }
+    // From the view's own window, not `object.buffer`: a subarray, or a
+    // small Buffer carved from the shared pool, shares an ArrayBuffer with
+    // bytes that were never part of the value.
+    return {
+      [BYTES_TAG]: Buffer.from(
+        object.buffer,
+        object.byteOffset,
+        object.byteLength,
+      ).toString("base64"),
+    };
+  }
+
   seen.add(object);
   try {
     if (Array.isArray(value)) {
@@ -280,8 +343,8 @@ function encode(
       throw refuse(path, `a non-enumerable property ("${hidden}")`);
     }
 
-    if (keys.length === 1 && keys[0] === DATE_TAG) {
-      throw refuse(path, `the reserved ${DATE_TAG} envelope key`);
+    if (keys.length === 1 && (keys[0] === DATE_TAG || keys[0] === BYTES_TAG)) {
+      throw refuse(path, `the reserved ${keys[0]} envelope key`);
     }
 
     // Null-prototype accumulator: `__proto__` is a genuine own key on any
@@ -301,8 +364,9 @@ function encode(
 }
 
 /**
- * Revive tagged values produced by {@link encode}. Everything else is
- * returned as-is; the input is already JSON data by construction.
+ * Revive tagged values produced by {@link encode}: a `Date` and a `Buffer`.
+ * Everything else is returned as-is; the input is already JSON data by
+ * construction.
  *
  * @internal
  */
@@ -325,6 +389,19 @@ function decode(value: unknown): unknown {
       });
     }
     return revived;
+  }
+  if (entries.length === 1 && entries[0]?.[0] === BYTES_TAG) {
+    const encoded = entries[0][1];
+    // A stored envelope that is not base64 means the row was corrupted or
+    // hand-edited. `Buffer.from` would revive it as shorter bytes with no
+    // error, which is the silent outcome the walk exists to prevent.
+    if (typeof encoded !== "string" || !BASE64.test(encoded)) {
+      throw rcError("RC5042", undefined, {
+        message:
+          "Cannot resume: the stored exchange holds an unparseable bytes envelope, so it cannot be revived.",
+      });
+    }
+    return Buffer.from(encoded, "base64");
   }
 
   // Same `__proto__` hazard as `encode`, but the revived value is handed

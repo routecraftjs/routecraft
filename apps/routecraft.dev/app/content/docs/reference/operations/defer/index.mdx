@@ -155,7 +155,7 @@ A defer branch rejoins the main flow only if it restored the main flow's contrac
 Two more refusals happen outside build time, each as early as it can be known and both well before a resume:
 
 - A context whose routes can reach a defer (or a [`.resume()`](/docs/reference/operations/resume)) but which configured no [`deferral`](/docs/reference/configuration#deferral) block fails at **startup** with [`RC5052`](/docs/reference/errors#rc-5052).
-- An exchange holding anything that is not plain JSON data (a function, a class instance, a `Secret`) fails at **defer time**, with [`RC5042`](/docs/reference/errors#rc-5042) naming the offending path. Deliberately at the deferral rather than at the resume: the deploy that introduced the value is what should fail, not the approver's click days later.
+- An exchange holding anything that is not plain JSON data (a function, a class instance, a `Secret`) fails at **defer time**, with [`RC5042`](/docs/reference/errors#rc-5042) naming the offending path. Deliberately at the deferral rather than at the resume: the deploy that introduced the value is what should fail, not the approver's click days later. A `Date` and raw bytes (a `Buffer`) are the two values admitted past that rule: both round-trip through a tagged envelope. Bytes are stored as base64, so a body carrying a large attachment holds a third more than its size in the store until the hold ends; a route that does not need the bytes after the hold drops them before `.defer()`.
 
 <Callout type="warning" title="Durable from the defer point onward">
 

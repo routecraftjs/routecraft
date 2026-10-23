@@ -16,7 +16,7 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 6. **A custom `DeferralStore` fences its claims.** `renewClaim` is new, and `markExpired` and `markDenied` take the claim id. The shipped SQLite and memory stores migrate themselves. [Section 6](#6-deferral-store).
 7. **An editor turn's body is the prompt text.** An agent's own `user` that read `ex.body.message` on an ACP turn reads `ex.body`. [Section 7](#7-acp-turn-body).
 8. **A route proxies a remote MCP server.** `mcpPlugin({ proxy })` and its `guard` are removed; a route with `.from(mcp({ proxy: 'server:*' }))` re-exposes a client's tools. [Section 8](#8-mcp-proxy-route).
-9. **A mail message's flags are an array.** `MailMessage.flags` is `string[]` and the `routecraft.mail.flags` header is `readonly string[]`, so a mail exchange without attachments can be deferred. [Section 9](#9-mail-flags).
+9. **A mail message's flags are an array.** `MailMessage.flags` is `string[]` and the `routecraft.mail.flags` header is `readonly string[]`, so a mail exchange can be deferred. [Section 9](#9-mail-flags).
 
 Projects that write no plugin of their own typically need section 2 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, and section 9 if they read IMAP flags. [Section 10](#10-what-is-new-in-080) lists what is new, for context.
 
@@ -191,7 +191,7 @@ The `mcp()` client changed with it. `tool` is required: the `exchange.body.tool`
 | `message.flags.has('\\Seen')` | `message.flags.includes('\\Seen')` |
 | `ex.headers[MailHeaders.FLAGS]?.has('\\Flagged')` | `ex.headers[MailHeaders.FLAGS]?.includes('\\Flagged')` |
 
-A message with attachments still cannot defer: each attachment's `content` is a `Buffer`, which the deferral store refuses with the same `RC5042`. A route that defers drops or transforms `body.attachments` before `.defer()`.
+An attachment's `content` stays a `Buffer`. The deferral store persists it as base64 and hands it back as a `Buffer` on resume, so a message with attachments defers too; a route that holds large attachments for days and does not need them afterwards drops `body.attachments` before `.defer()`.
 
 ## 10. What is new in 0.8.0 \{#10-what-is-new-in-080}
 

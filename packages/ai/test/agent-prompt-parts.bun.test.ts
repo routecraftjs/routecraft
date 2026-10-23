@@ -365,11 +365,11 @@ describe("content parts on the user prompt", () => {
   });
 
   /**
-   * @case Raw bytes in a parts prompt cannot cross the deferral boundary, and say so loudly
+   * @case Raw bytes in a parts prompt survive the deferral boundary
    * @preconditions The same deferred agent, prompted with a Uint8Array file part instead of base64
-   * @expectedResult The deferral is refused, naming the exact part that cannot be persisted, rather than resuming with a corrupted one. The deferral store carries JSON data only (`deferral/serialize.ts`), which refuses a `URL` instance for the same reason, so a part reaching a deferring agent has to carry a base64 string or a URL-shaped string.
+   * @expectedResult The deferral is accepted and the resumed dispatch replays the thread with the part's bytes intact, as a Buffer (the deferral store carries bytes through a base64 envelope, `deferral/serialize.ts`, and revives them as a Buffer, which the SDK accepts as a Uint8Array). An `ArrayBuffer` or a `URL` instance is still refused, as the test above shows for the URL.
    */
-  test("a Uint8Array part refuses to defer, naming the offending part", async () => {
+  test("a Uint8Array part defers and resumes with its bytes intact", async () => {
     const store = new MemoryDeferralStore();
     const sink = spy();
     scripted.script.push({
@@ -388,8 +388,24 @@ describe("content parts on the user prompt", () => {
     ).build();
     await t.startAndWaitReady();
 
-    await expect(t.client.sendDirect("bytes-assistant", "go")).rejects.toThrow(
-      /stepState\.messages\[0\]\.content\[0\]\.data holds an instance of Uint8Array/,
+    const deferred = asDeferred(
+      await t.client.sendDirect("bytes-assistant", "go"),
     );
+    scripted.script.push({ text: "done" });
+    const ack = (await t.client.sendDirect("bytes-answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as { status: string };
+    expect(ack.status).toBe("resumed");
+
+    const resumed = scripted.calls[1]!.user as Array<{
+      role: string;
+      content: Array<{ type: string; data?: unknown; mediaType?: string }>;
+    }>;
+    const part = resumed[0]!.content[0]!;
+    expect(part.type).toBe("file");
+    expect(part.mediaType).toBe("audio/ogg");
+    expect(Buffer.isBuffer(part.data)).toBe(true);
+    expect(Array.from(part.data as Uint8Array)).toEqual([1, 2, 3]);
   });
 });
