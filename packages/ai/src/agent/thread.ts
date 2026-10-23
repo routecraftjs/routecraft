@@ -1,4 +1,5 @@
 import {
+  decodePersistable,
   rcError,
   resumable,
   stepStateFingerprint,
@@ -220,6 +221,7 @@ export function assertResumableThread(
  *   it stands afterwards
  * @throws AI1007 when the stored step state is not an agent record
  * @throws AI1008 when the rewrite produced an unresumable thread
+ * @throws RC5042 when a stored envelope in the thread cannot be revived
  */
 export async function replaceDeferredThread(
   store: DeferralStore,
@@ -237,18 +239,24 @@ export async function replaceDeferredThread(
     return { won: false, deferral: record };
   }
 
-  const state = parseStepState(record.stepState);
-  // Taken before the rewrite runs. `parseStepState` hands back the object it
-  // was given, so a rewrite that edits the thread in place (a splice is the
-  // obvious way to drop old turns) would otherwise be fingerprinted after
-  // its own edit, and the compare would ask whether nothing had changed
-  // since it changed it.
+  // Revived first: the store hands back the persisted form, in which a
+  // Date or a file part's bytes sit inside the framework's envelope. The
+  // rewrite sees the thread as the agent ran it, and the store's own
+  // re-encode on the write back refuses an envelope it did not write, so
+  // handing the rewrite the raw form would make every such thread
+  // uncompactable.
+  const state = parseStepState(decodePersistable(record.stepState));
+  // Taken from the stored form, before the rewrite runs: that is what the
+  // store compares on the write back, and a rewrite that edits the thread
+  // in place (a splice is the obvious way to drop old turns) must not be
+  // fingerprinted after its own edit.
   const expected = stepStateFingerprint(record.stepState);
-  // A copy, because the rewrite is allowed to edit in place and a custom
-  // store may have handed back its own record rather than a detached one.
-  // Without this, a rewrite that then fails validation, or loses the swap,
-  // would still have corrupted the deferred thread.
-  const messages = await rewrite(structuredClone(state.messages));
+  // No copy here: the revival above already builds a detached thread, so a
+  // rewrite that edits in place and then fails validation, or loses the
+  // swap, touches nothing the store holds. A structuredClone would also
+  // turn a revived Buffer into a plain Uint8Array, so a file part would
+  // change kind on the write back.
+  const messages = await rewrite(state.messages);
   assertResumableThread(messages, state.deferredToolCallId);
 
   return store.replaceStepState(deferralId, expected, { ...state, messages });

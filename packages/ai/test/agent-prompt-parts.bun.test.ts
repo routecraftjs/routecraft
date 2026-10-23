@@ -365,11 +365,42 @@ describe("content parts on the user prompt", () => {
   });
 
   /**
-   * @case Raw bytes in a parts prompt cannot cross the deferral boundary, and say so loudly
-   * @preconditions The same deferred agent, prompted with a Uint8Array file part instead of base64
-   * @expectedResult The deferral is refused, naming the exact part that cannot be persisted, rather than resuming with a corrupted one. The deferral store carries JSON data only (`deferral/serialize.ts`), which refuses a `URL` instance for the same reason, so a part reaching a deferring agent has to carry a base64 string or a URL-shaped string.
+   * @case An ArrayBuffer in a parts prompt cannot cross the deferral boundary
+   * @preconditions The same deferred agent, prompted with a file part whose data is an `ArrayBuffer`
+   * @expectedResult The deferral is refused naming that part: only a `Uint8Array` or a `Buffer` travels through the store's bytes envelope, and an `ArrayBuffer` is a class instance like a `URL`
    */
-  test("a Uint8Array part refuses to defer, naming the offending part", async () => {
+  test("an ArrayBuffer part refuses to defer, naming the offending part", async () => {
+    const store = new MemoryDeferralStore();
+    const sink = spy();
+    scripted.script.push({
+      toolCalls: [{ toolName: "ask", input: { question: "send it?" } }],
+    });
+
+    t = await deferringContext(
+      store,
+      deferringRoutes("arraybuffer", sink, () => [
+        {
+          type: "file",
+          data: new Uint8Array([1, 2, 3]).buffer,
+          mediaType: "audio/ogg",
+        },
+      ]),
+    ).build();
+    await t.startAndWaitReady();
+
+    await expect(
+      t.client.sendDirect("arraybuffer-assistant", "go"),
+    ).rejects.toThrow(
+      /stepState\.messages\[0\]\.content\[0\]\.data holds an instance of ArrayBuffer/,
+    );
+  });
+
+  /**
+   * @case Raw bytes in a parts prompt survive the deferral boundary
+   * @preconditions The same deferred agent, prompted with a Uint8Array file part instead of base64
+   * @expectedResult The deferral is accepted and the resumed dispatch replays the thread with the part's bytes intact, still a plain Uint8Array (the deferral store carries bytes through a base64 envelope, `deferral/serialize.ts`, and revives the constructor that went in). An `ArrayBuffer` or a `URL` instance is still refused, as the two tests above show.
+   */
+  test("a Uint8Array part defers and resumes with its bytes intact", async () => {
     const store = new MemoryDeferralStore();
     const sink = spy();
     scripted.script.push({
@@ -388,8 +419,24 @@ describe("content parts on the user prompt", () => {
     ).build();
     await t.startAndWaitReady();
 
-    await expect(t.client.sendDirect("bytes-assistant", "go")).rejects.toThrow(
-      /stepState\.messages\[0\]\.content\[0\]\.data holds an instance of Uint8Array/,
+    const deferred = asDeferred(
+      await t.client.sendDirect("bytes-assistant", "go"),
     );
+    scripted.script.push({ text: "done" });
+    const ack = (await t.client.sendDirect("bytes-answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as { status: string };
+    expect(ack.status).toBe("resumed");
+
+    const resumed = scripted.calls[1]!.user as Array<{
+      role: string;
+      content: Array<{ type: string; data?: unknown; mediaType?: string }>;
+    }>;
+    const part = resumed[0]!.content[0]!;
+    expect(part.type).toBe("file");
+    expect(part.mediaType).toBe("audio/ogg");
+    expect(Object.getPrototypeOf(part.data)).toBe(Uint8Array.prototype);
+    expect(Array.from(part.data as Uint8Array)).toEqual([1, 2, 3]);
   });
 });

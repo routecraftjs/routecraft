@@ -13,6 +13,8 @@ import { isRestored } from "../src/auth/restored.ts";
 // The serializer is engine machinery, not public API: it is reached through
 // the intra-package barrel the executor uses, not the package index.
 import {
+  BUFFER_TAG,
+  BYTES_TAG,
   DATE_TAG,
   deserializeExchange,
   serializeExchange,
@@ -92,6 +94,81 @@ describe("deferral serialization", () => {
     const value = (revived.body as { receivedAt: Date }).receivedAt;
     expect(value).toBeInstanceOf(Date);
     expect(value.getTime()).toBe(at.getTime());
+  });
+
+  /**
+   * @case Raw bytes survive the store byte for byte
+   * @preconditions A body holding a Buffer and a header holding another,
+   *   as a mail attachment or a file read leaves them
+   * @expectedResult Both come back as a Buffer with the same bytes, and the
+   *   stored form is the base64 envelope rather than the Buffer itself
+   */
+  test("preserves Buffer values through the store", () => {
+    const payload = Buffer.from([0, 1, 2, 253, 254, 255]);
+    const stamp = Buffer.from("sig");
+    const stored = serializeExchange(
+      exchangeWith({ attachment: { content: payload } }, { "x-sig": stamp }),
+    );
+
+    expect(stored.body).toEqual({
+      attachment: { content: { [BUFFER_TAG]: payload.toString("base64") } },
+    });
+
+    const revived = deserializeExchange(context, stored);
+    const content = (revived.body as { attachment: { content: unknown } })
+      .attachment.content;
+    expect(Buffer.isBuffer(content)).toBe(true);
+    expect(content).toEqual(payload);
+    // Its own ArrayBuffer, not a window on Node's shared decode pool.
+    expect((content as Buffer).buffer.byteLength).toBe(payload.byteLength);
+    expect(revived.headers["x-sig"]).toEqual(stamp);
+  });
+
+  /**
+   * @case A plain Uint8Array comes back a plain Uint8Array
+   * @preconditions A body holding a Uint8Array, as an HTTP binary body is
+   * @expectedResult The stored form is the bytes envelope, distinct from the
+   *   Buffer one, and the revived value has Uint8Array's own prototype with
+   *   the same bytes: it stringifies, slices and JSON-renders as it did
+   *   before the defer
+   */
+  test("revives a Uint8Array as a Uint8Array", () => {
+    const bytes = new Uint8Array([7, 8, 9]);
+    const stored = serializeExchange(exchangeWith({ bytes }));
+    expect(stored.body).toEqual({ bytes: { [BYTES_TAG]: "BwgJ" } });
+
+    const revived = deserializeExchange(context, stored);
+    const out = (revived.body as { bytes: Uint8Array }).bytes;
+    expect(Object.getPrototypeOf(out)).toBe(Uint8Array.prototype);
+    expect(Buffer.isBuffer(out)).toBe(false);
+    expect(Array.from(out)).toEqual([7, 8, 9]);
+    // Its own ArrayBuffer, not a window on Node's shared decode pool.
+    expect(out.buffer.byteLength).toBe(3);
+  });
+
+  /**
+   * @case A view persists only its own window
+   * @preconditions A subarray over a larger Buffer, and a Buffer over the
+   *   middle of an ArrayBuffer that holds other bytes on both sides, as a
+   *   pooled allocation does
+   * @expectedResult Each revives as exactly its own bytes, with nothing
+   *   from the surrounding ArrayBuffer
+   */
+  test("persists a byte view by its window, not its backing buffer", () => {
+    const whole = Buffer.from("0123456789");
+    const view = whole.subarray(3, 6);
+    const backing = new Uint8Array(Buffer.from("xxxxtinyxxxx")).buffer;
+    const pooled = Buffer.from(backing, 4, 4);
+    expect(pooled.buffer.byteLength).toBe(12);
+
+    const revived = deserializeExchange(
+      context,
+      serializeExchange(exchangeWith({ view, pooled })),
+    );
+    const body = revived.body as { view: Buffer; pooled: Buffer };
+    expect(body.view.toString()).toBe("345");
+    expect(body.pooled.toString()).toBe("tiny");
+    expect(body.pooled.byteLength).toBe(4);
   });
 
   /**
@@ -281,6 +358,92 @@ describe("deferral serialization refusals", () => {
   });
 
   /**
+   * @case A byte array subclass is refused like any other class instance
+   * @preconditions A body holding an instance of a class extending
+   *   Uint8Array, with a method of its own
+   * @expectedResult RC5042, because the envelope keeps the bytes only and
+   *   the subclass would resume as a plain Buffer with its behaviour gone
+   */
+  test("refuses a byte array subclass", () => {
+    class Signed extends Uint8Array {
+      verify(): boolean {
+        return true;
+      }
+    }
+    expect(() =>
+      serializeExchange(exchangeWith({ bytes: new Signed([1]) })),
+    ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+  });
+
+  /**
+   * @case Typed arrays of another element type are refused
+   * @preconditions A body holding a Float32Array
+   * @expectedResult RC5042 naming the class, since the byte envelope cannot
+   *   say what element type to revive
+   */
+  test("refuses a typed array that is not bytes", () => {
+    expect(() =>
+      serializeExchange(exchangeWith({ samples: new Float32Array([0.5]) })),
+    ).toThrow(
+      expect.objectContaining({
+        rc: "RC5042",
+        message: expect.stringContaining("Float32Array"),
+      }),
+    );
+  });
+
+  /**
+   * @case A byte array carrying a symbol-keyed property is refused
+   * @preconditions A Buffer with a symbol-keyed own property riding on it
+   * @expectedResult RC5042 naming the symbol-keyed property, rather than
+   *   deferring and losing it
+   */
+  test("refuses a byte array carrying a symbol-keyed property", () => {
+    const bytes = Buffer.from("x") as Buffer & Record<symbol, unknown>;
+    bytes[Symbol("origin")] = "scan";
+    expect(() => serializeExchange(exchangeWith({ bytes }))).toThrow(
+      expect.objectContaining({
+        rc: "RC5042",
+        message: expect.stringContaining("symbol-keyed"),
+      }),
+    );
+  });
+
+  /**
+   * @case A large byte array round-trips without scanning its indices
+   * @preconditions A 10 MB Buffer, and a small one with a string-keyed own
+   *   property hung on it
+   * @expectedResult The large one serializes in well under a second, which
+   *   an own-names scan (one string per byte) cannot do, and revives byte
+   *   for byte; the small one's property is not carried, the recorded cost
+   *   of skipping that scan
+   */
+  test("serializes a large byte array without enumerating its indices", () => {
+    const large = Buffer.alloc(10 * 1024 * 1024, 1);
+    const started = performance.now();
+    const stored = serializeExchange(exchangeWith({ large }));
+    expect(performance.now() - started).toBeLessThan(1000);
+    // And back: a regex over the envelope overflowed Node's stack and
+    // answered false on Bun at this size, so the round trip is the test.
+    const back = (
+      deserializeExchange(context, stored).body as { large: Buffer }
+    ).large;
+    expect(back.byteLength).toBe(large.byteLength);
+    expect(back.equals(large)).toBe(true);
+
+    const tagged = Buffer.from("x") as Buffer & { origin?: string };
+    tagged.origin = "scan";
+    const revived = deserializeExchange(
+      context,
+      serializeExchange(exchangeWith({ tagged })),
+    );
+    const out = (revived.body as { tagged: Buffer & { origin?: string } })
+      .tagged;
+    expect(out.toString()).toBe("x");
+    expect(out.origin).toBeUndefined();
+  });
+
+  /**
    * @case State hidden on an array is refused, not dropped
    * @preconditions An array carrying a named property, which the index walk
    *   cannot see
@@ -410,6 +573,80 @@ describe("deferral serialization hostile input", () => {
         exchangeWith({ when: { [DATE_TAG]: "2020-01-01T00:00:00.000Z" } }),
       ),
     ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+  });
+
+  /**
+   * @case A byte array over a transferred ArrayBuffer is refused by name
+   * @preconditions A Uint8Array whose backing ArrayBuffer was detached by a
+   *   transfer, as a worker handoff leaves it
+   * @expectedResult RC5042 naming the path, not the bare TypeError
+   *   Buffer.from would throw
+   */
+  test("refuses a byte array over a detached ArrayBuffer", () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    structuredClone(bytes.buffer, { transfer: [bytes.buffer] });
+    expect(() => serializeExchange(exchangeWith({ bytes }))).toThrow(
+      expect.objectContaining({
+        rc: "RC5042",
+        message: expect.stringContaining(
+          "body.bytes holds a byte array over a detached",
+        ),
+      }),
+    );
+  });
+
+  /**
+   * @case An envelope cannot be forged behind a dropped undefined sibling
+   * @preconditions A body field shaped like an envelope plus one sibling
+   *   whose value is undefined, which the walk drops, as a route that
+   *   spreads inbound JSON into an object with an optional field produces
+   * @expectedResult RC5042 at defer time for every tag, since what would be
+   *   stored is the bare envelope
+   */
+  test("refuses a forged envelope hidden behind an undefined sibling", () => {
+    for (const [tag, text] of [
+      [DATE_TAG, "2020-01-01T00:00:00.000Z"],
+      [BUFFER_TAG, "AAAA"],
+      [BYTES_TAG, "AAAA"],
+    ] as const) {
+      expect(() =>
+        serializeExchange(
+          exchangeWith({ blob: { [tag]: text, gone: undefined } }),
+        ),
+      ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    }
+  });
+
+  /**
+   * @case Body data cannot forge either bytes envelope
+   * @preconditions A body field shaped exactly like the internal buffer or
+   *   bytes envelope, which attacker-influenced JSON can be
+   * @expectedResult RC5042 at defer time for each, so a string never changes
+   *   into bytes on the way back
+   */
+  test("refuses a body that forges a bytes envelope", () => {
+    for (const tag of [BUFFER_TAG, BYTES_TAG]) {
+      expect(() =>
+        serializeExchange(exchangeWith({ blob: { [tag]: "AAAA" } })),
+      ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    }
+  });
+
+  /**
+   * @case A corrupted stored bytes envelope fails loudly
+   * @preconditions A stored form whose bytes envelope is not base64, which
+   *   Buffer.from would decode to fewer bytes without an error
+   * @expectedResult RC5042 rather than truncated bytes handed to the route
+   */
+  test("refuses an unparseable stored bytes envelope", () => {
+    for (const tag of [BUFFER_TAG, BYTES_TAG]) {
+      expect(() =>
+        deserializeExchange(context, {
+          body: { blob: { [tag]: "not base64!" } },
+          headers: { "routecraft.id": "ex-1" },
+        }),
+      ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    }
   });
 
   /**

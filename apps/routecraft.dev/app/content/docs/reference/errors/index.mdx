@@ -737,7 +737,9 @@ Exchange cannot be persisted for deferral
 **Why it happens**  
 Deferral writes the exchange to durable storage, so its `body` and `headers` must be plain JSON data. The error names the exact path that failed. Refused values are functions, symbols, bigints, non-finite numbers, circular references, class instances, and anything carrying the framework's `Secret` brand. A class instance is refused rather than downgraded because what would come back is a plain object wearing the same fields with none of the behaviour, and the failure would surface as a broken method call after resume instead of at the defer.
 
-`Date` is the exception: it round-trips faithfully through a tagged envelope, so a timestamp in the body is still a `Date` after resume.
+Two kinds of value are the exceptions, each carried through a tagged envelope: a `Date` is still a `Date` after resume, and raw bytes (a `Buffer` or a plain `Uint8Array`, as a mail attachment or an HTTP body leaves them) come back as the constructor that went in, holding the same bytes. Bytes are stored as base64, a third larger than the raw size, for the life of the hold. A subclass of either, a typed array of another element type, a `Date` carrying extra properties, or a byte array carrying a symbol-keyed property is still refused, since the envelope would resume without them. A string-keyed property hung on a byte array is the one thing not carried and not refused: finding one means reading every byte as a property name, seconds of work on a large attachment, to guard a property nothing puts there.
+
+The same code is raised at resume time if a stored envelope cannot be revived (a hand-edited row whose date does not parse or whose bytes are not base64), rather than handing the route a value that changed shape in the store.
 
 **Suggestion**  
 Move the offending value out of the exchange before the defer point. Resolve it to a string, keep it in `context.store` (which outlives the exchange and is never serialized), or recompute it after resume. Blocks declared `lifetime: "context"` already live in the context store and are unaffected.

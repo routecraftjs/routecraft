@@ -241,7 +241,7 @@ In source mode (`.from(mail(...))`) the exchange **body** is just the parsed mes
 |-------|------|-------------|
 | `text` | `string?` | Plain text body, when the message included a `text/plain` part. |
 | `html` | `string?` | HTML body, when the message included a `text/html` part. |
-| `attachments` | `MailAttachment[]?` | File attachments. Attachments are message content (not envelope), so they stay on the body alongside `text`/`html`, mirroring how the HTTP source keeps multipart files on the body. Each `content` is a `Buffer`, which the deferral store refuses (`RC5042`), so a route that defers drops or transforms the attachments before `.defer()`. |
+| `attachments` | `MailAttachment[]?` | File attachments. Attachments are message content (not envelope), so they stay on the body alongside `text`/`html`, mirroring how the HTTP source keeps multipart files on the body. Each `content` is a `Buffer`, which a `.defer()` persists as base64 and hands back as a `Buffer` on resume; a route that holds large attachments for days and does not need them afterwards drops `body.attachments` before the defer point. |
 
 **Source headers (`routecraft.mail.*`):** \{#source-headers}
 
