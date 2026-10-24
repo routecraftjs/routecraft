@@ -6,7 +6,9 @@ import {
   direct,
   isHookRefusal,
   noop,
+  otherwise,
   refuse,
+  when,
 } from "../src/index.ts";
 import { anonymousOrigin as origin } from "./helpers/authority.ts";
 import { expectBodyOf } from "./helpers/types.ts";
@@ -187,6 +189,37 @@ describe(".validate() refusing the caller", () => {
       .from(direct<{ title?: string }>())
       .validate(() => refuse("Never."));
     expectBodyOf(always).toEqualTypeOf<{ title?: string }>();
+  });
+
+  /**
+   * @case The body type after a validator that never returns
+   * @preconditions A validator typed `never` because every path throws, on its own and ending a .choice() branch whose result type the validator's input does not match
+   * @expectedResult The body type after the step is never, so the branch fits the choice's result type
+   */
+  test("carries never after a validator that always throws", () => {
+    const fail = (): never => {
+      throw new Error("Not created.");
+    };
+
+    const alone = craft()
+      .id("alone")
+      .from(direct<{ title?: string }>())
+      .validate(fail);
+    expectBodyOf(alone).toEqualTypeOf<never>();
+
+    const branched = craft()
+      .id("branched")
+      .from(direct<{ title?: string }>())
+      .choice<{ created: true }>(
+        when(
+          (exchange) => exchange.body.title === undefined,
+          (failed) => failed.transform(() => ({ mailed: true })).validate(fail),
+        ),
+        otherwise((created) => created.transform(() => ({
+          created: true as const,
+        }))),
+      );
+    expectBodyOf(branched).toEqualTypeOf<{ created: true }>();
   });
 
   /**
