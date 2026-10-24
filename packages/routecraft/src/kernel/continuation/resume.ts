@@ -31,9 +31,10 @@ import {
 import { DeferralHeaders } from "./exchange-state.ts";
 import { requireContinuations, type DeferralRuntime } from "./port.ts";
 import {
+  decodeOutcome,
   decodePersistable,
   deserializeExchange,
-  encodePersistable,
+  detachPersistable,
 } from "./serialize.ts";
 import type { DetachedKind } from "../../pipeline/chain-policy.ts";
 import type { DeferSite } from "./sites.ts";
@@ -454,7 +455,10 @@ export async function reviveDeferral(
     });
     // Internals, not headers: step state must not re-serialize into a second deferral.
     if (site.site.reentrant && deferral.stepState !== undefined) {
-      setResumeStepState(exchange, decodePersistable(deferral.stepState));
+      setResumeStepState(
+        exchange,
+        decodePersistable(deferral.stepState, "stepState"),
+      );
     }
 
     context.emit("route:exchange:resumed", {
@@ -514,20 +518,6 @@ export async function reviveDeferral(
     routeId: deferral.routeId,
     continuation,
   };
-}
-
-/**
- * The cached outcome as the ingress route should see it: the store holds
- * the terminal body in its encoded form (a `Date` or bytes inside the
- * serializer's envelope), so a duplicate's acknowledgment revives it the way
- * the first acknowledgment carried it live.
- *
- * @internal
- */
-function revivedOutcome(outcome: SerializedOutcome): SerializedOutcome {
-  return outcome.body === undefined
-    ? outcome
-    : { ...outcome, body: decodePersistable(outcome.body) };
 }
 
 /**
@@ -654,7 +644,7 @@ function unresumable(deferral: Deferral): ResumeAcknowledgment {
       routeId: deferral.routeId,
       // Missing means execution two is still running or died mid-run.
       continuation: deferral.continuation
-        ? revivedOutcome(deferral.continuation)
+        ? decodeOutcome(deferral.continuation)
         : {
             status: "failed",
             error: {
@@ -932,10 +922,8 @@ function rehydrate(
  * is the second deferral's acknowledgment, and handing its token to whoever
  * resumed the first would give approver A approver B's capability. A
  * completed run caches its terminal body only when it is storable, and
- * carries it in its live form: the store encodes on write, so handing it
- * the encoded form would double-encode, and a `Date` or bytes, which the
- * encoder wraps in a reserved envelope, would then be refused as a forged
- * envelope and leave the result unrecorded.
+ * carries it in its live form: the store encodes on write, and an
+ * already-encoded `Date` or bytes would be refused as a forged envelope.
  *
  * @internal
  */
@@ -970,11 +958,9 @@ async function runContinuation(
   }
   let body: unknown;
   try {
-    // Encoded and decoded: proves the body storable, and yields a detached
-    // copy in live form so the ingress route cannot reach into the exchange.
-    body = decodePersistable(
-      encodePersistable(result.exchange.body, "terminal body"),
-    );
+    // A detached copy, so the ingress route cannot reach into the exchange;
+    // the walk also proves the body storable before the store sees it.
+    body = detachPersistable(result.exchange.body, "terminal body");
   } catch {
     body = undefined;
   }

@@ -74,8 +74,11 @@ export {
   BUFFER_TAG,
   BYTES_TAG,
   DATE_TAG,
+  decodeOutcome,
   decodePersistable,
   deserializeExchange,
+  detachPersistable,
+  encodeOutcome,
   serializeExchange,
 } from "../../kernel/continuation/serialize.ts";
 

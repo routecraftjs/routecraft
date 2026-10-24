@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { rcError } from "../../error.ts";
 import { compareCodeUnits } from "../../shared/compare.ts";
 import { stepStateFingerprint } from "../../kernel/continuation/hash.ts";
-import { encodePersistable } from "../../kernel/continuation/serialize.ts";
+import {
+  encodeOutcome,
+  encodePersistable,
+} from "../../kernel/continuation/serialize.ts";
 import {
   claimed,
   claimedBy,
@@ -221,17 +224,7 @@ export class MemoryDeferralStore implements DeferralStore {
     if (!record) return;
     this.#records.set(
       id,
-      clone({
-        ...record,
-        continuation: {
-          ...continuation,
-          ...(continuation.body !== undefined
-            ? {
-                body: encodePersistable(continuation.body, "continuation.body"),
-              }
-            : {}),
-        },
-      }),
+      clone({ ...record, continuation: encodeOutcome(continuation) }),
     );
   }
 

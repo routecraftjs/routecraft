@@ -9,7 +9,7 @@ import {
 } from "../../exchange.ts";
 import type { CraftContext } from "../../context.ts";
 import type { Principal } from "../../principal.ts";
-import type { SerializedExchange } from "./types.ts";
+import type { SerializedExchange, SerializedOutcome } from "./types.ts";
 
 /**
  * Serialization is a security boundary, not plumbing.
@@ -137,7 +137,10 @@ export function deserializeExchange(
   context: CraftContext,
   serialized: SerializedExchange,
 ): Exchange {
-  const headers = decode(serialized.headers) as Record<string, unknown>;
+  const headers = decode(serialized.headers, "exchange headers") as Record<
+    string,
+    unknown
+  >;
   const principal = headers[HeadersKeys.AUTH_PRINCIPAL];
   if (
     principal !== undefined &&
@@ -149,10 +152,19 @@ export function deserializeExchange(
     );
   }
   return new DefaultExchange(context, {
-    body: decode(serialized.body),
+    body: decode(serialized.body, "exchange body"),
     headers: headers as ExchangeHeaders,
   });
 }
+
+/**
+ * The shape a walk produces: `wire` is the JSON form a store holds, with a
+ * `Date` and bytes inside their envelopes and a null-prototype object copy;
+ * `live` is a detached copy in the form route code works with, a `Date` a
+ * `Date`, bytes the constructor they were, an ordinary-prototype object.
+ * The admission rules are the same in both.
+ */
+type Form = "wire" | "live";
 
 /**
  * Run an arbitrary value through the same JSON-data rules the exchange
@@ -177,16 +189,77 @@ export function encodePersistable(value: unknown, path: string): unknown {
 }
 
 /**
- * The read half of {@link encodePersistable}: revive the reserved envelopes
- * (a `Date` or raw bytes written by `encode`) in a stored free-form slot.
- * `stepState` is the consumer, so a step-owned `Date` or byte array (an
- * agent thread's file part) round-trips the same way an exchange-held one
- * does rather than resurfacing as the raw envelope object.
+ * The same admission rules as {@link encodePersistable}, returning a
+ * detached copy in live form rather than the wire form: a `Date` is a new
+ * `Date`, bytes are a copy with the constructor they had, an object copy
+ * keeps an ordinary prototype. For a value that has to be proven storable
+ * and handed on live before anything writes it, such as a continuation's
+ * terminal body on its way to the acknowledgment.
+ *
+ * @param value - The value to check and copy.
+ * @param path - Label used in the error message when it fails.
+ * @throws RC5042 naming the offending path.
  *
  * @internal
  */
-export function decodePersistable(value: unknown): unknown {
-  return decode(value);
+export function detachPersistable(value: unknown, path: string): unknown {
+  return encode(value, path, new Set(), "live");
+}
+
+/**
+ * The read half of {@link encodePersistable}: revive the reserved envelopes
+ * (a `Date` or raw bytes written by `encode`) in a stored free-form slot.
+ * `stepState` is one consumer, so a step-owned `Date` or byte array (an
+ * agent thread's file part) round-trips the same way an exchange-held one
+ * does rather than resurfacing as the raw envelope object.
+ *
+ * @param value - The stored value.
+ * @param path - The slot being revived, named in the error when a stored
+ *   envelope cannot be.
+ * @throws RC5042 when a stored envelope does not parse.
+ *
+ * @internal
+ */
+export function decodePersistable(
+  value: unknown,
+  path = "stored value",
+): unknown {
+  return decode(value, path);
+}
+
+/**
+ * The persistable form of a continuation outcome: the terminal body is the
+ * one slot that may hold a `Date` or bytes, so it alone passes through
+ * {@link encodePersistable}. A store calls this on write; the read half is
+ * {@link decodeOutcome}.
+ *
+ * @internal
+ */
+export function encodeOutcome(outcome: SerializedOutcome): SerializedOutcome {
+  return outcome.body === undefined
+    ? outcome
+    : {
+        ...outcome,
+        body: encodePersistable(outcome.body, "continuation.body"),
+      };
+}
+
+/**
+ * The read half of {@link encodeOutcome}: a stored outcome with its terminal
+ * body revived, as the acknowledgment of a duplicate resume and a boot
+ * reconciliation hand it on.
+ *
+ * @throws RC5042 when the stored body holds an envelope that does not parse.
+ *
+ * @internal
+ */
+export function decodeOutcome(outcome: SerializedOutcome): SerializedOutcome {
+  return outcome.body === undefined
+    ? outcome
+    : {
+        ...outcome,
+        body: decodePersistable(outcome.body, "continuation.body"),
+      };
 }
 
 /**
@@ -208,6 +281,7 @@ function encode(
   value: unknown,
   path: string,
   seen: Set<object> = new Set(),
+  form: Form = "wire",
 ): unknown {
   if (value === null || value === undefined) return value;
 
@@ -254,7 +328,9 @@ function encode(
     ) {
       throw refuse(path, "a Date carrying extra properties");
     }
-    return { [DATE_TAG]: value.toISOString() };
+    return form === "live"
+      ? new Date(value.getTime())
+      : { [DATE_TAG]: value.toISOString() };
   }
 
   // Exact prototypes only, as with Date: a subclass would resume as a plain
@@ -281,6 +357,17 @@ function encode(
     // From the view's own window, not `object.buffer`: a subarray, or a
     // small Buffer carved from the shared pool, shares an ArrayBuffer with
     // bytes that were never part of the value.
+    if (form === "live") {
+      // `slice` on the ArrayBuffer copies exactly the window into a fresh
+      // one, so the copy exposes nothing beyond the bytes.
+      const window = (object.buffer as ArrayBuffer).slice(
+        object.byteOffset,
+        object.byteOffset + object.byteLength,
+      );
+      return prototype === Buffer.prototype
+        ? Buffer.from(window)
+        : new Uint8Array(window);
+    }
     const encoded = Buffer.from(
       object.buffer,
       object.byteOffset,
@@ -313,7 +400,9 @@ function encode(
       // a route would see a different value depending on which backend a
       // deployment happened to resolve.
       return Array.from(value, (entry, index) =>
-        entry === undefined ? null : encode(entry, `${path}[${index}]`, seen),
+        entry === undefined
+          ? null
+          : encode(entry, `${path}[${index}]`, seen, form),
       );
     }
 
@@ -351,17 +440,25 @@ function encode(
       throw refuse(path, `a non-enumerable property ("${hidden}")`);
     }
 
-    // Null-prototype accumulator: `__proto__` is a genuine own key on any
-    // object that came from JSON.parse, and assigning it on a normal object
-    // literal triggers the Object.prototype setter, which swaps the copy's
-    // prototype and loses the field.
-    const copy: Record<string, unknown> = Object.create(null);
+    // Null-prototype accumulator for the wire form: `__proto__` is a genuine
+    // own key on any object that came from JSON.parse, and assigning it on a
+    // normal object literal triggers the Object.prototype setter, which
+    // swaps the copy's prototype and loses the field. The live form keeps an
+    // ordinary prototype, as `decode` does, and writes the key with
+    // `defineProperty` for the same reason.
+    const copy: Record<string, unknown> =
+      form === "live" ? {} : Object.create(null);
     let stored = 0;
     let last: string | undefined;
     for (const key of keys) {
       const entry = (object as Record<string, unknown>)[key];
       if (entry === undefined) continue;
-      copy[key] = encode(entry, `${path}.${key}`, seen);
+      Object.defineProperty(copy, key, {
+        value: encode(entry, `${path}.${key}`, seen, form),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
       stored += 1;
       last = key;
     }
@@ -380,13 +477,14 @@ function encode(
 /**
  * Revive tagged values produced by {@link encode}: a `Date`, a `Buffer` and
  * a `Uint8Array`. Everything else is returned as-is; the input is already
- * JSON data by construction.
+ * JSON data by construction. `path` names the slot being revived, for the
+ * error when a stored envelope cannot be.
  *
  * @internal
  */
-function decode(value: unknown): unknown {
+function decode(value: unknown, path: string): unknown {
   if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(decode);
+  if (Array.isArray(value)) return value.map((entry) => decode(entry, path));
 
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length === 1) {
@@ -396,12 +494,12 @@ function decode(value: unknown): unknown {
       // A stored envelope that does not parse means the row was corrupted or
       // hand-edited. Reviving it as `Invalid Date` would hand the route a
       // Date-shaped value that fails every comparison it is used in.
-      if (Number.isNaN(revived.getTime())) throw unrevivable("date");
+      if (Number.isNaN(revived.getTime())) throw unrevivable(path, "date");
       return revived;
     }
-    if (tag === BUFFER_TAG) return reviveBytes(encoded, "buffer");
+    if (tag === BUFFER_TAG) return reviveBytes(encoded, path, "buffer");
     if (tag === BYTES_TAG) {
-      const bytes = reviveBytes(encoded, "bytes");
+      const bytes = reviveBytes(encoded, path, "bytes");
       // A view, not a copy: `reviveBytes` already backs the bytes with their
       // own ArrayBuffer, so the Uint8Array exposes nothing beyond them.
       return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -416,7 +514,7 @@ function decode(value: unknown): unknown {
   const copy: Record<string, unknown> = {};
   for (const [key, entry] of entries) {
     Object.defineProperty(copy, key, {
-      value: decode(entry),
+      value: decode(entry, path),
       enumerable: true,
       writable: true,
       configurable: true,
@@ -459,12 +557,12 @@ function isArrayIndex(key: string, length: number): boolean {
  *
  * @internal
  */
-function reviveBytes(encoded: unknown, what: string): Buffer {
+function reviveBytes(encoded: unknown, path: string, what: string): Buffer {
   if (typeof encoded !== "string" || encoded.length % 4 !== 0) {
-    throw unrevivable(what);
+    throw unrevivable(path, what);
   }
   const decoded = Buffer.from(encoded, "base64");
-  if (decoded.toString("base64") !== encoded) throw unrevivable(what);
+  if (decoded.toString("base64") !== encoded) throw unrevivable(path, what);
   // Backed by its own ArrayBuffer: a short decode lands in Node's shared
   // Buffer pool, where `.buffer` would expose the neighbours, which during a
   // resume are the other envelopes of the same stored exchange. A decode
@@ -486,9 +584,9 @@ function reviveBytes(encoded: unknown, what: string): Buffer {
  *
  * @internal
  */
-function unrevivable(what: string): Error {
+function unrevivable(path: string, what: string): Error {
   return rcError("RC5042", undefined, {
-    message: `Cannot resume: the stored exchange holds an unparseable ${what} envelope, so it cannot be revived.`,
+    message: `Cannot revive the stored ${path}: it holds an unparseable ${what} envelope.`,
   });
 }
 

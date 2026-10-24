@@ -259,7 +259,14 @@ export interface SerializedOutcome {
    * the next resume.
    */
   readonly status: "completed" | "failed" | "dropped" | "deferred";
-  /** Terminal body on a completed run. Plain JSON data, same rule as {@link SerializedExchange}. */
+  /**
+   * Terminal body on a completed run. Live on a resume acknowledgment and
+   * as handed to {@link DeferralStore.recordContinuation}: a `Date` is a
+   * `Date` and bytes are the `Buffer` or `Uint8Array` they were. On a stored
+   * {@link Deferral.continuation} it is the store's encoded form, plain JSON
+   * data under the same rule as {@link SerializedExchange}, which the
+   * kernel revives on read.
+   */
   readonly body?: unknown;
   /** Error code and message on a failed run. The stack is deliberately not persisted. */
   readonly error?: { readonly rc?: string; readonly message: string };
@@ -790,6 +797,13 @@ export interface DeferralStore {
    * without re-running the continuation. Silently ignores an unknown id: the
    * cache is a convenience, and losing the race to a sweep must not turn
    * into a second failure on the way out.
+   *
+   * `continuation.body` arrives live (a `Date`, a `Buffer`, a `Uint8Array`)
+   * and is subject to the same plain-JSON rule as every other free-form
+   * slot: the store writes `encodeOutcome(continuation)` (`RC5042` if the
+   * body cannot be persisted) and hands the encoded form back from `get`,
+   * which the kernel revives before a duplicate sees it, as it does
+   * `stepState`.
    *
    * Unconditional by design: only the caller that won `markResumed` ever
    * writes a continuation, so there is no competing writer for this row and

@@ -4,7 +4,10 @@ import { dirname } from "node:path";
 import { rcError } from "../../error.ts";
 import { isRoutecraftError } from "../../brand.ts";
 import { stepStateFingerprint } from "../../kernel/continuation/hash.ts";
-import { encodePersistable } from "../../kernel/continuation/serialize.ts";
+import {
+  encodeOutcome,
+  encodePersistable,
+} from "../../kernel/continuation/serialize.ts";
 import {
   assertListCursor,
   assertScanCursor,
@@ -899,11 +902,5 @@ function toDeferral(row: DeferralRow): Deferral {
  * @internal
  */
 function serializeContinuation(continuation: SerializedOutcome): unknown {
-  return {
-    ...continuation,
-    ...(continuation.body !== undefined
-      ? { body: encodePersistable(continuation.body, "continuation.body") }
-      : {}),
-    at: continuation.at.toISOString(),
-  };
+  return { ...encodeOutcome(continuation), at: continuation.at.toISOString() };
 }

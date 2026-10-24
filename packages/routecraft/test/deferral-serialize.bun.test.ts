@@ -16,7 +16,10 @@ import {
   BUFFER_TAG,
   BYTES_TAG,
   DATE_TAG,
+  decodeOutcome,
   deserializeExchange,
+  detachPersistable,
+  encodeOutcome,
   serializeExchange,
 } from "../src/plugins/deferral/public.ts";
 // Not public API: the Secret brand is reserved for #526 and reachable only
@@ -218,6 +221,116 @@ describe("deferral serialization", () => {
     sparse.push(3);
     const serialized = serializeExchange(exchangeWith({ list: sparse }));
     expect((serialized.body as { list: unknown[] }).list).toEqual([1, null, 3]);
+  });
+});
+
+describe("detached live copies", () => {
+  /**
+   * @case A live copy keeps every admitted kind as itself
+   * @preconditions A value holding a Date, a Buffer, a Uint8Array, a nested
+   *   object and an array
+   * @expectedResult The copy carries a new Date with the same instant, a
+   *   Buffer and a Uint8Array with the same bytes on their own ArrayBuffers,
+   *   ordinary-prototype objects and arrays, and shares nothing with the
+   *   source
+   */
+  test("detachPersistable copies in live form", () => {
+    const when = new Date("2026-05-01T09:00:00.000Z");
+    const receipt = Buffer.from("paid");
+    const bytes = new Uint8Array([1, 2, 3]);
+    const source = { when, receipt, bytes, lines: [{ n: 1 }] };
+
+    const copy = detachPersistable(source, "terminal body") as typeof source;
+
+    expect(copy).not.toBe(source);
+    expect(copy.when).toBeInstanceOf(Date);
+    expect(copy.when).not.toBe(when);
+    expect(copy.when.getTime()).toBe(when.getTime());
+    expect(Buffer.isBuffer(copy.receipt)).toBe(true);
+    expect(copy.receipt).not.toBe(receipt);
+    expect(copy.receipt.toString()).toBe("paid");
+    expect(copy.receipt.buffer.byteLength).toBe(4);
+    expect(Object.getPrototypeOf(copy.bytes)).toBe(Uint8Array.prototype);
+    expect(Array.from(copy.bytes)).toEqual([1, 2, 3]);
+    expect(copy.bytes.buffer).not.toBe(bytes.buffer);
+    expect(Object.getPrototypeOf(copy)).toBe(Object.prototype);
+    expect(copy.lines).not.toBe(source.lines);
+    expect(copy.lines[0]).toEqual({ n: 1 });
+  });
+
+  /**
+   * @case A live copy is held to the same rules as the wire form
+   * @preconditions A value holding a function, and one shaped like a
+   *   reserved envelope
+   * @expectedResult RC5042 for both, naming the path
+   */
+  test("detachPersistable refuses what encodePersistable refuses", () => {
+    expect(() => detachPersistable({ run: () => 1 }, "terminal body")).toThrow(
+      expect.objectContaining({
+        rc: "RC5042",
+        message: expect.stringContaining("terminal body.run"),
+      }),
+    );
+    expect(() =>
+      detachPersistable({ blob: { [BYTES_TAG]: "AAAA" } }, "terminal body"),
+    ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+  });
+
+  /**
+   * @case An outcome's terminal body is the one slot that crosses the encoder
+   * @preconditions A completed outcome whose body holds a Date and a Buffer
+   * @expectedResult encodeOutcome leaves status and at alone and encodes the
+   *   body into envelopes; decodeOutcome revives it; an outcome with no body
+   *   passes through both unchanged
+   */
+  test("encodeOutcome and decodeOutcome round-trip the body slot", () => {
+    const at = new Date("2026-05-01T10:00:00.000Z");
+    const when = new Date("2026-05-01T09:00:00.000Z");
+    const outcome = {
+      status: "completed" as const,
+      body: { when, receipt: Buffer.from("paid") },
+      at,
+    };
+
+    const stored = encodeOutcome(outcome);
+    expect(stored.at).toBe(at);
+    expect(stored.body).toEqual({
+      when: { [DATE_TAG]: when.toISOString() },
+      receipt: { [BUFFER_TAG]: Buffer.from("paid").toString("base64") },
+    });
+
+    const revived = decodeOutcome(stored).body as {
+      when: Date;
+      receipt: Buffer;
+    };
+    expect(revived.when.getTime()).toBe(when.getTime());
+    expect(revived.receipt.toString()).toBe("paid");
+
+    const bodiless = { status: "dropped" as const, reason: "no", at };
+    expect(encodeOutcome(bodiless)).toBe(bodiless);
+    expect(decodeOutcome(bodiless)).toBe(bodiless);
+  });
+
+  /**
+   * @case A corrupted stored outcome names its slot
+   * @preconditions A stored outcome whose body holds a date envelope that
+   *   does not parse
+   * @expectedResult RC5042 whose message names continuation.body rather
+   *   than the exchange
+   */
+  test("decodeOutcome refuses a corrupted body naming the slot", () => {
+    expect(() =>
+      decodeOutcome({
+        status: "completed",
+        body: { when: { [DATE_TAG]: "not-a-date" } },
+        at: new Date(),
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        rc: "RC5042",
+        message: expect.stringContaining("continuation.body"),
+      }),
+    );
   });
 });
 

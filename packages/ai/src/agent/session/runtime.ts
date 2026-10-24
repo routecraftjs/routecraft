@@ -10,6 +10,7 @@ import {
   rcCodeOf,
   rcError,
   reidentificationDeviation,
+  decodeOutcome,
   reviveDeferral,
   takePage,
   type Authority,
@@ -2093,9 +2094,10 @@ function parkVerdict(
   }
   if (outcome.kind === "denied")
     return deniedOutcome(deferralId, outcome.reason);
-  const run = parked.continuation;
   // Resumed, and execution two died before recording how it ended.
-  if (run === undefined) return "lost";
+  if (parked.continuation === undefined) return "lost";
+  // The store holds the terminal body encoded; the call settles with it live.
+  const run = decodeOutcome(parked.continuation);
   switch (run.status) {
     case "completed":
       return outcomeOfResult(run.body);

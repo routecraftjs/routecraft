@@ -147,7 +147,9 @@ export function deferredPrincipal(
   if (stored === undefined || typeof stored !== "object" || stored === null) {
     return undefined;
   }
-  return authority.restore(decodePersistable(stored) as Principal);
+  return authority.restore(
+    decodePersistable(stored, "parked principal") as Principal,
+  );
 }
 
 /**

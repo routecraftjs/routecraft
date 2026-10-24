@@ -696,6 +696,31 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     });
 
     /**
+     * @case A terminal body holding a Date and bytes is stored encoded
+     * @preconditions A resumed record; a continuation result whose body holds a Date and a Buffer
+     * @expectedResult The read-back body holds the serializer's envelopes rather than an ISO string or a Buffer JSON object, so the kernel can revive it for a duplicate on every backend alike
+     */
+    test("stores a continuation body's Date and bytes as envelopes", async () => {
+      store = await open();
+      await store.create(record());
+      await store.markResumed("def-1", { at: new Date() });
+      const when = new Date("2026-05-01T09:00:00.000Z");
+      await store.recordContinuation("def-1", {
+        status: "completed",
+        body: { when, receipt: Buffer.from("paid") },
+        at: continuation.at,
+      });
+
+      const read = await store.get("def-1");
+      expect(read?.continuation?.body).toEqual({
+        when: { "$routecraft.date": when.toISOString() },
+        receipt: {
+          "$routecraft.buffer": Buffer.from("paid").toString("base64"),
+        },
+      });
+    });
+
+    /**
      * @case Recording a continuation result for an unknown id is a no-op
      * @preconditions Empty store
      * @expectedResult The call resolves without throwing
