@@ -234,7 +234,7 @@ export async function runAuthorizer(
       throw refused("did not settle before the route aborted");
     // A refusal this function already built and logged. Re-logging it as a
     // hook that threw would double-count it and misname it.
-    if (isRefusal(err)) throw err;
+    if (isResumeRefusal(err)) throw err;
     throw refused("threw", err);
   }
 }
@@ -344,7 +344,7 @@ export async function runElevator(
   } catch (err) {
     if (err === HOOK_ABORTED)
       throw refused("did not settle before the route aborted");
-    if (isRefusal(err)) throw err;
+    if (isResumeRefusal(err)) throw err;
     throw refused("threw", err);
   }
 
@@ -628,7 +628,7 @@ function stableJson(value: unknown): string {
   });
 }
 
-function isRefusal(err: unknown): boolean {
+function isResumeRefusal(err: unknown): boolean {
   // By brand: a hook may reject with an object shaped like a refusal.
   return rcCodeOf(err) === "RC5056";
 }

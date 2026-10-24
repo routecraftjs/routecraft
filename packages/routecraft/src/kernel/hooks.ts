@@ -185,10 +185,10 @@ export function isHookRefusal(value: unknown): value is HookRefusal {
 }
 
 /**
- * The trusted detail of an `RC5068` the kernel raised for a validate hook,
- * or `undefined` for the same shape built by a step or carried by any other
- * error. What a door maps to the caller; {@link isHookRefusal} reads the
- * public detail off any error.
+ * The trusted detail of an `RC5068` raised through {@link refusalError}
+ * for a validate hook or a `.validate()` step, or `undefined` for the same
+ * shape built by hand or carried by any other error. What a door maps to
+ * the caller; {@link isHookRefusal} reads the public detail off any error.
  *
  * @internal
  */
