@@ -1103,6 +1103,53 @@ describe("a restart reconciles a parked call against its deferral", () => {
   );
 
   /**
+   * @case A recorded outcome holding a Date and bytes is delivered live at boot
+   * @preconditions A first context parks the call and stops; the deferral is resumed offline with a recorded outcome in the store's form, a Date envelope and a bytes envelope in its body; a second context boots
+   * @expectedResult The boot revives the body before delivering it, so the model reads the Date as its ISO string and never the envelope key
+   */
+  test("a recorded outcome with a Date and bytes is delivered revived at boot", async () => {
+    const { receipt, deferralId } = await parkThenStop();
+    // The store's form, as the kernel writes it: envelopes, not live values.
+    await resumeOffline(deferralId, {
+      status: "completed",
+      body: {
+        approved: true,
+        when: { "$routecraft.date": "2026-05-01T09:00:00.000Z" },
+        receipt: { "$routecraft.buffer": Buffer.from("ok").toString("base64") },
+      },
+      at: new Date(),
+    });
+    llm.script.push({ text: "caught up" });
+    t = await contextWith({ store: store! }).build();
+    await t.startAndWaitReady();
+    await until(() => llm.calls.length === 2);
+    await t.ctx.getRouteById("chat")!.drain();
+    const text = lastUserOf(llm.calls[1]!)[0]!.text;
+    expect(text).toContain(`Handle: ${receipt.handle}`);
+    expect(text).toContain('"when":"2026-05-01T09:00:00.000Z"');
+    expect(text).not.toContain("$routecraft");
+    expect(await summaryOf(t, "s")).toMatchObject({ background: 0, inbox: 0 });
+  });
+
+  /**
+   * @case A recorded outcome the boot cannot revive keeps its call for the next boot
+   * @preconditions A first context parks the call and stops; the deferral is resumed offline with a recorded outcome whose body holds a date envelope that does not parse, as a hand-edited row would; a second context boots
+   * @expectedResult The boot completes rather than failing on the one corrupt record, retires nothing, and leaves the call parked for a later reconciliation
+   */
+  test("a corrupt recorded outcome keeps the call parked at boot", async () => {
+    const { deferralId } = await parkThenStop();
+    await resumeOffline(deferralId, {
+      status: "completed",
+      body: { when: { "$routecraft.date": "not-a-date" } },
+      at: new Date(),
+    });
+    t = await contextWith({ store: store! }).build();
+    await t.startAndWaitReady();
+    expect(await summaryOf(t, "s")).toMatchObject({ background: 1, inbox: 0 });
+    expect(llm.calls).toHaveLength(1);
+  });
+
+  /**
    * @case A decision reconciled at boot is somebody else's decision, so the boot revival re-identifies first
    * @preconditions The turn that parked ran under a principal; the park was resumed and completed while no process watched; the second context has no reidentify hook
    * @expectedResult The boot retires the call into the inbox, refuses the revival on route:agent:session:revival:refused naming the missing hook, and runs no turn; the continuation stays stored

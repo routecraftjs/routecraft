@@ -2,10 +2,7 @@ import { randomUUID } from "node:crypto";
 import { rcError } from "../../error.ts";
 import { compareCodeUnits } from "../../shared/compare.ts";
 import { stepStateFingerprint } from "../../kernel/continuation/hash.ts";
-import {
-  encodeOutcome,
-  encodePersistable,
-} from "../../kernel/continuation/serialize.ts";
+import { encodePersistable } from "../../kernel/continuation/serialize.ts";
 import {
   claimed,
   claimedBy,
@@ -224,7 +221,9 @@ export class MemoryDeferralStore implements DeferralStore {
     if (!record) return;
     this.#records.set(
       id,
-      clone({ ...record, continuation: encodeOutcome(continuation) }),
+      // Already in its stored form: the kernel encodes an outcome before
+      // handing it over, as it serializes the exchange before `create`.
+      clone({ ...record, continuation }),
     );
   }
 

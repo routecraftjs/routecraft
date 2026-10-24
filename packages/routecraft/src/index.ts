@@ -864,14 +864,12 @@ export {
   // two, scopes its own events about a deferral with the third, revives a
   // stored stepState before rewriting a deferred thread with the fourth and
   // a stored outcome at boot with the fifth; a package cannot reach a deep
-  // import of core. encodeOutcome is what a DeferralStore of your own calls
-  // on recordContinuation.
+  // import of core.
   deferAside,
   deferralScope,
   reviveDeferral,
   decodePersistable,
   decodeOutcome,
-  encodeOutcome,
   deferredPrincipal,
   reidentificationDeviation,
   routeCanDefer,

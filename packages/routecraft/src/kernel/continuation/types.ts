@@ -260,12 +260,12 @@ export interface SerializedOutcome {
    */
   readonly status: "completed" | "failed" | "dropped" | "deferred";
   /**
-   * Terminal body on a completed run. Live on a resume acknowledgment and
-   * as handed to {@link DeferralStore.recordContinuation}: a `Date` is a
-   * `Date` and bytes are the `Buffer` or `Uint8Array` they were. On a stored
-   * {@link Deferral.continuation} it is the store's encoded form, plain JSON
-   * data under the same rule as {@link SerializedExchange}, which the
-   * kernel revives on read.
+   * Terminal body on a completed run. On a resume acknowledgment it is live:
+   * a `Date` is a `Date` and bytes are the `Buffer` or `Uint8Array` they
+   * were. As handed to {@link DeferralStore.recordContinuation} and on a
+   * stored {@link Deferral.continuation} it is the encoded form, plain JSON
+   * data under the same rule as {@link SerializedExchange}, which the kernel
+   * writes before the store sees it and revives on read.
    */
   readonly body?: unknown;
   /** Error code and message on a failed run. The stack is deliberately not persisted. */
@@ -798,12 +798,12 @@ export interface DeferralStore {
    * cache is a convenience, and losing the race to a sweep must not turn
    * into a second failure on the way out.
    *
-   * `continuation.body` arrives live (a `Date`, a `Buffer`, a `Uint8Array`)
-   * and is subject to the same plain-JSON rule as every other free-form
-   * slot: the store writes `encodeOutcome(continuation)` (`RC5042` if the
-   * body cannot be persisted) and hands the encoded form back from `get`,
-   * which the kernel revives before a duplicate sees it, as it does
-   * `stepState`.
+   * The outcome arrives in its stored form, the terminal body already
+   * encoded by the kernel as the exchange is before `create`, so a backend
+   * persists it as the plain JSON it is and hands it back unchanged from
+   * `get`; the kernel revives it before a duplicate or a boot reconciliation
+   * sees it. Unlike `stepState` and `meta`, which arrive live, nothing here
+   * is the store's to encode.
    *
    * Unconditional by design: only the caller that won `markResumed` ever
    * writes a continuation, so there is no competing writer for this row and

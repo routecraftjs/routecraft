@@ -920,7 +920,18 @@ export class AgentSessionRuntime {
         );
         continue;
       }
-      const verdict = parkVerdict(deferralId, parked);
+      let verdict: ParkVerdict | undefined;
+      try {
+        verdict = parkVerdict(deferralId, parked);
+      } catch (err: unknown) {
+        // A corrupt stored outcome (RC5042) is one call's problem, not the
+        // whole boot's: the rest of the inbox still reconciles.
+        this.host.logger.warn(
+          { err, session: key, handle: call.handle, deferralId },
+          "Parked background call's recorded outcome could not be revived; the next boot retries",
+        );
+        continue;
+      }
       if (verdict !== undefined) verdicts.set(call.handle, verdict);
     }
     return verdicts;

@@ -35,6 +35,7 @@ import {
   decodePersistable,
   deserializeExchange,
   detachPersistable,
+  encodeOutcome,
 } from "./serialize.ts";
 import type { DetachedKind } from "../../pipeline/chain-policy.ts";
 import type { DeferSite } from "./sites.ts";
@@ -185,10 +186,11 @@ export interface ResumeAcknowledgment {
    * denied) and the two would otherwise share a word while meaning
    * different things on adjacent types.
    *
-   * Its `body` is the terminal body as the deferred route left it, revived
-   * from the store's form: a `Date` is a `Date` and bytes are the `Buffer`
-   * or `Uint8Array` they were, on the first acknowledgment and on a
-   * duplicate's cached one alike. The store holds the encoded form.
+   * Its `body` is the terminal body as the deferred route left it, a
+   * detached copy: a `Date` is a `Date` and bytes are the `Buffer` or
+   * `Uint8Array` they were, on the first acknowledgment and on a duplicate's
+   * cached one alike. The store holds the encoded form, which the kernel
+   * writes and revives.
    */
   readonly continuation: SerializedOutcome;
 }
@@ -504,7 +506,9 @@ export async function reviveDeferral(
     throw error;
   }
   try {
-    await runtime.store.recordContinuation(id, continuation);
+    // The store receives the stored form, as it does the exchange at the
+    // park: the kernel owns the encoding, a backend persists what it is given.
+    await runtime.store.recordContinuation(id, encodeOutcome(continuation));
   } catch (err) {
     route.logger.error(
       { deferralId: id, err },
@@ -921,9 +925,9 @@ function rehydrate(
  * A continuation that reaches another `.defer()` caches no body: the body
  * is the second deferral's acknowledgment, and handing its token to whoever
  * resumed the first would give approver A approver B's capability. A
- * completed run caches its terminal body only when it is storable, and
- * carries it in its live form: the store encodes on write, and an
- * already-encoded `Date` or bytes would be refused as a forged envelope.
+ * completed run caches its terminal body only when it is storable. The
+ * returned outcome carries the body in live form, for the acknowledgment;
+ * {@link encodeOutcome} produces the form the store is handed.
  *
  * @internal
  */

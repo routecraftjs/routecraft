@@ -230,8 +230,9 @@ export function decodePersistable(
 /**
  * The persistable form of a continuation outcome: the terminal body is the
  * one slot that may hold a `Date` or bytes, so it alone passes through
- * {@link encodePersistable}. A store calls this on write; the read half is
- * {@link decodeOutcome}.
+ * {@link encodePersistable}. The kernel calls this before handing an
+ * outcome to the store, as it serializes the exchange before the park, so a
+ * backend persists what it is given. The read half is {@link decodeOutcome}.
  *
  * @internal
  */

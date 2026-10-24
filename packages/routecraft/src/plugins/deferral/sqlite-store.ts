@@ -4,10 +4,7 @@ import { dirname } from "node:path";
 import { rcError } from "../../error.ts";
 import { isRoutecraftError } from "../../brand.ts";
 import { stepStateFingerprint } from "../../kernel/continuation/hash.ts";
-import {
-  encodeOutcome,
-  encodePersistable,
-} from "../../kernel/continuation/serialize.ts";
+import { encodePersistable } from "../../kernel/continuation/serialize.ts";
 import {
   assertListCursor,
   assertScanCursor,
@@ -902,5 +899,7 @@ function toDeferral(row: DeferralRow): Deferral {
  * @internal
  */
 function serializeContinuation(continuation: SerializedOutcome): unknown {
-  return { ...encodeOutcome(continuation), at: continuation.at.toISOString() };
+  // The body arrives in its stored form already; only `at` needs the JSON
+  // spelling of a Date.
+  return { ...continuation, at: continuation.at.toISOString() };
 }
