@@ -268,7 +268,12 @@ export interface SerializedOutcome {
    * writes before the store sees it and revives on read.
    */
   readonly body?: unknown;
-  /** Error code and message on a failed run. The stack is deliberately not persisted. */
+  /**
+   * Error code and message on a failed run. The stack is deliberately not
+   * persisted, and the message is cut to 1024 UTF-16 units before it is
+   * recorded, so a cause that interpolates an upstream response cannot
+   * grow the store by its size.
+   */
   readonly error?: { readonly rc?: string; readonly message: string };
   /** Drop reason on a dropped run. */
   readonly reason?: string;

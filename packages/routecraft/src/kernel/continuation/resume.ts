@@ -6,6 +6,7 @@ import {
   raisedInputValidation,
   validateAgainst,
 } from "../../pipeline/validation.ts";
+import { clipText } from "../../pipeline/caller-refusal.ts";
 import { rcError } from "../../error.ts";
 import { rcCodeOf } from "../../brand.ts";
 import {
@@ -428,7 +429,7 @@ export async function reviveDeferral(
     try {
       await runtime.store.recordContinuation(id, {
         status: "failed",
-        error: { rc: "RC5047", message: expiry.message },
+        error: { rc: "RC5047", message: storedMessage(expiry.message) },
         at: resumedAt,
       });
     } catch (unrecorded) {
@@ -474,6 +475,7 @@ export async function reviveDeferral(
 
     continuation = await runContinuation(
       route,
+      id,
       exchange,
       site.site.continuation,
       resumedAt,
@@ -493,7 +495,7 @@ export async function reviveDeferral(
         status: "failed",
         error: {
           ...(rc === undefined ? {} : { rc }),
-          message: failure?.message ?? "the revival failed",
+          message: storedMessage(failure?.message ?? "the revival failed"),
         },
         at: resumedAt,
       });
@@ -920,6 +922,20 @@ function rehydrate(
 }
 
 /**
+ * The most of a failure's message a recorded outcome keeps. A step's message
+ * routinely interpolates its cause (an upstream response body, a file's
+ * contents), and the store holds the outcome until the record is swept, so
+ * the text is bounded where the policy bounds a refused payload's issues:
+ * long enough for any framework message, too short for a response body.
+ */
+const MAX_STORED_MESSAGE = 1024;
+
+/** The message a recorded `failed` outcome carries, cut to {@link MAX_STORED_MESSAGE}. */
+function storedMessage(message: string): string {
+  return clipText(message, MAX_STORED_MESSAGE);
+}
+
+/**
  * Run the continuation and reduce it to the outcome the store caches.
  *
  * A continuation that reaches another `.defer()` caches no body: the body
@@ -933,6 +949,7 @@ function rehydrate(
  */
 async function runContinuation(
   route: Route,
+  deferralId: string,
   exchange: Exchange,
   continuation: ReadonlyArray<Step<Adapter>>,
   at: Date,
@@ -954,8 +971,9 @@ async function runContinuation(
       status: "failed",
       error: {
         ...(rc === undefined ? {} : { rc }),
-        message:
+        message: storedMessage(
           error?.meta?.message ?? error?.message ?? "the continuation failed",
+        ),
       },
       at,
     };
@@ -965,7 +983,13 @@ async function runContinuation(
     // A detached copy, so the ingress route cannot reach into the exchange;
     // the walk also proves the body storable before the store sees it.
     body = detachPersistable(result.exchange.body, "terminal body");
-  } catch {
+  } catch (err) {
+    // The route ran and its effects stand, so the receipt is what is lost:
+    // this line is the only place the omission and the offending path survive.
+    route.logger.warn(
+      { deferralId, routeId: route.definition.id, err },
+      "The continuation's terminal body cannot be persisted and is omitted from the acknowledgment and the cached result",
+    );
     body = undefined;
   }
   return {

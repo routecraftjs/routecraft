@@ -228,6 +228,106 @@ describe("defer and resume", () => {
   });
 
   /**
+   * @case A continuation ends with a terminal body the serializer cannot persist
+   * @preconditions A deferred payout whose continuation leaves a function on the body, which the deferral serializer refuses
+   * @expectedResult Both acknowledgments report completed with no body rather than failing a run whose effects stand, and the route logs one warning naming the deferral, the route and the offending path, since it is the only record of the omission
+   */
+  test("a terminal body the serializer refuses is omitted and warned about", async () => {
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: Approval })
+          .transform(() => ({ paid: true, notify: () => undefined }))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(
+      await t.client.sendDirect("payout", {
+        amountCents: 25_000,
+        payee: "acme",
+      }),
+    );
+    const first = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as ResumeAcknowledgment;
+    const second = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as ResumeAcknowledgment;
+
+    for (const ack of [first, second]) {
+      expect(ack.continuation.status).toBe("completed");
+      expect("body" in ack.continuation).toBe(false);
+    }
+    const warned = t.logger.warn.mock.calls.filter((call) =>
+      String(call[1]).includes("terminal body cannot be persisted"),
+    );
+    expect(warned).toHaveLength(1);
+    const bindings = warned[0]?.[0] as {
+      deferralId: string;
+      routeId: string;
+      err: { message: string };
+    };
+    expect(bindings.deferralId).toBe(deferred.deferralId);
+    expect(bindings.routeId).toBe("payout");
+    expect(bindings.err.message).toContain("notify");
+  });
+
+  /**
+   * @case A continuation fails with a message longer than the recorded outcome keeps
+   * @preconditions A deferred payout whose continuation throws an Error with a 5000-character message
+   * @expectedResult The failed outcome on the first acknowledgment and on the duplicate's cached one carries the message cut to 1024 characters ending in an ellipsis, so an upstream body in a cause cannot grow the store by its size
+   */
+  test("a failed outcome stores its message cut to the bound", async () => {
+    const long = "x".repeat(5000);
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: Approval })
+          .transform(() => {
+            throw new Error(long);
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(
+      await t.client.sendDirect("payout", {
+        amountCents: 25_000,
+        payee: "acme",
+      }),
+    );
+    const first = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as ResumeAcknowledgment;
+    const second = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as ResumeAcknowledgment;
+
+    for (const ack of [first, second]) {
+      expect(ack.continuation.status).toBe("failed");
+      const message = ack.continuation.error?.message ?? "";
+      expect(message).toHaveLength(1024);
+      expect(message.endsWith("...")).toBe(true);
+      expect(message.startsWith("xxxx")).toBe(true);
+    }
+  });
+
+  /**
    * @case A duplicate resume meets a corrupted cached terminal body
    * @preconditions A resumed record whose cached continuation body holds a date envelope that does not parse, as a hand-edited row would
    * @expectedResult The duplicate is refused with RC5042 naming the continuation body, rather than answered with the envelope object or an Invalid Date, and the record is left as it was

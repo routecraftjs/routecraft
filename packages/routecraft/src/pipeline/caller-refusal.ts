@@ -35,18 +35,24 @@ export { MAX_WIRE_ISSUES } from "./validation.ts";
  */
 const MAX_WIRE_ISSUE_TEXT = 256;
 
-/**
- * Cut by code point, ellipsis included, so a cut never splits a surrogate
- * pair. Only the head is walked: a code point spans at most two UTF-16
- * units, so twice the cap in units holds every code point that can survive.
- */
 function clip(text: string): string {
-  if (text.length <= MAX_WIRE_ISSUE_TEXT) return text;
-  const chars = Array.from(text.slice(0, MAX_WIRE_ISSUE_TEXT * 2));
-  return text.length <= MAX_WIRE_ISSUE_TEXT * 2 &&
-    chars.length <= MAX_WIRE_ISSUE_TEXT
+  return clipText(text, MAX_WIRE_ISSUE_TEXT);
+}
+
+/**
+ * Cut `text` to at most `max` UTF-16 units, ellipsis included, by code
+ * point, so a cut never splits a surrogate pair. Only the head is walked: a
+ * code point spans at most two UTF-16 units, so twice the cap in units
+ * holds every code point that can survive.
+ *
+ * @internal
+ */
+export function clipText(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const chars = Array.from(text.slice(0, max * 2));
+  return text.length <= max * 2 && chars.length <= max
     ? text
-    : `${chars.slice(0, MAX_WIRE_ISSUE_TEXT - 3).join("")}...`;
+    : `${chars.slice(0, max - 3).join("")}...`;
 }
 
 /**
