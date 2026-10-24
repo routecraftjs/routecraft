@@ -122,19 +122,23 @@ export function refuse(
 /**
  * Machine-readable detail on the cause of an `RC5068`: which hook or
  * `.validate()` step refused, where, on which route, and how a door should
- * answer. A door reads it off `error.cause` through {@link isHookRefusal}
- * and maps the refusal only when the route is the one it dispatched, so a
- * refusal raised by a nested `direct()` call stays the instance's.
- * In-process only, never persisted.
+ * answer. The public detail is for diagnostics: {@link isHookRefusal} reads
+ * it off `error.cause`. A door never maps from it; it classifies through
+ * `callerRefusalOf`, which reads the private binding taken at the throw and
+ * maps only when the route is the one it dispatched, so a refusal raised by
+ * a nested `direct()` call stays the instance's. In-process only, never
+ * persisted.
  */
 export interface HookRefusal extends Error {
   readonly refused: {
+    /** Which kind of refuser raised it: a plugin's validate hook, or a route's `.validate()` step. */
+    readonly origin: "hook" | "step";
     /**
      * The hook, as `pluginId/hookId`; for a `.validate()` step, the step's
      * label or `validate`.
      */
     readonly hook: string;
-    /** The slot or point the hook ran in; `pipeline` for a `.validate()` step. */
+    /** The slot or point the hook ran in; {@link STEP_REFUSAL_SLOT} for a `.validate()` step. */
     readonly slot: string;
     readonly routeId: string;
     readonly kind: RefusalKind;
@@ -143,6 +147,14 @@ export interface HookRefusal extends Error {
 }
 
 const KNOWN_KINDS: ReadonlySet<string> = new Set(REFUSAL_KINDS);
+
+/**
+ * The `slot` a `.validate()` step's refusal carries: the step ran in the
+ * chain's pipeline position, not in a hook slot.
+ *
+ * @internal
+ */
+export const STEP_REFUSAL_SLOT = "pipeline";
 
 /**
  * What a door trusts about a hook refusal: the detail as the kernel raised
@@ -218,7 +230,8 @@ export function isRefusal(value: unknown): value is Refusal {
  * kernel's validate hooks and the `.validate()` step, which are the two
  * places a refusal is written for the caller.
  *
- * @param refused - The detail, frozen by the caller
+ * @param refused - The detail; copied and frozen here, so the caller's own
+ *   object never reaches the binding
  * @param message - The operator-facing message
  * @returns The error to throw
  * @internal
@@ -227,9 +240,10 @@ export function refusalError(
   refused: RaisedHookRefusal,
   message: string,
 ): Error {
-  const detail = Object.assign(new Error(refused.reason), { refused });
+  const bound: RaisedHookRefusal = Object.freeze({ ...refused });
+  const detail = Object.assign(new Error(bound.reason), { refused: bound });
   const error = rcError("RC5068", detail, { message });
-  RAISED.set(error, refused);
+  RAISED.set(error, bound);
   return error;
 }
 
@@ -836,15 +850,15 @@ export async function runExchangeHooks(
     if (hook.phase === "validate") {
       if (result === undefined) continue;
       if (isRefusal(result)) {
-        const refused: RaisedHookRefusal = Object.freeze({
-          hook: entry.id,
-          slot: info.slot,
-          routeId: info.routeId,
-          kind: result.kind,
-          reason: result.reason,
-        });
         throw refusalError(
-          refused,
+          {
+            origin: "hook",
+            hook: entry.id,
+            slot: info.slot,
+            routeId: info.routeId,
+            kind: result.kind,
+            reason: result.reason,
+          },
           `${entry.id} refused the exchange in "${info.slot}" (${result.kind}): ${result.reason}`,
         );
       }

@@ -379,6 +379,7 @@ export {
   type Validator,
   type CallableValidator,
   schema,
+  type Validated,
 } from "./operations/validate.ts";
 
 export { type Filter, type FilterDropResult } from "./operations/filter.ts";

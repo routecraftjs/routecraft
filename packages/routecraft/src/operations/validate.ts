@@ -2,13 +2,17 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
-  EXCHANGE_INTERNALS,
-  HeadersKeys,
   OperationType,
   DefaultExchange,
+  routeIdOf,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { isRefusal, refusalError, type Refusal } from "../kernel/hooks.ts";
+import {
+  isRefusal,
+  refusalError,
+  STEP_REFUSAL_SLOT,
+  type Refusal,
+} from "../kernel/hooks.ts";
 import { validateAgainst } from "../pipeline/validation.ts";
 
 /**
@@ -25,6 +29,18 @@ export type CallableValidator<
   R = T,
   Ex extends Exchange<T> = Exchange<T>,
 > = (exchange: Ex) => R | Refusal | Promise<R | Refusal>;
+
+/**
+ * The body a `.validate()` step carries on: what the validator returns, less
+ * the refusal it may answer instead. A validator that can only refuse leaves
+ * the body as it was, since nothing after the step ever runs on its answer.
+ *
+ * @template Current - The body before the step
+ * @template R - The validator's return type
+ */
+export type Validated<Current, R> = [Exclude<R, Refusal>] extends [never]
+  ? Current
+  : Exclude<R, Refusal>;
 
 /**
  * Validator adapter: validates the exchange body and returns the validated
@@ -69,10 +85,10 @@ export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
         this.adapter.validate(exchange as Exchange<T>),
       );
     } catch (error) {
-      if (isRefusal(error)) throw this.refused(exchange, error);
+      if (isRefusal(error)) throw this.refusalError(exchange, error);
       throw error;
     }
-    if (isRefusal(result)) throw this.refused(exchange, result);
+    if (isRefusal(result)) throw this.refusalError(exchange, result);
     return {
       kind: "continue",
       exchange: DefaultExchange.rewrap<R>(exchange, { body: result }),
@@ -81,22 +97,19 @@ export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
 
   /**
    * The `RC5068` for a refusal this step raised, bound to the route the
-   * exchange runs on: the route the framework attached, or the route id
-   * header for an exchange built outside a route.
+   * exchange runs on.
    */
-  private refused(exchange: Exchange, refusal: Refusal): Error {
-    const routeId =
-      EXCHANGE_INTERNALS.get(exchange)?.route?.definition.id ??
-      (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+  private refusalError(exchange: Exchange, refusal: Refusal): Error {
     const step = this.label ?? "validate";
     return refusalError(
-      Object.freeze({
+      {
+        origin: "step",
         hook: step,
-        slot: "pipeline",
-        routeId,
+        slot: STEP_REFUSAL_SLOT,
+        routeId: routeIdOf(exchange),
         kind: refusal.kind,
         reason: refusal.reason,
-      }),
+      },
       `The ${step} step refused the exchange (${refusal.kind}): ${refusal.reason}`,
     );
   }

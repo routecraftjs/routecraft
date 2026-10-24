@@ -8,8 +8,8 @@ import {
   noop,
   refuse,
 } from "../src/index.ts";
-
-const origin = (routeId: string) => ({ routeId, principal: undefined });
+import { anonymousOrigin as origin } from "./helpers/authority.ts";
+import { expectBodyOf } from "./helpers/types.ts";
 
 /**
  * A route that refuses its caller after the door: the rule needs state the
@@ -85,6 +85,7 @@ describe(".validate() refusing the caller", () => {
     expect(error.rc).toBe("RC5068");
     expect(isHookRefusal(error.cause)).toBe(true);
     expect(error.cause.refused).toMatchObject({
+      origin: "step",
       hook: "validate",
       slot: "pipeline",
       routeId: "capture",
@@ -162,6 +163,29 @@ describe(".validate() refusing the caller", () => {
     expect(error.rc).toBe("RC5068");
     expect(callerRefusalOf(error, origin("outer"))).toBeUndefined();
     expect(callerRefusalOf(error, origin("capture"))?.kind).toBe("refused");
+  });
+
+  /**
+   * @case The body type after a validator that may refuse
+   * @preconditions A validator returning the body or refuse(), and one returning refuse() alone
+   * @expectedResult The route's body type after .validate() is the validator's body type with no Refusal in it, and a validator that only refuses leaves the body type as it was
+   */
+  test("keeps the refusal out of the body type", () => {
+    const either = craft()
+      .id("either")
+      .from(direct<{ title?: string }>())
+      .validate((exchange) =>
+        exchange.body.title === undefined
+          ? refuse("A title is required for a page.")
+          : exchange.body,
+      );
+    expectBodyOf(either).toEqualTypeOf<{ title?: string }>();
+
+    const always = craft()
+      .id("always")
+      .from(direct<{ title?: string }>())
+      .validate(() => refuse("Never."));
+    expectBodyOf(always).toEqualTypeOf<{ title?: string }>();
   });
 
   /**

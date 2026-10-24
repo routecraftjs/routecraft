@@ -439,6 +439,41 @@ describe("the ops management API", () => {
   });
 
   /**
+   * @case A route's own .validate() step refuses a dispatched route
+   * @preconditions An open dispatch tier; route "capture" whose .validate() answers refuse(reason, { kind: "conflict" }) for every body
+   * @expectedResult 409 carrying the fixed error word, the RC5068 code and the step's reason, and neither the step's name nor the error message
+   */
+  test("answers a validate step refusal with the status its kind maps to", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("capture")
+          .from(direct())
+          .validate(() =>
+            refuse("A page with this title already exists.", {
+              kind: "conflict",
+            }),
+          )
+          .to(noop()),
+      ],
+    });
+
+    const refused = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/capture/exchanges",
+      { method: "POST", body: {} },
+    );
+    expect(refused.status).toBe(409);
+    expect(refused.body).toEqual({
+      error: "conflict",
+      code: "RC5068",
+      reason: "A page with this title already exists.",
+    });
+    expect(JSON.stringify(refused.body)).not.toMatch(/validate step/);
+  });
+
+  /**
    * @case Dispatchability is observed, and reported per route
    * @preconditions One direct()-sourced route and one cron()-sourced route
    * @expectedResult The direct route reports dispatchable true and the cron route false, each carrying its source kind. A cron route has no door for an exchange to arrive through, and saying so on the representation is what lets one collection serve both clients

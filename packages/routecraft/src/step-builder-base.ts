@@ -61,6 +61,7 @@ import {
   type Validator,
   type CallableValidator,
   ValidateStep,
+  type Validated,
 } from "./operations/validate.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { mapper } from "./operations/transform.ts";
@@ -1022,7 +1023,19 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * the caller: the run fails with `RC5068` bound to this route, and a door
    * that dispatched it answers with the kind and the reason, as it does a
    * validate hook's refusal. A plain throw stays the instance's failure and
-   * reaches a caller as its code alone.
+   * reaches a caller as at most its code.
+   *
+   * @example
+   * ```ts
+   * craft()
+   *   .from(direct<{ title: string; existing?: Page }>())
+   *   .validate((exchange) =>
+   *     exchange.body.existing === undefined
+   *       ? exchange.body
+   *       : refuse("A page with this title already exists.", { kind: "conflict" }),
+   *   )
+   *   .to(writePage);
+   * ```
    *
    * @param validator - Validator adapter or callable
    * @returns The subclass builder re-typed to the validator's output body
@@ -1031,13 +1044,13 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   validate<R = S["body"]>(
     validator:
       Validator<S["body"], R> | CallableValidator<S["body"], R, ExchangeOf<S>>,
-  ): Retyped<this, SetBody<S, R>> {
+  ): Retyped<this, SetBody<S, Validated<S["body"], R>>> {
     this.pushStep(
       new ValidateStep<S["body"], R>(
         validator as Validator<S["body"], R> | CallableValidator<S["body"], R>,
       ),
     );
-    return this.retype<R>();
+    return this.retype<Validated<S["body"], R>>();
   }
 
   /**
