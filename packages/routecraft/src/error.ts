@@ -839,9 +839,9 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
   },
   RC5068: {
     category: "Runtime",
-    message: "Refused by a validate hook",
+    message: "Refused by a validate hook or a validate step",
     suggestion:
-      "A plugin's validate hook refused this exchange; the message names the hook and its reason. A refusal reaches the error slot like any failure, so a route can answer it. If the refusal is wrong for this route, the application can disable the hook by id with hooks.disable.",
+      "A plugin's validate hook or the route's own .validate() step refused this exchange with refuse(); the message names which and its reason. A refusal reaches the error slot like any failure, so a route can answer it. If a hook's refusal is wrong for this route, the application can disable the hook by id with hooks.disable.",
     docs: `${DOCS_BASE}#rc-5068`,
     retryable: false,
   },

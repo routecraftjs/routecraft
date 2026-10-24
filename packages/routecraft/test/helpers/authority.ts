@@ -2,6 +2,7 @@ import {
   authorityOf,
   defaultAuthority,
   delegate as delegateWith,
+  type CallerRefusalOrigin,
   type CraftContext,
   type DelegateOptions,
   type Principal,
@@ -28,4 +29,9 @@ export function ingressHostOf(context: CraftContext): IngressHost {
     emit: (event, details) => context.emit(event, details),
     authority: authorityOf(context),
   };
+}
+
+/** The origin a door records for a dispatch that carried no principal. */
+export function anonymousOrigin(routeId: string): CallerRefusalOrigin {
+  return { routeId, principal: undefined };
 }

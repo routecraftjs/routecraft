@@ -208,7 +208,7 @@ hook answers with a recovery (a body, `recovery.drop`, `recovery.defer`) or
 `undefined` to pass, and the first answer decides. Inside a phase, hooks run in
 the order the application lists the plugins.
 
-A refusal throws `RC5068` naming the hook, its kind and its reason, which reaches the
+A refusal throws `RC5068` naming the hook (or, for a route's own `.validate()` step answering `refuse()`, the step), its kind and its reason, which reaches the
 `error` slot like any failure.
 
 Two mutate hooks writing the same header in one slot: the later wins and the
@@ -479,7 +479,7 @@ The rows the design left open, decided:
 | RC1116 | two plugins declare one step, or a step shadows a builder method                                                                                                                                                                                  |
 | RC1117 | an invalid plugin descriptor: a missing plugin or hook id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what only a single install may: `provides`, `replaces`, `hooks`, `points`, `steps` or a `facet` |
 | RC1118 | a `bind` or `start` hook awaited `c.execution.whenStarted()`, which resolves only once every hook returned, so the hook was waiting on itself |
-| RC5068 | a `validate` hook refused the exchange                                                                                                                                                                                                            |
+| RC5068 | a `validate` hook or a route's `.validate()` step refused the exchange with `refuse()`                                                                                                                                                             |
 
 ## Related
 
