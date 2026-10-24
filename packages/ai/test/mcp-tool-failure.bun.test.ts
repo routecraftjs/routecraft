@@ -240,6 +240,28 @@ describe("MCP tool failure text", () => {
   });
 
   /**
+   * @case The tool route's own .validate() step refuses the call
+   * @preconditions Tool route "archive" whose .validate() answers refuse(reason, { kind: "conflict" })
+   * @expectedResult The refusal text names the kind, the code and the step's reason, exactly as a validate hook's, and never the step
+   */
+  test("answers a validate step refusal with its kind and reason", async () => {
+    const srv = await serve([
+      craft()
+        .id("archive")
+        .description("Guarded")
+        .from(mcp())
+        .validate(() => refuse("already archived", { kind: "conflict" }))
+        .to(noop()),
+    ]);
+
+    const result = await callTool(srv, "archive", {});
+
+    expect(result.content[0]!.text).toBe(
+      'Error: Tool "archive" refused the call (conflict, RC5068): already archived',
+    );
+  });
+
+  /**
    * @case The tool's own .authorize() refuses the admitted principal's roles
    * @preconditions Tool route declares .authorize({ roles: ["admin"] }); called with a principal carrying no roles
    * @expectedResult The fixed insufficient-permissions text, with neither the RC message nor the roles the route requires

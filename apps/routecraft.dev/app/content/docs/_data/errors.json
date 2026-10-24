@@ -272,7 +272,7 @@
   {
     "code": "RC5068",
     "category": "Runtime",
-    "message": "Refused by a validate hook",
+    "message": "Refused by a validate hook or a validate step",
     "retryable": false
   },
   {
