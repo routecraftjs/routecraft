@@ -259,7 +259,14 @@ export interface SerializedOutcome {
    * the next resume.
    */
   readonly status: "completed" | "failed" | "dropped" | "deferred";
-  /** Terminal body on a completed run. Plain JSON data, same rule as {@link SerializedExchange}. */
+  /**
+   * Terminal body on a completed run. On a resume acknowledgment it is live:
+   * a `Date` is a `Date` and bytes are the `Buffer` or `Uint8Array` they
+   * were. As handed to {@link DeferralStore.recordContinuation} and on a
+   * stored {@link Deferral.continuation} it is the encoded form, plain JSON
+   * data under the same rule as {@link SerializedExchange}, which the kernel
+   * writes before the store sees it and revives on read.
+   */
   readonly body?: unknown;
   /** Error code and message on a failed run. The stack is deliberately not persisted. */
   readonly error?: { readonly rc?: string; readonly message: string };
@@ -790,6 +797,13 @@ export interface DeferralStore {
    * without re-running the continuation. Silently ignores an unknown id: the
    * cache is a convenience, and losing the race to a sweep must not turn
    * into a second failure on the way out.
+   *
+   * The outcome arrives in its stored form, the terminal body already
+   * encoded by the kernel as the exchange is before `create`, so a backend
+   * persists it as the plain JSON it is and hands it back unchanged from
+   * `get`; the kernel revives it before a duplicate or a boot reconciliation
+   * sees it. Unlike `stepState` and `meta`, which arrive live, nothing here
+   * is the store's to encode.
    *
    * Unconditional by design: only the caller that won `markResumed` ever
    * writes a continuation, so there is no competing writer for this row and

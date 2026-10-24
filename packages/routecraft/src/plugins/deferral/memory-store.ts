@@ -221,17 +221,9 @@ export class MemoryDeferralStore implements DeferralStore {
     if (!record) return;
     this.#records.set(
       id,
-      clone({
-        ...record,
-        continuation: {
-          ...continuation,
-          ...(continuation.body !== undefined
-            ? {
-                body: encodePersistable(continuation.body, "continuation.body"),
-              }
-            : {}),
-        },
-      }),
+      // Already in its stored form: the kernel encodes an outcome before
+      // handing it over, as it serializes the exchange before `create`.
+      clone({ ...record, continuation }),
     );
   }
 

@@ -31,9 +31,11 @@ import {
 import { DeferralHeaders } from "./exchange-state.ts";
 import { requireContinuations, type DeferralRuntime } from "./port.ts";
 import {
+  decodeOutcome,
   decodePersistable,
   deserializeExchange,
-  encodePersistable,
+  detachPersistable,
+  encodeOutcome,
 } from "./serialize.ts";
 import type { DetachedKind } from "../../pipeline/chain-policy.ts";
 import type { DeferSite } from "./sites.ts";
@@ -183,6 +185,12 @@ export interface ResumeAcknowledgment {
    * {@link Deferral.outcome} is how the DEFERRAL ended (resumed, expired,
    * denied) and the two would otherwise share a word while meaning
    * different things on adjacent types.
+   *
+   * Its `body` is the terminal body as the deferred route left it, a
+   * detached copy: a `Date` is a `Date` and bytes are the `Buffer` or
+   * `Uint8Array` they were, on the first acknowledgment and on a duplicate's
+   * cached one alike. The store holds the encoded form, which the kernel
+   * writes and revives.
    */
   readonly continuation: SerializedOutcome;
 }
@@ -449,7 +457,10 @@ export async function reviveDeferral(
     });
     // Internals, not headers: step state must not re-serialize into a second deferral.
     if (site.site.reentrant && deferral.stepState !== undefined) {
-      setResumeStepState(exchange, decodePersistable(deferral.stepState));
+      setResumeStepState(
+        exchange,
+        decodePersistable(deferral.stepState, "stepState"),
+      );
     }
 
     context.emit("route:exchange:resumed", {
@@ -495,7 +506,9 @@ export async function reviveDeferral(
     throw error;
   }
   try {
-    await runtime.store.recordContinuation(id, continuation);
+    // The store receives the stored form, as it does the exchange at the
+    // park: the kernel owns the encoding, a backend persists what it is given.
+    await runtime.store.recordContinuation(id, encodeOutcome(continuation));
   } catch (err) {
     route.logger.error(
       { deferralId: id, err },
@@ -634,14 +647,16 @@ function unresumable(deferral: Deferral): ResumeAcknowledgment {
       deferralId: deferral.id,
       routeId: deferral.routeId,
       // Missing means execution two is still running or died mid-run.
-      continuation: deferral.continuation ?? {
-        status: "failed",
-        error: {
-          message:
-            "The first resume of this deferral has not recorded a continuation result yet.",
-        },
-        at: deferral.outcome.at,
-      },
+      continuation: deferral.continuation
+        ? decodeOutcome(deferral.continuation)
+        : {
+            status: "failed",
+            error: {
+              message:
+                "The first resume of this deferral has not recorded a continuation result yet.",
+            },
+            at: deferral.outcome.at,
+          },
     };
   }
 
@@ -910,7 +925,9 @@ function rehydrate(
  * A continuation that reaches another `.defer()` caches no body: the body
  * is the second deferral's acknowledgment, and handing its token to whoever
  * resumed the first would give approver A approver B's capability. A
- * completed run caches its terminal body only when it is storable.
+ * completed run caches its terminal body only when it is storable. The
+ * returned outcome carries the body in live form, for the acknowledgment;
+ * {@link encodeOutcome} produces the form the store is handed.
  *
  * @internal
  */
@@ -945,7 +962,9 @@ async function runContinuation(
   }
   let body: unknown;
   try {
-    body = encodePersistable(result.exchange.body, "terminal body");
+    // A detached copy, so the ingress route cannot reach into the exchange;
+    // the walk also proves the body storable before the store sees it.
+    body = detachPersistable(result.exchange.body, "terminal body");
   } catch {
     body = undefined;
   }

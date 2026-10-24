@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testContext } from "@routecraft/testing";
 import { createDeferralRuntime } from "../src/plugins/deferral/index.ts";
+import { encodeOutcome } from "../src/plugins/deferral/public.ts";
 import { claimDatabasePath } from "../src/shared/sqlite/claims.ts";
 import {
   DEFAULT_DEFERRAL_DB_PATH,
@@ -693,6 +694,33 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       expect(read?.continuation?.status).toBe("completed");
       expect(read?.continuation?.body).toEqual({ paid: true });
       expect(read?.continuation?.at.getTime()).toBe(continuation.at.getTime());
+    });
+
+    /**
+     * @case An encoded terminal body is stored and read back unchanged
+     * @preconditions A resumed record; a continuation result whose body the kernel already encoded, holding a Date envelope and a bytes envelope
+     * @expectedResult The read-back body is the same plain JSON, envelopes intact, on every backend alike, so the kernel can revive it for a duplicate; the store neither re-encodes nor reshapes it
+     */
+    test("persists an encoded continuation body verbatim", async () => {
+      store = await open();
+      await store.create(record());
+      await store.markResumed("def-1", { at: new Date() });
+      const when = new Date("2026-05-01T09:00:00.000Z");
+      const stored = encodeOutcome({
+        status: "completed",
+        body: { when, receipt: Buffer.from("paid") },
+        at: continuation.at,
+      });
+      await store.recordContinuation("def-1", stored);
+
+      const read = await store.get("def-1");
+      expect(read?.continuation?.body).toEqual({
+        when: { "$routecraft.date": when.toISOString() },
+        receipt: {
+          "$routecraft.buffer": Buffer.from("paid").toString("base64"),
+        },
+      });
+      expect(read?.continuation?.body).toEqual(stored.body);
     });
 
     /**

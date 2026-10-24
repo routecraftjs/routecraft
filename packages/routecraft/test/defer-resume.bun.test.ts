@@ -12,6 +12,7 @@ import {
   log,
   noop,
   otherwise,
+  type ResumeAcknowledgment,
   simple,
   when,
   type CraftConfig,
@@ -176,6 +177,118 @@ describe("defer and resume", () => {
     expect(second.continuation.status).toBe("completed");
     expect(second.continuation.body).toEqual(first.continuation.body);
     expect(runs).toBe(1);
+  });
+
+  /**
+   * @case The acknowledgment carries the terminal body as the route left it
+   * @preconditions A continuation whose terminal body holds a Date and a Buffer; the token is presented twice
+   * @expectedResult Both the first acknowledgment and the duplicate's cached one carry a Date and a Buffer with the original values, not the store's envelopes, and the duplicate reports completed, so the cached result was recorded
+   */
+  test("the acknowledgment revives a Date and bytes in the terminal body", async () => {
+    const paidAt = new Date("2026-05-01T09:00:00.000Z");
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: Approval })
+          .transform(() => ({ when: paidAt, receipt: Buffer.from("paid") }))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(
+      await t.client.sendDirect("payout", {
+        amountCents: 25_000,
+        payee: "acme",
+      }),
+    );
+    const first = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as ResumeAcknowledgment;
+    const second = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as ResumeAcknowledgment;
+
+    for (const ack of [first, second]) {
+      expect(ack.continuation.status).toBe("completed");
+      const body = ack.continuation.body as { when: Date; receipt: Buffer };
+      expect(body.when).toBeInstanceOf(Date);
+      expect(body.when.toISOString()).toBe(paidAt.toISOString());
+      expect(Buffer.isBuffer(body.receipt)).toBe(true);
+      expect(body.receipt.toString()).toBe("paid");
+    }
+    expect(first.status).toBe("resumed");
+    expect(second.status).toBe("duplicate");
+  });
+
+  /**
+   * @case A duplicate resume meets a corrupted cached terminal body
+   * @preconditions A resumed record whose cached continuation body holds a date envelope that does not parse, as a hand-edited row would
+   * @expectedResult The duplicate is refused with RC5042 naming the continuation body, rather than answered with the envelope object or an Invalid Date, and the record is left as it was
+   */
+  test("a duplicate resume refuses a corrupted cached body", async () => {
+    const backing = new MemoryDeferralStore();
+    let corrupt = false;
+    const store = storeWith(backing, {
+      get: async (id: string) => {
+        const record = await backing.get(id);
+        if (!record || !corrupt || !record.continuation) return record;
+        return {
+          ...record,
+          continuation: {
+            ...record.continuation,
+            body: { when: { "$routecraft.date": "not-a-date" } },
+          },
+        };
+      },
+    });
+    t = await testContext()
+      .with({ deferral: { store } } as CraftConfig)
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: Approval })
+          .transform(() => ({ when: new Date() }))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(
+      await t.client.sendDirect("payout", {
+        amountCents: 25_000,
+        payee: "acme",
+      }),
+    );
+    const first = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as ResumeAcknowledgment;
+    expect(first.continuation.status).toBe("completed");
+
+    corrupt = true;
+    await expect(
+      t.client.sendDirect("answers", {
+        token: deferred.token,
+        result: { approved: true },
+      }),
+    ).rejects.toThrow(
+      expect.objectContaining({
+        rc: "RC5042",
+        message: expect.stringContaining("continuation.body"),
+      }),
+    );
+    expect((await backing.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
   });
 
   /**

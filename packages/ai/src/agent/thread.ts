@@ -245,7 +245,9 @@ export async function replaceDeferredThread(
   // re-encode on the write back refuses an envelope it did not write, so
   // handing the rewrite the raw form would make every such thread
   // uncompactable.
-  const state = parseStepState(decodePersistable(record.stepState));
+  const state = parseStepState(
+    decodePersistable(record.stepState, "stepState"),
+  );
   // Taken from the stored form, before the rewrite runs: that is what the
   // store compares on the write back, and a rewrite that edits the thread
   // in place (a splice is the obvious way to drop old turns) must not be

@@ -858,16 +858,18 @@ export {
   isDeferSignal,
   isDeferred,
   markDeferCapable,
-  // deferAside, reviveDeferral, deferralScope and decodePersistable are
-  // @internal and re-exported on purpose: @routecraft/ai stores and revives
-  // an agent session's continuation through the first two, scopes its own
-  // events about a deferral with the third, and revives a stored stepState
-  // before rewriting a deferred thread with the fourth; a package cannot
-  // reach a deep import of core.
+  // deferAside, reviveDeferral, deferralScope, decodePersistable and
+  // decodeOutcome are @internal and re-exported on purpose: @routecraft/ai
+  // stores and revives an agent session's continuation through the first
+  // two, scopes its own events about a deferral with the third, revives a
+  // stored stepState before rewriting a deferred thread with the fourth and
+  // a stored outcome at boot with the fifth; a package cannot reach a deep
+  // import of core.
   deferAside,
   deferralScope,
   reviveDeferral,
   decodePersistable,
+  decodeOutcome,
   deferredPrincipal,
   reidentificationDeviation,
   routeCanDefer,
