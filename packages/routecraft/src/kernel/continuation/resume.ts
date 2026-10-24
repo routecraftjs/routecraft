@@ -183,6 +183,11 @@ export interface ResumeAcknowledgment {
    * {@link Deferral.outcome} is how the DEFERRAL ended (resumed, expired,
    * denied) and the two would otherwise share a word while meaning
    * different things on adjacent types.
+   *
+   * Its `body` is the terminal body as the deferred route left it, revived
+   * from the store's form: a `Date` is a `Date` and bytes are the `Buffer`
+   * or `Uint8Array` they were, on the first acknowledgment and on a
+   * duplicate's cached one alike. The store holds the encoded form.
    */
   readonly continuation: SerializedOutcome;
 }
@@ -512,6 +517,20 @@ export async function reviveDeferral(
 }
 
 /**
+ * The cached outcome as the ingress route should see it: the store holds
+ * the terminal body in its encoded form (a `Date` or bytes inside the
+ * serializer's envelope), so a duplicate's acknowledgment revives it the way
+ * the first acknowledgment carried it live.
+ *
+ * @internal
+ */
+function revivedOutcome(outcome: SerializedOutcome): SerializedOutcome {
+  return outcome.body === undefined
+    ? outcome
+    : { ...outcome, body: decodePersistable(outcome.body) };
+}
+
+/**
  * Refuse a resume whose continuation no longer matches, exactly once.
  *
  * The transition is what bounds the notification. A continuation mismatch
@@ -634,14 +653,16 @@ function unresumable(deferral: Deferral): ResumeAcknowledgment {
       deferralId: deferral.id,
       routeId: deferral.routeId,
       // Missing means execution two is still running or died mid-run.
-      continuation: deferral.continuation ?? {
-        status: "failed",
-        error: {
-          message:
-            "The first resume of this deferral has not recorded a continuation result yet.",
-        },
-        at: deferral.outcome.at,
-      },
+      continuation: deferral.continuation
+        ? revivedOutcome(deferral.continuation)
+        : {
+            status: "failed",
+            error: {
+              message:
+                "The first resume of this deferral has not recorded a continuation result yet.",
+            },
+            at: deferral.outcome.at,
+          },
     };
   }
 
@@ -910,7 +931,11 @@ function rehydrate(
  * A continuation that reaches another `.defer()` caches no body: the body
  * is the second deferral's acknowledgment, and handing its token to whoever
  * resumed the first would give approver A approver B's capability. A
- * completed run caches its terminal body only when it is storable.
+ * completed run caches its terminal body only when it is storable, and
+ * carries it in its live form: the store encodes on write, so handing it
+ * the encoded form would double-encode, and a `Date` or bytes, which the
+ * encoder wraps in a reserved envelope, would then be refused as a forged
+ * envelope and leave the result unrecorded.
  *
  * @internal
  */
@@ -945,7 +970,11 @@ async function runContinuation(
   }
   let body: unknown;
   try {
-    body = encodePersistable(result.exchange.body, "terminal body");
+    // Encoded and decoded: proves the body storable, and yields a detached
+    // copy in live form so the ingress route cannot reach into the exchange.
+    body = decodePersistable(
+      encodePersistable(result.exchange.body, "terminal body"),
+    );
   } catch {
     body = undefined;
   }

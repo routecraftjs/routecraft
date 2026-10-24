@@ -179,6 +179,64 @@ describe("defer and resume", () => {
   });
 
   /**
+   * @case The acknowledgment carries the terminal body as the route left it
+   * @preconditions A continuation whose terminal body holds a Date and a Buffer; the token is presented twice
+   * @expectedResult Both the first acknowledgment and the duplicate's cached one carry a Date and a Buffer with the original values, not the store's envelopes, and the duplicate reports completed, so the cached result was recorded
+   */
+  test("the acknowledgment revives a Date and bytes in the terminal body", async () => {
+    const when = new Date("2026-05-01T09:00:00.000Z");
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: Approval })
+          .transform(() => ({ when, receipt: Buffer.from("paid") }))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(
+      await t.client.sendDirect("payout", {
+        amountCents: 25_000,
+        payee: "acme",
+      }),
+    );
+    type Ack = {
+      status: string;
+      continuation: {
+        status: string;
+        body?: { when: unknown; receipt: unknown };
+      };
+    };
+    const first = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as Ack;
+    const second = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: true },
+    })) as Ack;
+
+    for (const ack of [first, second]) {
+      expect(ack.continuation.status).toBe("completed");
+      expect(ack.continuation.body?.when).toBeInstanceOf(Date);
+      expect((ack.continuation.body?.when as Date).toISOString()).toBe(
+        when.toISOString(),
+      );
+      expect(Buffer.isBuffer(ack.continuation.body?.receipt)).toBe(true);
+      expect((ack.continuation.body?.receipt as Buffer).toString()).toBe(
+        "paid",
+      );
+    }
+    expect(first.status).toBe("resumed");
+    expect(second.status).toBe("duplicate");
+  });
+
+  /**
    * @case The continuation changed under a deferred exchange
    * @preconditions The exchange defers in one context; a second context runs the same route with an edited step after the defer point, sharing the store
    * @expectedResult The resume is refused with RC5048 before any continuation step runs, the ingress caller sees the error, and the deferred route's .error() handler receives it

@@ -75,6 +75,8 @@ The revived route runs to completion before `.resume()` continues, so the acknow
 
 `continuation.status` is how execution two ended, so it is not always `completed`: a continuation that reaches a second `.defer()` reports `deferred` and carries no body, because that body would be the SECOND deferral's acknowledgment and handing approver A approver B's resume token is not a receipt. `dropped` and `failed` are the other two.
 
+`continuation.body` is the terminal body as the deferred route left it: a `Date` is a `Date` and bytes are the `Buffer` or `Uint8Array` they were, revived from the form the store holds. It is a detached copy, so the ingress route cannot reach into the revived exchange. What a door does with it is the door's ordinary rendering: over HTTP, JSON writes a `Date` as its ISO string and a `Buffer` in Node's `{ type, data }` form, so a route that answers an approver after a continuation ending in a large attachment drops or summarises it before replying, as it would for any body.
+
 A duplicate resume (an approver double-clicks, a webhook is redelivered) returns the first one's cached continuation result with `status: "duplicate"` and re-runs nothing.
 
 ## Securing resume
