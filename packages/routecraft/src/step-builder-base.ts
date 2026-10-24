@@ -1018,6 +1018,12 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * or the default error path handles it. For Standard Schema, prefer the
    * `.schema()` sugar or pass the `schema()` factory.
    *
+   * A validator that returns or throws `refuse(reason, { kind })` refuses
+   * the caller: the run fails with `RC5068` bound to this route, and a door
+   * that dispatched it answers with the kind and the reason, as it does a
+   * validate hook's refusal. A plain throw stays the instance's failure and
+   * reaches a caller as its code alone.
+   *
    * @param validator - Validator adapter or callable
    * @returns The subclass builder re-typed to the validator's output body
    * @template R - Output body type after validation (defaults to the current body)

@@ -1,12 +1,21 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
-import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
+import {
+  type Exchange,
+  EXCHANGE_INTERNALS,
+  HeadersKeys,
+  OperationType,
+  DefaultExchange,
+} from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { isRefusal, refusalError, type Refusal } from "../kernel/hooks.ts";
 import { validateAgainst } from "../pipeline/validation.ts";
 
 /**
- * Callable validator function. Receives the full exchange, returns the
- * validated (possibly coerced) body value. Throws on failure.
+ * Callable validator function. Receives the full exchange and returns the
+ * validated (possibly coerced) body value. Throws on a failure that is the
+ * instance's; returns or throws a {@link Refusal} built with `refuse()`
+ * to refuse the caller with a reason a door forwards.
  *
  * @template T - Input body type
  * @template R - Output body type (may differ if the validator coerces)
@@ -15,11 +24,13 @@ export type CallableValidator<
   T = unknown,
   R = T,
   Ex extends Exchange<T> = Exchange<T>,
-> = (exchange: Ex) => R | Promise<R>;
+> = (exchange: Ex) => R | Refusal | Promise<R | Refusal>;
 
 /**
  * Validator adapter: validates the exchange body and returns the validated
- * value. Throws on failure (e.g., RC5002 for schema violations).
+ * value. Throws on a failure that is the instance's (e.g., RC5002 for
+ * schema violations); returns or throws a {@link Refusal} to refuse the
+ * caller.
  *
  * @template T - Input body type
  * @template R - Output body type
@@ -33,6 +44,13 @@ export interface Validator<T = unknown, R = T> extends Adapter {
  * On success the exchange continues with the (possibly coerced) body.
  * On failure the adapter throws and the normal error path handles it
  * (error handler if configured, otherwise route:exchange:failed).
+ *
+ * A validator that returns or throws a `Refusal` fails the run with
+ * `RC5068` bound to this exchange's route, exactly as a validate hook's
+ * refusal is, so a door that dispatched the route answers the caller with
+ * the kind and the reason, and one raised inside a nested `direct()` call
+ * stays the instance's. A validator cannot hand a refusal on as the body:
+ * the brand is checked before the body is replaced.
  */
 export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
   operation: OperationType = OperationType.VALIDATE;
@@ -45,13 +63,42 @@ export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
   }
 
   async execute(exchange: Exchange): Promise<StepOutcome> {
-    const result = await Promise.resolve(
-      this.adapter.validate(exchange as Exchange<T>),
-    );
+    let result: R | Refusal;
+    try {
+      result = await Promise.resolve(
+        this.adapter.validate(exchange as Exchange<T>),
+      );
+    } catch (error) {
+      if (isRefusal(error)) throw this.refused(exchange, error);
+      throw error;
+    }
+    if (isRefusal(result)) throw this.refused(exchange, result);
     return {
       kind: "continue",
       exchange: DefaultExchange.rewrap<R>(exchange, { body: result }),
     };
+  }
+
+  /**
+   * The `RC5068` for a refusal this step raised, bound to the route the
+   * exchange runs on: the route the framework attached, or the route id
+   * header for an exchange built outside a route.
+   */
+  private refused(exchange: Exchange, refusal: Refusal): Error {
+    const routeId =
+      EXCHANGE_INTERNALS.get(exchange)?.route?.definition.id ??
+      (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+    const step = this.label ?? "validate";
+    return refusalError(
+      Object.freeze({
+        hook: step,
+        slot: "pipeline",
+        routeId,
+        kind: refusal.kind,
+        reason: refusal.reason,
+      }),
+      `The ${step} step refused the exchange (${refusal.kind}): ${refusal.reason}`,
+    );
   }
 }
 

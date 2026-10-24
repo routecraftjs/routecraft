@@ -1038,15 +1038,15 @@ The hook is bounded by the deferring route's abort signal, widened by an enclosi
 Notify by forwarding to a route your application owns rather than calling a mailer inline. The send is then a route like any other: retryable, observable, and testable without the handler, and it runs under the parked exchange's principal because `forward` carries identity by reference. A hook that legitimately takes longer than the route allows needs the route's `.timeout()` widened, not the bound removed.
 
 ## RC5068
-Refused by a validate hook
+Refused by a validate hook or a validate step
 
 **Why it happens**  
-A plugin's `validate` hook returned `refuse(reason, { kind })` for this exchange. The message names the hook (`pluginId/hookId`), the slot it ran in, the kind and the reason. The refusal reaches the route's `.error()` and the `error` slot like any other failure.
+A plugin's `validate` hook returned `refuse(reason, { kind })` for this exchange, or the route's own `.validate()` validator returned or threw one. The message names the hook (`pluginId/hookId`) and the slot it ran in, or the step, the kind and the reason. The refusal reaches the route's `.error()` and the `error` slot like any other failure.
 
-A door that dispatched the route answers the caller with the kind and the reason, never the hook: the `http()` source and the ops dispatch door map the kind to a status (`invalid` 400, `unauthenticated` 401, `forbidden` 403, `not_found` 404, `conflict` 409, `gone` 410, `rate_limited` 429, `unavailable` 503) and answer `{ "error": "<status text>", "code": "RC5068", "reason": "<the hook's reason>" }`; the MCP server answers a tool error naming the kind and the reason; the ACP mount answers `-32602` for `invalid` and `-32001` for every other kind, with `{ code, kind, reason }` in the error's data. An `unauthenticated` refusal on a door that reads no credential is answered as `forbidden`. The same code raised by a nested `direct()` call stays the instance's and answers as any other failure.
+A door that dispatched the route answers the caller with the kind and the reason, never the hook or the step: the `http()` source and the ops dispatch door map the kind to a status (`invalid` 400, `unauthenticated` 401, `forbidden` 403, `not_found` 404, `conflict` 409, `gone` 410, `rate_limited` 429, `unavailable` 503) and answer `{ "error": "<status text>", "code": "RC5068", "reason": "<the hook's reason>" }`; the MCP server answers a tool error naming the kind and the reason; the ACP mount answers `-32602` for `invalid` and `-32001` for every other kind, with `{ code, kind, reason }` in the error's data. An `unauthenticated` refusal on a door that reads no credential is answered as `forbidden`. The same code raised by a nested `direct()` call stays the instance's and answers as any other failure.
 
 **Suggestion**  
-Read the reason in the message: it is usually a property of the request (a missing header, a principal outside a tenant). A route can answer the refusal in its own `.error()`. If the hook is wrong for this application, switch it off by id with `hooks.disable`, or scope it with the hook's `routes` or `tags`. Writing a hook, pick the kind the caller can act on and write the reason for the caller: both cross the wire.
+Read the reason in the message: it is usually a property of the request (a missing header, a principal outside a tenant, a record that already exists). A route can answer the refusal in its own `.error()`. If a hook is wrong for this application, switch it off by id with `hooks.disable`, or scope it with the hook's `routes` or `tags`. Writing a hook or a validator, pick the kind the caller can act on and write the reason for the caller: both cross the wire.
 
 ## RC5069
 Cache condition failed

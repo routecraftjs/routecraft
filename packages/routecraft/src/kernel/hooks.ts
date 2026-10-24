@@ -88,7 +88,7 @@ export const REFUSAL_KINDS = [
 /** How a door answers a refusal; one of {@link REFUSAL_KINDS}. */
 export type RefusalKind = (typeof REFUSAL_KINDS)[number];
 
-/** A validate hook's refusal, built with {@link refuse}. */
+/** A refusal, built with {@link refuse}, from a validate hook or a `.validate()` step. */
 export interface Refusal {
   readonly [REFUSAL]: true;
   readonly reason: string;
@@ -96,15 +96,16 @@ export interface Refusal {
 }
 
 /**
- * Refuse the exchange from a `validate` hook. The run fails with `RC5068`
- * naming the hook and the reason, and the failure reaches the `error` slot
+ * Refuse the exchange from a `validate` hook, or return or throw it from a
+ * route's `.validate()` step. The run fails with `RC5068` naming the hook
+ * or the step and the reason, and the failure reaches the `error` slot
  * like any other. A door that dispatched the route answers the caller with
  * the kind and the reason, so write the reason for the refused party, never
  * with anything the instance owns.
  *
  * @param reason - Why, in words the caller reads
  * @param options - `kind`: how a door answers it; `forbidden` unless given
- * @returns The refusal to return from the hook
+ * @returns The refusal to return from the hook or the validator
  */
 export function refuse(
   reason: string,
@@ -119,17 +120,21 @@ export function refuse(
 }
 
 /**
- * Machine-readable detail on the cause of an `RC5068`: which hook refused,
- * where, on which route, and how a door should answer. A door reads it off
- * `error.cause` through {@link isHookRefusal} and maps the refusal only when
- * the route is the one it dispatched, so a refusal raised by a nested
- * `direct()` call stays the instance's. In-process only, never persisted.
+ * Machine-readable detail on the cause of an `RC5068`: which hook or
+ * `.validate()` step refused, where, on which route, and how a door should
+ * answer. A door reads it off `error.cause` through {@link isHookRefusal}
+ * and maps the refusal only when the route is the one it dispatched, so a
+ * refusal raised by a nested `direct()` call stays the instance's.
+ * In-process only, never persisted.
  */
 export interface HookRefusal extends Error {
   readonly refused: {
-    /** The hook, as `pluginId/hookId`. */
+    /**
+     * The hook, as `pluginId/hookId`; for a `.validate()` step, the step's
+     * label or `validate`.
+     */
     readonly hook: string;
-    /** The slot or point the hook ran in. */
+    /** The slot or point the hook ran in; `pipeline` for a `.validate()` step. */
     readonly slot: string;
     readonly routeId: string;
     readonly kind: RefusalKind;
@@ -193,12 +198,39 @@ export function raisedHookRefusalOf(
   return error instanceof Error ? RAISED.get(error) : undefined;
 }
 
-function isRefusal(value: unknown): value is Refusal {
+/**
+ * Whether `value` is a {@link Refusal} built with {@link refuse}, judged by
+ * its brand rather than its shape.
+ *
+ * @internal
+ */
+export function isRefusal(value: unknown): value is Refusal {
   return (
     typeof value === "object" &&
     value !== null &&
     (value as { [REFUSAL]?: unknown })[REFUSAL] === true
   );
+}
+
+/**
+ * The `RC5068` for a refusal, bound to the frozen detail it was raised
+ * with so a door can attribute it by origin. The one raising site for the
+ * kernel's validate hooks and the `.validate()` step, which are the two
+ * places a refusal is written for the caller.
+ *
+ * @param refused - The detail, frozen by the caller
+ * @param message - The operator-facing message
+ * @returns The error to throw
+ * @internal
+ */
+export function refusalError(
+  refused: RaisedHookRefusal,
+  message: string,
+): Error {
+  const detail = Object.assign(new Error(refused.reason), { refused });
+  const error = rcError("RC5068", detail, { message });
+  RAISED.set(error, refused);
+  return error;
 }
 
 /** What a `mutate` hook may return: the headers to set and the body to replace. */
@@ -811,12 +843,10 @@ export async function runExchangeHooks(
           kind: result.kind,
           reason: result.reason,
         });
-        const detail = Object.assign(new Error(result.reason), { refused });
-        const refusal = rcError("RC5068", detail, {
-          message: `${entry.id} refused the exchange in "${info.slot}" (${result.kind}): ${result.reason}`,
-        });
-        RAISED.set(refusal, refused);
-        throw refusal;
+        throw refusalError(
+          refused,
+          `${entry.id} refused the exchange in "${info.slot}" (${result.kind}): ${result.reason}`,
+        );
       }
       throw rcError("RC1115", undefined, {
         message: `Validate hook ${entry.id} in "${info.slot}" returned something other than a refusal. A validate hook allows by returning nothing and refuses with refuse(reason); it never changes the exchange.`,
