@@ -188,6 +188,7 @@ export function isHookRefusal(value: unknown): value is HookRefusal {
   if (typeof refused !== "object" || refused === null) return false;
   const fields = refused as Record<string, unknown>;
   return (
+    (fields["origin"] === "hook" || fields["origin"] === "step") &&
     typeof fields["hook"] === "string" &&
     typeof fields["slot"] === "string" &&
     typeof fields["routeId"] === "string" &&

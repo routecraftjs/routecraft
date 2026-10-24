@@ -46,6 +46,7 @@ describe(".validate() refusing the caller", () => {
     await t.startAndWaitReady();
     const error = await t.client.sendDirect("capture", {}).catch((e) => e);
 
+    expect(error).toBeInstanceOf(Error);
     expect(callerRefusalOf(error, origin("capture"))).toBeUndefined();
   });
 

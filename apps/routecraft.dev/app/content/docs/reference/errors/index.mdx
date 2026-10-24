@@ -316,7 +316,7 @@ Read the error message and suggestion in the log; check adapter documentation. U
 Validation failed
 
 **Why it happens**  
-Framework-enforced schema validation failed on something the instance itself produced: the route's `.output()` schema before the primary destination fires (routes to the error handler on failure), a `validate()` step's schema, an aggregator that received an empty array, or any validator that threw. A `.validate()` validator that answers `refuse()` is not this code but [RC5068](#rc-5068), the caller's.
+Framework-enforced schema validation failed on something the instance itself produced: the route's `.output()` schema before the primary destination fires (routes to the error handler on failure), a `validate()` step's schema, an aggregator that received an empty array, or a validator that threw a plain error. A `.validate()` validator that returns or throws `refuse()` is not this code but [RC5068](#rc-5068), the caller's.
 
 The route's `.input()` schema is [RC5065](#rc-5065) instead, because a caller's bad payload is the caller's fault and this code's cases are the instance's. A transport that answers a request maps the two to different statuses.
 
