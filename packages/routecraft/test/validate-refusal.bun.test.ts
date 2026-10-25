@@ -6,7 +6,9 @@ import {
   direct,
   isHookRefusal,
   noop,
+  otherwise,
   refuse,
+  when,
 } from "../src/index.ts";
 import { anonymousOrigin as origin } from "./helpers/authority.ts";
 import { expectBodyOf } from "./helpers/types.ts";
@@ -187,6 +189,37 @@ describe(".validate() refusing the caller", () => {
       .from(direct<{ title?: string }>())
       .validate(() => refuse("Never."));
     expectBodyOf(always).toEqualTypeOf<{ title?: string }>();
+  });
+
+  /**
+   * @case The body type after a validator that never returns
+   * @preconditions A validator typed never (it always throws), on its own and as the last step of a .choice<T>() branch whose other branch produces T
+   * @expectedResult The body after .validate() is never, since the validator has no continuation, so the branch fits any T and the route compiles; the refusal-only case above is unaffected
+   */
+  test("types the body after a validator that never returns as never", () => {
+    const fail = (): never => {
+      throw new Error("Not created.");
+    };
+
+    const failing = craft()
+      .id("failing")
+      .from(direct<{ title?: string }>())
+      .validate(fail);
+    expectBodyOf(failing).toEqualTypeOf<never>();
+
+    const branched = craft()
+      .id("branched")
+      .from(direct<{ title?: string }>())
+      .choice<{ created: true }>(
+        when(
+          (exchange) => exchange.body.title === undefined,
+          (failed) => failed.transform(() => ({ mailed: true })).validate(fail),
+        ),
+        otherwise((created) => created.transform(() => ({
+          created: true as const,
+        }))),
+      );
+    expectBodyOf(branched).toEqualTypeOf<{ created: true }>();
   });
 
   /**

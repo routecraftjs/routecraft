@@ -34,13 +34,19 @@ export type CallableValidator<
  * The body a `.validate()` step carries on: what the validator returns, less
  * the refusal it may answer instead. A validator that can only refuse leaves
  * the body as it was, since nothing after the step ever runs on its answer.
+ * A validator typed `never` (one that always throws) has no continuation at
+ * all, so the body after it is `never`, which lets a `.choice()` branch end
+ * in one whatever the branches' common type; the guard on `R` itself keeps
+ * that case apart from the refusal-only one, whose `Exclude` is also `never`.
  *
  * @template Current - The body before the step
  * @template R - The validator's return type
  */
-export type Validated<Current, R> = [Exclude<R, Refusal>] extends [never]
-  ? Current
-  : Exclude<R, Refusal>;
+export type Validated<Current, R> = [R] extends [never]
+  ? never
+  : [Exclude<R, Refusal>] extends [never]
+    ? Current
+    : Exclude<R, Refusal>;
 
 /**
  * Validator adapter: validates the exchange body and returns the validated
