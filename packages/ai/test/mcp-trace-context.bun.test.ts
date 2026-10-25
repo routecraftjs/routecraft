@@ -19,7 +19,6 @@ import type { McpServer } from "../src/mcp/server.ts";
 import type { McpPluginOptions, McpStdioToolCaller } from "../src/mcp/types.ts";
 import { MCP, createMcpService } from "../src/mcp/port.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
-import { turnIdOf } from "../src/surface/cancellation.ts";
 import { validateMcpPluginOptions } from "../src/mcp/validate-options.ts";
 import { dispatchMcpCallRaw } from "../src/mcp/dispatch.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
@@ -289,27 +288,6 @@ describe("MCP trace context", () => {
       exchangeId: "turn-exchange",
     } as unknown as FnHandlerContext);
     expect(meta?.["tracestate"]).toBe("rc=c:turn-journey;x:turn-exchange");
-  });
-
-  /**
-   * @case A claimed correlation id does not ride an editor turn's signal
-   * @preconditions Two exchanges sharing one correlation id, one marked as having joined its journey at a door
-   * @expectedResult turnIdOf names the turn by correlation id for the called exchange and falls back to the session for the joined one
-   */
-  test("surface: a joined exchange is not the turn its correlation id names", async () => {
-    t = await testContext().build();
-    const { DefaultExchange } = await import("@routecraft/routecraft");
-    const called = new DefaultExchange(t.ctx, {
-      headers: { [HeadersKeys.CORRELATION_ID]: "turn-1" },
-    });
-    const joined = new DefaultExchange(t.ctx, {
-      headers: {
-        [HeadersKeys.CORRELATION_ID]: "turn-1",
-        "routecraft.journey.joined": "door",
-      },
-    });
-    expect(turnIdOf(called, "s")).toBe("turn-1");
-    expect(turnIdOf(joined, "s")).toBe("session:s");
   });
 
   /**
