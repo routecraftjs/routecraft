@@ -205,7 +205,7 @@ Give the plugin a different `namespace`.
 Hook broke its phase
 
 **Why it happens**  
-An `observe` hook returned a value, a `validate` hook returned something other than nothing or `refuse(reason)`, a `mutate` hook wrote an engine-owned header (`routecraft.id`, `routecraft.route`, `routecraft.operation`, `routecraft.split_hierarchy`, `routecraft.correlation_id`, `routecraft.causation_id`), a hook declared a phase its slot does not have (`exit` and `error` have no `validate`), or a `perAttempt` hook is not a wrapper.
+An `observe` hook returned a value, a `validate` hook returned something other than nothing or `refuse(reason)`, a `mutate` hook wrote an engine-owned header (`routecraft.id`, `routecraft.route`, `routecraft.operation`, `routecraft.split_hierarchy`, `routecraft.correlation_id`, `routecraft.causation_id`, `routecraft.trace.parent`, `routecraft.journey.joined`), a hook declared a phase its slot does not have (`exit` and `error` have no `validate`), or a `perAttempt` hook is not a wrapper.
 
 **Suggestion**  
 Return nothing from `observe`, change the exchange only in `mutate`, and decide only in `validate`. A `perAttempt` hook is `{ wrap(proceed, exchange, info) }` and calls `proceed()` exactly once; calling it twice is this error too.

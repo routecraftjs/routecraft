@@ -79,7 +79,7 @@ Routecraft sets a number of `routecraft.*` headers automatically on every exchan
 | `routecraft.split_hierarchy` | Hierarchy of split groups this exchange belongs to (set by `.split()`) |
 | `routecraft.auth.principal` | The authenticated `Principal`, once an identity has been resolved: by a source that verified a credential, by `.authenticate()`, or by `.delegate()` re-minting it as a delegated one (`ex.auth.principal` in a route, and `principalOf(exchange)` elsewhere, read this key) |
 
-These are useful for logging, debugging, and correlating exchanges across capability chains. Six of them are the engine's: `.header()` refuses `routecraft.id`, `routecraft.operation`, `routecraft.route`, `routecraft.split_hierarchy`, `routecraft.correlation_id` and `routecraft.causation_id` at build time. Adapter keys in the namespace, such as a mail message's UID, stay settable.
+These are useful for logging, debugging, and correlating exchanges across capability chains. Six of them are the engine's, and so are `routecraft.trace.parent` and `routecraft.journey.joined`, which mark an exchange that [joined its journey](#journeys-correlation-and-causation) rather than being called into it: `.header()` refuses all eight at build time. Adapter keys in the namespace, such as a mail message's UID, stay settable.
 
 ## Journeys: correlation and causation
 
