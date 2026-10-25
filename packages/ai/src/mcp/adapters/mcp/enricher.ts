@@ -3,6 +3,7 @@ import {
   getExchangeContext,
   HeadersKeys,
   rcError,
+  traceContextOf,
 } from "@routecraft/routecraft";
 import type {
   McpClientOptions,
@@ -17,6 +18,7 @@ import {
   callRemoteTool,
   dispatchMcpCall,
   relayRemoteError,
+  traceMeta,
 } from "../../dispatch.ts";
 
 /** Ensure inline url is HTTP(S) only. Stdio clients are reached via dispatchMcpCall. */
@@ -156,6 +158,10 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     const context = getExchangeContext(exchange);
     const argsExtractor = this.options.args ?? defaultArgs;
     const args = argsExtractor(exchange);
+    const trace =
+      this.options.traceContext === false
+        ? undefined
+        : traceContextOf(exchange);
 
     // serverId path -> registered MCP client (stdio or http). Delegates
     // to `dispatchMcpCall` so transport selection (stdio manager vs
@@ -174,6 +180,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
         this.options.serverId,
         toolName,
         args,
+        trace,
       );
       if (result && typeof result === "object") {
         metadataOf.set(result, {
@@ -190,7 +197,13 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     // setup, auth-header building, and cleanup stay aligned with
     // `dispatchMcpCall`.
     const { url, auth } = resolveConnection(this.options, context);
-    const result = await callRemoteTool(url, toolName, args, auth);
+    const result = await callRemoteTool(
+      url,
+      toolName,
+      args,
+      auth,
+      trace === undefined ? undefined : traceMeta(trace),
+    );
     if (result && typeof result === "object") {
       metadataOf.set(result, { toolName, url, transport: "http" });
     }

@@ -1,4 +1,9 @@
-import { clipText, isRoutecraftError, rcError } from "@routecraft/routecraft";
+import {
+  clipText,
+  isRoutecraftError,
+  rcError,
+  type TraceContextCarrier,
+} from "@routecraft/routecraft";
 // Registers AI2003 before any dispatch can throw it.
 import "../errors.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
@@ -37,9 +42,10 @@ export async function dispatchMcpCall(
   serverId: string,
   toolName: string,
   args: Record<string, unknown>,
+  trace?: TraceContextCarrier,
 ): Promise<unknown> {
   return toolResultBody(
-    await dispatchMcpCallRaw(service, serverId, toolName, args),
+    await dispatchMcpCallRaw(service, serverId, toolName, args, trace),
     `"${serverId}:${toolName}"`,
   );
 }
@@ -137,11 +143,23 @@ export async function dispatchMcpCallRaw(
   serverId: string,
   toolName: string,
   args: Record<string, unknown>,
+  trace?: TraceContextCarrier,
 ): Promise<McpRawToolResult> {
+  const config = service?.clients.get(serverId);
+  // A client registered with `traceContext: false` sends nothing.
+  const meta =
+    trace !== undefined &&
+    !(
+      typeof config === "object" &&
+      config !== null &&
+      (config as { traceContext?: boolean }).traceContext === false
+    )
+      ? traceMeta(trace)
+      : undefined;
   const manager = service?.stdio.get(serverId);
   if (manager) {
     try {
-      return await manager.callToolRaw(toolName, args);
+      return await manager.callToolRaw(toolName, args, meta);
     } catch (cause) {
       if (isRoutecraftError(cause)) throw cause;
       throw rcError("RC5003", cause, {
@@ -151,7 +169,18 @@ export async function dispatchMcpCallRaw(
   }
 
   const http = resolveHttpConfig(service, serverId);
-  return callRemoteToolRaw(http.url, toolName, args, http.auth);
+  return callRemoteToolRaw(http.url, toolName, args, http.auth, meta);
+}
+
+/**
+ * The `_meta` entries a tool call carries its trace context in, the keys
+ * MCP's SEP-414 defines (`traceparent`, `tracestate`), so the server
+ * continues the caller's journey over every transport, stdio included.
+ *
+ * @internal
+ */
+export function traceMeta(trace: TraceContextCarrier): Record<string, string> {
+  return { traceparent: trace.traceparent, tracestate: trace.tracestate };
 }
 
 /**
@@ -205,11 +234,12 @@ export async function callRemoteTool(
   toolName: string,
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
+  meta?: Record<string, string>,
 ): Promise<unknown> {
   // The URL is configuration, not part of the answer: the message can
   // reach a caller, the route's own log carries the URL.
   return toolResultBody(
-    await callRemoteToolRaw(serverUrl, toolName, args, auth),
+    await callRemoteToolRaw(serverUrl, toolName, args, auth, meta),
     `"${toolName}"`,
   );
 }
@@ -225,6 +255,7 @@ export async function callRemoteToolRaw(
   toolName: string,
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
+  meta?: Record<string, string>,
 ): Promise<McpRawToolResult> {
   let connection: Awaited<ReturnType<typeof connectMcpHttpClient>> | undefined;
   try {
@@ -232,6 +263,7 @@ export async function callRemoteToolRaw(
     return (await connection.client.callTool({
       name: toolName,
       arguments: args,
+      ...(meta !== undefined ? { _meta: meta } : {}),
     })) as McpRawToolResult;
   } catch (cause) {
     // Wrap SDK / transport / network errors as RC5003 with the original

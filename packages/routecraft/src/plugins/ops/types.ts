@@ -6,6 +6,7 @@
  * fields may be added, never removed or repurposed.
  */
 
+import type { TraceContextMode } from "../../trace-context.ts";
 import type {
   HealthChange,
   HealthStatus as KernelHealthStatus,
@@ -237,6 +238,15 @@ export interface OpsPluginOptions {
   tiers?: OpsTiers;
   /** Indicators to register. See `defineIndicator`. */
   indicators?: readonly Indicator[];
+  /**
+   * Whether a dispatch request's W3C trace context (`traceparent`,
+   * `tracestate`) joins the dispatched exchange to the caller's journey, as
+   * a remote instance's channel sends it. `"authenticated"` (the default)
+   * adopts it only from a caller the dispatch tier's validator verified;
+   * `"always"` from any caller; `"never"` starts a new chain for every
+   * dispatch.
+   */
+  traceContext?: TraceContextMode;
 }
 
 /** The `ops` config key. */

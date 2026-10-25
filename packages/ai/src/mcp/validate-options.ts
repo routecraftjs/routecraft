@@ -39,6 +39,17 @@ export function normalizeMcpPath(raw: string): string {
 }
 
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
+  const trace = options.traceContext;
+  if (
+    trace !== undefined &&
+    trace !== "authenticated" &&
+    trace !== "always" &&
+    trace !== "never"
+  ) {
+    throw new TypeError(
+      `mcpPlugin: traceContext must be "authenticated", "always" or "never"; received ${JSON.stringify(trace)}`,
+    );
+  }
   if (options.name !== undefined && options.name.trim().length === 0) {
     throw new TypeError("mcpPlugin: name must not be empty");
   }

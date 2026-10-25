@@ -357,6 +357,50 @@ describe("tool builders - directTool dispatch", () => {
   });
 
   /**
+   * @case A tool's route records the calling turn's exchange as its cause
+   * @preconditions A directTool handler invoked with a correlationId and an exchangeId in its ctx; the downstream route captures the causation header it ran with
+   * @expectedResult The downstream exchange's causation id is the calling exchange's id, so a ledger draws the edge from the turn to the capability it reached
+   */
+  test("dispatchDirect records the calling exchange as the cause", async () => {
+    let cause: unknown;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("orders/fetch-caused")
+          .description("Fetch, caused.")
+          .input(z.object({ orderId: z.string() }))
+          .from(direct())
+          .process((ex) => {
+            cause = ex.headers[HeadersKeys.CAUSATION_ID];
+            return { ...ex, body: { ok: true } };
+          })
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const fn = callable(
+      directTool("orders/fetch-caused").resolve(
+        toolHostOf(t.ctx),
+        "ordersFetchCaused",
+      ),
+    );
+    await fn.handler(
+      { orderId: "abc" },
+      {
+        logger: undefined as unknown as Parameters<
+          typeof fn.handler
+        >[1]["logger"],
+        abortSignal: new AbortController().signal,
+        defer: refuseDefer,
+        correlationId: "turn-42",
+        exchangeId: "turn-exchange-1",
+      },
+    );
+    expect(cause).toBe("turn-exchange-1");
+  });
+
+  /**
    * @case directTool forwards authenticity only when the calling principal is authentic
    * @preconditions Downstream route records defaultAuthority.isAuthentic(ex.auth.principal); handler invoked once with an authentic principal and once with a self-asserted plain object carrying the same fields
    * @expectedResult Authentic in -> authentic downstream; self-asserted in -> non-authentic downstream (no laundering across the agent -> tool boundary)

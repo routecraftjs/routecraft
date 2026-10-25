@@ -7,6 +7,7 @@ import {
 } from "../types.ts";
 import { BRAND, isBranded, isExchange } from "../brand.ts";
 import { rcError } from "../error.ts";
+import { lineageOf } from "../lineage.ts";
 import {
   type Exchange,
   type ExchangeHeaders,
@@ -205,7 +206,8 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       // (`routecraft.auth.principal`, future tracing/tenancy keys) flow
       // through to every child. A `splitChild` envelope's headers override
       // on collision EXCEPT for engine-owned keys: id, split hierarchy,
-      // route id, and operation are reasserted after the envelope spread,
+      // route id, operation, correlation and causation (the parent) are
+      // reasserted after the envelope spread,
       // mirroring the `.header()` guard so the same runtime contract holds
       // on both APIs (an envelope value for those keys is ignored).
       const postProcessedExchange = new DefaultExchange<R>(context, {
@@ -223,6 +225,8 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
           ] as string,
           [HeadersKeys.ID]: randomUUID(),
           [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
+          [HeadersKeys.CORRELATION_ID]: correlationId,
+          [HeadersKeys.CAUSATION_ID]: exchange.id,
         },
       });
 
@@ -230,6 +234,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       if (route) {
         setExchangeRoute(postProcessedExchange, route as Route);
       }
+      lineageOf(context).attach(postProcessedExchange.id, routeId, exchange.id);
 
       const adapterLabel = getAdapterLabel(this.adapter);
       postProcessedExchange.logger.debug(

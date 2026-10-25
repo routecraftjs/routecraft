@@ -135,6 +135,13 @@ export interface ResumeDoor {
    * where no caller is waiting for an answer.
    */
   readonly routeId?: string;
+  /**
+   * The ingress exchange presenting the token, recorded on
+   * `route:exchange:resumed` as `resumerExchangeId`: the edge from the
+   * resume attempt's own chain to the exchange it revived. Absent on a
+   * plugin-driven resume.
+   */
+  readonly exchangeId?: string;
 }
 
 /**
@@ -470,6 +477,9 @@ export async function reviveDeferral(
       deferralId: id,
       position: deferral.position,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
+      ...(door.exchangeId !== undefined
+        ? { resumerExchangeId: door.exchangeId }
+        : {}),
     });
 
     continuation = await runContinuation(

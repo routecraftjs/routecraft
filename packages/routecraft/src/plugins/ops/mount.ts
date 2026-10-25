@@ -24,6 +24,11 @@ import {
 } from "../http/response";
 import { callerRefusalResponse } from "../http/caller-refusal.ts";
 import { principalExpirySignal } from "../../auth/expiry.ts";
+import {
+  adoptTraceContext,
+  type AdoptedTraceHeaders,
+  type TraceContextMode,
+} from "../../trace-context.ts";
 import { anySignal } from "../../shared/abort.ts";
 import { sseResponse, type SseEvent } from "../http/sse";
 import type { HttpMountContext } from "../server/types";
@@ -49,6 +54,11 @@ export interface ManagementHandlerOptions {
    * case.
    */
   onRefused?: (refusal: { reason: string; scheme: string }) => void;
+  /**
+   * Whether a dispatch request's trace context is adopted; see
+   * {@link OpsPluginOptions.traceContext}. Defaults to `"authenticated"`.
+   */
+  traceContext?: TraceContextMode;
 }
 
 /** `GET /ops/routes` and `GET /ops/routes/{id}`. */
@@ -226,6 +236,18 @@ export function createManagementHandler(
         verdict.principal,
         context,
         onRefused,
+        adoptTraceContext(
+          {
+            traceparent: req.headers.get("traceparent"),
+            tracestate: req.headers.get("tracestate"),
+          },
+          {
+            ...(options.traceContext !== undefined
+              ? { mode: options.traceContext }
+              : {}),
+            authenticated: verdict.principal !== undefined,
+          },
+        ),
       );
     }
 
@@ -365,6 +387,7 @@ async function dispatchExchange(
   principal: Parameters<ManagementApi["dispatch"]>[2],
   context: HttpMountContext,
   onRefused: ManagementHandlerOptions["onRefused"],
+  trace: AdoptedTraceHeaders,
 ): Promise<Response> {
   const id = decodeSegment(rawId);
   if (id === undefined) return notFound();
@@ -379,7 +402,7 @@ async function dispatchExchange(
 
   let outcome: Awaited<ReturnType<ManagementApi["dispatch"]>>;
   try {
-    outcome = await api.dispatch(id, body, principal);
+    outcome = await api.dispatch(id, body, principal, trace);
   } catch (error: unknown) {
     if (!isRoutecraftError(error)) throw error;
     const code = rcCodeOf(error);

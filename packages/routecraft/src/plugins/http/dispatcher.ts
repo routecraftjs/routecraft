@@ -12,6 +12,10 @@ import { rcError } from "../../error";
 import { isDeferred } from "../../kernel/continuation/deferred";
 import { principalExpirySignal } from "../../auth/expiry.ts";
 import type { Principal } from "../../principal";
+import {
+  adoptTraceContext,
+  type TraceContextMode,
+} from "../../trace-context.ts";
 import type {
   HttpMethod,
   HttpResponseDescriptor,
@@ -103,6 +107,12 @@ export interface DispatcherOptions {
    * client's own signal, so either end can close the stream.
    */
   shutdownSignal?: AbortSignal;
+  /**
+   * Whether a request's trace context joins the exchange to the caller's
+   * journey; see {@link HttpPluginOptions.traceContext}. Defaults to
+   * `"authenticated"`.
+   */
+  traceContext?: TraceContextMode;
   /**
    * Called when the dispatcher itself synthesises a 401 because a route
    * with `auth: "required"` saw no credential. The plugin uses this to
@@ -378,6 +388,20 @@ export function createDispatcher(
       ...(principal !== undefined
         ? { [HeadersKeys.AUTH_PRINCIPAL]: principal }
         : {}),
+      // Adopted only from a caller this mount verified, unless it opted
+      // out of the rule: see `adoptTraceContext`.
+      ...adoptTraceContext(
+        {
+          traceparent: req.headers.get("traceparent"),
+          tracestate: req.headers.get("tracestate"),
+        },
+        {
+          ...(opts.traceContext !== undefined
+            ? { mode: opts.traceContext }
+            : {}),
+          authenticated: principal !== undefined,
+        },
+      ),
     } as ExchangeHeaders;
 
     // 6. Run the route. The runtime hands us back the final exchange (post

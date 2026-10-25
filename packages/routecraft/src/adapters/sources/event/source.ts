@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { HeadersKeys } from "../../../exchange";
+import { lineageOf, type LineageIndex } from "../../../lineage";
 import type { Source, Subscription } from "../../../operations/from";
 import type { EventName, EventPayload } from "../../../types";
 import type { EventFilter } from "./types";
@@ -10,9 +10,15 @@ import type { EventFilter } from "./types";
  *
  * Events a route's own exchanges cause (`route:step:*`, `route:exchange:*`,
  * `route:operation:*`, and errors raised while one runs) are not delivered
- * back to it, including those of the routes it calls through `direct()`:
- * every step emits step events, so the route would otherwise feed on itself.
- * Its own lifecycle events, such as `route:started`, are delivered.
+ * back to it, including those of the routes it calls through `direct()` or
+ * an agent's tools: every step emits step events, so the route would
+ * otherwise feed on itself. Its own lifecycle events, such as
+ * `route:started`, are delivered.
+ *
+ * A delivery continues the journey of the exchange that caused the event:
+ * the new exchange carries that exchange's correlation id and records it as
+ * its cause. An event that names no exchange (`route:started`, `plugin:*`)
+ * starts a new chain.
  *
  * Two `event()` routes that each watch step or exchange events still feed
  * each other: every exchange one runs emits events the other consumes. Point
@@ -44,10 +50,7 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
     const unsubscribers: Array<() => void> = [];
 
     const ownRouteId = sub.meta.routeId;
-    // Correlation ids of the exchanges this route has in flight. A called
-    // route inherits the caller's correlation id, so this is what recognises
-    // events from further down the call chain.
-    const inFlight = new Set<string>();
+    const lineage = lineageOf(context);
 
     // Determine which events to subscribe to
     const eventNames = this.resolveEventNames(filters);
@@ -62,13 +65,18 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
       payload: EventPayload<EventName>,
     ): Promise<void> => {
       if (!sub.signal.aborted) {
-        if (isOwnExchangeEvent(payload, ownRouteId, inFlight)) return;
-        const correlationId = randomUUID();
-        inFlight.add(correlationId);
+        const cause = causeOf(payload);
+        if (isOwnExchangeEvent(cause, ownRouteId, lineage)) return;
         try {
           await sub.emit({
             message: payload,
-            headers: { [HeadersKeys.CORRELATION_ID]: correlationId },
+            headers:
+              cause?.correlationId !== undefined
+                ? {
+                    [HeadersKeys.CORRELATION_ID]: cause.correlationId,
+                    [HeadersKeys.CAUSATION_ID]: cause.exchangeId,
+                  }
+                : {},
           });
         } catch (err) {
           const metaMessage =
@@ -91,8 +99,6 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
             { adapter: "event", event: eventName, err },
             metaMessage ?? errorMessage ?? "Event handler failed",
           );
-        } finally {
-          inFlight.delete(correlationId);
         }
       }
     };
@@ -165,6 +171,46 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
   }
 }
 
+/** The exchange an event names, read from either payload shape. */
+interface EventCause {
+  readonly exchangeId: string;
+  readonly routeId: unknown;
+  readonly correlationId: string | undefined;
+}
+
+/**
+ * The exchange an event names, if any.
+ *
+ * Exchange events name their exchange in one of two shapes: `routeId`,
+ * `exchangeId` and `correlationId` side by side, or the `route` and
+ * `exchange` themselves (`route:error`, `context:error`). Both are read. A
+ * correlation id is kept only when it is a string, so a malformed payload
+ * starts a new chain rather than failing the delivery.
+ */
+function causeOf(payload: EventPayload<EventName>): EventCause | undefined {
+  const details = payload.details as {
+    routeId?: unknown;
+    correlationId?: unknown;
+    exchangeId?: unknown;
+    route?: { definition?: { id?: unknown } };
+    exchange?: { id?: unknown; headers?: Record<string, unknown> };
+  };
+  const exchangeId =
+    details.exchangeId ??
+    details.exchange?.id ??
+    details.exchange?.headers?.[HeadersKeys.ID];
+  if (typeof exchangeId !== "string") return undefined;
+  const correlationId =
+    details.correlationId ??
+    details.exchange?.headers?.[HeadersKeys.CORRELATION_ID];
+  return {
+    exchangeId,
+    routeId: details.routeId ?? details.route?.definition?.id,
+    correlationId:
+      typeof correlationId === "string" ? correlationId : undefined,
+  };
+}
+
 /**
  * Whether an event was caused by one of this route's own exchanges.
  *
@@ -174,35 +220,21 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
  * lifecycle events (`route:started` and the like) carry no exchange and are
  * still delivered.
  *
- * Exchange events name their exchange in one of two shapes: `routeId` and
- * `correlationId` beside `exchangeId`, or the `route` and `exchange`
- * themselves (`route:error`, `context:error`). Both are read.
- *
- * @param inFlight Correlation ids of the exchanges this route has in flight
+ * An event is the route's own when it names an exchange of this route, or
+ * one that descends from an exchange of this route still in flight: the walk
+ * follows causation up the lineage index, through `direct()` calls, agent
+ * tool calls, clones and split children, each of which records its cause.
+ * Event delivery is synchronous and an exchange is entered before its first
+ * event, so the walk always sees the exchange the event names.
  */
 function isOwnExchangeEvent(
-  payload: EventPayload<EventName>,
+  cause: EventCause | undefined,
   ownRouteId: string,
-  inFlight: ReadonlySet<string>,
+  lineage: LineageIndex,
 ): boolean {
-  const details = payload.details as {
-    routeId?: unknown;
-    correlationId?: unknown;
-    exchangeId?: unknown;
-    route?: { definition?: { id?: unknown } };
-    exchange?: { headers?: Record<string, unknown> };
-  };
-  const correlationId =
-    details.correlationId ??
-    details.exchange?.headers?.[HeadersKeys.CORRELATION_ID];
-  if (typeof correlationId === "string" && inFlight.has(correlationId)) {
-    return true;
-  }
-  const routeId = details.routeId ?? details.route?.definition?.id;
-  return (
-    routeId === ownRouteId &&
-    (details.exchangeId !== undefined || details.exchange !== undefined)
-  );
+  if (cause === undefined) return false;
+  if (cause.routeId === ownRouteId) return true;
+  return lineage.descendsFrom(cause.exchangeId, ownRouteId);
 }
 
 /**

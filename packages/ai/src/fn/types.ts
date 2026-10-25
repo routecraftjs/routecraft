@@ -74,6 +74,14 @@ export interface FnHandlerContext {
   readonly correlationId?: string;
 
   /**
+   * Id of the calling exchange, beside {@link correlationId}. A child
+   * exchange a tool dispatches records it as its cause
+   * (`routecraft.causation_id`), so a ledger draws the edge from the turn to
+   * the capability it reached. Undefined where `correlationId` is.
+   */
+  readonly exchangeId?: string;
+
+  /**
    * Id of the deferral this dispatch's exchange would defer as (or deferred
    * as), populated BEFORE the handler runs so a callback URL can be built
    * ahead of the actual deferral. Present only inside an agent dispatch on a

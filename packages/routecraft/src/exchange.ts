@@ -7,6 +7,7 @@ import { INTERNALS_KEY, BRAND, setBrand, setInternals } from "./brand.ts";
 // that order (vite/vitest; bun's loader happens to tolerate it).
 import type { CraftContext } from "./context.ts";
 import { logger, childBindings } from "./logger.ts";
+import { lineageOf } from "./lineage.ts";
 import type { Route } from "./route.ts";
 import type { Adapter, Step } from "./types.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
@@ -77,6 +78,8 @@ export enum OperationType {
   SAMPLE = "sample",
   /** Drop exchanges whose derived key has already been seen */
   DEDUPE = "dedupe",
+  /** Join the exchange to another journey: re-stamp its correlation and causation ids */
+  CORRELATE = "correlate",
   /** Hold a burst of exchanges and release only the last after a quiet period */
   DEBOUNCE = "debounce",
   /** Short-circuit the pipeline: drop the exchange without further steps */
@@ -105,8 +108,21 @@ export const HeadersKeys = {
   OPERATION: "routecraft.operation",
   /** The route id */
   ROUTE_ID: "routecraft.route",
-  /** The correlation id */
+  /**
+   * The id every exchange of one journey shares: a request from outside, a
+   * timer firing, a mail arriving starts a chain, and every exchange it leads
+   * to carries the same value. Engine-owned for `.header()` and mutate hooks;
+   * a source adapter supplies it on `emit`, and `.correlate()` re-stamps it.
+   */
   CORRELATION_ID: "routecraft.correlation_id",
+  /**
+   * The `routecraft.id` of the exchange that caused this one, set by the
+   * engine at every hand-off (`direct()`, `forward()`, an agent tool call, a
+   * clone, a split child, an `event()` delivery). Absent on a chain root.
+   * Correlation groups a journey; causation draws its tree. Engine-owned like
+   * the correlation id.
+   */
+  CAUSATION_ID: "routecraft.causation_id",
   /** The hierarchy of split groups this exchange belongs to */
   SPLIT_HIERARCHY: "routecraft.split_hierarchy",
   /**
@@ -160,6 +176,9 @@ export interface RoutecraftHeaders {
 
   /** Unique identifier for correlating related exchanges */
   "routecraft.correlation_id": string;
+
+  /** The id of the exchange that caused this one; absent on a chain root */
+  "routecraft.causation_id"?: string;
 
   /** Hierarchy path for split operations */
   "routecraft.split_hierarchy"?: readonly string[];
@@ -593,8 +612,11 @@ export function clearResumeStepState(exchange: Exchange): void {
  * but object-valued user headers (e.g. `.header("x", { ... })`) remain shared
  * between the clone and the source -- mutating a nested header field is an
  * anti-pattern that is NOT isolated. The clone gets a fresh `routecraft.id`
- * (so logs and identity-aware tooling distinguish it) and preserves the
- * correlation id so it stays traceable to the same logical request.
+ * (so logs and identity-aware tooling distinguish it), preserves the
+ * correlation id so it stays traceable to the same logical request, and
+ * records the original as its cause. It is attached to the lineage index
+ * under the original's root, so an `event()` route recognises its events
+ * while the original is in flight.
  *
  * When `route` is supplied it is bound onto the clone's internals so the
  * clone can run through the pipeline executor (multicast paths need this). It
@@ -619,9 +641,15 @@ export function cloneExchange<T>(
       // notification can mint the resume token for the exchange that will.
       [DEFERRAL_OWNER_HEADER]:
         exchange.headers[DEFERRAL_OWNER_HEADER] ?? exchange.id,
+      [HeadersKeys.CAUSATION_ID]: exchange.id,
     },
   });
   if (route) setExchangeRoute(clone, route);
+  lineageOf(context).attach(
+    clone.id,
+    route?.definition.id ?? (exchange.headers[HeadersKeys.ROUTE_ID] as string),
+    exchange.id,
+  );
   return clone;
 }
 
@@ -842,7 +870,7 @@ type DefaultExchangeOptions<T> = {
  */
 type RewrapState = {
   readonly internals: ExchangeInternals;
-  readonly logger: ReturnType<typeof logger.child>;
+  readonly logger: ReturnType<typeof logger.child> | undefined;
 };
 
 /**
@@ -1115,4 +1143,34 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       body: ("body" in partial ? partial.body : prev.body) as T,
     });
   }
+}
+
+/**
+ * The same exchange under new correlation or causation ids, with a logger
+ * rebound to them.
+ *
+ * A {@link DefaultExchange.rewrap} reuses the previous logger because its
+ * bindings never change across one; `.correlate()` is the one step that
+ * changes them, so it builds the next exchange here, sharing internals as a
+ * rewrap does but leaving the logger to be rebuilt on first use.
+ *
+ * @param prev - The exchange to re-stamp
+ * @param headers - Its headers with the new ids
+ * @internal
+ */
+export function restampExchange<T>(
+  prev: Exchange<T>,
+  headers: ExchangeHeaders,
+): DefaultExchange<T> {
+  const internals = internalsOf(prev);
+  if (!internals) {
+    throw new Error(
+      "restampExchange: the exchange has no context binding; cannot re-stamp it.",
+    );
+  }
+  pendingRewrap = { internals, logger: undefined };
+  return new DefaultExchange<T>(internals.context, {
+    headers: { ...headers, [HeadersKeys.ID]: prev.id },
+    body: prev.body,
+  });
 }

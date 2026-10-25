@@ -10,6 +10,7 @@
  * licence to move logic into it.
  */
 
+import type { AdoptedTraceHeaders } from "../../trace-context.ts";
 import { isRemoteAbsence } from "../remotes/channel";
 import { HeadersKeys } from "../../exchange";
 import type { ExchangeHeaders } from "../../exchange";
@@ -82,6 +83,7 @@ export interface ManagementApi {
     id: string,
     body: unknown,
     principal: Principal | undefined,
+    trace?: AdoptedTraceHeaders,
   ): Promise<OpsDispatchOutcome | OpsDispatchRefusal>;
   tailEvents(signal: AbortSignal): AsyncIterable<OpsEventTailItem>;
   /**
@@ -346,6 +348,7 @@ export function createManagementApi(host: ManagementHost): ManagementApi {
       id: string,
       body: unknown,
       principal: Principal | undefined,
+      trace: AdoptedTraceHeaders = {},
     ): Promise<OpsDispatchOutcome | OpsDispatchRefusal> {
       const capabilities = capabilityIndex();
       const route = localRoute(id, capabilities);
@@ -370,10 +373,14 @@ export function createManagementApi(host: ManagementHost): ManagementApi {
       // synthetic operator identity and no bypass: the full pre-from chain
       // runs, so a downstream .authorize() cannot tell an operator dispatch
       // from any other authenticated caller, which is the entire point.
-      const headers: ExchangeHeaders =
-        principal === undefined
+      // The adopted trace context, when the mount adopted one, joins the
+      // exchange to the caller's journey; see `adoptTraceContext`.
+      const headers: ExchangeHeaders = {
+        ...trace,
+        ...(principal === undefined
           ? {}
-          : ({ [HeadersKeys.AUTH_PRINCIPAL]: principal } as ExchangeHeaders);
+          : { [HeadersKeys.AUTH_PRINCIPAL]: principal }),
+      } as ExchangeHeaders;
 
       try {
         const result = await host.execution.deliver(id, body, headers);

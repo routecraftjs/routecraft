@@ -26,6 +26,7 @@ import { normalizeStaticPathPrefix } from "../server/mount-path.ts";
 import type { PathClaim } from "../server/types.ts";
 import { staticPathPrefix } from "./path-matcher.ts";
 import { resolveMaxBodySize } from "./max-body-size.ts";
+import type { TraceContextMode } from "../../trace-context.ts";
 
 /** Resolved per-mount config after the single-mount sugar is normalised. */
 interface ResolvedMount {
@@ -33,6 +34,7 @@ interface ResolvedMount {
   readonly path: string;
   readonly server: string;
   readonly auth: HttpAuth | false | undefined;
+  readonly traceContext: TraceContextMode;
 }
 
 /**
@@ -255,6 +257,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
           ...(gatedBuiltins !== undefined ? { gatedBuiltins } : {}),
           ...(onRequestCompleted !== undefined ? { onRequestCompleted } : {}),
           shutdownSignal: shutdown.signal,
+          traceContext: mount.traceContext,
           onAuthAbsent,
           onSignatureRejected,
           logger: c.logger,
@@ -426,9 +429,11 @@ function resolveMounts(options: HttpPluginOptions): ResolvedMount[] {
         path: "/",
         server: options.server ?? "default",
         auth: options.auth,
+        traceContext: traceContextModeOf(options.traceContext, "httpPlugin"),
       },
     ];
   }
+  const fallback = traceContextModeOf(options.traceContext, "httpPlugin");
   const entries = Object.entries(options.mounts);
   if (entries.length === 0) {
     throw rcError("RC5003", undefined, {
@@ -461,7 +466,19 @@ function resolveMounts(options: HttpPluginOptions): ResolvedMount[] {
       });
     }
     seenPaths.set(key, name);
-    resolved.push({ name, path, server, auth: definition.auth });
+    resolved.push({
+      name,
+      path,
+      server,
+      auth: definition.auth,
+      traceContext:
+        definition.traceContext === undefined
+          ? fallback
+          : traceContextModeOf(
+              definition.traceContext,
+              `httpPlugin: mount "${name}"`,
+            ),
+    });
   }
   return resolved;
 }
@@ -474,4 +491,23 @@ function normalizeMountPath(
     definition.path,
     `httpPlugin: mount "${name}"`,
   );
+}
+
+/**
+ * A trace-context mode as configured, refused when it is not one of the
+ * three.
+ *
+ * @throws RC5003 naming the value and the three accepted ones
+ */
+function traceContextModeOf(
+  value: TraceContextMode | undefined,
+  site: string,
+): TraceContextMode {
+  if (value === undefined) return "authenticated";
+  if (value === "authenticated" || value === "always" || value === "never") {
+    return value;
+  }
+  throw rcError("RC5003", undefined, {
+    message: `${site}: invalid traceContext ${JSON.stringify(value)}. Pass "authenticated", "always" or "never".`,
+  });
 }

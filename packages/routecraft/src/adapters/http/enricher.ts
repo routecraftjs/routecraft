@@ -1,8 +1,9 @@
 import type { Enricher } from "../../operations/enrich.ts";
 import { anySignal } from "../../shared/abort.ts";
-import type { Exchange } from "../../exchange";
+import { HeadersKeys, type Exchange } from "../../exchange";
 import { parseDuration } from "../../shared/duration.ts";
 import { rcError } from "../../error";
+import { traceContextOf } from "../../trace-context.ts";
 import {
   declaredLengthOver,
   resolveMaxBodySize,
@@ -97,6 +98,19 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     const method = this.options.method ?? "GET";
     const url = this.resolveRequired(this.options.url, exchange);
     const headers = { ...(this.resolve(this.options.headers, exchange) ?? {}) };
+    // An exchange-shaped stand-in with no identity (a unit test driving the
+    // adapter directly) has no journey to carry.
+    if (
+      this.options.traceContext !== false &&
+      typeof exchange.headers?.[HeadersKeys.ID] === "string" &&
+      !hasKey(headers, "traceparent")
+    ) {
+      const carrier = traceContextOf(exchange);
+      headers["traceparent"] = carrier.traceparent;
+      if (!hasKey(headers, "tracestate")) {
+        headers["tracestate"] = carrier.tracestate;
+      }
+    }
     const query = this.resolve(this.options.query, exchange);
     const resolvedBody = this.resolve(this.options.body, exchange);
     const throwOnHttpError = this.options.throwOnHttpError ?? true;
@@ -400,6 +414,12 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
     if (key.toLowerCase() === wanted) return value !== "";
   }
   return false;
+}
+
+/** Case-insensitive lookup for a header the route set, whatever its value. */
+function hasKey(headers: Record<string, string>, name: string): boolean {
+  const wanted = name.toLowerCase();
+  return Object.keys(headers).some((key) => key.toLowerCase() === wanted);
 }
 
 /**

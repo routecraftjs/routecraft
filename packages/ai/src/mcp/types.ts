@@ -1,6 +1,10 @@
 import type { Duration } from "@routecraft/routecraft";
 import type { Exchange, Tag } from "@routecraft/routecraft";
-import type { Principal, ValidatorAuthOptions } from "@routecraft/routecraft";
+import type {
+  Principal,
+  TraceContextMode,
+  ValidatorAuthOptions,
+} from "@routecraft/routecraft";
 import { TOOL_NAME_PATTERN } from "../tool-name.ts";
 import type { McpCorsOptions } from "./cors.ts";
 import type { UserinfoOption } from "./userinfo.ts";
@@ -27,6 +31,7 @@ export interface McpStdioToolCaller {
   callToolRaw(
     name: string,
     args: Record<string, unknown>,
+    meta?: Record<string, string>,
   ): Promise<McpRawToolResult>;
 }
 
@@ -149,6 +154,8 @@ export interface McpClientHttpConfig {
   url: string;
   /** Auth credentials sent on every request to this server. */
   auth?: McpClientAuthOptions;
+  /** Whether tool calls carry the caller's trace context; see {@link McpClientOptions.traceContext}. */
+  traceContext?: boolean;
 }
 
 /**
@@ -166,6 +173,8 @@ export interface McpClientStdioConfig {
   env?: Record<string, string>;
   /** Working directory for the child process. Defaults to the current working directory. */
   cwd?: string;
+  /** Whether tool calls carry the caller's trace context; see {@link McpClientOptions.traceContext}. */
+  traceContext?: boolean;
 }
 
 /**
@@ -404,6 +413,16 @@ export interface McpPluginOptions {
    * ```
    */
   auth?: McpHttpAuthOptions | false;
+
+  /**
+   * Whether a tool call's W3C trace context (`_meta.traceparent`,
+   * `_meta.tracestate`, as MCP carries it per SEP-414) joins the exchange to
+   * the caller's journey. `"authenticated"` (the default) adopts it only
+   * from a caller whose token `auth` verified, so over stdio, which carries
+   * no credential, only `"always"` adopts it; `"always"` from any caller;
+   * `"never"` starts a new chain for every call.
+   */
+  traceContext?: TraceContextMode;
 
   /**
    * Principal enrichment that runs after `auth` verifies a token, for the
@@ -718,6 +737,14 @@ export interface McpClientOptions {
    * supply credentials when using inline `url`.
    */
   auth?: McpClientAuthOptions;
+  /**
+   * Send the exchange's W3C trace context on the call, in `_meta` as MCP
+   * carries it (SEP-414), so the server continues the journey: a Routecraft
+   * server keeps the correlation id and records this exchange as the cause
+   * when it adopts the context. On by default; `false` sends nothing. A
+   * client registered with `traceContext: false` sends nothing either.
+   */
+  traceContext?: boolean;
 }
 
 /**

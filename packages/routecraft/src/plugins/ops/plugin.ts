@@ -293,6 +293,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         onRefused: ({ reason, scheme }) => {
           c.emit("auth:rejected", { reason, scheme, source: "ops" });
         },
+        ...(options.traceContext !== undefined
+          ? { traceContext: options.traceContext }
+          : {}),
       });
 
       // One mount, two surfaces with opposite postures. Management is
@@ -452,6 +455,17 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
 }
 
 function validate(options: OpsPluginOptions): void {
+  const trace = options.traceContext;
+  if (
+    trace !== undefined &&
+    trace !== "authenticated" &&
+    trace !== "always" &&
+    trace !== "never"
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `ops.traceContext must be "authenticated", "always" or "never"; received ${JSON.stringify(trace)}.`,
+    });
+  }
   for (const [name, value] of Object.entries(options.tiers ?? {})) {
     if (typeof value === "boolean" || value === undefined) continue;
     if (typeof value !== "string") {

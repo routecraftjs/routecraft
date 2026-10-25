@@ -34,6 +34,7 @@ interface McpSdkClient {
   callTool(params: {
     name: string;
     arguments?: Record<string, unknown>;
+    _meta?: Record<string, string>;
   }): Promise<McpRawToolResult>;
 }
 
@@ -250,11 +251,13 @@ export class StdioClientManager {
    *
    * @param name - Tool name to invoke
    * @param args - Arguments passed to the tool
+   * @param meta - `_meta` entries for the request, such as the caller's trace context
    * @returns The raw MCP `tools/call` result
    */
   async callToolRaw(
     name: string,
     args: Record<string, unknown>,
+    meta?: Record<string, string>,
   ): Promise<McpRawToolResult> {
     if (!this.running || !this.client) {
       throw new Error(
@@ -265,6 +268,7 @@ export class StdioClientManager {
     return await this.client.callTool({
       name,
       arguments: args,
+      ...(meta !== undefined ? { _meta: meta } : {}),
     });
   }
 

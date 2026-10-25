@@ -1,6 +1,7 @@
 import type { CraftContext } from "../context.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { anySignal } from "../shared/abort.ts";
+import { lineageOf } from "../lineage.ts";
 import {
   type Exchange,
   HeadersKeys,
@@ -1494,6 +1495,14 @@ export function runDetachedPipeline(
   releaseExchange: Exchange,
   kind: DetachedKind,
 ): Promise<DetachedResult> {
+  const cause = releaseExchange.headers[HeadersKeys.CAUSATION_ID];
+  // Entered before `:started` and left after the terminal event, like a
+  // route's handler: a continuation or a debounce release runs on its own.
+  const leave = lineageOf(deps.context).enter(
+    releaseExchange.id,
+    deps.routeId,
+    typeof cause === "string" ? cause : undefined,
+  );
   return (async (): Promise<DetachedResult> => {
     const start = Date.now();
     const correlationId = releaseExchange.headers[
@@ -1544,7 +1553,10 @@ export function runDetachedPipeline(
       deps.context.emit("route:exchange:completed", {
         routeId: deps.routeId,
         exchangeId: releaseExchange.id,
-        correlationId,
+        // The final exchange's: a `.correlate()` may have re-stamped it.
+        correlationId: result.exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string,
         duration: Date.now() - start,
         exchange: result.exchange,
       });
@@ -1556,7 +1568,7 @@ export function runDetachedPipeline(
       exchange: result.exchange,
       ...(result.error !== undefined ? { error: result.error } : {}),
     };
-  })();
+  })().finally(leave);
 }
 
 /**

@@ -427,6 +427,22 @@ export {
 } from "./operations/dispatch.ts";
 
 export { type HeaderSetter } from "./operations/header.ts";
+export {
+  type Correlation,
+  type CallableCorrelator,
+  type Correlator,
+} from "./operations/correlate.ts";
+export {
+  adoptTraceContext,
+  isTraceId,
+  traceContextFor,
+  traceContextOf,
+  MAX_TRACE_ID_LENGTH,
+  type AdoptedTraceHeaders,
+  type InboundTraceContext,
+  type TraceContextCarrier,
+  type TraceContextMode,
+} from "./trace-context.ts";
 
 export { type DeferOptions } from "./plugins/deferral/defer-step.ts";
 export {
@@ -652,6 +668,7 @@ export {
   type EventHandler,
   type EventPayload,
   type ExchangeScoped,
+  type ExchangeLifecycle,
   forRoute,
   type Message,
   type ProcessingQueue,

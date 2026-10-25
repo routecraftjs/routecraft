@@ -290,6 +290,9 @@ export function childBindings(
         correlationId: context.headers[HeadersKeys.CORRELATION_ID],
         exchangeId: context.id,
       };
+      const causationId = context.headers[HeadersKeys.CAUSATION_ID];
+      if (typeof causationId === "string")
+        bindings["causationId"] = causationId;
 
       if (ctx.name !== undefined) bindings["service.name"] = ctx.name;
 

@@ -478,6 +478,23 @@ export type ExchangeScoped = {
 };
 
 /**
+ * Identity on an exchange's own lifecycle events (`route:exchange:*`): the
+ * shared three fields plus the edge to the exchange that caused it.
+ *
+ * Step and operation events keep the plain {@link ExchangeScoped} shape: the
+ * edge is a property of the exchange, recorded once per lifecycle event, so a
+ * ledger needs only `route:exchange:started` to store it.
+ */
+export type ExchangeLifecycle = ExchangeScoped & {
+  /**
+   * The id of the exchange that caused this one (`routecraft.causation_id`),
+   * absent on a chain root. Filled in by the context when the event is
+   * emitted, from the in-flight exchange or the exchange the event carries.
+   */
+  causationId?: string;
+};
+
+/**
  * Which ring an error handler belongs to, innermost first.
  *
  * The three are consulted in this order and the first to decide wins:
@@ -587,28 +604,28 @@ export interface EventDetailsMap {
   };
 
   // -- Exchange lifecycle --
-  "route:exchange:started": ExchangeScoped;
-  "route:exchange:completed": ExchangeScoped & {
+  "route:exchange:started": ExchangeLifecycle;
+  "route:exchange:completed": ExchangeLifecycle & {
     duration: number;
     exchange?: ExchangeSnapshot;
   };
-  "route:exchange:failed": ExchangeScoped & {
+  "route:exchange:failed": ExchangeLifecycle & {
     duration: number;
     error: unknown;
     exchange?: ExchangeSnapshot;
   };
-  "route:exchange:dropped": ExchangeScoped & {
+  "route:exchange:dropped": ExchangeLifecycle & {
     reason: string;
     exchange?: ExchangeSnapshot;
   };
-  "route:exchange:restored": ExchangeScoped & { source: string };
+  "route:exchange:restored": ExchangeLifecycle & { source: string };
   /**
    * The exchange deferred at a `.defer()` and execution one ended. This is
    * that run's terminal event, in place of `:completed`: the body the
    * source receives is the `Deferred` acknowledgment, and the route's real
    * output flows on execution two.
    */
-  "route:exchange:deferred": ExchangeScoped & {
+  "route:exchange:deferred": ExchangeLifecycle & {
     deferralId: string;
     /** Address of the deferring step; the continuation is what follows it. */
     position: number;
@@ -620,11 +637,17 @@ export interface EventDetailsMap {
    * Execution two's `:started` follows immediately, and that run gets its
    * own `:completed` / `:failed` / `:dropped`.
    */
-  "route:exchange:resumed": ExchangeScoped & {
+  "route:exchange:resumed": ExchangeLifecycle & {
     deferralId: string;
     position: number;
     /** Who resumed it, when the resume ingress had an authenticated principal. */
     resumedBy?: PrincipalRef;
+    /**
+     * The ingress exchange that presented the resume token, absent for a
+     * revival a plugin drove. Each resume attempt is its own chain (the
+     * approver's click); this is the edge from it to the exchange it revived.
+     */
+    resumerExchangeId?: string;
   };
   /**
    * A deferral stopped being resumable because its `ttl` elapsed. Fires
@@ -637,7 +660,7 @@ export interface EventDetailsMap {
    * redelivered by whoever took the claim over, and this fires again for
    * the same deferral.
    */
-  "route:exchange:expired": ExchangeScoped & {
+  "route:exchange:expired": ExchangeLifecycle & {
     deferralId: string;
     expiresAt: Date;
   };
@@ -650,10 +673,18 @@ export interface EventDetailsMap {
    * record nothing announces. A replay of the token afterwards reads
    * `RC5050` and emits nothing.
    */
-  "route:exchange:denied": ExchangeScoped & {
+  "route:exchange:denied": ExchangeLifecycle & {
     deferralId: string;
     /** Why it was denied, as recorded on the deferral's outcome. */
     reason: string;
+  };
+  /**
+   * `.correlate()` re-stamped the exchange onto another journey: the ids
+   * after the stitch at the top level, the ids before it in `previous`. A
+   * ledger records this as an edge, so a stitch is never a silent rewrite.
+   */
+  "route:exchange:correlated": ExchangeLifecycle & {
+    previous: { correlationId: string; causationId?: string };
   };
 
   // -- Step lifecycle --

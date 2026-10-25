@@ -50,8 +50,9 @@ export interface FnDeferralWiring {
  * `testFn` provides: `logger`, `abortSignal`, optional `principal`
  * (carried over from the dispatching exchange or the MCP caller so
  * guards can authorise without re-reading the source request), and
- * optional `correlationId`, the dispatching exchange's, so a route a tool
- * forwards to runs under the same trace as the turn that called it.
+ * optional `correlationId` and `exchangeId`, the dispatching exchange's, so
+ * a route a tool forwards to runs under the same trace as the turn that
+ * called it and records that turn as its cause.
  *
  * `deferral` wires the durable-deferral affordances: with it,
  * `ctx.defer()` mints the sentinel the bridge converts into a deferral and
@@ -75,11 +76,13 @@ export function makeFnHandlerContext(
   session: FnSessionView | undefined,
   correlationId: string | undefined,
   authority: Authority,
+  exchangeId?: string,
 ): FnHandlerContext {
   const hctx: FnHandlerContext = {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
     ...(correlationId !== undefined ? { correlationId } : {}),
+    ...(exchangeId !== undefined ? { exchangeId } : {}),
     ...(principal ? { principal: freezePrincipal(principal, authority) } : {}),
     ...(session ? { session: Object.freeze({ ...session }) } : {}),
     ...(deferral

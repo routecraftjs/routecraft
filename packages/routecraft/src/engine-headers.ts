@@ -13,9 +13,15 @@ import { HeadersKeys } from "./exchange.ts";
  *   persist but lie about which route owns the exchange.
  * - `routecraft.split_hierarchy`: maintained by split/aggregate to
  *   correlate children with their parent; a write corrupts joins.
+ * - `routecraft.correlation_id` and `routecraft.causation_id`: the logger
+ *   bindings, the lifecycle events and the lineage index all read them, and a
+ *   header write would move the header alone, leaving the rest on the old
+ *   values with no record of the change. `.correlate()` re-stamps all of them
+ *   together and emits `route:exchange:correlated`. A source adapter still
+ *   supplies both on `emit`, since that is construction, not a write.
  *
- * The rest of the reserved `routecraft.*` namespace (correlation id,
- * principal, adapter envelope keys) is deliberately settable: those keys are
+ * The rest of the reserved `routecraft.*` namespace (principal, adapter
+ * envelope keys) is deliberately settable: those keys are
  * documented inputs (e.g. addressing a mail operation via `MailHeaders.UID`),
  * and adapter receipt headers live there too.
  *
@@ -34,7 +40,15 @@ import { HeadersKeys } from "./exchange.ts";
 const ENGINE_OWNED_HEADERS: ReadonlyMap<string, string> = new Map([
   [
     HeadersKeys.ID,
-    "Identity is set once when the exchange is constructed and propagates automatically. If you need to correlate with an upstream id, use routecraft.correlation_id (settable via .header() or by source adapters).",
+    "Identity is set once when the exchange is constructed and propagates automatically. To join an exchange to an upstream journey, use .correlate(), or supply routecraft.correlation_id from a source adapter.",
+  ],
+  [
+    HeadersKeys.CORRELATION_ID,
+    "The correlation id is read by the logger, the lifecycle events and the lineage index, so a header write would move it alone. Use .correlate((exchange) => ({ correlationId })) to re-stamp it, or supply it from a source adapter's emit.",
+  ],
+  [
+    HeadersKeys.CAUSATION_ID,
+    "The engine sets the causation id at every hand-off. Use .correlate((exchange) => ({ causationId })) to point an exchange at the one that caused it, or supply it from a source adapter's emit.",
   ],
   [
     HeadersKeys.OPERATION,
