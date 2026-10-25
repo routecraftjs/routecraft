@@ -21,6 +21,7 @@ import {
   deferralOf,
 } from "../src/index.ts";
 import { asDeferred, storeWith, deferring } from "./helpers/deferral.ts";
+import { MAX_STORED_MESSAGE } from "../src/kernel/continuation/types.ts";
 
 /**
  * A signing secret for the two-context tests, which share one store across
@@ -37,6 +38,22 @@ const Approval = z.object({
 interface Payout {
   amountCents: number;
   payee: string;
+}
+
+/** The payout every resume test defers. */
+const PAYOUT = { amountCents: 25_000, payee: "acme" };
+
+/** Presents `token` to "answers" twice: the first resume and its duplicate. */
+async function resumeTwice(
+  client: TestContext["client"],
+  token: string,
+): Promise<[ResumeAcknowledgment, ResumeAcknowledgment]> {
+  const answer = () =>
+    client.sendDirect("answers", {
+      token,
+      result: { approved: true },
+    }) as Promise<ResumeAcknowledgment>;
+  return [await answer(), await answer()];
 }
 
 describe("defer and resume", () => {
@@ -157,20 +174,8 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const deferred = asDeferred(
-      await t.client.sendDirect("payout", {
-        amountCents: 25_000,
-        payee: "acme",
-      }),
-    );
-    const first = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as { status: string; continuation: { status: string; body?: unknown } };
-    const second = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as { status: string; continuation: { status: string; body?: unknown } };
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
 
     expect(first.status).toBe("resumed");
     expect(second.status).toBe("duplicate");
@@ -200,20 +205,8 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const deferred = asDeferred(
-      await t.client.sendDirect("payout", {
-        amountCents: 25_000,
-        payee: "acme",
-      }),
-    );
-    const first = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as ResumeAcknowledgment;
-    const second = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as ResumeAcknowledgment;
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
 
     for (const ack of [first, second]) {
       expect(ack.continuation.status).toBe("completed");
@@ -247,20 +240,8 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const deferred = asDeferred(
-      await t.client.sendDirect("payout", {
-        amountCents: 25_000,
-        payee: "acme",
-      }),
-    );
-    const first = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as ResumeAcknowledgment;
-    const second = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as ResumeAcknowledgment;
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
 
     for (const ack of [first, second]) {
       expect(ack.continuation.status).toBe("completed");
@@ -303,25 +284,13 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const deferred = asDeferred(
-      await t.client.sendDirect("payout", {
-        amountCents: 25_000,
-        payee: "acme",
-      }),
-    );
-    const first = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as ResumeAcknowledgment;
-    const second = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as ResumeAcknowledgment;
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
 
     for (const ack of [first, second]) {
       expect(ack.continuation.status).toBe("failed");
       const message = ack.continuation.error?.message ?? "";
-      expect(message).toHaveLength(1024);
+      expect(message).toHaveLength(MAX_STORED_MESSAGE);
       expect(message.endsWith("...")).toBe(true);
       expect(message.startsWith("xxxx")).toBe(true);
     }

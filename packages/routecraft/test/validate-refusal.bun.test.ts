@@ -193,8 +193,8 @@ describe(".validate() refusing the caller", () => {
 
   /**
    * @case The body type after a validator that never returns
-   * @preconditions A validator typed never (it always throws), on its own and as the last step of a .choice<T>() branch whose other branch produces T
-   * @expectedResult The body after .validate() is never, since the validator has no continuation, so the branch fits any T and the route compiles; the refusal-only case above is unaffected
+   * @preconditions A validator typed never (it always throws), on its own, in its async form, and as the last step of a .choice<T>() branch whose other branch produces T; an async validator returning a narrowed body or a refusal
+   * @expectedResult The body after .validate() is never, since the validator has no continuation, so the branch fits any T and the route compiles; the async forms type the same as the sync ones; the refusal-only case above is unaffected
    */
   test("types the body after a validator that never returns as never", () => {
     const fail = (): never => {
@@ -206,6 +206,22 @@ describe(".validate() refusing the caller", () => {
       .from(direct<{ title?: string }>())
       .validate(fail);
     expectBodyOf(failing).toEqualTypeOf<never>();
+
+    const failingAsync = craft()
+      .id("failing-async")
+      .from(direct<{ title?: string }>())
+      .validate(async (): Promise<never> => fail());
+    expectBodyOf(failingAsync).toEqualTypeOf<never>();
+
+    const eitherAsync = craft()
+      .id("either-async")
+      .from(direct<{ title?: string }>())
+      .validate(async (exchange) =>
+        exchange.body.title === undefined
+          ? refuse("A title is required for a page.")
+          : { title: exchange.body.title },
+      );
+    expectBodyOf(eitherAsync).toEqualTypeOf<{ title: string }>();
 
     const branched = craft()
       .id("branched")

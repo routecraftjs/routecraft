@@ -6,7 +6,7 @@ import {
   raisedInputValidation,
   validateAgainst,
 } from "../../pipeline/validation.ts";
-import { clipText } from "../../pipeline/caller-refusal.ts";
+import { clipText } from "../../shared/text.ts";
 import { rcError } from "../../error.ts";
 import { rcCodeOf } from "../../brand.ts";
 import {
@@ -42,7 +42,7 @@ import type { DetachedKind } from "../../pipeline/chain-policy.ts";
 import type { DeferSite } from "./sites.ts";
 import type { ErrorHook } from "../hooks.ts";
 import type { Principal } from "../../principal.ts";
-import { resumable } from "./types.ts";
+import { MAX_STORED_MESSAGE, resumable } from "./types.ts";
 import type {
   ErrorPathRecord,
   DeferralSchema,
@@ -427,11 +427,10 @@ export async function reviveDeferral(
     // Winning `markResumed` means the sweeper cannot also report this, so
     // the notification is ours to send exactly once, store failure or not.
     try {
-      await runtime.store.recordContinuation(id, {
-        status: "failed",
-        error: { rc: "RC5047", message: storedMessage(expiry.message) },
-        at: resumedAt,
-      });
+      await runtime.store.recordContinuation(
+        id,
+        failedOutcome(expiry, "the deferral expired", resumedAt),
+      );
     } catch (unrecorded) {
       route.logger.error(
         { deferralId: id, err: unrecorded },
@@ -488,17 +487,11 @@ export async function reviveDeferral(
     // reproducing one level up the condition this block exists to remove.
     // `rc` is carried like the expiry path carries RC5047, so a duplicate
     // resume and an operator dashboard see the code rather than prose.
-    const rc = rcCodeOf(error);
-    const failure = error as { message?: string } | undefined;
     try {
-      await runtime.store.recordContinuation(id, {
-        status: "failed",
-        error: {
-          ...(rc === undefined ? {} : { rc }),
-          message: storedMessage(failure?.message ?? "the revival failed"),
-        },
-        at: resumedAt,
-      });
+      await runtime.store.recordContinuation(
+        id,
+        failedOutcome(error, "the revival failed", resumedAt),
+      );
     } catch (unrecorded) {
       route.logger.error(
         { deferralId: id, err: unrecorded },
@@ -922,17 +915,33 @@ function rehydrate(
 }
 
 /**
- * The most of a failure's message a recorded outcome keeps. A step's message
- * routinely interpolates its cause (an upstream response body, a file's
- * contents), and the store holds the outcome until the record is swept, so
- * the text is bounded where the policy bounds a refused payload's issues:
- * long enough for any framework message, too short for a response body.
+ * The failed outcome the store caches and the acknowledgment carries for
+ * `error`: its code when it has one, its message cut to
+ * {@link MAX_STORED_MESSAGE} so an interpolated upstream response cannot
+ * grow the store by its size, and `fallback` when it carries no message.
+ * The one producer, so the bound holds for every site that records a
+ * failure rather than by each site's memory.
  */
-const MAX_STORED_MESSAGE = 1024;
-
-/** The message a recorded `failed` outcome carries, cut to {@link MAX_STORED_MESSAGE}. */
-function storedMessage(message: string): string {
-  return clipText(message, MAX_STORED_MESSAGE);
+function failedOutcome(
+  error: unknown,
+  fallback: string,
+  at: Date,
+): SerializedOutcome {
+  const rc = rcCodeOf(error);
+  const carrier = error as
+    { meta?: { message?: unknown }; message?: unknown } | undefined;
+  // A thrown value's message is whatever it carries; only a string is kept.
+  const message = [carrier?.meta?.message, carrier?.message].find(
+    (candidate): candidate is string => typeof candidate === "string",
+  );
+  return {
+    status: "failed",
+    error: {
+      ...(rc === undefined ? {} : { rc }),
+      message: clipText(message ?? fallback, MAX_STORED_MESSAGE),
+    },
+    at,
+  };
 }
 
 /**
@@ -964,19 +973,7 @@ async function runContinuation(
     return { status: "dropped", reason: "dropped by the route", at };
   }
   if (result.failed) {
-    const rc = rcCodeOf(result.error);
-    const error = result.error as
-      { meta?: { message?: string }; message?: string } | undefined;
-    return {
-      status: "failed",
-      error: {
-        ...(rc === undefined ? {} : { rc }),
-        message: storedMessage(
-          error?.meta?.message ?? error?.message ?? "the continuation failed",
-        ),
-      },
-      at,
-    };
+    return failedOutcome(result.error, "the continuation failed", at);
   }
   let body: unknown;
   try {

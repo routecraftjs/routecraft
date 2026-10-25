@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clipText } from "../src/shared/clip-text.ts";
+import { clipText } from "../src/shared/text.ts";
 
 describe("clipText", () => {
   /**

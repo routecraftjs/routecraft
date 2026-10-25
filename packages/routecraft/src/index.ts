@@ -865,7 +865,9 @@ export {
   // two, scopes its own events about a deferral with the third, revives a
   // stored stepState before rewriting a deferred thread with the fourth and
   // a stored outcome at boot with the fifth; a package cannot reach a deep
-  // import of core.
+  // import of core. clipText below is re-exported for the same reason: the
+  // MCP proxy bounds a remote's error text with the one rule core uses for
+  // a refused payload's issues and a recorded failure's message.
   deferAside,
   deferralScope,
   reviveDeferral,
@@ -988,3 +990,6 @@ export {
 } from "./adapters/carddav/index.ts";
 export { NESTED_STEPS, AUTHENTICATES } from "./dsl-symbol.ts";
 export type { NestedSteps, NestingStep } from "./kernel/continuation/sites.ts";
+
+// @internal and re-exported on purpose, see the deferral block above.
+export { clipText } from "./shared/text.ts";

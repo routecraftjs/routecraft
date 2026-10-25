@@ -8,6 +8,7 @@ import {
 import type { Principal } from "../principal.ts";
 import { raisedHookRefusalOf, type RefusalKind } from "../kernel/hooks.ts";
 import { MAX_WIRE_ISSUES, raisedInputValidationOf } from "./validation.ts";
+import { clipText } from "../shared/text.ts";
 
 /** One schema issue as a door shows it to a caller: where, and what. */
 export interface WireIssue {
@@ -37,22 +38,6 @@ const MAX_WIRE_ISSUE_TEXT = 256;
 
 function clip(text: string): string {
   return clipText(text, MAX_WIRE_ISSUE_TEXT);
-}
-
-/**
- * Cut `text` to at most `max` UTF-16 units, ellipsis included, by code
- * point, so a cut never splits a surrogate pair. Only the head is walked: a
- * code point spans at most two UTF-16 units, so twice the cap in units
- * holds every code point that can survive.
- *
- * @internal
- */
-export function clipText(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const chars = Array.from(text.slice(0, max * 2));
-  return text.length <= max * 2 && chars.length <= max
-    ? text
-    : `${chars.slice(0, max - 3).join("")}...`;
 }
 
 /**

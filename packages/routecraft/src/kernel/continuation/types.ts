@@ -245,6 +245,17 @@ export interface DeferralOutcome {
 }
 
 /**
+ * The most of a failure's message a recorded outcome keeps. A step's message
+ * routinely interpolates its cause (an upstream response body, a file's
+ * contents), and the store holds the outcome until the record is swept, so
+ * the text is bounded where the policy bounds a refused payload's issues:
+ * long enough for any framework message, too short for a response body.
+ *
+ * @internal
+ */
+export const MAX_STORED_MESSAGE = 1024;
+
+/**
  * The cached result of execution two, written once the resumed exchange
  * settles. A duplicate resume returns this instead of running the
  * continuation a second time.
@@ -270,8 +281,9 @@ export interface SerializedOutcome {
   readonly body?: unknown;
   /**
    * Error code and message on a failed run. The stack is deliberately not
-   * persisted, and the message is cut to 1024 UTF-16 units before it is
-   * recorded, so a cause that interpolates an upstream response cannot
+   * persisted, and the message is cut to {@link MAX_STORED_MESSAGE}
+   * characters (code points, so at most twice that in UTF-16 units) before
+   * it is recorded, so a cause that interpolates an upstream response cannot
    * grow the store by its size.
    */
   readonly error?: { readonly rc?: string; readonly message: string };
