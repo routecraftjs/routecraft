@@ -930,9 +930,11 @@ function failedOutcome(
   const rc = rcCodeOf(error);
   const carrier = error as
     { meta?: { message?: unknown }; message?: unknown } | undefined;
-  // A thrown value's message is whatever it carries; only a string is kept.
+  // A thrown value's message is whatever it carries; only a non-empty
+  // string is kept, so an empty one falls back like a missing one.
   const message = [carrier?.meta?.message, carrier?.message].find(
-    (candidate): candidate is string => typeof candidate === "string",
+    (candidate): candidate is string =>
+      typeof candidate === "string" && candidate.length > 0,
   );
   return {
     status: "failed",

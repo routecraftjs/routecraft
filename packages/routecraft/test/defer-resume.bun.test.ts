@@ -297,6 +297,37 @@ describe("defer and resume", () => {
   });
 
   /**
+   * @case A continuation fails with an empty message
+   * @preconditions A deferred payout whose continuation throws an Error whose message is the empty string
+   * @expectedResult The failed outcome on both acknowledgments carries a non-empty message, the fallback in place of the empty one, so a duplicate never reads a failure with no words
+   */
+  test("a failed outcome with an empty message records a fallback", async () => {
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: Approval })
+          .transform(() => {
+            throw new Error("");
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
+
+    for (const ack of [first, second]) {
+      expect(ack.continuation.status).toBe("failed");
+      expect(ack.continuation.error?.message ?? "").not.toBe("");
+    }
+  });
+
+  /**
    * @case A duplicate resume meets a corrupted cached terminal body
    * @preconditions A resumed record whose cached continuation body holds a date envelope that does not parse, as a hand-edited row would
    * @expectedResult The duplicate is refused with RC5042 naming the continuation body, rather than answered with the envelope object or an Invalid Date, and the record is left as it was

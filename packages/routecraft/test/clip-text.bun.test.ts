@@ -26,4 +26,16 @@ describe("clipText", () => {
       true,
     );
   });
+
+  /**
+   * @case A cap too small to hold the ellipsis
+   * @preconditions A 6-character text under caps of 0, 1, 2 and 3
+   * @expectedResult Caps under 3 keep the head alone and never exceed the cap; a cap of 3 is the ellipsis alone
+   */
+  test("never exceeds a cap smaller than the ellipsis", () => {
+    expect(clipText("abcdef", 0)).toBe("");
+    expect(clipText("abcdef", 1)).toBe("a");
+    expect(clipText("abcdef", 2)).toBe("ab");
+    expect(clipText("abcdef", 3)).toBe("...");
+  });
 });
