@@ -34,7 +34,8 @@
       "restored",
       "deferred",
       "resumed",
-      "expired"
+      "expired",
+      "correlated"
     ],
     "anchor": "exchange-events"
   },

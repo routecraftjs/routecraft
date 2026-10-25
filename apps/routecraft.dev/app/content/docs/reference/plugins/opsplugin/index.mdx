@@ -105,6 +105,7 @@ Routes are always `deployment`. Indicators declare their own domain, and default
 | `tiers.dispatch` | `false \| true \| string` | `false` | Admission to `POST /ops/routes/{id}/exchanges`. |
 | `tiers.events` | `false \| true \| string` | `false` | Admission to `GET /ops/events`, the live event tail. See [Tailing events](#tailing-events). |
 | `indicators` | `Indicator[]` | `[]` | Indicators to register. See [`defineIndicator`](#define-indicator). |
+| `traceContext` | `'authenticated' \| 'always' \| 'never'` | `'authenticated'` | Whether a dispatch request's W3C trace context joins the dispatched exchange to the caller's [journey](/docs/introduction/exchange#journeys-correlation-and-causation), as a [remote](/docs/reference/plugins/remotesplugin) sends it. `'authenticated'` adopts it only from a caller the dispatch tier's validator verified. |
 
 The mount claims the `/health` and `/ops` prefixes on its server, so a collision with another surface fails at start rather than being decided by dispatch order.
 

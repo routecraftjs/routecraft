@@ -215,7 +215,8 @@ Two mutate hooks writing the same header in one slot: the later wins and the
 framework warns once per route naming both. A hook that declares `writes`
 moves that warning to start. A mutate hook may not write an engine-owned
 header (`routecraft.id`, `routecraft.route`, `routecraft.operation`,
-`routecraft.split_hierarchy`): that is `RC1115`, the contract `.header()`
+`routecraft.split_hierarchy`, `routecraft.correlation_id`,
+`routecraft.causation_id`): that is `RC1115`, the contract `.header()`
 enforces.
 
 Hooks at a point another plugin declares go under `hooks.points`, keyed by

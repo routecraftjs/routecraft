@@ -120,6 +120,12 @@
     "description": "Set or override an exchange header."
   },
   {
+    "name": "correlate",
+    "category": "Transform",
+    "signature": ".correlate(fn)",
+    "description": "Join the exchange to another journey: re-stamp its correlation and causation ids."
+  },
+  {
     "name": "authenticate",
     "category": "Transform",
     "signature": ".authenticate(resolver)",

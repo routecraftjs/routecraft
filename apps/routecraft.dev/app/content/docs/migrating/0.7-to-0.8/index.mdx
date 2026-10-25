@@ -17,8 +17,9 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 7. **An editor turn's body is the prompt text.** An agent's own `user` that read `ex.body.message` on an ACP turn reads `ex.body`. [Section 7](#7-acp-turn-body).
 8. **A route proxies a remote MCP server.** `mcpPlugin({ proxy })` and its `guard` are removed; a route with `.from(mcp({ proxy: 'server:*' }))` re-exposes a client's tools. [Section 8](#8-mcp-proxy-route).
 9. **A mail message's flags are an array.** `MailMessage.flags` is `string[]` and the `routecraft.mail.flags` header is `readonly string[]`, so a mail exchange can be deferred. [Section 9](#9-mail-flags).
+10. **The correlation id is engine-owned, and `event()` continues the causing journey.** `.header()` refuses `routecraft.correlation_id`; `.correlate()` re-stamps it. [Section 10](#10-journeys).
 
-Projects that write no plugin of their own typically need section 2 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, and section 9 if they read IMAP flags. [Section 10](#10-what-is-new-in-080) lists what is new, for context.
+Projects that write no plugin of their own typically need section 2 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, and section 10 if they set the correlation id themselves or group `event()` routes' work by it. [Section 11](#11-what-is-new-in-080) lists what is new, for context.
 
 ---
 
@@ -57,7 +58,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 10](#10-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 11](#11-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -193,7 +194,20 @@ The `mcp()` client changed with it. `tool` is required: the `exchange.body.tool`
 
 An attachment's `content` stays a `Buffer`. The deferral store persists it as base64 and hands it back as a `Buffer` on resume, so a message with attachments defers too; a route that holds large attachments for days and does not need them afterwards drops `body.attachments` before `.defer()`.
 
-## 10. What is new in 0.8.0 \{#10-what-is-new-in-080}
+## 10. The correlation id is engine-owned, and `event()` continues the causing journey \{#10-journeys}
+
+Every exchange now records the exchange that caused it (`routecraft.causation_id`) beside the journey it belongs to (`routecraft.correlation_id`), and the engine keeps the two in step with the logger, the lifecycle events and the `event()` guard. That changes two things a 0.7 route could depend on.
+
+| 0.7 | 0.8 |
+|-----|-----|
+| `.header(HeadersKeys.CORRELATION_ID, (ex) => upstreamId(ex))` | `.correlate((ex) => ({ correlationId: upstreamId(ex) }))`; `.header()` on `routecraft.correlation_id` or `routecraft.causation_id` fails the build with `RC5003`, and a plugin's mutate hook writing either is refused with `RC1115` |
+| A source or `CraftClient.sendDirect` passing any string as the correlation id | The same, but the id must be 1 to 128 characters from `[A-Za-z0-9._~:-]`, the alphabet W3C `tracestate` allows; another value is refused with `RC5003`. Hash a longer key first |
+| Each `event()` delivery starts a new chain under a fresh correlation id | A delivery carries the correlation id of the exchange that caused the event, and names it as the cause. A consumer that grouped work by correlation id and counted each `event()` route's work as its own journey now sees it inside the causing journey; group by `routeId` as well, or start a new journey with `.correlate()` |
+| `splitChild(body, { [HeadersKeys.CORRELATION_ID]: id })` sets a child's correlation id | The envelope's correlation and causation ids are ignored, as its `routecraft.id` already was: a child keeps the parent's journey and names the parent as its cause |
+
+Outbound calls also changed, without breaking anything: the `http()` client, the remotes channel and the MCP client now send the exchange's W3C trace context (`traceparent`, `tracestate`; in `_meta` for MCP). A server that does not take part ignores the headers. An upstream that rejects unknown headers takes `traceContext: false` on the client.
+
+## 11. What is new in 0.8.0 \{#11-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too.
@@ -201,5 +215,6 @@ An attachment's `content` stays a `Buffer`. The deferral store persists it as ba
 - **The `error` slot.** A plugin hook can recover, drop or park (`recovery.defer()`) a failure the route's own `.error()` did not settle.
 - **Error-path parks are validated.** `.error(handler, { schema })` and an error hook's `schema` declare what a resume payload must satisfy when the handler parks; the resume door validates it (`RC5049`) and refuses a resume whose schema changed (`RC5048`).
 - **Facets.** A plugin's facet is readable as `ex.<namespace>`.
+- **Journeys.** `routecraft.causation_id` on every exchange, `causationId` on every `route:exchange:*` event and in the logger's bindings, W3C trace context across the `http()`, ops and MCP doors (adopted from an authenticated caller by default, `traceContext` on each door and client), `.correlate()` for a channel that carries none, and telemetry spans parented to the exchange that caused them. See [journeys](/docs/introduction/exchange#journeys-correlation-and-causation).
 
 The [Plugins guide](/docs/advanced/plugins) explains each part with a worked example, and the [Plugins reference](/docs/reference/plugins) lists every field.

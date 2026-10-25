@@ -1,0 +1,12 @@
+---
+"@routecraft/routecraft": minor
+---
+
+Every exchange records the exchange that caused it, and a journey crosses the framework's doors as W3C trace context.
+
+- **`routecraft.causation_id`** (`HeadersKeys.CAUSATION_ID`): the `routecraft.id` of the exchange that caused this one, absent on a chain root. The engine sets it at every hand-off: a `direct()` call or `forward()`, an agent's tool call, a `.tap()`, `.multicast()` or `.dispatch()` clone, a `.split()` child, a `.debounce()` release, and an `event()` delivery. Every `route:exchange:*` event carries it as `causationId`, `route:exchange:resumed` adds `resumerExchangeId`, and the exchange's logger binds it.
+- **`event()` continues the causing journey.** A delivery carries the correlation id of the exchange that caused the event and names it as the cause, where it started a new chain before. The guard that keeps a route from feeding on its own events walks the causation chain of in-flight exchanges, so the rest of the causing journey's events are still delivered while the watcher runs.
+- **`.correlate(fn)`** joins an exchange to another journey for a channel that carries no trace context (a webhook back from GitHub, a reply by mail): it re-stamps the correlation and causation ids, rebinds the logger and emits `route:exchange:correlated` with the ids before and after.
+- **The journey ids are engine-owned.** `.header()` refuses `routecraft.correlation_id` and `routecraft.causation_id` with `RC5003` and a mutate hook writing either is refused with `RC1115`, each pointing at `.correlate()`. A source adapter still supplies both on `emit`. A supplied id must be 1 to 128 characters from `[A-Za-z0-9._~:-]`; another value is refused with `RC5003`.
+- **Trace context on the doors.** The `http()` client and the remotes channel send `traceparent` and a `tracestate` member `rc=c:<correlation>;x:<exchange>` by default (`traceContext: false` opts out). The `http()` source and the ops dispatch mount adopt a caller's context only from a caller they authenticated, unless `traceContext: "always"` (or `"never"`) is set on `httpPlugin`, a mount, or `opsPlugin`.
+- **Telemetry.** An exchange span is a child of the span of the exchange that caused it while that span is live, or of the remote span a door adopted; spans carry `routecraft.causation.id`; an outbound `traceparent` names the live span; and the SQLite sink records `causation_id` on `exchanges` and `events`, adding the column in place to an existing database.
