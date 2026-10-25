@@ -74,11 +74,20 @@ Routecraft sets a number of `routecraft.*` headers automatically on every exchan
 | `routecraft.id` | Unique ID for this exchange (the `exchange.id` getter reads this key) |
 | `routecraft.operation` | The operation currently processing the exchange (`from`, `transform`, `to`, ...) |
 | `routecraft.route` | ID of the capability processing this exchange |
-| `routecraft.correlation_id` | Shared ID across split/tap branches for tracing |
+| `routecraft.correlation_id` | The journey this exchange belongs to: shared by every exchange one request, timer or message led to |
+| `routecraft.causation_id` | The `routecraft.id` of the exchange that caused this one; absent on a chain root |
 | `routecraft.split_hierarchy` | Hierarchy of split groups this exchange belongs to (set by `.split()`) |
 | `routecraft.auth.principal` | The authenticated `Principal`, once an identity has been resolved: by a source that verified a credential, by `.authenticate()`, or by `.delegate()` re-minting it as a delegated one (`ex.auth.principal` in a route, and `principalOf(exchange)` elsewhere, read this key) |
 
-These are useful for logging, debugging, and correlating exchanges across capability chains.
+These are useful for logging, debugging, and correlating exchanges across capability chains. Six of them are the engine's, and so are `routecraft.trace.parent` and `routecraft.journey.joined`, which mark an exchange that [joined its journey](#journeys-correlation-and-causation) rather than being called into it: `.header()` refuses all eight at build time. Adapter keys in the namespace, such as a mail message's UID, stay settable.
+
+## Journeys: correlation and causation
+
+One request often runs many exchanges: the route it reached, the routes that one calls, the tools an agent picks, the routes an `event()` watcher starts in reaction. Two headers tie them together. The correlation id groups a journey; the causation id draws its tree, each exchange naming the one that caused it. The engine sets both at every hand-off it makes: a `direct()` call or `forward()`, an agent's tool call, a `.tap()`, `.multicast()` or `.dispatch()` clone, a `.split()` child, a `.debounce()` release, and an `event()` delivery, which continues the journey of the exchange that caused the event. The exchange's logger binds both, and every `route:exchange:*` event carries both, so a ledger rebuilds any journey from `route:exchange:started` together with `route:exchange:correlated`, which records a `.correlate()` re-stamp.
+
+Across a door the two ids travel as W3C trace context. Outbound calls send `traceparent` and a `tracestate` member `rc=c:<correlation>;x:<exchange>`, which an OpenTelemetry service reads as a parent span and a Routecraft service reads as the exact ids, so never build a correlation id from personal data. Inbound, a door adopts a caller's context by default only from a caller it authenticated, because a caller who could attach its requests to any journey could pollute that journey's record; `traceContext: 'always'` adopts it from any caller, for a door whose callers are all trusted, and `'never'` from none. Each door and client takes a `traceContext` option: see the [`http()` client](/docs/reference/adapters/http), [httpPlugin](/docs/reference/plugins/httpplugin), [opsPlugin](/docs/reference/plugins/opsplugin), [remotesPlugin](/docs/reference/plugins/remotesplugin) and [mcpPlugin](/docs/reference/plugins/mcpplugin). The correlation id is an observability claim and never authority: nothing that authorizes, caches, rate-limits or resumes reads it, and an exchange that joined its journey rather than being called into it (a door adopted the id, `.correlate()` re-stamped it, an `event()` delivery continued it) does not reach what a called exchange reaches by correlation id, such as an editor turn's surface.
+
+Where a channel carries no trace context (a webhook back from GitHub, a reply by mail), the application records where each artefact came from and joins the returning exchange to its journey with [`.correlate()`](/docs/reference/operations/correlate). A source adapter that knows the journey supplies both ids on `emit` instead.
 
 ### Adapter-specific headers
 
@@ -160,14 +169,14 @@ Returning the same `exchange` unchanged is a valid no-op pass-through.
 
 ## Exchange in taps
 
-When you `.tap()`, the tap receives a **deep copy** of the exchange with a new ID. The correlation ID is preserved so you can trace the tap back to its parent exchange. The main pipeline continues immediately without waiting for the tap.
+When you `.tap()`, the tap receives a **deep copy** of the exchange with a new ID. The correlation ID is preserved and the causation ID names the tapped exchange, so you can trace the tap back to its parent exchange. The main pipeline continues immediately without waiting for the tap.
 
 ```ts skip="fragment: source, auditLog, destination are illustrative"
 craft()
   .id('order-pipeline')
   .from(source)
   .tap((exchange) => {
-    // exchange.headers['routecraft.correlation_id'] links back to the parent
+    // exchange.headers['routecraft.causation_id'] is the parent's id
     auditLog.write(exchange)
   })
   .to(destination)
@@ -180,6 +189,8 @@ craft()
 <QuickLinks>
 
 <QuickLink title="header" icon="plugins" href="/docs/reference/operations/header" description="Set a header from a static value or from the exchange." />
+
+<QuickLink title="correlate" icon="plugins" href="/docs/reference/operations/correlate" description="Join an exchange to the journey an artefact came from." />
 
 <QuickLink title="process" icon="plugins" href="/docs/reference/operations/process" description="Work with the full exchange when the body alone is not enough." />
 

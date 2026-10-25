@@ -22,7 +22,7 @@ export default craft()
   .to(log())                 // log the final exchange as the destination
 ```
 
-Each log entry includes `contextId`, `routeId`, `exchangeId`, and `correlationId` for end-to-end tracing in your log aggregator.
+Each log entry includes `contextId`, `routeId`, `exchangeId`, and `correlationId` for end-to-end tracing in your log aggregator, and `causationId`, the exchange that caused this one, when there is one. See [journeys](/docs/introduction/exchange#journeys-correlation-and-causation).
 
 To set the log level, pass `--log-level` to the CLI:
 
@@ -183,7 +183,9 @@ Telemetry creates OTel spans for:
 - **Exchange lifecycle**: start, complete, fail, drop (per-message spans with duration)
 - **Step execution**: each adapter operation as a child span (from, to, process, filter, etc.)
 
-Span attributes use the `routecraft.*` namespace (`routecraft.route.id`, `routecraft.exchange.id`, `routecraft.correlation.id`, etc.) so you can filter and query traces in your provider's UI.
+Span attributes use the `routecraft.*` namespace (`routecraft.route.id`, `routecraft.exchange.id`, `routecraft.correlation.id`, `routecraft.causation.id`, etc.) so you can filter and query traces in your provider's UI.
+
+An exchange span is a child of the span of the exchange that caused it while that span is live in the process, so a `direct()` call, an agent's tool call or an `event()` reaction nests under its caller in one trace. An exchange a door started from a caller's adopted trace context is a child of the caller's remote span. Anything else is a root, a continuation resumed days later among them, linked to its cause by `routecraft.causation.id`. With a tracer configured, an outbound `http()`, MCP or remote call sends the live exchange span as its `traceparent`, so a service on the other side continues the same trace; without one, the `traceparent` is derived from the correlation and exchange ids. The plugin offers its spans through the `TRACE_SPANS` port and reads the adopted remote parent off `route:exchange:started`, so a replacement OpenTelemetry plugin can do both the same way. The SQLite database records the cause in a `causation_id` column on `exchanges` and `events`, added in place to a database an earlier version created.
 
 ### Terminal UI
 

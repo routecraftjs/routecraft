@@ -10,6 +10,7 @@ export const ATTR = {
   CONTEXT_ID: "routecraft.context.id",
   EXCHANGE_ID: "routecraft.exchange.id",
   CORRELATION_ID: "routecraft.correlation.id",
+  CAUSATION_ID: "routecraft.causation.id",
   DURATION_MS: "routecraft.duration_ms",
   DROP_REASON: "routecraft.drop.reason",
   DROPPED: "routecraft.dropped",
@@ -67,6 +68,9 @@ export class SqliteSpanProcessor {
     run(...params: unknown[]): unknown;
   };
   private readonly insertExchangeStmt: { run(...params: unknown[]): unknown };
+  private readonly updateExchangeCorrelationStmt: {
+    run(...params: unknown[]): unknown;
+  };
   private readonly updateExchangeCompletedStmt: {
     run(...params: unknown[]): unknown;
   };
@@ -103,8 +107,13 @@ export class SqliteSpanProcessor {
     );
 
     this.insertExchangeStmt = connection.db.prepare(
-      `INSERT OR IGNORE INTO exchanges (id, route_id, context_id, correlation_id, status, started_at)
-       VALUES (?, ?, ?, ?, 'started', ?)`,
+      `INSERT OR IGNORE INTO exchanges (id, route_id, context_id, correlation_id, causation_id, status, started_at)
+       VALUES (?, ?, ?, ?, ?, 'started', ?)`,
+    );
+
+    this.updateExchangeCorrelationStmt = connection.db.prepare(
+      `UPDATE exchanges SET correlation_id = ?, causation_id = ?
+       WHERE id = ? AND context_id = ?`,
     );
 
     this.updateExchangeCompletedStmt = connection.db.prepare(
@@ -150,6 +159,7 @@ export class SqliteSpanProcessor {
     contextId: string,
     correlationId: string,
     startedAt: string,
+    causationId?: string,
   ): void {
     try {
       this.insertExchangeStmt.run(
@@ -157,12 +167,38 @@ export class SqliteSpanProcessor {
         routeId,
         contextId,
         correlationId,
+        causationId ?? null,
         startedAt,
       );
     } catch (err) {
       this.logger?.warn(
         { err, exchangeId, routeId },
         "Failed to write telemetry exchange",
+      );
+    }
+  }
+
+  /**
+   * Re-stamp an exchange's row after `.correlate()` joined it to another
+   * journey, so the row reads where the exchange ended up belonging.
+   */
+  correlateExchange(
+    exchangeId: string,
+    contextId: string,
+    correlationId: string,
+    causationId: string | undefined,
+  ): void {
+    try {
+      this.updateExchangeCorrelationStmt.run(
+        correlationId,
+        causationId ?? null,
+        exchangeId,
+        contextId,
+      );
+    } catch (err) {
+      this.logger?.warn(
+        { err, exchangeId },
+        "Failed to re-stamp telemetry exchange",
       );
     }
   }
@@ -273,7 +309,15 @@ export class SqliteSpanProcessor {
       const exchangeId = attrs[ATTR.EXCHANGE_ID] as string;
       const routeId = attrs[ATTR.ROUTE_ID] as string;
       const correlationId = attrs[ATTR.CORRELATION_ID] as string;
-      this.writeExchange(exchangeId, routeId, contextId, correlationId, ts);
+      const causationId = attrs[ATTR.CAUSATION_ID] as string | undefined;
+      this.writeExchange(
+        exchangeId,
+        routeId,
+        contextId,
+        correlationId,
+        ts,
+        causationId,
+      );
     }
   }
 

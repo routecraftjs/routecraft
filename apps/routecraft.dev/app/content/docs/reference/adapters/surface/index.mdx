@@ -161,6 +161,8 @@ Three things about the registration:
 
 A capability the turn calls is not the same exchange as the turn. `surface` resolves the connection three ways so all of them work: the surface travels on the turn's own headers, a route the turn dispatches to carries the correlation id instead of the whole header bag, and an exchange that has resolved its surface once keeps it for as long as it runs. That is what lets a capability three hops from the prompt still reach the person who typed it, and what lets a route still running when the turn ends see the surface it had rather than none.
 
+The correlation id counts only when the exchange was called into the turn. An exchange that joined the turn's journey by claiming its id (a door that adopted it from a caller's trace context, a `.correlate()` that re-stamped it, an `event()` route reacting to the turn's events) does not resolve the turn's surface, neither by that id nor by a surface header it carried before it re-stamped, and does not ride the turn's cancellation: the correlation id goes out in the `tracestate` of the calls the turn makes, so another party could name it too. A route the turn called that runs `.correlate()` onto another journey before reaching the editor is refused with `AI1013` even though the turn has an editor, and `hasSurface` answers false for it, so guard the call with `hasSurface` or reach the editor before re-stamping.
+
 ## Backends
 
 `acp` is the only surface kind today, registered by [`acpPlugin`](/docs/reference/plugins/acpplugin) while an editor is connected. Nothing in the adapter knows how the connection is transported, which is what lets a second backend arrive without the routes changing.

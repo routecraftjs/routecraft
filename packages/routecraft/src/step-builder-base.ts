@@ -68,6 +68,10 @@ import { mapper } from "./operations/transform.ts";
 import { schema } from "./operations/validate.ts";
 import { log, debug, type LogOptions } from "./adapters/log/index.ts";
 import { HeaderStep } from "./operations/header.ts";
+import {
+  CorrelateStep,
+  type CallableCorrelator,
+} from "./operations/correlate.ts";
 import type { ErrorHandler } from "./route.ts";
 import {
   BUILDER_KIND,
@@ -847,6 +851,31 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
         key,
         valueOrFn as ConstructorParameters<typeof HeaderStep<S["body"]>>[1],
       ),
+    );
+    return this;
+  }
+
+  /**
+   * Join the exchange to another journey: re-stamp its correlation id, its
+   * causation id, or both. Body type is unchanged.
+   *
+   * For a channel that cannot carry the trace context itself (a webhook
+   * back from GitHub, a reply by mail): look up where the artefact came
+   * from in an earlier step, then return its ids here. A falsy result
+   * leaves the exchange as it is. The step rebinds the exchange's logger
+   * and emits `route:exchange:correlated` with the old and new ids, which
+   * is why `.header()` refuses both keys.
+   *
+   * @param correlator - Returns `{ correlationId?, causationId? }`, or a falsy value to leave the exchange as it is
+   * @returns This builder (same subclass, same body type)
+   */
+  correlate(
+    correlator: (
+      exchange: ExchangeOf<S>,
+    ) => ReturnType<CallableCorrelator<S["body"]>>,
+  ): this {
+    this.pushStep(
+      new CorrelateStep<S["body"]>(correlator as CallableCorrelator<S["body"]>),
     );
     return this;
   }

@@ -6,7 +6,10 @@ import {
   type Tag,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { standardSchemaFromJsonSchema } from "@routecraft/routecraft";
+import {
+  standardSchemaFromJsonSchema,
+  traceContextFor,
+} from "@routecraft/routecraft";
 import type { FnHandlerContext, FnOptions, ToolGuard } from "../../fn/types.ts";
 import { dispatchMcpCall } from "../../mcp/dispatch.ts";
 import { MCP } from "../../mcp/port.ts";
@@ -1203,13 +1206,23 @@ function mcpEntryToResolvedTool(
     }
   }
   const input = standardSchemaFromJsonSchema(entry.inputSchema);
-  const handler: FnOptions["handler"] = async (rawInput) =>
-    dispatchMcpCall(
+  const handler: FnOptions["handler"] = async (rawInput, hctx) => {
+    const { exchangeId, correlationId } = hctx;
+    return dispatchMcpCall(
       ctx.lookup(MCP),
       entry.source,
       entry.name,
       objectArguments(name, rawInput),
+      // The turn's journey continues into the server, as a `directTool`
+      // dispatch continues into its route.
+      exchangeId !== undefined
+        ? {
+            context: ctx,
+            carrier: () => traceContextFor({ exchangeId, correlationId }, ctx),
+          }
+        : undefined,
     );
+  };
   const tool: ResolvedTool = {
     name,
     description,

@@ -258,6 +258,12 @@ export class AgentSessionRuntime {
   /** Sessions that took a post while their turn was ending. */
   private readonly postedDuring = new Set<string>();
   /**
+   * The run whose settlement last landed on a session while its turn was
+   * running, so the boundary that revives the stored continuation for it
+   * names that run as what woke it, as an idle settlement does.
+   */
+  private readonly settledDuring = new Map<string, string>();
+  /**
    * The last request each session ran on here: what an append that lands
    * on an idle session without a continuation runs its turn on.
    */
@@ -411,10 +417,11 @@ export class AgentSessionRuntime {
     const call = snapshot && backgroundCallOf(snapshot.headers);
     if (!call) return;
     this.track(
-      this.settleBackground(call.session, {
-        handle: call.handle,
-        ...outcome(),
-      }),
+      this.settleBackground(
+        call.session,
+        { handle: call.handle, ...outcome() },
+        exchangeId,
+      ),
       call,
     );
   }
@@ -800,10 +807,15 @@ export class AgentSessionRuntime {
    * `undefined` and writes nothing, so the event that ended the run and a
    * dispatch that rejected without one can both report it, and whichever
    * lands first is the settlement.
+   *
+   * @param settledBy - The run whose outcome this is, when one ran: the
+   *   revival it wakes records it as `resumerExchangeId`, so a ledger links
+   *   the approval that resumed the call to the turn the call woke.
    */
   async settleBackground(
     key: AgentSessionKey,
     outcome: BackgroundOutcome,
+    settledBy?: string,
   ): Promise<{ depth: number; running: boolean } | undefined> {
     const current = await this.store.load(key);
     const call = current?.background.find((b) => b.handle === outcome.handle);
@@ -826,8 +838,12 @@ export class AgentSessionRuntime {
     // Landing after the running turn read the inbox for its boundary and
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
-    if (running) this.postedDuring.add(key);
-    else this.deliverIdle(key, record, "settlement");
+    if (running) {
+      this.postedDuring.add(key);
+      if (settledBy !== undefined) this.settledDuring.set(key, settledBy);
+    } else {
+      this.deliverIdle(key, record, "settlement", settledBy);
+    }
     return { depth: record.inbox.length, running };
   }
 
@@ -1570,6 +1586,8 @@ export class AgentSessionRuntime {
       while (this.postedDuring.delete(k) && after !== undefined) {
         boundary = (await this.store.load(key).catch(() => undefined)) ?? after;
       }
+      const wokenBy = this.settledDuring.get(k);
+      this.settledDuring.delete(k);
       // Work outstanding with no continuation stored: the request kept here
       // is the only thing a later append can run its turn on, so it is
       // held through evictions until the session's next turn starts.
@@ -1587,10 +1605,14 @@ export class AgentSessionRuntime {
       ) {
         if (boundary.deferral !== undefined) {
           this.active.delete(k);
-          this.revive(key, req.agent, boundary.deferral, "boundary", {
-            k,
-            req,
-          });
+          this.revive(
+            key,
+            req.agent,
+            boundary.deferral,
+            "boundary",
+            { k, req },
+            wokenBy,
+          );
         } else {
           this.followUpInProcess(k, req);
         }
@@ -1708,6 +1730,8 @@ export class AgentSessionRuntime {
    *
    * @param wake - What woke the session; a `settlement` re-identifies the
    *   parked principal before the revival ({@link reidentify}).
+   * @param wokenBy - The exchange whose outcome woke the session, recorded
+   *   on the revived turn's `route:exchange:resumed` as `resumerExchangeId`
    */
   private revive<T>(
     key: AgentSessionKey,
@@ -1715,6 +1739,7 @@ export class AgentSessionRuntime {
     deferral: AgentSessionDeferral,
     wake: Wake,
     fallback?: { k: string; req: AgentTurnRequest<T> },
+    wokenBy?: string,
   ): void {
     const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
@@ -1733,7 +1758,10 @@ export class AgentSessionRuntime {
         deferral.deferralId,
         new Date(),
       );
-      await this.host.resume({ token, result: undefined }, options);
+      await this.host.resume(
+        { token, result: undefined },
+        wokenBy === undefined ? options : { ...options, exchangeId: wokenBy },
+      );
     })()
       .catch(async (err: unknown) => {
         this.host.logger.error(
@@ -1865,6 +1893,7 @@ export class AgentSessionRuntime {
     key: AgentSessionKey,
     record: AgentSessionRecord,
     wake: "append" | "settlement",
+    wokenBy?: string,
   ): void {
     // Once shutdown began the append stays in the record for the next
     // process: a turn started now would run on a context being drained.
@@ -1878,6 +1907,7 @@ export class AgentSessionRuntime {
         record.deferral,
         wake,
         last ? { k, req: last } : undefined,
+        wokenBy,
       );
     } else if (record.inbox.length > 0 && last && !this.active.has(k)) {
       this.followUpInProcess(k, last);

@@ -1,0 +1,755 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { testContext, spy, type TestContext } from "@routecraft/testing";
+import {
+  craft,
+  direct,
+  event,
+  HeadersKeys,
+  simple,
+  splitChild,
+  type Exchange,
+  type EventPayload,
+} from "@routecraft/routecraft";
+import { LineageIndex, lineageOf } from "../src/lineage.ts";
+import {
+  JOINED_HEADER,
+  TRACE_PARENT_HEADER,
+  isJoinedJourney,
+} from "../src/trace-context.ts";
+import { asDeferred, deferring } from "./helpers/deferral.ts";
+import { z } from "zod";
+import { childBindings } from "../src/logger.ts";
+
+/** The correlation and causation ids an exchange carries. */
+function ids(exchange: Exchange): {
+  id: string;
+  correlationId: string;
+  causationId: string | undefined;
+} {
+  return {
+    id: exchange.id,
+    correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+    causationId: exchange.headers[HeadersKeys.CAUSATION_ID] as
+      string | undefined,
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+describe("Causation", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  /**
+   * @case A direct() call records the caller as the callee's cause
+   * @preconditions A caller route sends to a callee through a direct() destination
+   * @expectedResult The callee carries the caller's correlation id and the caller's exchange id as its causation id; the caller, a chain root, has none
+   */
+  test("direct(): the callee's cause is the caller", async () => {
+    const seen: Record<string, ReturnType<typeof ids>> = {};
+    t = await testContext()
+      .routes([
+        craft()
+          .id("caller")
+          .from(simple("ping"))
+          .process((ex) => {
+            seen["caller"] = ids(ex);
+            return ex;
+          })
+          .to(direct("callee")),
+        craft()
+          .id("callee")
+          .from(direct())
+          .process((ex) => {
+            seen["callee"] = ids(ex);
+            return ex;
+          })
+          .to(() => "pong"),
+      ])
+      .build();
+    await t.test();
+
+    const caller = seen["caller"]!;
+    const callee = seen["callee"]!;
+    expect(caller.causationId).toBeUndefined();
+    expect(callee.correlationId).toBe(caller.correlationId);
+    expect(callee.causationId).toBe(caller.id);
+  });
+
+  /**
+   * @case forward() from an error handler records the failed exchange as the target's cause
+   * @preconditions A route whose step throws forwards from its .error() handler to a second route
+   * @expectedResult The target's correlation id is the failed exchange's and its causation id is the failed exchange's id
+   */
+  test("forward(): the target's cause is the failed exchange", async () => {
+    let failed: ReturnType<typeof ids> | undefined;
+    let target: ReturnType<typeof ids> | undefined;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("fails")
+          .error((_error, _exchange, forward) =>
+            forward("report" as never, { about: "failure" }),
+          )
+          .from(simple("go"))
+          .process((ex) => {
+            failed = ids(ex);
+            return ex;
+          })
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(spy()),
+        craft()
+          .id("report")
+          .from(direct())
+          .process((ex) => {
+            target = ids(ex);
+            return ex;
+          })
+          .to(spy()),
+      ])
+      .build();
+    await t.test();
+
+    expect(target?.correlationId).toBe(failed!.correlationId);
+    expect(target?.causationId).toBe(failed!.id);
+  });
+
+  /**
+   * @case A multicast path runs as a clone caused by the original
+   * @preconditions A route multicasts to a sub-pipeline that records its exchange
+   * @expectedResult The path's exchange has a fresh id, the original's correlation id, and the original's id as its cause
+   */
+  test("multicast: a path's cause is the original", async () => {
+    let original: ReturnType<typeof ids> | undefined;
+    let path: ReturnType<typeof ids> | undefined;
+    t = await testContext()
+      .routes(
+        craft()
+          .id("fans-out")
+          .from(simple("go"))
+          .process((ex) => {
+            original = ids(ex);
+            return ex;
+          })
+          .multicast((b) => b.to((ex) => {
+            path = ids(ex);
+          }))
+          .to(spy()),
+      )
+      .build();
+    await t.test();
+
+    expect(path?.id).not.toBe(original!.id);
+    expect(path?.correlationId).toBe(original!.correlationId);
+    expect(path?.causationId).toBe(original!.id);
+  });
+
+  /**
+   * @case A split child's cause is the exchange that was split
+   * @preconditions A route splits an array body and records each child
+   * @expectedResult Every child carries the parent's correlation id and the parent's id as its cause
+   */
+  test("split: every child's cause is the parent", async () => {
+    let parent: ReturnType<typeof ids> | undefined;
+    const children: ReturnType<typeof ids>[] = [];
+    t = await testContext()
+      .routes(
+        craft()
+          .id("splits")
+          .from(simple({ items: [1, 2, 3] }))
+          .process((ex) => {
+            parent = ids(ex);
+            return ex;
+          })
+          .split((ex) => ex.body.items)
+          .process((ex) => {
+            children.push(ids(ex));
+            return ex;
+          })
+          .aggregate()
+          .to(spy()),
+      )
+      .build();
+    await t.test();
+
+    expect(children).toHaveLength(3);
+    for (const child of children) {
+      expect(child.correlationId).toBe(parent!.correlationId);
+      expect(child.causationId).toBe(parent!.id);
+    }
+  });
+
+  /**
+   * @case A splitChild envelope cannot set the door marks on a child
+   * @preconditions A route that never joined a journey splits with splitChild envelopes naming routecraft.journey.joined and routecraft.trace.parent
+   * @expectedResult No child is marked as joined and none carries a trace parent: the child keeps its parent's marks, as it keeps every other engine-owned key
+   */
+  test("split: an envelope cannot mark a child as joined", async () => {
+    const children: Array<{ joined: boolean; parent: unknown }> = [];
+    t = await testContext()
+      .routes(
+        craft()
+          .id("splits-marked")
+          .from(simple({ items: [1, 2] }))
+          .split((ex) => ex.body.items.map((item) =>
+            splitChild(item, {
+              [JOINED_HEADER]: "door",
+              [TRACE_PARENT_HEADER]:
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            }),
+          ))
+          .process((ex) => {
+            children.push({
+              joined: isJoinedJourney(ex),
+              parent: ex.headers[TRACE_PARENT_HEADER],
+            });
+            return ex;
+          })
+          .aggregate()
+          .to(spy()),
+      )
+      .build();
+    await t.test();
+
+    expect(children).toEqual([
+      { joined: false, parent: undefined },
+      { joined: false, parent: undefined },
+    ]);
+  });
+
+  /**
+   * @case A tap's snapshot records the exchange it was taken from as its cause
+   * @preconditions A route taps and records what the tap receives
+   * @expectedResult The snapshot's causation id is the tapped exchange's id
+   */
+  test("tap: the snapshot's cause is the tapped exchange", async () => {
+    let tapped: ReturnType<typeof ids> | undefined;
+    let snapshot: ReturnType<typeof ids> | undefined;
+    t = await testContext()
+      .routes(
+        craft()
+          .id("taps")
+          .from(simple("go"))
+          .process((ex) => {
+            tapped = ids(ex);
+            return ex;
+          })
+          .tap((ex) => {
+            snapshot = ids(ex);
+          })
+          .to(spy()),
+      )
+      .build();
+    await t.test();
+
+    expect(snapshot?.causationId).toBe(tapped!.id);
+    expect(snapshot?.correlationId).toBe(tapped!.correlationId);
+  });
+
+  /**
+   * @case A debounce release records the held arrival as its cause
+   * @preconditions A route debounces one arrival with a long window; drain flushes the hold
+   * @expectedResult The released exchange carries the arrival's correlation id and its id as the cause
+   */
+  test("debounce: the release's cause is the held arrival", async () => {
+    let arrival: ReturnType<typeof ids> | undefined;
+    let released: ReturnType<typeof ids> | undefined;
+    let arrived!: () => void;
+    const arriving = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    t = await testContext()
+      .routes(
+        craft()
+          .id("debounces")
+          .from(simple("go"))
+          .process((ex) => {
+            arrival = ids(ex);
+            arrived();
+            return ex;
+          })
+          .debounce({ wait: 10_000 })
+          .to((ex) => {
+            released = ids(ex);
+          }),
+      )
+      .build();
+    await t.ctx.start();
+    // In flight from here, so the drain waits for it to reach the hold.
+    await arriving;
+    await t.drain();
+
+    expect(released?.causationId).toBe(arrival!.id);
+    expect(released?.correlationId).toBe(arrival!.correlationId);
+  });
+
+  /**
+   * @case An event() delivery continues the journey of the exchange that caused the event
+   * @preconditions A watcher consumes route:exchange:completed; a worker runs one exchange
+   * @expectedResult The watcher's exchange carries the worker exchange's correlation id and its id as the cause, and its route:exchange:started event carries the causationId
+   */
+  test("event(): a delivery continues the causing exchange's chain", async () => {
+    let worker: ReturnType<typeof ids> | undefined;
+    let watcher: ReturnType<typeof ids> | undefined;
+    const started: Array<{ routeId: string; causationId?: string }> = [];
+    t = await testContext()
+      .routes([
+        craft()
+          .id("watcher")
+          .from(event("route:exchange:completed"))
+          .to((ex) => {
+            watcher = ids(ex);
+          }),
+        craft()
+          .id("worker")
+          .from(simple("go"))
+          .process((ex) => {
+            worker = ids(ex);
+            return ex;
+          })
+          .to(spy()),
+      ])
+      .on("route:exchange:started", ((payload: EventPayload<never>) => {
+        started.push(
+          payload.details as { routeId: string; causationId?: string },
+        );
+      }) as never)
+      .build();
+    await t.test();
+
+    expect(watcher?.correlationId).toBe(worker!.correlationId);
+    expect(watcher?.causationId).toBe(worker!.id);
+    const watcherStart = started.find((s) => s.routeId === "watcher");
+    expect(watcherStart?.causationId).toBe(worker!.id);
+    expect(
+      started.find((s) => s.routeId === "worker")?.causationId,
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case An event() route still receives the rest of the causing chain while it handles one of its events
+   * @preconditions A worker calls a second route through direct(); a watcher consumes route:exchange:completed and is still running when the worker's own exchange completes
+   * @expectedResult The watcher receives both completions, the callee's and the worker's, although they share the correlation id of the exchange it is handling
+   */
+  test("event(): the causing chain's other exchanges are still delivered", async () => {
+    const seen: string[] = [];
+    t = await testContext()
+      .routes([
+        craft()
+          .id("slow-watcher")
+          .from(event("route:exchange:completed"))
+          .process(async (ex) => {
+            await delay(30);
+            return ex;
+          })
+          .to((ex) => {
+            seen.push(
+              (ex.body as { details: { routeId: string } }).details.routeId,
+            );
+          }),
+        craft()
+          .id("chain-worker")
+          .from(simple("go"))
+          .to(direct("chain-callee")),
+        craft()
+          .id("chain-callee")
+          .from(direct())
+          .to(() => "done"),
+      ])
+      .build();
+    await t.test();
+    await t.drain();
+
+    expect(seen.sort()).toEqual(["chain-callee", "chain-worker"]);
+  });
+
+  /**
+   * @case The lineage index is empty once every exchange has finished
+   * @preconditions A route that calls another through direct(), multicasts and splits runs to completion
+   * @expectedResult No entry is left behind
+   */
+  test("lineage: nothing outlives its exchange", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("lineage-root")
+          .from(simple([1, 2]))
+          .multicast((b) => b.to(spy()))
+          .split()
+          .to(direct("lineage-leaf"))
+          .aggregate()
+          .to(spy()),
+        craft()
+          .id("lineage-leaf")
+          .from(direct())
+          .to(() => "ok"),
+      ])
+      .build();
+    await t.test();
+    await t.drain();
+
+    expect(lineageOf(t.ctx).size).toBe(0);
+  });
+
+  /**
+   * @case .correlate() joins the exchange to another journey and records the stitch
+   * @preconditions A route correlates onto fixed ids, then calls a second route through direct()
+   * @expectedResult The exchange and its callee carry the new correlation id, the callee's cause is the re-stamped exchange, route:exchange:correlated carries the old and new ids, :completed carries the new correlation id, and the logger bindings name the new ids
+   */
+  test(".correlate(): re-stamps the exchange and emits the edge", async () => {
+    const correlated: Array<Record<string, unknown>> = [];
+    const completed: Array<{ routeId: string; correlationId: string }> = [];
+    let before: ReturnType<typeof ids> | undefined;
+    let after: ReturnType<typeof ids> | undefined;
+    let callee: ReturnType<typeof ids> | undefined;
+    let bindings: Record<string, unknown> | undefined;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("stitches")
+          .from(simple("webhook"))
+          .process((ex) => {
+            before = ids(ex);
+            return ex;
+          })
+          .correlate(() => ({
+            correlationId: "story-42",
+            causationId: "creator-exchange",
+          }))
+          .process((ex) => {
+            after = ids(ex);
+            bindings = childBindings(ex);
+            return ex;
+          })
+          .to(direct("stitched-callee")),
+        craft()
+          .id("stitched-callee")
+          .from(direct())
+          .process((ex) => {
+            callee = ids(ex);
+            return ex;
+          })
+          .to(spy()),
+      ])
+      .on("route:exchange:correlated", ((payload: EventPayload<never>) => {
+        correlated.push(payload.details as Record<string, unknown>);
+      }) as never)
+      .on("route:exchange:completed", ((payload: EventPayload<never>) => {
+        completed.push(
+          payload.details as { routeId: string; correlationId: string },
+        );
+      }) as never)
+      .build();
+    await t.test();
+
+    expect(after?.id).toBe(before!.id);
+    expect(after?.correlationId).toBe("story-42");
+    expect(after?.causationId).toBe("creator-exchange");
+    expect(bindings?.["correlationId"]).toBe("story-42");
+    expect(bindings?.["causationId"]).toBe("creator-exchange");
+    expect(callee?.correlationId).toBe("story-42");
+    expect(callee?.causationId).toBe(before!.id);
+    expect(correlated).toEqual([
+      {
+        routeId: "stitches",
+        exchangeId: before!.id,
+        correlationId: "story-42",
+        causationId: "creator-exchange",
+        previous: { correlationId: before!.correlationId },
+      },
+    ]);
+    expect(completed.find((c) => c.routeId === "stitches")?.correlationId).toBe(
+      "story-42",
+    );
+  });
+
+  /**
+   * @case .correlate() with a falsy result leaves the exchange as it is
+   * @preconditions A route whose correlator finds nothing
+   * @expectedResult The correlation id is unchanged and no route:exchange:correlated is emitted
+   */
+  test(".correlate(): a falsy result is a no-op", async () => {
+    let correlated = 0;
+    let before: ReturnType<typeof ids> | undefined;
+    let after: ReturnType<typeof ids> | undefined;
+    t = await testContext()
+      .routes(
+        craft()
+          .id("finds-nothing")
+          .from(simple("x"))
+          .process((ex) => {
+            before = ids(ex);
+            return ex;
+          })
+          .correlate(() => undefined)
+          .to((ex) => {
+            after = ids(ex);
+          }),
+      )
+      .on("route:exchange:correlated", (() => {
+        correlated++;
+      }) as never)
+      .build();
+    await t.test();
+
+    expect(after).toEqual(before);
+    expect(correlated).toBe(0);
+  });
+
+  /**
+   * @case .correlate() refuses an id that is not well formed
+   * @preconditions A route correlates onto an id containing a space
+   * @expectedResult The exchange fails with RC5003 and the downstream step never runs
+   */
+  test(".correlate(): a malformed id fails the step with RC5003", async () => {
+    const downstream = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("bad-stitch")
+          .from(simple("x"))
+          .correlate(() => ({ correlationId: "not an id" }))
+          .to(downstream),
+      )
+      .build();
+    await t.test();
+
+    expect(downstream.received).toHaveLength(0);
+    expect(t.errors.some((e) => e.rc === "RC5003")).toBe(true);
+  });
+
+  /**
+   * @case A CraftClient call with a malformed correlation id is refused at ingress
+   * @preconditions A direct route; sendDirect supplies a correlation id longer than 128 characters
+   * @expectedResult The call rejects with RC5003
+   */
+  test("ingress refuses a malformed correlation id from code", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("client-target")
+          .from(direct())
+          .to(() => "ok"),
+      )
+      .build();
+    await t.startAndWaitReady();
+    await expect(
+      t.client.sendDirect("client-target", "x", {
+        [HeadersKeys.CORRELATION_ID]: "a".repeat(129),
+      }),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+  });
+
+  /**
+   * @case A deferred exchange keeps its journey across the park, and the resume records who resumed it
+   * @preconditions A route defers; a second route resumes it with .resume() from its own direct() ingress
+   * @expectedResult Execution two is the same exchange with the same correlation and causation ids, and route:exchange:resumed carries the parked exchange's cause and names the resume ingress exchange as resumerExchangeId
+   */
+  test("defer and resume: the journey survives, the resumer is recorded", async () => {
+    const runs: ReturnType<typeof ids>[] = [];
+    let resumer: string | undefined;
+    const resumed: Array<{ causationId?: string; resumerExchangeId?: string }> =
+      [];
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("parks")
+          .from(direct())
+          .process((ex) => {
+            runs.push(ids(ex));
+            return ex;
+          })
+          .defer({ schema: z.object({ ok: z.boolean() }) })
+          .process((ex) => {
+            runs.push(ids(ex));
+            return ex;
+          })
+          .to(spy()),
+        craft()
+          .id("resumes")
+          .from(direct())
+          .process((ex) => {
+            resumer = ex.id;
+            return ex;
+          })
+          .resume(),
+      ])
+      .on("route:exchange:resumed", ((payload: EventPayload<never>) => {
+        resumed.push(
+          payload.details as {
+            causationId?: string;
+            resumerExchangeId?: string;
+          },
+        );
+      }) as never)
+      .build();
+    await t.startAndWaitReady();
+    const deferred = asDeferred(
+      await t.client.sendDirect(
+        "parks",
+        {},
+        {
+          [HeadersKeys.CORRELATION_ID]: "parked-journey",
+          [HeadersKeys.CAUSATION_ID]: "parked-cause",
+        },
+      ),
+    );
+    await t.client.sendDirect("resumes", {
+      token: deferred.token,
+      result: { ok: true },
+    });
+
+    expect(runs).toHaveLength(2);
+    expect(runs[1]).toEqual(runs[0]!);
+    expect(runs[0]).toMatchObject({
+      correlationId: "parked-journey",
+      causationId: "parked-cause",
+    });
+    expect(resumed).toEqual([
+      expect.objectContaining({
+        causationId: "parked-cause",
+        resumerExchangeId: resumer,
+      }),
+    ]);
+  });
+
+  /**
+   * @case A watcher that calls a route which re-stamps its cause does not feed on itself
+   * @preconditions A watcher consumes route:exchange:completed and calls a route through direct(); that route runs .correlate() onto an external cause; a worker runs one exchange
+   * @expectedResult The callee runs once, for the worker's completion: the guard walks the in-process parent, which .correlate() leaves as it was
+   */
+  test(".correlate(): an event() watcher still recognises its own work", async () => {
+    let calls = 0;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("loop-watcher")
+          .from(event("route:exchange:completed"))
+          .filter(() => calls < 20)
+          .to(direct("loop-callee")),
+        craft()
+          .id("loop-callee")
+          .from(direct())
+          .correlate(() => ({ causationId: "external-ref-1" }))
+          .process((ex) => {
+            calls++;
+            return ex;
+          })
+          .to(spy()),
+        craft().id("loop-worker").from(simple("go")).to(spy()),
+      ])
+      .build();
+    await t.test();
+    await t.drain();
+
+    expect(calls).toBe(1);
+  });
+
+  /**
+   * @case An exchange that claimed its journey is marked joined, and the mark follows it in process
+   * @preconditions An event() watcher calls a route through direct(); that route re-dispatches through CraftClient with only the journey ids, as an agent tool does; a separate route re-stamps itself with .correlate(); a plain route runs too
+   * @expectedResult The watcher's exchange, its direct() callee and the envelope-dispatched route are joined, as is the re-stamped exchange after its step; the plain exchange is not
+   */
+  test("joined: claimed journeys are marked through every hop", async () => {
+    const joined: Record<string, boolean> = {};
+    const mark = (name: string) => (ex: Exchange) => {
+      joined[name] = isJoinedJourney(ex);
+      return ex;
+    };
+    t = await testContext()
+      .routes([
+        craft()
+          .id("joined-watcher")
+          .from(event("route:exchange:completed"))
+          .filter(
+            (ex) =>
+              (ex.body as { details: { routeId: string } }).details.routeId ===
+              "joined-plain",
+          )
+          .process(mark("watcher"))
+          .to(direct("joined-callee")),
+        craft()
+          .id("joined-callee")
+          .from(direct())
+          .process(mark("callee"))
+          .process(async (ex) => {
+            await t.client.sendDirect(
+              "joined-dispatched",
+              {},
+              {
+                [HeadersKeys.CORRELATION_ID]: ex.headers[
+                  HeadersKeys.CORRELATION_ID
+                ] as string,
+                [HeadersKeys.CAUSATION_ID]: ex.id,
+              },
+            );
+            return ex;
+          })
+          .to(spy()),
+        craft()
+          .id("joined-dispatched")
+          .from(direct())
+          .process(mark("dispatched"))
+          .to(spy()),
+        craft()
+          .id("joined-plain")
+          .from(simple("x"))
+          .process(mark("plain"))
+          .correlate(() => ({ correlationId: "elsewhere" }))
+          .process(mark("restamped"))
+          .to(spy()),
+      ])
+      .build();
+    await t.test();
+    await t.drain();
+
+    expect(joined).toEqual({
+      plain: false,
+      restamped: true,
+      watcher: true,
+      callee: true,
+      dispatched: true,
+    });
+  });
+
+  /**
+   * @case A cause adopted from outside never becomes a parent the event() guard walks
+   * @preconditions A lineage index with an event() route's exchange in flight; a root entered with that exchange as its reported cause but no in-process parent, as a door enters an adopted cause
+   * @expectedResult The root reports the cause, yet does not count as the event() route's own work
+   */
+  test("lineage: an adopted cause is reported, never walked", () => {
+    const index = new LineageIndex();
+    index.enter("watcher-exchange", "watcher", {});
+    index.enter("door-exchange", "door", {
+      causationId: "watcher-exchange",
+      parentId: undefined,
+      joined: true,
+    });
+    expect(index.get("door-exchange")?.causationId).toBe("watcher-exchange");
+    expect(index.descendsFrom("door-exchange", "watcher")).toBe(false);
+  });
+
+  /**
+   * @case A stopped route's abandoned exchanges leave the index
+   * @preconditions A lineage index holding a root and its descendant for one route and a root for another
+   * @expectedResult forgetRoute removes the first route's root and descendant and keeps the other route's
+   */
+  test("lineage: forgetRoute removes what a forced stop abandoned", () => {
+    const index = new LineageIndex();
+    index.enter("a", "stopping", {});
+    index.attach("a-child", "stopping", "a");
+    index.enter("b", "running", {});
+    index.forgetRoute("stopping");
+    expect(index.get("a")).toBeUndefined();
+    expect(index.get("a-child")).toBeUndefined();
+    expect(index.get("b")).toBeDefined();
+  });
+});

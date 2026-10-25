@@ -215,7 +215,9 @@ Two mutate hooks writing the same header in one slot: the later wins and the
 framework warns once per route naming both. A hook that declares `writes`
 moves that warning to start. A mutate hook may not write an engine-owned
 header (`routecraft.id`, `routecraft.route`, `routecraft.operation`,
-`routecraft.split_hierarchy`): that is `RC1115`, the contract `.header()`
+`routecraft.split_hierarchy`, `routecraft.correlation_id`,
+`routecraft.causation_id`, `routecraft.trace.parent`,
+`routecraft.journey.joined`): that is `RC1115`, the contract `.header()`
 enforces.
 
 Hooks at a point another plugin declares go under `hooks.points`, keyed by
@@ -358,7 +360,7 @@ a step of yours, is seen the same way.
 | `routecraft.principals`                                                  | `AUTHORITY` (mint, brand, isAuthentic, restore, isRestored, read)    |                                                   |
 | `routecraft.auth`                                                        | `ENFORCEMENT`                                                        | steps `authenticate`, `delegate`; facet `ex.auth` |
 | `routecraft.deferral`                                                    | `CONTINUATIONS` (store, signer, default deadline)                    | steps `defer`, `resume`; facet `ex.deferral`      |
-| `routecraft.telemetry`                                                   |                                                                      | observes                                          |
+| `routecraft.telemetry`                                                   | `TRACE_SPANS` (live exchange span for an outbound `traceparent`)     | observes                                          |
 | `routecraft.servers`                                                     | `WEB_INGRESS`                                                        |                                                   |
 | `routecraft.http`                                                        | `HTTP`                                                               |                                                   |
 | `routecraft.ops`                                                         | `OPS` (health, resources, indicators)                                |                                                   |

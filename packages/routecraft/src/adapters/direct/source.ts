@@ -1,4 +1,5 @@
-import type { Exchange } from "../../exchange";
+import { HeadersKeys, getExchangeRoute, type Exchange } from "../../exchange";
+import { TRACE_PARENT_HEADER } from "../../trace-context";
 import type { Source, Subscription } from "../../operations/from";
 import { rcError } from "../../error";
 import { registerInternalEndpoint } from "../../capabilities";
@@ -91,7 +92,7 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
     const wrappedHandler = async (exchange: Exchange<T>) => {
       const result = await sub.emit({
         message: exchange.body as T,
-        headers: exchange.headers,
+        headers: withCause(exchange),
       });
       return result as Exchange<T>;
     };
@@ -133,4 +134,27 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       });
     });
   }
+}
+
+/**
+ * The headers a direct call hands the target's ingress: the caller's, with
+ * the caller recorded as the cause.
+ *
+ * What arrives over the channel is either a live exchange of some route (a
+ * `direct()` destination's caller, or a `forward()` from one), which is the
+ * cause, or an envelope built outside any route (`CraftClient.sendDirect`, an
+ * agent tool's dispatch, a `.tap()` snapshot), whose own id names nothing
+ * that ran, so the causation id it was built with is kept.
+ */
+function withCause<T>(exchange: Exchange<T>) {
+  if (getExchangeRoute(exchange) === undefined) return exchange.headers;
+  // Omitted, not deleted: `delete` drops the header bag into dictionary mode.
+  // The adopted remote parent belongs to the exchange its door built; the
+  // callee's parent span is its caller's, reached through the causation id.
+  const headers: Record<string, unknown> = {};
+  for (const key of Object.keys(exchange.headers)) {
+    if (key !== TRACE_PARENT_HEADER) headers[key] = exchange.headers[key];
+  }
+  headers[HeadersKeys.CAUSATION_ID] = exchange.id;
+  return headers as typeof exchange.headers;
 }

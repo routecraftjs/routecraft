@@ -6,7 +6,7 @@ import {
 } from "../shared/sqlite/driver.ts";
 import type { SqliteDatabase } from "../shared/sqlite/types.ts";
 import { resolveDatabasePath } from "../shared/sqlite/database.ts";
-import { ALL_DDL } from "./schema.ts";
+import { ADDED_COLUMNS, ALL_DDL, POST_MIGRATION_DDL } from "./schema.ts";
 import type { TelemetryLogger } from "./types.ts";
 
 /**
@@ -112,10 +112,11 @@ export class SqliteConnection {
       return null;
     }
 
+    let db: TelemetryDatabase | undefined;
     try {
       mkdirSync(dirname(dbPath), { recursive: true });
 
-      const db = new Database(dbPath);
+      db = new Database(dbPath);
 
       if (walMode) {
         db.exec("PRAGMA journal_mode = WAL");
@@ -124,12 +125,22 @@ export class SqliteConnection {
       for (const ddl of ALL_DDL) {
         db.exec(ddl);
       }
+      addMissingColumns(db);
+      for (const ddl of POST_MIGRATION_DDL) {
+        db.exec(ddl);
+      }
 
       const conn = new SqliteConnection(db, logger);
       conn.startPruning(options?.maxExchanges ?? 0, options?.maxEvents ?? 0);
       return conn;
     } catch (err) {
       logger?.warn({ err }, "Failed to open telemetry SQLite database");
+      try {
+        db?.close();
+      } catch {
+        // The open already failed and was reported; a close that fails too
+        // has nothing to add.
+      }
       return null;
     }
   }
@@ -211,3 +222,33 @@ type TelemetryDatabaseConstructor = new (
 ) => TelemetryDatabase;
 
 export type { TelemetryDatabase };
+
+/**
+ * Add every column in {@link ADDED_COLUMNS} a table is missing, so a
+ * telemetry database an earlier version created keeps working. The table
+ * and column names come from that constant, never from input.
+ */
+function addMissingColumns(db: TelemetryDatabase): void {
+  // One write transaction around the check and the add: two processes
+  // opening the same file would otherwise both see a column missing, and the
+  // second ALTER would fail with a duplicate column and lose its sink.
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const { table, column, definition } of ADDED_COLUMNS) {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+        name?: unknown;
+      }>;
+      if (columns.some((c) => c.name === column)) continue;
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // The failed statement may have rolled the transaction back already;
+      // the error worth reporting is the one that failed it.
+    }
+    throw err;
+  }
+}

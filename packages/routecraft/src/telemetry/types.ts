@@ -130,4 +130,6 @@ export interface TelemetryEvent {
   exchangeId?: string;
   /** Correlation ID extracted from payload details (nullable for non-exchange events) */
   correlationId?: string;
+  /** Causation ID extracted from payload details (absent on a chain root's events and non-exchange events) */
+  causationId?: string;
 }

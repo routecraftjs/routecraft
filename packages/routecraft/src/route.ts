@@ -20,6 +20,9 @@ import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
+import { lineageOf } from "./lineage.ts";
+import { assertTraceId } from "./trace-context.ts";
+import { journeyOfHeaders } from "./journey-headers.ts";
 import type { Source, Subscription } from "./operations/from.ts";
 import type { ResolvedRetryOptions } from "./operations/retry-wrapper.ts";
 import type { ResolvedTimeoutOptions } from "./operations/timeout-wrapper.ts";
@@ -777,6 +780,8 @@ export class DefaultRoute implements Route {
     if (!this.executionController.signal.aborted) {
       this.executionController.abort(reason);
     }
+    // An abandoned exchange never reaches the code that leaves the index.
+    lineageOf(this.context).forgetRoute(this.definition.id);
   }
 
   /**
@@ -806,8 +811,12 @@ export class DefaultRoute implements Route {
    * - `routecraft.route` and `routecraft.operation` are stamped for the
    *   receiving route.
    *
-   * Everything else, principal and correlation id included, is inherited by
-   * reference; a source with no correlation id to forward gets a fresh one.
+   * Everything else, principal, correlation id and causation id included, is
+   * inherited by reference; a source with no correlation id to forward gets a
+   * fresh one, and one with no causation id starts a chain. A hand-off that
+   * passes another exchange's headers sets the causation id to that
+   * exchange's id before it gets here. A supplied correlation or causation id
+   * that is not well formed is refused (RC5003): it came from code.
    * See `.standards/security.md` section 3.
    *
    * @param message The message data
@@ -820,6 +829,20 @@ export class DefaultRoute implements Route {
       string | undefined;
     // Omitted, not deleted: `delete` drops the header bag into dictionary mode.
     const incoming = (headers ?? {}) as Record<string, unknown>;
+    if (incomingCorrelationId !== undefined) {
+      assertTraceId(
+        incomingCorrelationId,
+        "correlation id",
+        `The source of route "${this.definition.id}"`,
+      );
+    }
+    if (incoming[HeadersKeys.CAUSATION_ID] !== undefined) {
+      assertTraceId(
+        incoming[HeadersKeys.CAUSATION_ID],
+        "causation id",
+        `The source of route "${this.definition.id}"`,
+      );
+    }
     const inherited: Record<string, unknown> = {};
     for (const key of Object.keys(incoming)) {
       if (!PER_EXCHANGE_HEADERS.has(key)) inherited[key] = incoming[key];
@@ -1312,6 +1335,12 @@ export class DefaultRoute implements Route {
 
     const startTime = Date.now();
 
+    // Entered before the first event, so an `event()` route recognises
+    // every event this exchange causes; left after the terminal one.
+    // Only an ingress offers the adopted remote parent: a continuation or an
+    // error-channel run of the same exchange is a root of its own trace.
+    const leave = this.enterIngressLineage(exchange);
+
     // Emit route:exchange:started event
     const correlationId = exchange.headers[
       HeadersKeys.CORRELATION_ID
@@ -1342,7 +1371,8 @@ export class DefaultRoute implements Route {
         !finalResult.deferred
       ) {
         const duration = Date.now() - startTime;
-        const correlationId = exchange.headers[
+        // The final exchange's: a `.correlate()` may have re-stamped it.
+        const correlationId = finalResult.exchange.headers[
           HeadersKeys.CORRELATION_ID
         ] as string;
         this.context.emit("route:exchange:completed", {
@@ -1366,9 +1396,40 @@ export class DefaultRoute implements Route {
     // Catch-suppressed copy: the caller handles the real rejection.
     const tracked = handlerPromise.catch(() => {});
     this.inFlight.add(tracked);
-    tracked.finally(() => this.inFlight.delete(tracked));
+    tracked.finally(() => {
+      leave();
+      this.inFlight.delete(tracked);
+    });
 
     return handlerPromise;
+  }
+
+  /**
+   * Enter an exchange arriving at this route into the context's lineage
+   * index, offering the remote parent a door adopted for it.
+   *
+   * @returns The leave function
+   */
+  private enterIngressLineage(exchange: Exchange): () => void {
+    return lineageOf(this.context).enter(
+      exchange.id,
+      this.definition.id,
+      journeyOfHeaders(exchange.headers, true),
+    );
+  }
+
+  /**
+   * Enter an exchange this route runs again (its error channel) into the
+   * context's lineage index, as a root of its own trace.
+   *
+   * @returns The leave function
+   */
+  private enterRunLineage(exchange: Exchange): () => void {
+    return lineageOf(this.context).enter(
+      exchange.id,
+      this.definition.id,
+      journeyOfHeaders(exchange.headers, false),
+    );
   }
 
   /**
@@ -1426,6 +1487,20 @@ export class DefaultRoute implements Route {
     operation: string,
   ): Promise<void> {
     const start = Date.now();
+    const leave = this.enterRunLineage(exchange);
+    try {
+      await this.runErrorChannel(exchange, error, operation, start);
+    } finally {
+      leave();
+    }
+  }
+
+  private async runErrorChannel(
+    exchange: Exchange,
+    error: unknown,
+    operation: string,
+    start: number,
+  ): Promise<void> {
     const correlationId = exchange.headers[
       HeadersKeys.CORRELATION_ID
     ] as string;
@@ -1499,7 +1574,10 @@ export class DefaultRoute implements Route {
       endpoint: RegisteredDirectEndpoint,
       payload: unknown,
     ): Promise<unknown> => {
-      const forwardExchange = this.buildExchange(payload, caller.headers);
+      // The caller itself with the payload as its body, the same envelope a
+      // `direct()` destination hands the channel: the target's ingress then
+      // records the caller as its cause, as it would for a direct call.
+      const forwardExchange = DefaultExchange.rewrap(caller, { body: payload });
       const result = await this.context
         .require(DIRECT)
         .send(endpoint as string, forwardExchange);

@@ -135,6 +135,14 @@ export interface ResumeDoor {
    * where no caller is waiting for an answer.
    */
   readonly routeId?: string;
+  /**
+   * The ingress exchange presenting the token, recorded on
+   * `route:exchange:resumed` as `resumerExchangeId`: the edge from the
+   * resume attempt's own chain to the exchange it revived. On a
+   * plugin-driven resume, the exchange the plugin names in
+   * {@link RevivalOptions.exchangeId}, when it names one.
+   */
+  readonly exchangeId?: string;
 }
 
 /**
@@ -159,6 +167,13 @@ export interface RevivalOptions {
    * claimed, so the park stays exactly as it was.
    */
   readonly reidentified?: Principal;
+  /**
+   * The exchange whose outcome woke this revival, recorded on
+   * `route:exchange:resumed` as `resumerExchangeId`, as a door records the
+   * ingress that presented the token: a plugin that revives a session when
+   * a parked call it was waiting on settles names that call's run here.
+   */
+  readonly exchangeId?: string;
 }
 
 /**
@@ -463,13 +478,20 @@ export async function reviveDeferral(
       );
     }
 
+    // Set here rather than filled by `emit`: the resumed run has not entered
+    // the lineage index yet, and the event carries no exchange to read.
+    const causationId = exchange.headers[HeadersKeys.CAUSATION_ID];
     context.emit("route:exchange:resumed", {
       routeId: deferral.routeId,
       exchangeId: exchange.id,
       correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      ...(typeof causationId === "string" ? { causationId } : {}),
       deferralId: id,
       position: deferral.position,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
+      ...(door.exchangeId !== undefined
+        ? { resumerExchangeId: door.exchangeId }
+        : {}),
     });
 
     continuation = await runContinuation(

@@ -40,7 +40,9 @@ import {
 } from "./kernel/host.ts";
 import { applicationPlugins } from "./kernel/defaults.ts";
 import { installFacet } from "./kernel/facets.ts";
-import type { Exchange } from "./exchange.ts";
+import { HeadersKeys, type Exchange } from "./exchange.ts";
+import { existingLineageOf } from "./lineage.ts";
+import type { TraceContextConfig } from "./trace-context.ts";
 import type { Plugin, RouteView } from "./kernel/plugin.ts";
 import { readonlyView } from "./kernel/readonly.ts";
 import {
@@ -175,6 +177,36 @@ function rejectStaleConfig(config: CraftConfig): void {
   rejectStaleOptions(config.telemetry?.sqlite, "telemetry.sqlite");
 }
 
+/**
+ * `traceContext.outbound`, refused with `RC5003` when it is not a boolean
+ * or sits beside a key the block does not have: a string `"false"` from an
+ * environment variable, or `outbund` misspelt, would otherwise leave the
+ * default on and send what the setting was written to stop.
+ */
+function resolveOutboundTraceContext(
+  config: TraceContextConfig | undefined,
+): boolean {
+  if (config === undefined) return true;
+  if (typeof config !== "object" || config === null || Array.isArray(config)) {
+    throw rcError("RC5003", undefined, {
+      message: `traceContext must be an object such as { outbound: false }; got ${JSON.stringify(config)}.`,
+    });
+  }
+  const unknown = Object.keys(config).filter((key) => key !== "outbound");
+  if (unknown.length > 0) {
+    throw rcError("RC5003", undefined, {
+      message: `traceContext has no option ${unknown.map((key) => JSON.stringify(key)).join(", ")}; its one option is outbound.`,
+    });
+  }
+  const { outbound } = config;
+  if (outbound !== undefined && typeof outbound !== "boolean") {
+    throw rcError("RC5003", undefined, {
+      message: `traceContext.outbound must be a boolean; got ${JSON.stringify(outbound)}.`,
+    });
+  }
+  return outbound ?? true;
+}
+
 /** Shared empty set, so the no-predicate boot path allocates nothing. */
 const EMPTY_ROUTE_IDS: ReadonlySet<string> = new Set<string>();
 
@@ -196,6 +228,7 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "plugins",
   "shutdown",
   "hooks",
+  "traceContext",
 ]);
 
 /**
@@ -253,6 +286,16 @@ export interface CraftConfig {
    * ```
    */
   hooks?: HooksConfig;
+  /**
+   * The trace context the outbound clients send.
+   *
+   * @example
+   * ```typescript
+   * // No journey ids to vendors unless a call opts in.
+   * traceContext: { outbound: false }
+   * ```
+   */
+  traceContext?: TraceContextConfig;
 }
 
 /**
@@ -343,6 +386,15 @@ export class CraftContext {
 
   /** Service / application name, surfaced on logs as `service.name`. */
   public readonly name?: string;
+
+  /**
+   * Whether outbound clients send trace context when nothing more specific
+   * says: `traceContext.outbound` from the config. Read through
+   * `sendsTraceContext`.
+   *
+   * @internal
+   */
+  public readonly outboundTraceContext: boolean = true;
 
   /** Routes registered with this context */
   private routes: Route[] = [];
@@ -444,6 +496,9 @@ export class CraftContext {
     setBrand(this, BRAND.CraftContext);
     if (config !== undefined) rejectStaleConfig(config);
     if (config?.name !== undefined) this.name = config.name;
+    this.outboundTraceContext = resolveOutboundTraceContext(
+      config?.traceContext,
+    );
     this.shutdownTimeoutMs = resolveShutdownTimeout(config?.shutdown?.timeout);
     this.hooksConfig = config?.hooks ?? {};
     this.logger = logger.child(childBindings(this));
@@ -1204,7 +1259,7 @@ export class CraftContext {
     event: K,
     details: EventPayload<K>["details"],
   ): void {
-    this.events.emit(event, details);
+    this.events.emit(event, withCausation(this, event, details));
   }
 
   // onStartup/onShutdown removed in favor of event listeners
@@ -2062,4 +2117,36 @@ export class CraftContext {
     }
     return pending.map((entry) => entry.route);
   }
+}
+
+/**
+ * Fill the journey fields on an exchange's lifecycle event
+ * (`route:exchange:*`) that did not set them, so every emission site carries
+ * them without spelling them: `causationId` from the in-flight exchange's
+ * lineage entry, else from the exchange the event carries (a revived or
+ * expired deferral that is not in flight), and on `route:exchange:started`
+ * the `remoteParent` a door adopted. A field with no value is left off, so a
+ * chain root's events carry no `causationId`.
+ */
+function withCausation<D>(context: CraftContext, event: string, details: D): D {
+  if (!event.startsWith("route:exchange:")) return details;
+  const scoped = details as {
+    exchangeId?: unknown;
+    causationId?: unknown;
+    exchange?: { headers?: Record<string, unknown> };
+  };
+  if (typeof scoped.exchangeId !== "string" || "causationId" in scoped) {
+    return details;
+  }
+  const entry = existingLineageOf(context)?.get(scoped.exchangeId);
+  const cause =
+    entry?.causationId ?? scoped.exchange?.headers?.[HeadersKeys.CAUSATION_ID];
+  const remoteParent =
+    event === "route:exchange:started" ? entry?.remoteParent : undefined;
+  if (typeof cause !== "string" && remoteParent === undefined) return details;
+  return {
+    ...details,
+    ...(typeof cause === "string" ? { causationId: cause } : {}),
+    ...(remoteParent !== undefined ? { remoteParent } : {}),
+  } as D;
 }

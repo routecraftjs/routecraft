@@ -12,6 +12,8 @@ header(key: string, valueOrFn: HeaderValue | ((exchange: Exchange<Current>) => H
 
 Set or override a header on the exchange. The body remains unchanged.
 
+The framework's own keys are refused at build time with [`RC5003`](/docs/reference/errors#rc-5003): `routecraft.id`, `routecraft.operation`, `routecraft.route`, `routecraft.split_hierarchy`, the journey ids `routecraft.correlation_id` and `routecraft.causation_id`, and the door marks `routecraft.trace.parent` and `routecraft.journey.joined`. The logger, the lifecycle events and the `event()` guard read the journey ids, so a header write would move them alone; [`.correlate()`](/docs/reference/operations/correlate) re-stamps them together.
+
 ```ts skip="fragment: not a complete statement on its own"
 // Static header
 .header('x-env', 'prod')
@@ -20,7 +22,7 @@ Set or override a header on the exchange. The body remains unchanged.
 .header('user.id', (exchange) => exchange.body.id)
 
 // Derived from headers
-.header('correlation', (exchange) => exchange.headers['x-request-id'])
+.header('x-upstream-request', (exchange) => exchange.headers['x-request-id'])
 
 // Async derived value
 .header('request.trace', async (exchange) => await computeTrace(exchange.body))

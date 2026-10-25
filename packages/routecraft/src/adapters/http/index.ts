@@ -57,7 +57,7 @@ export function http(options: HttpServerOptions): Source<HttpRequestBody>;
  * hands back bytes, and overloads narrow enough to refuse that also refuse
  * any options object whose mode is not a literal.
  *
- * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeout, throwOnHttpError, maxBodySize, redirect, responseBody
+ * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeout, throwOnHttpError, traceContext, maxBodySize, redirect, responseBody
  * @returns An Enricher whose fetch returns { status, headers, body, url }
  *
  * @example

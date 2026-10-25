@@ -7,6 +7,8 @@ import type {
   PluginLogger,
 } from "@routecraft/routecraft";
 import {
+  adoptTraceContext,
+  type AdoptedTraceHeaders,
   buildProtectedResourceMetadata,
   callerRefusalOf,
   HeadersKeys,
@@ -166,6 +168,7 @@ type McpServerResolvedOptions = Required<
     | "websiteUrl"
     | "instructions"
     | "icons"
+    | "traceContext"
   >;
 
 /**
@@ -967,11 +970,23 @@ export class McpServer {
     });
 
     server.setRequestHandler("tools/call", async (request) => {
+      const meta = (request.params as { _meta?: Record<string, unknown> })
+        ._meta;
       const { advertisedOutputSchema, ...result } = await this.handleToolCall(
         request.params.name,
         request.params.arguments ?? {},
         principal,
         mount,
+        adoptTraceContext(
+          {
+            traceparent: stringOrUndefined(meta?.["traceparent"]),
+            tracestate: stringOrUndefined(meta?.["tracestate"]),
+          },
+          {
+            mode: this.options.traceContext,
+            authenticated: principal !== undefined,
+          },
+        ),
       );
       return server.projectCallToolResult(
         {
@@ -1617,6 +1632,7 @@ export class McpServer {
     args: Record<string, unknown>,
     principal: Principal | undefined,
     mount: McpMount = ROOT_MOUNT,
+    trace: AdoptedTraceHeaders = {},
   ): Promise<McpToolCallResult> {
     let admitted: Principal | undefined;
     const where: McpToolMount =
@@ -1671,6 +1687,7 @@ export class McpServer {
       // authentic for downstream `authorize()` without freezing it too
       // early to enrich.
       const headers: Record<string, unknown> = {
+        ...trace,
         [McpHeadersKeys.TOOL]: toolName,
         [McpHeadersKeys.REQUEST]: crypto.randomUUID(),
       };
@@ -1772,4 +1789,9 @@ export class McpServer {
       );
     }
   }
+}
+
+/** A `_meta` value kept only when it is a string. */
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

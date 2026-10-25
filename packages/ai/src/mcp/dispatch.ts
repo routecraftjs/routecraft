@@ -1,4 +1,11 @@
-import { clipText, isRoutecraftError, rcError } from "@routecraft/routecraft";
+import {
+  clipText,
+  isRoutecraftError,
+  rcError,
+  sendsTraceContext,
+  type CraftContext,
+  type TraceContextCarrier,
+} from "@routecraft/routecraft";
 // Registers AI2003 before any dispatch can throw it.
 import "../errors.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
@@ -9,6 +16,22 @@ import {
   type McpClientHttpConfig,
   type McpRawToolResult,
 } from "./types.ts";
+
+/**
+ * The trace context a tool call may carry, and what has a say over whether
+ * it does: the call's own `traceContext`, then the client's registration,
+ * then the context's `traceContext.outbound`.
+ *
+ * @internal
+ */
+export interface McpCallTrace {
+  /** The calling exchange's context, whose `traceContext.outbound` is the last word. */
+  readonly context: CraftContext | undefined;
+  /** The call's own `traceContext`, when it set one. */
+  readonly own?: boolean | undefined;
+  /** Builds the carrier, and only runs when the call sends it. */
+  readonly carrier: () => TraceContextCarrier;
+}
 
 /**
  * Dispatch an MCP tool call against a server registered via
@@ -37,9 +60,10 @@ export async function dispatchMcpCall(
   serverId: string,
   toolName: string,
   args: Record<string, unknown>,
+  trace?: McpCallTrace,
 ): Promise<unknown> {
   return toolResultBody(
-    await dispatchMcpCallRaw(service, serverId, toolName, args),
+    await dispatchMcpCallRaw(service, serverId, toolName, args, trace),
     `"${serverId}:${toolName}"`,
   );
 }
@@ -137,11 +161,20 @@ export async function dispatchMcpCallRaw(
   serverId: string,
   toolName: string,
   args: Record<string, unknown>,
+  trace?: McpCallTrace,
 ): Promise<McpRawToolResult> {
+  const config = service?.clients.get(serverId);
+  const registered =
+    typeof config === "object" ? config.traceContext : undefined;
+  const meta =
+    trace !== undefined &&
+    sendsTraceContext(trace.context, trace.own, registered)
+      ? { ...trace.carrier() }
+      : undefined;
   const manager = service?.stdio.get(serverId);
   if (manager) {
     try {
-      return await manager.callToolRaw(toolName, args);
+      return await manager.callToolRaw(toolName, args, meta);
     } catch (cause) {
       if (isRoutecraftError(cause)) throw cause;
       throw rcError("RC5003", cause, {
@@ -151,7 +184,7 @@ export async function dispatchMcpCallRaw(
   }
 
   const http = resolveHttpConfig(service, serverId);
-  return callRemoteToolRaw(http.url, toolName, args, http.auth);
+  return callRemoteToolRaw(http.url, toolName, args, http.auth, meta);
 }
 
 /**
@@ -205,11 +238,12 @@ export async function callRemoteTool(
   toolName: string,
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
+  meta?: Record<string, string>,
 ): Promise<unknown> {
   // The URL is configuration, not part of the answer: the message can
   // reach a caller, the route's own log carries the URL.
   return toolResultBody(
-    await callRemoteToolRaw(serverUrl, toolName, args, auth),
+    await callRemoteToolRaw(serverUrl, toolName, args, auth, meta),
     `"${toolName}"`,
   );
 }
@@ -225,6 +259,7 @@ export async function callRemoteToolRaw(
   toolName: string,
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
+  meta?: Record<string, string>,
 ): Promise<McpRawToolResult> {
   let connection: Awaited<ReturnType<typeof connectMcpHttpClient>> | undefined;
   try {
@@ -232,6 +267,7 @@ export async function callRemoteToolRaw(
     return (await connection.client.callTool({
       name: toolName,
       arguments: args,
+      ...(meta !== undefined ? { _meta: meta } : {}),
     })) as McpRawToolResult;
   } catch (cause) {
     // Wrap SDK / transport / network errors as RC5003 with the original

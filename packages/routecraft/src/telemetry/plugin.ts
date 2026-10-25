@@ -1,10 +1,13 @@
 import { parseDuration } from "../shared/duration.ts";
 import {
+  context as otelContext,
   trace,
+  type Context as OtelContext,
   type Tracer,
   type Span,
   SpanStatusCode,
 } from "@opentelemetry/api";
+import { TRACE_SPANS, parseTraceparent } from "../trace-context.ts";
 import type { Plugin, PluginContext } from "../kernel/plugin.ts";
 import { safeStringify } from "../shared/safe-json.ts";
 import type { EventName, EventHandler } from "../types.ts";
@@ -62,6 +65,7 @@ const DEFAULT_MAX_SNAPSHOT_BYTES = 65_536;
 
 class TelemetryPlugin implements Plugin {
   readonly id = "routecraft.telemetry";
+  readonly provides = [TRACE_SPANS];
   private readonly options: TelemetryOptions;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
@@ -78,6 +82,9 @@ class TelemetryPlugin implements Plugin {
   private routeSpans = new Map<string, Span>();
   // Track active spans for exchange lifecycle
   private exchangeSpans = new Map<string, Span>();
+  // The same live exchange spans by exchange id alone, for outbound calls
+  // (exchange ids are UUIDs, so they never collide across contexts)
+  private liveSpans = new Map<string, Span>();
 
   constructor(options?: TelemetryOptions) {
     this.options = options ?? {};
@@ -142,6 +149,11 @@ class TelemetryPlugin implements Plugin {
       this.tracer = trace.getTracer("routecraft", TRACER_VERSION);
     }
 
+    // Outbound calls name the live exchange span in their traceparent.
+    ctx.provide(TRACE_SPANS, {
+      spanOf: (exchangeId) => this.liveSpans.get(exchangeId)?.spanContext(),
+    });
+
     // -- Subscribe to events --
     this.subscribeAll(ctx);
     this.subscribeRouteLifecycle(ctx);
@@ -153,6 +165,7 @@ class TelemetryPlugin implements Plugin {
       unsub();
     }
     this.unsubscribers = [];
+    this.liveSpans.clear();
 
     // End any lingering route spans
     for (const span of this.routeSpans.values()) {
@@ -197,6 +210,10 @@ class TelemetryPlugin implements Plugin {
           d && typeof d["correlationId"] === "string"
             ? d["correlationId"]
             : undefined;
+        const causeId =
+          d && typeof d["causationId"] === "string"
+            ? d["causationId"]
+            : undefined;
         const event: TelemetryEvent = {
           timestamp: payload.ts,
           contextId: payload.contextId,
@@ -213,6 +230,7 @@ class TelemetryPlugin implements Plugin {
         };
         if (exchangeId) event.exchangeId = exchangeId;
         if (corrId) event.correlationId = corrId;
+        if (causeId) event.causationId = causeId;
         this.eventWriter.write(event);
       }) as EventHandler<EventName>),
     );
@@ -326,6 +344,31 @@ class TelemetryPlugin implements Plugin {
     );
   }
 
+  /**
+   * The parent of an exchange span: the causing exchange's span while it is
+   * live in this process, else the remote span a door adopted for this
+   * exchange (`remoteParent` on `route:exchange:started`), else none, which
+   * makes it a root (a continuation resumed days later is one, linked to its
+   * cause by the causation attribute).
+   */
+  private parentOf(
+    contextId: string,
+    causationId: string | undefined,
+    remoteParent: string | undefined,
+  ): OtelContext | undefined {
+    if (causationId !== undefined) {
+      const causing = this.exchangeSpans.get(`${causationId}:${contextId}`);
+      if (causing) return trace.setSpan(otelContext.active(), causing);
+    }
+    const remote =
+      remoteParent === undefined ? undefined : parseTraceparent(remoteParent);
+    if (remote === undefined) return undefined;
+    return trace.setSpanContext(otelContext.active(), {
+      ...remote,
+      isRemote: true,
+    });
+  }
+
   // -- Exchange lifecycle (spans) --
 
   private subscribeExchangeLifecycle(ctx: PluginContext): void {
@@ -338,9 +381,17 @@ class TelemetryPlugin implements Plugin {
           routeId: string;
           exchangeId: string;
           correlationId: string;
+          causationId?: string;
+          remoteParent?: string;
         };
       }) => {
-        const { routeId, exchangeId, correlationId } = payload.details;
+        const {
+          routeId,
+          exchangeId,
+          correlationId,
+          causationId,
+          remoteParent,
+        } = payload.details;
         const key = `${exchangeId}:${payload.contextId}`;
 
         // SQLite
@@ -350,20 +401,58 @@ class TelemetryPlugin implements Plugin {
           payload.contextId,
           correlationId,
           payload.ts,
+          causationId,
         );
 
         // OTel
         if (this.tracer) {
-          const span = this.tracer.startSpan(`exchange:${exchangeId}`, {
-            attributes: {
-              [ATTR.SPAN_KIND]: SPAN_KIND.EXCHANGE,
-              [ATTR.ROUTE_ID]: routeId,
-              [ATTR.EXCHANGE_ID]: exchangeId,
-              [ATTR.CORRELATION_ID]: correlationId,
-              [ATTR.CONTEXT_ID]: payload.contextId,
+          const span = this.tracer.startSpan(
+            `exchange:${exchangeId}`,
+            {
+              attributes: {
+                [ATTR.SPAN_KIND]: SPAN_KIND.EXCHANGE,
+                [ATTR.ROUTE_ID]: routeId,
+                [ATTR.EXCHANGE_ID]: exchangeId,
+                [ATTR.CORRELATION_ID]: correlationId,
+                ...(causationId !== undefined
+                  ? { [ATTR.CAUSATION_ID]: causationId }
+                  : {}),
+                [ATTR.CONTEXT_ID]: payload.contextId,
+              },
             },
-          });
+            this.parentOf(payload.contextId, causationId, remoteParent),
+          );
           this.exchangeSpans.set(key, span);
+          this.liveSpans.set(exchangeId, span);
+        }
+      }) as EventHandler<EventName>),
+    );
+
+    // Exchange re-stamped by `.correlate()`: the row and the span follow it.
+    this.unsubscribers.push(
+      ctx.observe("route:exchange:correlated", ((payload: {
+        contextId: string;
+        details: {
+          exchangeId: string;
+          correlationId: string;
+          causationId?: string;
+        };
+      }) => {
+        const { exchangeId, correlationId, causationId } = payload.details;
+        this.spanProcessor?.correlateExchange(
+          exchangeId,
+          payload.contextId,
+          correlationId,
+          causationId,
+        );
+        const span = this.exchangeSpans.get(
+          `${exchangeId}:${payload.contextId}`,
+        );
+        if (span) {
+          span.setAttribute(ATTR.CORRELATION_ID, correlationId);
+          if (causationId !== undefined) {
+            span.setAttribute(ATTR.CAUSATION_ID, causationId);
+          }
         }
       }) as EventHandler<EventName>),
     );
@@ -405,6 +494,7 @@ class TelemetryPlugin implements Plugin {
           span.setAttribute(ATTR.DURATION_MS, duration);
           span.end();
           this.exchangeSpans.delete(key);
+          this.liveSpans.delete(exchangeId);
         }
       }) as EventHandler<EventName>),
     );
@@ -454,6 +544,7 @@ class TelemetryPlugin implements Plugin {
           });
           span.end();
           this.exchangeSpans.delete(key);
+          this.liveSpans.delete(exchangeId);
         }
       }) as EventHandler<EventName>),
     );
@@ -497,6 +588,7 @@ class TelemetryPlugin implements Plugin {
           span.setAttribute(ATTR.DROP_REASON, dropReason);
           span.end();
           this.exchangeSpans.delete(key);
+          this.liveSpans.delete(exchangeId);
         }
       }) as EventHandler<EventName>),
     );

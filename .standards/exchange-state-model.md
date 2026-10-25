@@ -32,14 +32,17 @@ That's it. No primitive/structured split. No second per-exchange bag. No stored-
 
 ## Engine-owned headers at a route boundary
 
-`DefaultRoute.buildExchange` is the single route-ingress constructor: every source-driven ingress and every `forward()` funnels through it, and a `direct()` destination hands its target the caller's headers verbatim. It is therefore the one place that decides what an inherited header bag keeps.
+`DefaultRoute.buildExchange` is the single route-ingress constructor: every source-driven ingress and every `forward()` funnels through it, and a `direct()` destination hands its target the caller's headers. It decides what an inherited header bag keeps; the one other place that shapes the bag is the `direct()` source's `withCause`, which, for a caller that is a live exchange, sets `routecraft.causation_id` to the caller and drops `routecraft.trace.parent` before ingress.
 
 Everything is inherited by reference, including the principal (see `.standards/security.md` § 3), except the engine-owned keys declared in `engine-headers.ts`:
 
 | Key | At ingress | Why |
 |---|---|---|
 | `routecraft.id` | minted fresh | Ingress is always a new exchange. Inheriting the caller's id collides in every store keyed by it: telemetry spans (`${exchangeId}:${contextId}`), the `exchanges` / `exchange_snapshots` tables, and deferral ids (`${exchangeId}~${sequence}`). |
-| `routecraft.correlation_id` | preserved, else minted | This, not the exchange id, is what links a hop into one logical request. |
+| `routecraft.correlation_id` | preserved, else minted; a supplied value that is not a well-formed id (1 to 128 of `[A-Za-z0-9._~:-]`) is refused with `RC5003` | This, not the exchange id, is what links a hop into one logical request. Engine-owned for writes: `.header()` and mutate hooks are refused, and `.correlate()` re-stamps it together with the logger, the lineage index and a `route:exchange:correlated` event. |
+| `routecraft.causation_id` | preserved, else absent; validated like the correlation id | The id of the exchange that caused this one. Every hand-off that passes another exchange's headers sets it to that exchange's id before ingress (the `direct()` source does it for a live caller, `forward()` sends the caller itself), so an inherited value is always the caller, never the caller's cause. Absent marks a chain root. |
+| `routecraft.trace.parent` | kept as supplied, except from a live exchange through `direct()` | A remote `traceparent` a door adopted. It belongs to the exchange the door built: a callee's parent span is its caller's, so the `direct()` source drops it for a live caller, and only a route's ingress offers it to the lineage index (and from there to `route:exchange:started` as `remoteParent`), so a continuation is a root of its own trace. Its presence also tells the lineage index the cause was adopted, so the cause is never walked as an in-process parent. |
+| `routecraft.journey.joined` | inherited | The exchange joined its journey rather than being called into it (`"door"`, `"correlate"`, `"event"`). Read by `isJoinedJourney`, which a reader resolving a person by correlation id must check (`.standards/security.md` § 3b). |
 | `routecraft.route`, `routecraft.operation` | stamped for the receiving route | They describe where the exchange is now, not where it came from. |
 | `routecraft.split_hierarchy` | dropped | A split group only joins within the executor run that created it, so an inherited hierarchy is unjoinable. Worse, `.aggregate()` resolves the trailing group id against the context-wide split-parent store, so it would claim the caller's parent exchange and delete that entry on completion. |
 
@@ -65,7 +68,7 @@ The codebase distinguishes three views of an exchange. They are intentionally se
 
 1. **External `Exchange<T>` type** (`packages/routecraft/src/exchange.ts`) -- the public API surface. Type-level only, no implementation. What user code (route steps, plugin authors) sees. Stable.
 2. **Internal `DefaultExchange<T>` class** (`packages/routecraft/src/exchange.ts`) -- the implementation. Stored fields are `body` and `headers`. Getters expose `id`/`logger` and the installed plugins' facets. Internal-only state (route binding, parse hook, dropped flag, startedAt) lives in the `EXCHANGE_INTERNALS` WeakMap, hidden from the external type by design.
-3. **Logger projection via `childBindings(ex)`** (`packages/routecraft/src/logger.ts`) -- a flat record (`{ contextId, route, correlationId, exchangeId, auth.subject, auth.issuer }`) built for pino bindings. Different shape from the exchange itself; a deliberately denormalized view for log output.
+3. **Logger projection via `childBindings(ex)`** (`packages/routecraft/src/logger.ts`) -- a flat record (`{ contextId, route, correlationId, causationId?, exchangeId, auth.subject, auth.issuer }`) built for pino bindings. Different shape from the exchange itself; a deliberately denormalized view for log output.
 
 Halt/continue serializes only the implementation class's stored fields. The log projection is rebuilt on demand on the resuming process.
 

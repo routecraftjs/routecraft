@@ -1,8 +1,9 @@
 import type { Enricher } from "../../operations/enrich.ts";
 import { anySignal } from "../../shared/abort.ts";
-import type { Exchange } from "../../exchange";
+import { HeadersKeys, getExchangeContext, type Exchange } from "../../exchange";
 import { parseDuration } from "../../shared/duration.ts";
 import { rcError } from "../../error";
+import { sendsTraceContext, traceContextOf } from "../../trace-context.ts";
 import {
   declaredLengthOver,
   resolveMaxBodySize,
@@ -97,6 +98,22 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     const method = this.options.method ?? "GET";
     const url = this.resolveRequired(this.options.url, exchange);
     const headers = { ...(this.resolve(this.options.headers, exchange) ?? {}) };
+    // An exchange-shaped stand-in with no identity (a unit test driving the
+    // adapter directly) has no journey to carry.
+    if (
+      typeof exchange.headers?.[HeadersKeys.ID] === "string" &&
+      sendsTraceContext(
+        getExchangeContext(exchange),
+        this.options.traceContext,
+      ) &&
+      !hasHeader(headers, "traceparent")
+    ) {
+      const carrier = traceContextOf(exchange);
+      setHeader(headers, "traceparent", carrier.traceparent);
+      if (!hasHeader(headers, "tracestate")) {
+        setHeader(headers, "tracestate", carrier.tracestate);
+      }
+    }
     const query = this.resolve(this.options.query, exchange);
     const resolvedBody = this.resolve(this.options.body, exchange);
     const throwOnHttpError = this.options.throwOnHttpError ?? true;
@@ -400,6 +417,23 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
     if (key.toLowerCase() === wanted) return value !== "";
   }
   return false;
+}
+
+/**
+ * Set a header in place of any spelling of it already present, so an empty
+ * value {@link hasHeader} treats as unset is replaced rather than sent
+ * beside the new one.
+ */
+function setHeader(
+  headers: Record<string, string>,
+  name: string,
+  value: string,
+): void {
+  const wanted = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === wanted) delete headers[key];
+  }
+  headers[name] = value;
 }
 
 /**

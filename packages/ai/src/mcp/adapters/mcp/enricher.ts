@@ -3,6 +3,8 @@ import {
   getExchangeContext,
   HeadersKeys,
   rcError,
+  sendsTraceContext,
+  traceContextOf,
 } from "@routecraft/routecraft";
 import type {
   McpClientOptions,
@@ -156,6 +158,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     const context = getExchangeContext(exchange);
     const argsExtractor = this.options.args ?? defaultArgs;
     const args = argsExtractor(exchange);
+    const own = this.options.traceContext;
 
     // serverId path -> registered MCP client (stdio or http). Delegates
     // to `dispatchMcpCall` so transport selection (stdio manager vs
@@ -174,6 +177,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
         this.options.serverId,
         toolName,
         args,
+        { context, own, carrier: () => traceContextOf(exchange) },
       );
       if (result && typeof result === "object") {
         metadataOf.set(result, {
@@ -190,7 +194,16 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     // setup, auth-header building, and cleanup stay aligned with
     // `dispatchMcpCall`.
     const { url, auth } = resolveConnection(this.options, context);
-    const result = await callRemoteTool(url, toolName, args, auth);
+    const result = await callRemoteTool(
+      url,
+      toolName,
+      args,
+      auth,
+      // `_meta.traceparent` and `_meta.tracestate`, as SEP-414 names them.
+      sendsTraceContext(context, own)
+        ? { ...traceContextOf(exchange) }
+        : undefined,
+    );
     if (result && typeof result === "object") {
       metadataOf.set(result, { toolName, url, transport: "http" });
     }

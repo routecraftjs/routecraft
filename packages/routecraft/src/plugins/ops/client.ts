@@ -21,6 +21,7 @@
  * (where the address came from, and what to do when refused).
  */
 
+import type { TraceContextCarrier } from "../../trace-context.ts";
 import type { DeferralState } from "../../kernel/continuation/types.ts";
 import {
   compareRuntimeVersion,
@@ -226,7 +227,18 @@ export interface OpsHttpClient {
   indicatorHealth(name: string): Promise<HealthComponent>;
   listRoutes(filter?: OpsRouteFilter): Promise<OpsRouteSummary[]>;
   describeRoute(id: string): Promise<OpsRouteDetail>;
-  dispatch(id: string, body: unknown): Promise<OpsDispatchOutcome>;
+  /**
+   * Dispatch an exchange to a route on the instance.
+   *
+   * @param id - The route id
+   * @param body - The exchange body
+   * @param trace - The trace context to send, so the dispatched exchange continues the caller's journey; none when omitted
+   */
+  dispatch(
+    id: string,
+    body: unknown,
+    trace?: TraceContextCarrier,
+  ): Promise<OpsDispatchOutcome>;
   /**
    * One page of deferrals, and the cursor for the next when there is one.
    *
@@ -308,9 +320,11 @@ export function createOpsHttpClient(
        * that is precisely the report an operator is asking for.
        */
       answeredBy?: readonly number[];
+      /** Extra request headers, such as the trace context of a dispatch. */
+      headers?: Readonly<Record<string, string>>;
     } = {},
   ): Promise<T> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...init.headers };
     const bearer = await resolveToken();
     if (bearer !== undefined) headers["authorization"] = `Bearer ${bearer}`;
     if (init.body !== undefined) {
@@ -596,10 +610,14 @@ export function createOpsHttpClient(
     describeDeferral: (id: string) =>
       call<OpsDeferralSummary>(`/ops/deferrals/${encodeURIComponent(id)}`),
 
-    dispatch: (id: string, body: unknown) =>
+    dispatch: (id: string, body: unknown, trace?: TraceContextCarrier) =>
       call<OpsDispatchOutcome>(
         `/ops/routes/${encodeURIComponent(id)}/exchanges`,
-        { method: "POST", body },
+        {
+          method: "POST",
+          body,
+          ...(trace !== undefined ? { headers: { ...trace } } : {}),
+        },
       ),
   };
 }

@@ -213,13 +213,17 @@ export function directTool<TIn = unknown>(
 
 /**
  * Headers a direct dispatch from a tool carries: the caller's correlation
- * id so traces stay linked, and the calling principal, forwarded as a
- * fresh mutable copy (see {@link cloneFrozenPrincipal}).
+ * id so traces stay linked, the calling exchange as the cause, and the
+ * calling principal, forwarded as a fresh mutable copy (see
+ * {@link cloneFrozenPrincipal}).
  */
 function dispatchHeaders(hctx: FnHandlerContext): Record<string, unknown> {
   const headers: Record<string, unknown> = {};
   if (hctx.correlationId) {
     headers[HeadersKeys.CORRELATION_ID] = hctx.correlationId;
+  }
+  if (hctx.exchangeId) {
+    headers[HeadersKeys.CAUSATION_ID] = hctx.exchangeId;
   }
   if (hctx.principal) {
     headers[HeadersKeys.AUTH_PRINCIPAL] = cloneFrozenPrincipal(

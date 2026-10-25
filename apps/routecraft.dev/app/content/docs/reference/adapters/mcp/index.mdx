@@ -315,6 +315,7 @@ Rules the adapter enforces:
 | `tool` | `string` | Yes | Tool name to invoke, or `'*'` to invoke the tool named on `McpHeadersKeys.TOOL`, which a route proxying a remote server carries on every exchange |
 | `args` | `(exchange) => Record<string, unknown>` | No | Extractor for tool arguments; defaults to `exchange.body` |
 | `auth` | `McpClientAuthOptions` | No | Auth credentials for HTTP requests. Auto-inherited from `mcpPlugin({ clients })` when using `serverId`; use to override or for inline `url` connections |
+| `traceContext` | `boolean` | No | Send the exchange's W3C trace context in the call's `_meta` (SEP-414), so the server continues the [journey](/docs/introduction/exchange#journeys-correlation-and-causation). `false` sends nothing and `true` sends it whatever else says; unset follows the client's registration, then the config's [`traceContext.outbound`](/docs/reference/configuration#trace-context), which is `true` unless set |
 
 **McpClientAuthOptions:**
 

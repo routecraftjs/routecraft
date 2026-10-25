@@ -205,7 +205,7 @@ Give the plugin a different `namespace`.
 Hook broke its phase
 
 **Why it happens**  
-An `observe` hook returned a value, a `validate` hook returned something other than nothing or `refuse(reason)`, a hook declared a phase its slot does not have (`exit` and `error` have no `validate`), or a `perAttempt` hook is not a wrapper.
+An `observe` hook returned a value, a `validate` hook returned something other than nothing or `refuse(reason)`, a `mutate` hook wrote an engine-owned header (`routecraft.id`, `routecraft.route`, `routecraft.operation`, `routecraft.split_hierarchy`, `routecraft.correlation_id`, `routecraft.causation_id`, `routecraft.trace.parent`, `routecraft.journey.joined`), a hook declared a phase its slot does not have (`exit` and `error` have no `validate`), or a `perAttempt` hook is not a wrapper.
 
 **Suggestion**  
 Return nothing from `observe`, change the exchange only in `mutate`, and decide only in `validate`. A `perAttempt` hook is `{ wrap(proceed, exchange, info) }` and calls `proceed()` exactly once; calling it twice is this error too.
@@ -329,10 +329,10 @@ Adjust the schema or coerce input; check data shapes. For Zod: use `z.object()`,
 Adapter misconfigured
 
 **Why it happens**  
-Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage. Also raised at `context.start()` when a `directTool` names a route declared [`direct({ internal: true })`](/docs/reference/adapters/direct), and when one endpoint declares itself both internal and a discoverable capability (e.g. two direct sources on one route, one internal and one not). Also raised at start when a surface mounts HTTP on a server `servers` does not declare, or when two surfaces claim the same path on one server; see [Mounts and claims](/docs/reference/plugins/serversplugin#mounts-and-claims).
+Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage. Also raised at `context.start()` when a `directTool` names a route declared [`direct({ internal: true })`](/docs/reference/adapters/direct), and when one endpoint declares itself both internal and a discoverable capability (e.g. two direct sources on one route, one internal and one not). Also raised at start when a surface mounts HTTP on a server `servers` does not declare, or when two surfaces claim the same path on one server; see [Mounts and claims](/docs/reference/plugins/serversplugin#mounts-and-claims). Also raised when `.header()` names an engine-owned key, `routecraft.correlation_id` and `routecraft.causation_id` among them, and when a source, `CraftClient` or [`.correlate()`](/docs/reference/operations/correlate) supplies a correlation or causation id that is not 1 to 128 characters from `[A-Za-z0-9._~:-]`.
 
 **Suggestion**  
-Check required options and correct role usage (`.from()` vs `.to()`). Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`). For a `directTool` naming an internal route, expose a boundary route carrying `.input()`, `.description()` and `.authorize()`, and point the tool at that.
+Check required options and correct role usage (`.from()` vs `.to()`). To join an exchange to another journey, use `.correlate()` rather than `.header()`, and hash an id longer than 128 characters before supplying it. Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`). For a `directTool` naming an internal route, expose a boundary route carrying `.input()`, `.description()` and `.authorize()`, and point the tool at that.
 
 ## RC5004
 No handler available

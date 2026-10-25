@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, HeadersKeys, simple } from "@routecraft/routecraft";
+import {
+  craft,
+  HeadersKeys,
+  simple,
+  type RoutecraftError,
+} from "@routecraft/routecraft";
 
 describe("Header operation", () => {
   let t: TestContext;
@@ -78,17 +83,21 @@ describe("Header operation", () => {
 
   /**
    * @case `.header()` rejects writes to every engine-owned key (operation,
-   *       route id, split hierarchy) while still allowing other reserved
-   *       `routecraft.*` keys like the correlation id
-   * @preconditions Builder pipelines try to set each engine-owned key and
-   *                the (settable) correlation id
-   * @expectedResult Engine-owned keys throw RC5003; correlation id builds fine
+   *       route id, split hierarchy, correlation id, causation id) while
+   *       still allowing other reserved `routecraft.*` keys
+   * @preconditions Builder pipelines try to set each engine-owned key and a
+   *                settable reserved key (the cache discriminator)
+   * @expectedResult Engine-owned keys throw RC5003, the correlation and
+   *                 causation keys pointing at `.correlate()`; the
+   *                 discriminator builds fine
    */
-  test("rejects engine-owned keys but allows correlation id", () => {
+  test("rejects engine-owned keys, correlation and causation included", () => {
     for (const key of [
       HeadersKeys.OPERATION,
       HeadersKeys.ROUTE_ID,
       HeadersKeys.SPLIT_HIERARCHY,
+      HeadersKeys.CORRELATION_ID,
+      HeadersKeys.CAUSATION_ID,
     ]) {
       expect(() =>
         craft()
@@ -98,12 +107,27 @@ describe("Header operation", () => {
           .to(spy()),
       ).toThrow(/framework-owned/);
     }
+    for (const key of [HeadersKeys.CORRELATION_ID, HeadersKeys.CAUSATION_ID]) {
+      let caught: unknown;
+      try {
+        craft()
+          .id(`header-points-${key}`)
+          .from(simple("test"))
+          .header(key, "upstream-id")
+          .to(spy());
+      } catch (error) {
+        caught = error;
+      }
+      expect((caught as RoutecraftError).meta.suggestion).toMatch(
+        /\.correlate\(/,
+      );
+    }
 
     expect(() =>
       craft()
-        .id("header-allows-correlation")
+        .id("header-allows-discriminator")
         .from(simple("test"))
-        .header(HeadersKeys.CORRELATION_ID, "upstream-id")
+        .header(HeadersKeys.CACHE_DISCRIMINATOR, "tool-a")
         .to(spy()),
     ).not.toThrow();
   });

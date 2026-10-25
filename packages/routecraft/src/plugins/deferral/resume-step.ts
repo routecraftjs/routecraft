@@ -219,6 +219,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
         ...(live ? { principal: live } : {}),
         ...(hookSignal ? { signal: hookSignal } : {}),
         ...(route ? { routeId: route.definition.id } : {}),
+        exchangeId: exchange.id,
       },
     );
 

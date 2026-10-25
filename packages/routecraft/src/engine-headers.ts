@@ -1,4 +1,5 @@
 import { HeadersKeys } from "./exchange.ts";
+import { JOINED_HEADER, TRACE_PARENT_HEADER } from "./journey-headers.ts";
 
 /**
  * Engine-owned headers, mapped to the remediation shown when something tries
@@ -13,9 +14,20 @@ import { HeadersKeys } from "./exchange.ts";
  *   persist but lie about which route owns the exchange.
  * - `routecraft.split_hierarchy`: maintained by split/aggregate to
  *   correlate children with their parent; a write corrupts joins.
+ * - `routecraft.correlation_id` and `routecraft.causation_id`: the logger
+ *   bindings, the lifecycle events and the lineage index all read them, and a
+ *   header write would move the header alone, leaving the rest on the old
+ *   values with no record of the change. `.correlate()` re-stamps all of them
+ *   together and emits `route:exchange:correlated`. A source adapter still
+ *   supplies both on `emit`, since that is construction, not a write.
+ * - `routecraft.trace.parent` and `routecraft.journey.joined`: what a door
+ *   adopted from a caller, and whether the exchange's journey is a claim
+ *   rather than an inheritance. A write could hand an exchange a remote
+ *   parent no caller sent, or clear the mark that keeps a claimed
+ *   correlation id from reaching a person's editor.
  *
- * The rest of the reserved `routecraft.*` namespace (correlation id,
- * principal, adapter envelope keys) is deliberately settable: those keys are
+ * The rest of the reserved `routecraft.*` namespace (principal, adapter
+ * envelope keys) is deliberately settable: those keys are
  * documented inputs (e.g. addressing a mail operation via `MailHeaders.UID`),
  * and adapter receipt headers live there too.
  *
@@ -34,7 +46,23 @@ import { HeadersKeys } from "./exchange.ts";
 const ENGINE_OWNED_HEADERS: ReadonlyMap<string, string> = new Map([
   [
     HeadersKeys.ID,
-    "Identity is set once when the exchange is constructed and propagates automatically. If you need to correlate with an upstream id, use routecraft.correlation_id (settable via .header() or by source adapters).",
+    "Identity is set once when the exchange is constructed and propagates automatically. To join an exchange to an upstream journey, use .correlate(), or supply routecraft.correlation_id from a source adapter.",
+  ],
+  [
+    HeadersKeys.CORRELATION_ID,
+    "The correlation id is read by the logger, the lifecycle events and the lineage index, so a header write would move it alone. Use .correlate((exchange) => ({ correlationId })) to re-stamp it, or supply it from a source adapter's emit.",
+  ],
+  [
+    HeadersKeys.CAUSATION_ID,
+    "The engine sets the causation id at every hand-off. Use .correlate((exchange) => ({ causationId })) to point an exchange at the one that caused it, or supply it from a source adapter's emit.",
+  ],
+  [
+    TRACE_PARENT_HEADER,
+    "A door sets the remote trace parent when it adopts a caller's trace context; configure the door's traceContext option instead.",
+  ],
+  [
+    JOINED_HEADER,
+    "The engine marks an exchange that joined its journey (a door adopted it, .correlate() re-stamped it, or an event() delivery continued it); it cannot be set or cleared by hand.",
   ],
   [
     HeadersKeys.OPERATION,

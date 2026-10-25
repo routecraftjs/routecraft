@@ -166,6 +166,14 @@ function validate(options: RemotesPluginOptions): void {
         message: `remotes.${name}.url is ${definition.url}, which is plain http, and auth.token would travel over it as clear text. Use an https URL, or a loopback address (localhost, 127.0.0.1, ::1) for an instance on this machine.`,
       });
     }
+    if (
+      definition.traceContext !== undefined &&
+      typeof definition.traceContext !== "boolean"
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `remotes.${name}.traceContext must be a boolean; got ${JSON.stringify(definition.traceContext)}.`,
+      });
+    }
     if (definition.timeout !== undefined) {
       parseDuration(definition.timeout, `remotes.${name}.timeout`);
     }
@@ -541,6 +549,7 @@ function target(
     id,
     endpoint,
     client: remote.client,
+    traceContext: remote.definition.traceContext,
     describe: () => remote.definition.url,
     onMissing: () => refresh(host, remote),
   };

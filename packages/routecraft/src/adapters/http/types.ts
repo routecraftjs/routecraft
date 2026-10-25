@@ -1,4 +1,5 @@
 import type { Duration } from "../../shared/duration.ts";
+import type { TraceContextMode } from "../../trace-context.ts";
 import type { Exchange } from "../../exchange";
 import type {
   OAuthValidatorAuthOptions,
@@ -112,6 +113,20 @@ export interface HttpClientOptions<T = unknown> {
   /** Abandon the request after this long. No deadline when unset. */
   timeout?: Duration;
   throwOnHttpError?: boolean;
+  /**
+   * Send the exchange's W3C trace context (`traceparent`, `tracestate`) so
+   * the service called continues the journey: an OpenTelemetry service
+   * parents its spans under this one, and a Routecraft service keeps the
+   * correlation id and records this exchange as the cause. On by default:
+   * a server that does not participate ignores both headers. They carry the
+   * exchange id and the correlation id, which the engine minted or the
+   * application chose (a source, `.correlate()`), so a call to a third party
+   * that must not see them sets `false`, or the config sets
+   * `traceContext: { outbound: false }` for every call that does not say. A
+   * `traceparent` the route sets in `headers` wins, and then neither header
+   * is added. `false` sends nothing.
+   */
+  traceContext?: boolean;
   /**
    * Maximum response body size in bytes. Defaults to 10 MB, the same name
    * and the same number as the http plugin's inbound cap, so one concept
@@ -307,6 +322,15 @@ export interface HttpPluginOptions {
   /** Event emission toggles. */
   events?: HttpPluginEventOptions;
   /**
+   * Whether a request's W3C trace context (`traceparent`, `tracestate`)
+   * joins the exchange to the caller's journey. `"authenticated"` (the
+   * default) adopts it only from a request whose credential the mount
+   * verified; `"always"` from any caller, for a mount whose callers are all
+   * trusted; `"never"` starts a new chain for every request. The default
+   * for every mount; a mount's own `traceContext` wins.
+   */
+  traceContext?: TraceContextMode;
+  /**
    * Built-in endpoint configuration. See {@link HttpBuiltinsOptions}.
    * Built-ins serve from the mount named `default` when its path is `"/"`;
    * with no such mount they are disabled.
@@ -334,6 +358,8 @@ export interface HttpMountDefinition {
   /** Named entry from `CraftConfig.servers`. Defaults to `"default"`. */
   server?: string;
   auth?: HttpAuth | false;
+  /** This mount's inbound trace-context rule; see {@link HttpPluginOptions.traceContext}. */
+  traceContext?: TraceContextMode;
 }
 
 /**
