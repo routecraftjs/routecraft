@@ -19,6 +19,7 @@ import {
 import type {
   HttpMethod,
   HttpResponseDescriptor,
+  HttpResponseHeaders,
   HttpResponseHint,
 } from "../../adapters/http/types";
 import type { AuthResult } from "./auth";
@@ -374,6 +375,7 @@ export function createDispatcher(
     req.headers.forEach((value, key) => {
       reqHeaders[key] = value;
     });
+    const cookies = parseCookies(req.headers.get("cookie"));
 
     const handlerHeaders: ExchangeHeaders = {
       "routecraft.http.method": method,
@@ -382,6 +384,7 @@ export function createDispatcher(
       "routecraft.http.params": params,
       "routecraft.http.query": Object.freeze(queryObject),
       "routecraft.http.rawHeaders": Object.freeze(reqHeaders),
+      "routecraft.http.cookies": cookies,
       ...(entry.rawBody && rawBytes !== undefined
         ? { "routecraft.http.rawBody": rawBytes }
         : {}),
@@ -456,6 +459,7 @@ export function createDispatcher(
             request: {
               body: parsedBody,
               headers: Object.freeze(reqHeaders),
+              cookies,
               params,
               method,
               path: entry.matcher.pattern,
@@ -657,7 +661,7 @@ function ms(started: number): number {
 interface StreamPlan {
   body: AsyncIterable<unknown> | ReadableStream<Uint8Array>;
   status: number;
-  headers: Record<string, string>;
+  headers: Headers;
   /** The response is an event stream, so it opens with the SSE comment. */
   preamble: boolean;
 }
@@ -686,17 +690,15 @@ function planStream(
   if (!raw && !isAsyncIterable(body)) return undefined;
 
   const hint = readResponseHint(headers);
-  const extraHeaders = lowerCaseKeys(hint.headers);
-  const responseHeaders = raw
-    ? {
-        "content-type": hint.contentType ?? "application/octet-stream",
-        ...extraHeaders,
-      }
-    : {
-        "content-type": hint.contentType ?? SSE_CONTENT_TYPE,
-        "cache-control": SSE_CACHE_CONTROL,
-        ...extraHeaders,
-      };
+  const responseHeaders = withOverrides(
+    raw
+      ? { "content-type": hint.contentType ?? "application/octet-stream" }
+      : {
+          "content-type": hint.contentType ?? SSE_CONTENT_TYPE,
+          "cache-control": SSE_CACHE_CONTROL,
+        },
+    hint.headers,
+  );
   return {
     body: body as AsyncIterable<unknown> | ReadableStream<Uint8Array>,
     status: hint.status ?? 200,
@@ -705,28 +707,81 @@ function planStream(
     // the comment is only legal in an event stream. A route that named a
     // different format owns its bytes from the first one.
     preamble:
-      responseHeaders["content-type"]?.startsWith("text/event-stream") === true,
+      responseHeaders.get("content-type")?.startsWith("text/event-stream") ===
+      true,
   };
 }
 
 /**
- * Lower-case a header override's keys so the spread that follows genuinely
- * overrides.
+ * A request's `Cookie` header as a map by name, parsed once so no route
+ * hand-rolls the split.
  *
- * HTTP header names are case-insensitive and object keys are not, so a route
- * spelling an override `Content-Type` used to add a second key beside the
- * framework's own `content-type`. `Headers` then joined the two values into
- * one nonsensical field, and the streaming arm additionally read the wrong
- * one when deciding whether to open with the SSE comment, prepending bytes
- * to a body the route had declared as something else.
+ * Each `;`-separated pair splits on its first `=` only, because a value may
+ * hold `=` (base64 padding, a nested query). Names and values are trimmed of
+ * the whitespace around them, and the value is kept exactly as sent: neither
+ * percent-decoded nor unquoted, since a cookie's value is the issuer's to
+ * interpret. A pair with no `=` or an empty name carries no name to read and
+ * is skipped. A name sent twice keeps its first value: browsers order the
+ * cookies of overlapping paths most specific first, and the most specific is
+ * the one the issuer meant for this path.
+ *
+ * A prototype-free object, so a name nobody sent (`constructor`, `toString`)
+ * reads as `undefined` rather than as an inherited function, and `__proto__`
+ * is an ordinary name. Frozen, as `rawHeaders` is.
  */
-function lowerCaseKeys(
-  headers: Readonly<Record<string, string>> | undefined,
-): Record<string, string> {
-  if (headers === undefined) return {};
-  return Object.fromEntries(
-    Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]),
-  );
+function parseCookies(header: string | null): Readonly<Record<string, string>> {
+  const cookies: Record<string, string> = Object.create(null) as Record<
+    string,
+    string
+  >;
+  if (header !== null) {
+    for (const pair of header.split(";")) {
+      const at = pair.indexOf("=");
+      if (at === -1) continue;
+      const name = pair.slice(0, at).trim();
+      if (name === "" || Object.hasOwn(cookies, name)) continue;
+      cookies[name] = pair.slice(at + 1).trim();
+    }
+  }
+  return Object.freeze(cookies);
+}
+
+/**
+ * The framework's own response headers with a route's overrides applied.
+ *
+ * Each overridden name replaces the framework's value outright, matched
+ * case-insensitively: HTTP header names are, and object keys are not, so a
+ * route spelling an override `Content-Type` used to add a second key beside
+ * the framework's own `content-type`, `Headers` joined the two into one
+ * nonsensical field, and the streaming arm read the wrong one when deciding
+ * whether to open with the SSE comment.
+ *
+ * Built as `Headers` rather than spread into an object, so an array value is
+ * appended entry by entry: `set-cookie` keeps one field per cookie, which
+ * the node server writes through `getSetCookie()` and Bun sends as it is,
+ * and any other name combines its entries the way HTTP combines repeated
+ * fields. Spellings of one name are gathered first, in order, so
+ * `set-cookie` and `Set-Cookie` in one override both arrive.
+ */
+function withOverrides(
+  defaults: Readonly<Record<string, string>>,
+  overrides: HttpResponseHeaders | undefined,
+): Headers {
+  const headers = new Headers(defaults);
+  if (overrides === undefined) return headers;
+  const byName = new Map<string, string[]>();
+  for (const [name, value] of Object.entries(overrides)) {
+    const key = name.toLowerCase();
+    const values = byName.get(key) ?? [];
+    if (Array.isArray(value)) values.push(...(value as readonly string[]));
+    else values.push(value as string);
+    byName.set(key, values);
+  }
+  for (const [name, values] of byName) {
+    headers.delete(name);
+    for (const value of values) headers.append(name, value);
+  }
+  return headers;
 }
 
 /**
@@ -778,10 +833,10 @@ function serialiseDescriptor(descriptor: HttpResponseDescriptor): Response {
     : bodyToWire(body);
   return new Response(init, {
     status,
-    headers: {
-      ...(contentType !== undefined ? { "content-type": contentType } : {}),
-      ...lowerCaseKeys(descriptor.headers),
-    },
+    headers: withOverrides(
+      contentType !== undefined ? { "content-type": contentType } : {},
+      descriptor.headers,
+    ),
   });
 }
 
@@ -821,9 +876,6 @@ function bodyToWire(body: unknown): {
 
 function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
   const hint = readResponseHint(headers);
-  // Same normalisation as the streaming arm: a differently-cased override
-  // otherwise duplicates the header rather than replacing it.
-  const extraHeaders = lowerCaseKeys(hint.headers);
 
   // A deferred exchange answers 202 with the acknowledgment as its body. HTTP
   // is the one transport with an out-of-band status channel, so the status
@@ -836,13 +888,15 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
     const retryAfter = retryAfterSeconds(body.expiresAt);
     return new Response(JSON.stringify(body), {
       status: hint.status ?? 202,
-      headers: {
-        "content-type": hint.contentType ?? "application/json; charset=utf-8",
-        ...(retryAfter !== undefined
-          ? { "retry-after": String(retryAfter) }
-          : {}),
-        ...extraHeaders,
-      },
+      headers: withOverrides(
+        {
+          "content-type": hint.contentType ?? "application/json; charset=utf-8",
+          ...(retryAfter !== undefined
+            ? { "retry-after": String(retryAfter) }
+            : {}),
+        },
+        hint.headers,
+      ),
     });
   }
 
@@ -852,12 +906,12 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
   const { init, contentType } = bodyToWire(body);
   return new Response(init, {
     status: hint.status ?? (init === null ? 204 : 200),
-    headers: {
-      ...(contentType !== undefined
+    headers: withOverrides(
+      contentType !== undefined
         ? { "content-type": hint.contentType ?? contentType }
-        : {}),
-      ...extraHeaders,
-    },
+        : {},
+      hint.headers,
+    ),
   });
 }
 

@@ -726,6 +726,7 @@ export {
   type HttpRespondRequest,
   type HttpResponseBodyMode,
   type HttpResponseDescriptor,
+  type HttpResponseHeaders,
   type QueryParams,
   type HttpServerOptions,
   type HttpPluginOptions,

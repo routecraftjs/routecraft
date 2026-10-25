@@ -442,11 +442,26 @@ export type HttpConfig = HttpPluginOptions;
  * A `body` of `undefined` sends no body at all, which is what a bare
  * acknowledgement wants: `{ status: 202 }`.
  */
+/**
+ * Extra response headers a route or a responder adds, by name.
+ *
+ * A name is matched case-insensitively and replaces the framework's own
+ * header of that name. An array value sends one field per entry, which is
+ * what `set-cookie` needs to set or clear several cookies in one response;
+ * for any other name the entries are combined into one comma-separated
+ * field, as HTTP combines repeated fields. Two spellings of one name
+ * (`set-cookie` and `Set-Cookie`) are one header, their values kept in
+ * order.
+ */
+export type HttpResponseHeaders = Readonly<
+  Record<string, string | readonly string[]>
+>;
+
 export interface HttpResponseDescriptor {
   /** Status code to send. Required: a responder exists to choose it. */
   status: number;
-  /** Extra response headers, lower-cased before they are applied. */
-  headers?: Readonly<Record<string, string>>;
+  /** Extra response headers; see {@link HttpResponseHeaders}. */
+  headers?: HttpResponseHeaders;
   /**
    * Response body. Serialised by the same rules as a pipeline result
    * (string, `Uint8Array`, `ArrayBuffer`, else JSON). Omit for an empty body.
@@ -469,6 +484,8 @@ export interface HttpRespondRequest {
    * echoes this map leaks the bearer; read `principal` for identity instead.
    */
   headers: Readonly<Record<string, string>>;
+  /** The request's cookies by name, as the route reads them on `routecraft.http.cookies`. */
+  cookies: Readonly<Record<string, string>>;
   /** Resolved path parameters. */
   params: Readonly<Record<string, string>>;
   /** Request method. */
@@ -681,7 +698,7 @@ export type HttpRequestBody = unknown;
 export interface HttpResponseHint {
   status?: number;
   contentType?: string;
-  headers?: Readonly<Record<string, string>>;
+  headers?: HttpResponseHeaders;
 }
 
 // --------------------------------------------------------------------------
@@ -710,6 +727,15 @@ declare module "@routecraft/routecraft" {
      */
     "routecraft.http.rawHeaders"?: Readonly<Record<string, string>>;
     /**
+     * The request's cookies by name, parsed from its `Cookie` header: each
+     * pair split on its first `=`, names and values trimmed, values exactly
+     * as sent (not percent-decoded or unquoted). A name sent twice keeps its
+     * first value, which browsers order most specific path first. Empty when
+     * the request carries no cookie. A name the request did not send reads
+     * as `undefined`, never as an inherited property.
+     */
+    "routecraft.http.cookies"?: Readonly<Record<string, string>>;
+    /**
      * Exact wire bytes of the request body. Only present when the route
      * opted in via `http({ rawBody: true })`; empty-body requests carry an
      * empty array. Use for manual webhook-signature verification or any
@@ -720,7 +746,11 @@ declare module "@routecraft/routecraft" {
     "routecraft.http.response.status"?: number;
     /** Override the response Content-Type. */
     "routecraft.http.response.contentType"?: string;
-    /** Extra response headers merged into the final Response. */
-    "routecraft.http.response.headers"?: Readonly<Record<string, string>>;
+    /**
+     * Extra response headers merged into the final Response; an array sends
+     * one field per entry, as several `set-cookie` need. See
+     * {@link HttpResponseHeaders}.
+     */
+    "routecraft.http.response.headers"?: HttpResponseHeaders;
   }
 }

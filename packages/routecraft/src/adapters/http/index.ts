@@ -95,6 +95,7 @@ export type {
   HttpRespondRequest,
   HttpResponseBodyMode,
   HttpResponseDescriptor,
+  HttpResponseHeaders,
   QueryParams,
   HttpClientOptions,
   HttpResult,
