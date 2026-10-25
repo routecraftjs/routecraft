@@ -175,7 +175,7 @@ export default craft()
 How the `Cookie` header is parsed:
 
 - Each `;`-separated pair splits on its first `=`, so a value may hold `=`. Names and values are trimmed.
-- A value is kept exactly as sent: not percent-decoded and not unquoted.
+- A value is not percent-decoded and not unquoted: after trimming, it is kept exactly as sent.
 - A name sent twice keeps its first value. Browsers send the cookie of the most specific path first.
 - A pair with no `=`, or with an empty name, is skipped.
 - A name the request did not send reads as `undefined`, including names such as `constructor`. A request with no cookies gets an empty map.

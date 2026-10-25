@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { z } from "zod";
+import { deferring, testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   http,
@@ -16,15 +17,18 @@ import {
  * the `Response` as it is, while the node:http shim copies headers onto a
  * `ServerResponse` and reads cookies through `getSetCookie()`, so a route's
  * several cookies have to be shown to arrive as separate fields on each,
- * through the buffered arm, the streaming arm and a responder alike.
+ * through the buffered arm, the deferred 202, the streaming arm and a
+ * responder alike.
  */
 
 /**
- * Start a test context serving `routes` on an ephemeral port and resolve
- * with the context and the port it bound.
+ * Start a test context serving `routes` on an ephemeral port, with any
+ * `extra` config merged in, and resolve with the context and the port it
+ * bound.
  */
 async function bootHttp(
   routes: Parameters<ReturnType<typeof testContext>["routes"]>[0],
+  extra: CraftConfig = {},
 ): Promise<{ ctx: TestContext; port: number }> {
   let port = 0;
   const ctx = await testContext()
@@ -36,6 +40,7 @@ async function bootHttp(
     )
     .routes(routes)
     .with({
+      ...extra,
       servers: { default: { host: "127.0.0.1", port: 0 } },
       http: { server: "default" },
     } as CraftConfig)
@@ -158,6 +163,37 @@ describe("http cookies (cross-runtime contract)", () => {
     const res = await fetch(`http://127.0.0.1:${bound.port}/single`);
     expect(res.headers.getSetCookie()).toEqual([SESSION]);
     expect(res.headers.get("vary")).toBe("accept, origin");
+  });
+
+  /**
+   * @case A deferred 202 carries several cookies, and an empty array removes a framework header
+   * @preconditions A route that defers with a TTL, so the framework sets retry-after, with set-cookie as an array of two cookies and retry-after as an empty array
+   * @expectedResult The 202 carries both Set-Cookie fields and no retry-after, where without the override the framework would send one
+   */
+  test("the deferred arm sends several cookies and drops a removed header", async () => {
+    const bound = await bootHttp(
+      craft()
+        .id("cookie-deferred")
+        .from(http({ path: "/deferred", method: "POST" }))
+        .header("routecraft.http.response.headers", {
+          "set-cookie": [SESSION, CLEARED],
+          "retry-after": [],
+        })
+        .defer({ schema: z.object({ approved: z.boolean() }), ttl: "1h" })
+        .to(noop()),
+      deferring(),
+    );
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/deferred`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(202);
+    expect(res.headers.getSetCookie()).toEqual([SESSION, CLEARED]);
+    expect(res.headers.has("retry-after")).toBe(false);
+    expect(((await res.json()) as { status: string }).status).toBe("deferred");
   });
 
   /**
