@@ -26,7 +26,11 @@ import { normalizeStaticPathPrefix } from "../server/mount-path.ts";
 import type { PathClaim } from "../server/types.ts";
 import { staticPathPrefix } from "./path-matcher.ts";
 import { resolveMaxBodySize } from "./max-body-size.ts";
-import type { TraceContextMode } from "../../trace-context.ts";
+import {
+  TRACE_CONTEXT_MODES,
+  isTraceContextMode,
+  type TraceContextMode,
+} from "../../trace-context.ts";
 
 /** Resolved per-mount config after the single-mount sugar is normalised. */
 interface ResolvedMount {
@@ -504,10 +508,8 @@ function traceContextModeOf(
   site: string,
 ): TraceContextMode {
   if (value === undefined) return "authenticated";
-  if (value === "authenticated" || value === "always" || value === "never") {
-    return value;
-  }
+  if (isTraceContextMode(value)) return value;
   throw rcError("RC5003", undefined, {
-    message: `${site}: invalid traceContext ${JSON.stringify(value)}. Pass "authenticated", "always" or "never".`,
+    message: `${site}: invalid traceContext ${JSON.stringify(value)}. Pass one of ${TRACE_CONTEXT_MODES.map((m) => JSON.stringify(m)).join(", ")}.`,
   });
 }

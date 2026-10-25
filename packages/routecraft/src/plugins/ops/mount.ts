@@ -242,9 +242,7 @@ export function createManagementHandler(
             tracestate: req.headers.get("tracestate"),
           },
           {
-            ...(options.traceContext !== undefined
-              ? { mode: options.traceContext }
-              : {}),
+            mode: options.traceContext,
             authenticated: verdict.principal !== undefined,
           },
         ),

@@ -1,3 +1,7 @@
+import {
+  TRACE_CONTEXT_MODES,
+  isTraceContextMode,
+} from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   isStandardSchema,
@@ -40,14 +44,9 @@ export function normalizeMcpPath(raw: string): string {
 
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
   const trace = options.traceContext;
-  if (
-    trace !== undefined &&
-    trace !== "authenticated" &&
-    trace !== "always" &&
-    trace !== "never"
-  ) {
+  if (trace !== undefined && !isTraceContextMode(trace)) {
     throw new TypeError(
-      `mcpPlugin: traceContext must be "authenticated", "always" or "never"; received ${JSON.stringify(trace)}`,
+      `mcpPlugin: traceContext must be one of ${TRACE_CONTEXT_MODES.map((m) => JSON.stringify(m)).join(", ")}; received ${JSON.stringify(trace)}`,
     );
   }
   if (options.name !== undefined && options.name.trim().length === 0) {

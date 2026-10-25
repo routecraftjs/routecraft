@@ -8,8 +8,24 @@ import type { CraftContext } from "./context.ts";
 export interface LineageEntry {
   /** The route the exchange runs in. */
   readonly routeId: string;
-  /** The id of the exchange that caused this one, absent on a chain root. */
+  /**
+   * The in-process exchange that started this one, fixed when the entry is
+   * made. What the `event()` guard walks. Unlike {@link causationId} it is
+   * never re-stamped, and it is never a cause a door adopted from a caller:
+   * an id from the wire may name any exchange, and a walk that followed it
+   * would let a caller decide what an `event()` route counts as its own.
+   */
+  readonly parentId: string | undefined;
+  /** The cause the exchange reports, which `.correlate()` may re-stamp. */
   causationId: string | undefined;
+  /**
+   * Whether the exchange joined its journey rather than being called into
+   * it: a door adopted the correlation id from a caller, `.correlate()`
+   * re-stamped it, or an `event()` delivery continued it, or it descends
+   * from an exchange that did. Such a correlation id is a claim, so nothing
+   * that reaches a particular person or session may resolve by it.
+   */
+  joined: boolean;
   /** The entry whose departure removes this one, when it was attached under one. */
   root: string | undefined;
   /**
@@ -19,24 +35,34 @@ export interface LineageEntry {
   readonly remoteParent?: string;
 }
 
+/** How a root comes into the index. */
+export interface LineageRootOptions {
+  /** The cause the exchange reports. */
+  readonly causationId?: string | undefined;
+  /** The in-process exchange that started it; see {@link LineageEntry.parentId}. */
+  readonly parentId?: string | undefined;
+  /** Whether it joined its journey; see {@link LineageEntry.joined}. */
+  readonly joined?: boolean;
+  /** The `traceparent` a door adopted for it. */
+  readonly remoteParent?: string | undefined;
+}
+
 /**
- * The deepest causation chain a walk follows before giving up. A real call
- * chain is a handful of hops; the bound only stops a cycle someone stitched
- * with `.correlate()` from spinning a synchronous event delivery forever.
+ * The deepest chain a walk follows before giving up. A real call chain is a
+ * handful of hops; the bound only stops a cycle from spinning a synchronous
+ * event delivery forever.
  */
 const MAX_WALK = 256;
 
 /**
  * Every exchange a context has in flight, keyed by exchange id, with the
- * route it runs in and the exchange that caused it.
+ * route it runs in, the exchange that started it, and the cause it reports.
  *
- * Its one reader is the `event()` source, which must recognise an event its
- * own exchanges caused, including those of routes it called. Before the
- * causation header the source recognised them by correlation id, which only
- * worked because every delivery started a new chain; a delivery now continues
- * the chain of the exchange that caused the event, so the causing chain's
- * unrelated exchanges share the correlation and a correlation test would drop
- * them.
+ * Three readers: the `event()` source walks it to recognise events its own
+ * exchanges caused, including those of routes it called; the context reads
+ * it to fill `causationId` and `remoteParent` on lifecycle events; and the
+ * ACP surface asks it whether an exchange's correlation id was claimed
+ * rather than inherited before resolving a person's editor by it.
  *
  * Two kinds of entry:
  *
@@ -50,7 +76,11 @@ const MAX_WALK = 256;
  *   and removed when that root leaves. It never outlives its root in the
  *   index, which bounds the index by what is in flight; a background
  *   descendant still running after its root completed is no longer
- *   recognised, the same limit the correlation set had.
+ *   recognised.
+ *
+ * A route that stops forgets its entries ({@link LineageIndex.forgetRoute}),
+ * so an exchange abandoned by a forced stop, which never reaches the code that
+ * leaves, does not stay behind.
  *
  * @internal
  */
@@ -59,19 +89,18 @@ export class LineageIndex {
   readonly #descendants = new Map<string, string[]>();
 
   /**
-   * Enter a root.
+   * Enter a root. It joined its journey when the options say so or when the
+   * exchange that started it did.
    *
    * @param exchangeId - The exchange being run
    * @param routeId - The route running it
-   * @param causationId - The exchange that caused it, if any
-   * @param remoteParent - The `traceparent` a door adopted for it, if any
+   * @param options - Its cause, its in-process parent, and how it joined
    * @returns The leave function; calling it removes the root and every descendant attached under it
    */
   enter(
     exchangeId: string,
     routeId: string,
-    causationId: string | undefined,
-    remoteParent?: string,
+    options: LineageRootOptions = {},
   ): () => void {
     const existing = this.#entries.get(exchangeId);
     // Re-entering a root already present keeps the first entry and its
@@ -83,11 +112,19 @@ export class LineageIndex {
       // not its old root's removes it.
       existing.root = undefined;
     } else {
+      const parent =
+        options.parentId === undefined
+          ? undefined
+          : this.#entries.get(options.parentId);
       this.#entries.set(exchangeId, {
         routeId,
-        causationId,
+        parentId: options.parentId,
+        causationId: options.causationId,
+        joined: options.joined === true || parent?.joined === true,
         root: undefined,
-        ...(remoteParent !== undefined ? { remoteParent } : {}),
+        ...(options.remoteParent !== undefined
+          ? { remoteParent: options.remoteParent }
+          : {}),
       });
     }
     let left = false;
@@ -105,32 +142,46 @@ export class LineageIndex {
    *
    * @param exchangeId - The descendant
    * @param routeId - The route it runs in
-   * @param parentId - The exchange it came from, recorded as its cause
+   * @param parentId - The exchange it came from, recorded as its parent and its cause
    */
   attach(exchangeId: string, routeId: string, parentId: string): void {
     const parent = this.#entries.get(parentId);
     if (parent === undefined || this.#entries.has(exchangeId)) return;
     const root = parent.root ?? parentId;
-    this.#entries.set(exchangeId, { routeId, causationId: parentId, root });
+    this.#entries.set(exchangeId, {
+      routeId,
+      parentId,
+      causationId: parentId,
+      joined: parent.joined,
+      root,
+    });
     const list = this.#descendants.get(root);
     if (list) list.push(exchangeId);
     else this.#descendants.set(root, [exchangeId]);
   }
 
   /**
-   * Point an in-flight exchange at a new cause, after `.correlate()`.
+   * Re-stamp the cause an in-flight exchange reports, after `.correlate()`.
+   * The in-process parent the guard walks is left as it was.
    *
    * @param exchangeId - The exchange re-stamped
-   * @param causationId - Its new cause, or undefined to make it a chain root
+   * @param causationId - Its new cause, or undefined
+   * @param joined - Whether its correlation id changed, which makes it a claim
    */
-  recause(exchangeId: string, causationId: string | undefined): void {
+  recause(
+    exchangeId: string,
+    causationId: string | undefined,
+    joined: boolean,
+  ): void {
     const entry = this.#entries.get(exchangeId);
-    if (entry) entry.causationId = causationId;
+    if (entry === undefined) return;
+    entry.causationId = causationId;
+    if (joined) entry.joined = true;
   }
 
   /**
-   * Whether `exchangeId`, or an exchange it descends from that is still in
-   * flight, runs in `routeId`.
+   * Whether `exchangeId`, or an in-process exchange it descends from that is
+   * still in flight, runs in `routeId`.
    *
    * @param exchangeId - The exchange an event names
    * @param routeId - The route asking
@@ -141,7 +192,7 @@ export class LineageIndex {
       const entry = this.#entries.get(id);
       if (entry === undefined) return false;
       if (entry.routeId === routeId) return true;
-      id = entry.causationId;
+      id = entry.parentId;
     }
     return false;
   }
@@ -160,6 +211,19 @@ export class LineageIndex {
     return this.#entries.size;
   }
 
+  /**
+   * Forget every entry of a route, when it stops. An exchange a forced stop
+   * abandoned never reaches its leave; without this its entry would outlive
+   * the route.
+   *
+   * @param routeId - The route that stopped
+   */
+  forgetRoute(routeId: string): void {
+    for (const [id, entry] of this.#entries) {
+      if (entry.routeId === routeId) this.#leave(id);
+    }
+  }
+
   #leave(exchangeId: string): void {
     this.#entries.delete(exchangeId);
     const descendants = this.#descendants.get(exchangeId);
@@ -172,12 +236,6 @@ export class LineageIndex {
 }
 
 const INDEXES = new WeakMap<CraftContext, LineageIndex>();
-/**
- * The same indexes by context id, for the telemetry plugin, which sees a
- * context's id on every event and never the context. Removed when the
- * context stops, through {@link forgetLineage}.
- */
-const INDEXES_BY_ID = new Map<string, LineageIndex>();
 
 /**
  * The lineage index of a context, created on first use.
@@ -190,10 +248,6 @@ export function lineageOf(context: CraftContext): LineageIndex {
   if (index === undefined) {
     index = new LineageIndex();
     INDEXES.set(context, index);
-  }
-  // Re-registered after a stop, for a context started again.
-  if (!INDEXES_BY_ID.has(context.contextId)) {
-    INDEXES_BY_ID.set(context.contextId, index);
   }
   return index;
 }
@@ -208,25 +262,4 @@ export function existingLineageOf(
   context: CraftContext,
 ): LineageIndex | undefined {
   return INDEXES.get(context);
-}
-
-/**
- * The lineage index of a context by its id, if the context made one.
- *
- * @param contextId - The context's id, as events carry it
- * @internal
- */
-export function lineageById(contextId: string): LineageIndex | undefined {
-  return INDEXES_BY_ID.get(contextId);
-}
-
-/**
- * Drop the id lookup for a stopped context, so a process that builds many
- * contexts (a test suite) does not keep every index alive.
- *
- * @param context - The context that stopped
- * @internal
- */
-export function forgetLineage(context: CraftContext): void {
-  INDEXES_BY_ID.delete(context.contextId);
 }

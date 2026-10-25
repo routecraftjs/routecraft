@@ -434,14 +434,20 @@ export {
 } from "./operations/correlate.ts";
 export {
   adoptTraceContext,
+  isJoinedJourney,
+  isTraceContextMode,
   isTraceId,
   traceContextFor,
   traceContextOf,
   MAX_TRACE_ID_LENGTH,
+  TRACE_CONTEXT_MODES,
+  TRACE_SPANS,
   type AdoptedTraceHeaders,
   type InboundTraceContext,
+  type SpanContextLike,
   type TraceContextCarrier,
   type TraceContextMode,
+  type TraceSpans,
 } from "./trace-context.ts";
 
 export { type DeferOptions } from "./plugins/deferral/defer-step.ts";

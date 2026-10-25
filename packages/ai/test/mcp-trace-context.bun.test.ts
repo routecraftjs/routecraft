@@ -4,6 +4,7 @@ import {
   craft,
   HeadersKeys,
   noop,
+  simple,
   type AnyRouteBuilder,
   type Exchange,
   type TraceContextMode,
@@ -13,10 +14,12 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { mcp } from "../src/index.ts";
+import { mcp, tools, type FnHandlerContext } from "../src/index.ts";
 import type { McpServer } from "../src/mcp/server.ts";
 import type { McpPluginOptions, McpStdioToolCaller } from "../src/mcp/types.ts";
-import { createMcpService } from "../src/mcp/port.ts";
+import { MCP, createMcpService } from "../src/mcp/port.ts";
+import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
+import { turnIdOf } from "../src/surface/cancellation.ts";
 import { validateMcpPluginOptions } from "../src/mcp/validate-options.ts";
 import { dispatchMcpCallRaw } from "../src/mcp/dispatch.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
@@ -78,6 +81,7 @@ describe("MCP trace context", () => {
   async function connect(
     options: McpPluginOptions,
     seen: Array<{ correlationId: string; causationId?: string }>,
+    headers: Record<string, string> = {},
   ): Promise<Client> {
     t = await testContext()
       .with({ plugins: [mcpPort()] })
@@ -111,6 +115,7 @@ describe("MCP trace context", () => {
     await connected.connect(
       new StreamableHTTPClientTransport(
         new URL(`http://127.0.0.1:${server.getHttpPort()}/mcp`),
+        { requestInit: { headers } },
       ),
     );
     client = connected;
@@ -146,6 +151,168 @@ describe("MCP trace context", () => {
   });
 
   /**
+   * @case An authenticated tool call's trace context is adopted under the default mode
+   * @preconditions An HTTP MCP server whose auth validator admits the token "good", traceContext left at its default; a tools/call with that bearer and the trace context in _meta
+   * @expectedResult The exchange carries the caller's correlation id and the caller's exchange as its cause
+   */
+  test("server: authenticated _meta is adopted by default", async () => {
+    const seen: Array<{ correlationId: string; causationId?: string }> = [];
+    const c = await connect(
+      {
+        auth: {
+          validator: (token: string) => {
+            if (token !== "good") throw new Error("bad token");
+            return { kind: "custom", scheme: "bearer", subject: "alice" };
+          },
+        },
+      },
+      seen,
+      { Authorization: "Bearer good" },
+    );
+    await c.callTool({ name: "traced-tool", arguments: {}, _meta: CARRIER });
+    expect(seen).toEqual([
+      { correlationId: "journey-1", causationId: "exchange-9" },
+    ]);
+  });
+
+  /**
+   * @case An mcp() call sends the exchange's trace context, and sends none under traceContext false
+   * @preconditions A stdio client recorded by a fake caller; one route enriches through mcp() with defaults, one with traceContext false
+   * @expectedResult The default call's _meta carries a traceparent and an rc tracestate naming the calling exchange; the opted-out call carries no _meta
+   */
+  test("client: mcp() sends _meta, and none under traceContext false", async () => {
+    const seen: Array<{ route: string; meta?: Record<string, string> }> = [];
+    let sender = "";
+    t = await testContext()
+      .with({
+        plugins: [
+          {
+            id: "test.mcp-fixture",
+            provides: [MCP],
+            bind(c) {
+              c.provide(
+                MCP,
+                createMcpService({
+                  stdio: new Map<string, McpStdioToolCaller>([
+                    [
+                      "fake",
+                      {
+                        async callTool() {
+                          return {};
+                        },
+                        async callToolRaw(name, _args, meta) {
+                          seen.push({ route: name, ...(meta ? { meta } : {}) });
+                          return { content: [{ type: "text", text: "{}" }] };
+                        },
+                      },
+                    ],
+                  ]),
+                }),
+              );
+            },
+          },
+        ],
+      })
+      .routes([
+        craft()
+          .id("calls-traced")
+          .from(simple({}))
+          .process((ex: Exchange) => {
+            sender = ex.id;
+            return ex;
+          })
+          .enrich(mcp({ serverId: "fake", tool: "traced" }))
+          .to(noop()) as AnyRouteBuilder,
+        craft()
+          .id("calls-quiet")
+          .from(simple({}))
+          .enrich(mcp({ serverId: "fake", tool: "quiet", traceContext: false }))
+          .to(noop()) as AnyRouteBuilder,
+      ])
+      .build();
+    await t.test();
+
+    const traced = seen.find((s) => s.route === "traced");
+    expect(traced?.meta?.["traceparent"]).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/,
+    );
+    expect(traced?.meta?.["tracestate"]).toContain(`x:${sender}`);
+    expect(seen.find((s) => s.route === "quiet")?.meta).toBeUndefined();
+  });
+
+  /**
+   * @case An agent's MCP(...) tool carries the turn's journey in _meta
+   * @preconditions A registered client tool resolved through tools(); its handler called with the turn's correlation and exchange ids on the handler context
+   * @expectedResult The call's tracestate names the turn's correlation id and the turn's exchange
+   */
+  test("agent tool: MCP(...) sends the turn's trace context", async () => {
+    let meta: Record<string, string> | undefined;
+    const registry = new McpToolRegistry();
+    registry.setToolsForSource("docs", "stdio", [
+      { name: "search", inputSchema: { type: "object" } },
+    ]);
+    t = await testContext()
+      .with({
+        plugins: [
+          {
+            id: "test.mcp-fixture",
+            provides: [MCP],
+            bind(c) {
+              c.provide(
+                MCP,
+                createMcpService({
+                  tools: registry,
+                  stdio: new Map<string, McpStdioToolCaller>([
+                    [
+                      "docs",
+                      {
+                        async callTool() {
+                          return {};
+                        },
+                        async callToolRaw(_name, _args, m) {
+                          meta = m;
+                          return { content: [{ type: "text", text: "{}" }] };
+                        },
+                      },
+                    ],
+                  ]),
+                }),
+              );
+            },
+          },
+        ],
+      })
+      .build();
+    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
+    await tool!.handler({}, {
+      correlationId: "turn-journey",
+      exchangeId: "turn-exchange",
+    } as unknown as FnHandlerContext);
+    expect(meta?.["tracestate"]).toBe("rc=c:turn-journey;x:turn-exchange");
+  });
+
+  /**
+   * @case A claimed correlation id does not ride an editor turn's signal
+   * @preconditions Two exchanges sharing one correlation id, one marked as having joined its journey at a door
+   * @expectedResult turnIdOf names the turn by correlation id for the called exchange and falls back to the session for the joined one
+   */
+  test("surface: a joined exchange is not the turn its correlation id names", async () => {
+    t = await testContext().build();
+    const { DefaultExchange } = await import("@routecraft/routecraft");
+    const called = new DefaultExchange(t.ctx, {
+      headers: { [HeadersKeys.CORRELATION_ID]: "turn-1" },
+    });
+    const joined = new DefaultExchange(t.ctx, {
+      headers: {
+        [HeadersKeys.CORRELATION_ID]: "turn-1",
+        "routecraft.journey.joined": "door",
+      },
+    });
+    expect(turnIdOf(called, "s")).toBe("turn-1");
+    expect(turnIdOf(joined, "s")).toBe("session:s");
+  });
+
+  /**
    * @case mcpPlugin refuses a trace-context mode it does not know
    * @preconditions The plugin's option validation given traceContext "sometimes"
    * @expectedResult It throws naming the three accepted modes
@@ -155,6 +322,6 @@ describe("MCP trace context", () => {
       validateMcpPluginOptions({
         traceContext: "sometimes" as TraceContextMode,
       }),
-    ).toThrow(/authenticated", "always" or "never"/);
+    ).toThrow(/"authenticated", "always", "never"/);
   });
 });

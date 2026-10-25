@@ -604,7 +604,14 @@ export interface EventDetailsMap {
   };
 
   // -- Exchange lifecycle --
-  "route:exchange:started": ExchangeLifecycle;
+  "route:exchange:started": ExchangeLifecycle & {
+    /**
+     * The `traceparent` a door adopted from the caller, for a telemetry
+     * plugin to make the exchange span the remote span's child. Present only
+     * on the exchange the door built, at its ingress.
+     */
+    remoteParent?: string;
+  };
   "route:exchange:completed": ExchangeLifecycle & {
     duration: number;
     exchange?: ExchangeSnapshot;

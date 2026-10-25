@@ -1,3 +1,29 @@
+/**
+ * Carrying a journey across a door: W3C Trace Context on the wire, mapped to
+ * and from Routecraft's correlation and causation ids.
+ *
+ * Two headers cross the wire, `traceparent` and `tracestate`:
+ *
+ * - `traceparent` is the standard one, so an OpenTelemetry service on the
+ *   other side parents its spans correctly. With a telemetry plugin
+ *   providing {@link TRACE_SPANS}, its trace and parent ids are the current
+ *   exchange span's. Without one, the trace id derives from the correlation
+ *   id and the parent id from the exchange id.
+ * - `tracestate` carries one member, `rc=c:<correlation>;x:<exchange>`: the
+ *   exact Routecraft ids, so a Routecraft peer keeps the correlation string
+ *   and records causation without guessing from the lossy `traceparent`
+ *   fields. Members other vendors sent inbound are not forwarded: the
+ *   outbound call is a new span of this process, not a relay of the inbound
+ *   one.
+ *
+ * Correlation is an observability claim, never authority. A caller who can
+ * attach its requests to another journey could pollute that journey's
+ * record, which is why a door adopts an inbound context only under
+ * {@link TraceContextMode}, and an exchange that adopted one (or was
+ * re-stamped by `.correlate()`, or reacts through `event()`) is marked as
+ * having joined its journey ({@link isJoinedJourney}), so nothing that
+ * resolves a particular person by correlation id trusts it.
+ */
 import { createHash } from "node:crypto";
 import { rcError } from "./error.ts";
 import {
@@ -6,29 +32,19 @@ import {
   getExchangeRoute,
   type Exchange,
 } from "./exchange.ts";
+import { port } from "./kernel/port.ts";
+import { existingLineageOf } from "./lineage.ts";
+import { JOINED_HEADER, TRACE_PARENT_HEADER } from "./journey-headers.ts";
 
-/**
- * Carrying a journey across a door: W3C Trace Context on the wire, mapped to
- * and from Routecraft's correlation and causation ids.
- *
- * Two headers cross the wire, `traceparent` and `tracestate`:
- *
- * - `traceparent` is the standard one, so an OpenTelemetry service on the
- *   other side parents its spans correctly. With the telemetry plugin on, its
- *   trace and parent ids are the current exchange span's. Without it, the
- *   trace id derives from the correlation id and the parent id from the
- *   exchange id.
- * - `tracestate` carries one member, `rc=c:<correlation>;x:<exchange>`: the
- *   exact Routecraft ids, so a Routecraft peer keeps the correlation string
- *   and records causation without guessing from the lossy `traceparent`
- *   fields.
- *
- * Correlation is an observability claim and never authority: nothing that
- * authorizes, caches, rate-limits or resumes reads it. Still, a caller who
- * can attach its requests to another chain can pollute that chain's ledger,
- * which is why a door adopts an inbound context only under
- * {@link TraceContextMode}.
- */
+export { JOINED_HEADER, TRACE_PARENT_HEADER };
+import type { CraftContext } from "./context.ts";
+
+/** The modes a door's `traceContext` option accepts, in one place. */
+export const TRACE_CONTEXT_MODES = [
+  "authenticated",
+  "always",
+  "never",
+] as const;
 
 /**
  * Whether a door adopts an inbound trace context.
@@ -39,7 +55,17 @@ import {
  *   (an internal network, a gateway that authenticates in front).
  * - `"never"`: every inbound request starts a new chain.
  */
-export type TraceContextMode = "authenticated" | "always" | "never";
+export type TraceContextMode = (typeof TRACE_CONTEXT_MODES)[number];
+
+/**
+ * Whether a configured value is a {@link TraceContextMode}, for a plugin's
+ * option validation.
+ *
+ * @param value - The configured value
+ */
+export function isTraceContextMode(value: unknown): value is TraceContextMode {
+  return (TRACE_CONTEXT_MODES as readonly unknown[]).includes(value);
+}
 
 /** The two W3C Trace Context headers, as they cross the wire. */
 export interface TraceContextCarrier {
@@ -51,27 +77,17 @@ export interface TraceContextCarrier {
 
 /**
  * The longest correlation or causation id the engine accepts from outside it
- * (a door, `.correlate()`, a source). It keeps the `tracestate` member under
- * the 256-character limit W3C sets for one value.
+ * (a door, `.correlate()`, a source).
  */
 export const MAX_TRACE_ID_LENGTH = 128;
 
+/** The longest value W3C allows one `tracestate` member. */
+const MAX_TRACESTATE_VALUE = 256;
+
 const TRACE_ID_PATTERN = /^[A-Za-z0-9._~:-]+$/;
 const TRACEPARENT_PATTERN =
-  /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})(?:-.*)?$/;
+  /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})(-.*)?$/;
 const ALL_ZERO = /^0+$/;
-
-/**
- * Header that hands an adopted remote `traceparent` from a door to the
- * telemetry plugin, so the exchange span becomes the remote span's child.
- * Kept only on the exchange the door built: a `direct()` call from a live
- * exchange drops it, since the caller's span is the callee's parent, and
- * only a route's ingress offers it to the lineage index, so a continuation
- * of the same exchange days later is a root of its own trace.
- *
- * @internal
- */
-export const TRACE_PARENT_HEADER = "routecraft.trace.parent";
 
 /**
  * Whether a value is a correlation or causation id the engine accepts from
@@ -114,39 +130,82 @@ export function assertTraceId(
   });
 }
 
-/** The span a telemetry plugin holds for an exchange, as the wire needs it. */
+/**
+ * Whether an exchange joined its journey rather than being called into it:
+ * its correlation id was adopted at a door, re-stamped by `.correlate()`, or
+ * continued by an `event()` delivery, by it or by an in-process exchange it
+ * descends from. Such a correlation id is a claim another party could make,
+ * so code that reaches a particular person or session by correlation id (the
+ * ACP surface's turn table) does not resolve it for a joined exchange.
+ *
+ * @param exchange - The exchange to test
+ * @returns Whether its correlation id is a claim rather than an inheritance
+ */
+export function isJoinedJourney(exchange: Exchange): boolean {
+  if (exchange.headers[JOINED_HEADER] !== undefined) return true;
+  const context = getExchangeContext(exchange);
+  if (context === undefined) return false;
+  return existingLineageOf(context)?.get(exchange.id)?.joined === true;
+}
+
+/** A span, as the wire needs it. */
 export interface SpanContextLike {
   readonly traceId: string;
   readonly spanId: string;
   readonly traceFlags: number;
 }
 
-/**
- * Per context, the telemetry plugin's lookup from exchange id to its live
- * exchange span. Keyed by context id because a plugin sees that id on every
- * event and never the context object.
- */
-const SPAN_SOURCES = new Map<
-  string,
-  (exchangeId: string) => SpanContextLike | undefined
->();
+/** What a telemetry plugin offers outbound calls: the live span of an exchange. */
+export interface TraceSpans {
+  /**
+   * The live span of an in-flight exchange, or undefined when the plugin
+   * holds none for it.
+   *
+   * @param exchangeId - The exchange making an outbound call
+   */
+  spanOf(exchangeId: string): SpanContextLike | undefined;
+}
 
 /**
- * Register the lookup a telemetry plugin offers for outbound `traceparent`.
+ * Port a telemetry plugin provides so an outbound `traceparent` names the
+ * span of the exchange making the call. The shipped `telemetry()` plugin
+ * provides it; a replacement OpenTelemetry plugin provides it the same way.
+ * With no provider the `traceparent` derives from the journey's ids.
+ */
+export const TRACE_SPANS = port<TraceSpans>("routecraft.trace.spans@1");
+
+/**
+ * A `traceparent` value parsed as W3C reads it: version `ff`, an all-zero id,
+ * or a malformed field is rejected; version `00` has exactly four fields,
+ * and a later version is read by its known prefix.
  *
- * @param contextId - The context the plugin instruments
- * @param source - Exchange id to its live span, or undefined when none
- * @returns The unregister function
+ * @param value - The header value
+ * @returns The span it names, or undefined when it is not valid
  * @internal
  */
-export function registerSpanSource(
-  contextId: string,
-  source: (exchangeId: string) => SpanContextLike | undefined,
-): () => void {
-  SPAN_SOURCES.set(contextId, source);
-  return () => {
-    if (SPAN_SOURCES.get(contextId) === source) SPAN_SOURCES.delete(contextId);
-  };
+export function parseTraceparent(value: string): SpanContextLike | undefined {
+  const normalized = value.trim().toLowerCase();
+  const match = TRACEPARENT_PATTERN.exec(normalized);
+  if (match === null) return undefined;
+  const [, version, traceId, spanId, flags, rest] = match as unknown as [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string | undefined,
+  ];
+  if (version === "ff" || ALL_ZERO.test(traceId) || ALL_ZERO.test(spanId)) {
+    return undefined;
+  }
+  if (version === "00" && rest !== undefined) return undefined;
+  return { traceId, spanId, traceFlags: Number.parseInt(flags, 16) };
+}
+
+function formatTraceparent(span: SpanContextLike): string {
+  return `00-${span.traceId}-${span.spanId}-${(span.traceFlags & 0xff)
+    .toString(16)
+    .padStart(2, "0")}`;
 }
 
 function hex(value: string, digits: number): string {
@@ -173,7 +232,6 @@ function hex(value: string, digits: number): string {
  * @returns The two headers to send
  */
 export function traceContextOf(exchange: Exchange): TraceContextCarrier {
-  const contextId = getExchangeContext(exchange)?.contextId;
   const correlationId = exchange.headers[HeadersKeys.CORRELATION_ID];
   const cause = exchange.headers[HeadersKeys.CAUSATION_ID];
   const sender =
@@ -183,7 +241,7 @@ export function traceContextOf(exchange: Exchange): TraceContextCarrier {
   return carrierFor(
     typeof correlationId === "string" ? correlationId : sender,
     sender,
-    contextId,
+    getExchangeContext(exchange),
   );
 }
 
@@ -194,47 +252,59 @@ export function traceContextOf(exchange: Exchange): TraceContextCarrier {
  * handler context.
  *
  * @param ids - The calling exchange's correlation id and exchange id
- * @param contextId - Its context's id, which selects the telemetry plugin's live span
+ * @param context - Its context, which may provide {@link TRACE_SPANS}
  * @returns The two headers to send
  */
 export function traceContextFor(
-  ids: { readonly correlationId?: string; readonly exchangeId: string },
-  contextId?: string,
+  ids: {
+    readonly correlationId?: string | undefined;
+    readonly exchangeId: string;
+  },
+  context?: CraftContext,
 ): TraceContextCarrier {
   return carrierFor(
     ids.correlationId ?? ids.exchangeId,
     ids.exchangeId,
-    contextId,
+    context,
   );
 }
 
 function carrierFor(
   correlation: string,
   sender: string,
-  contextId: string | undefined,
+  context: CraftContext | undefined,
 ): TraceContextCarrier {
+  const live = context?.lookup(TRACE_SPANS)?.spanOf(sender);
   const span =
-    contextId === undefined ? undefined : SPAN_SOURCES.get(contextId)?.(sender);
+    live !== undefined &&
+    /^[0-9a-f]{32}$/.test(live.traceId) &&
+    /^[0-9a-f]{16}$/.test(live.spanId) &&
+    !ALL_ZERO.test(live.traceId) &&
+    !ALL_ZERO.test(live.spanId)
+      ? live
+      : undefined;
   const traceparent =
-    span !== undefined &&
-    /^[0-9a-f]{32}$/.test(span.traceId) &&
-    /^[0-9a-f]{16}$/.test(span.spanId) &&
-    !ALL_ZERO.test(span.traceId) &&
-    !ALL_ZERO.test(span.spanId)
-      ? `00-${span.traceId}-${span.spanId}-${(span.traceFlags & 0xff)
-          .toString(16)
-          .padStart(2, "0")}`
+    span !== undefined
+      ? formatTraceparent(span)
       : `00-${hex(correlation, 32)}-${hex(sender, 16)}-00`;
-  // Each id rides only when it is in the alphabet a `tracestate` value
-  // allows; the engine's own ids always are, so the fallback is for an id a
-  // synthetic exchange made up.
-  const fields = [
-    ...(isTraceId(correlation) ? [`c:${correlation}`] : []),
-    ...(isTraceId(sender) ? [`x:${sender}`] : []),
-  ];
-  const member =
-    fields.length > 0 ? `rc=${fields.join(";")}` : `rc=x:${hex(sender, 32)}`;
-  return { traceparent, tracestate: member };
+  return { traceparent, tracestate: rcMember(correlation, sender) };
+}
+
+/**
+ * The `rc` member: each id rides only when it is in the alphabet a
+ * `tracestate` value allows (the engine's own ids always are), and the
+ * exchange id is left off when both together would pass the 256-character
+ * value limit, since the correlation id is the one a peer cannot recover.
+ */
+function rcMember(correlation: string, sender: string): string {
+  const c = isTraceId(correlation) ? `c:${correlation}` : undefined;
+  const x = isTraceId(sender) ? `x:${sender}` : undefined;
+  if (c !== undefined && x !== undefined) {
+    const both = `${c};${x}`;
+    return `rc=${both.length <= MAX_TRACESTATE_VALUE ? both : c}`;
+  }
+  const one = c ?? x;
+  return one !== undefined ? `rc=${one}` : `rc=x:${hex(sender, 32)}`;
 }
 
 /** What a door read from a request's trace context. */
@@ -276,9 +346,10 @@ function asUuid(traceId: string): string {
  *
  * Adopted means: the correlation id from the `rc` member of `tracestate` when
  * present and well formed, else the `traceparent` trace id formatted as a
- * UUID; the causation id from the `rc` member, else none. A `traceparent`
- * that is malformed, version `ff`, or carries an all-zero id is ignored, as
- * W3C requires, and with it the whole context.
+ * UUID; the causation id from the `rc` member, else none; the exchange
+ * marked as having joined its journey at a door. A `traceparent` that is not
+ * valid ({@link parseTraceparent}) is ignored, as W3C requires, and with it
+ * the whole context.
  *
  * @param inbound - The two headers as received
  * @param options - The mount's mode and whether the door verified a principal
@@ -286,36 +357,22 @@ function asUuid(traceId: string): string {
  */
 export function adoptTraceContext(
   inbound: InboundTraceContext,
-  options: { mode?: TraceContextMode; authenticated: boolean },
+  options: { mode?: TraceContextMode | undefined; authenticated: boolean },
 ): AdoptedTraceHeaders {
   const mode = options.mode ?? "authenticated";
   if (mode === "never") return {};
   if (mode === "authenticated" && !options.authenticated) return {};
-  const traceparent =
-    typeof inbound.traceparent === "string"
-      ? inbound.traceparent.trim().toLowerCase()
-      : undefined;
-  if (traceparent === undefined) return {};
-  const match = TRACEPARENT_PATTERN.exec(traceparent);
-  if (match === null) return {};
-  const [, version, traceId, parentId] = match as unknown as [
-    string,
-    string,
-    string,
-    string,
-  ];
-  if (version === "ff" || ALL_ZERO.test(traceId) || ALL_ZERO.test(parentId)) {
-    return {};
-  }
-  // Version 00 has exactly four fields; a later version may append more.
-  if (version === "00" && traceparent.length !== 55) return {};
+  if (typeof inbound.traceparent !== "string") return {};
+  const parent = parseTraceparent(inbound.traceparent);
+  if (parent === undefined) return {};
   const rc =
     typeof inbound.tracestate === "string"
       ? parseRcMember(inbound.tracestate)
       : {};
   return {
-    [HeadersKeys.CORRELATION_ID]: rc.c ?? asUuid(traceId),
+    [HeadersKeys.CORRELATION_ID]: rc.c ?? asUuid(parent.traceId),
     ...(rc.x !== undefined ? { [HeadersKeys.CAUSATION_ID]: rc.x } : {}),
-    [TRACE_PARENT_HEADER]: traceparent.slice(0, 55),
+    [TRACE_PARENT_HEADER]: formatTraceparent(parent),
+    [JOINED_HEADER]: "door",
   };
 }

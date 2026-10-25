@@ -18,7 +18,6 @@ import {
   callRemoteTool,
   dispatchMcpCall,
   relayRemoteError,
-  traceMeta,
 } from "../../dispatch.ts";
 
 /** Ensure inline url is HTTP(S) only. Stdio clients are reached via dispatchMcpCall. */
@@ -202,7 +201,8 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
       toolName,
       args,
       auth,
-      trace === undefined ? undefined : traceMeta(trace),
+      // `_meta.traceparent` and `_meta.tracestate`, as SEP-414 names them.
+      trace === undefined ? undefined : { ...trace },
     );
     if (result && typeof result === "object") {
       metadataOf.set(result, { toolName, url, transport: "http" });

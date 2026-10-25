@@ -180,6 +180,16 @@ export interface RoutecraftHeaders {
   /** The id of the exchange that caused this one; absent on a chain root */
   "routecraft.causation_id"?: string;
 
+  /** The `traceparent` a door adopted for this exchange; engine-owned */
+  "routecraft.trace.parent"?: string;
+
+  /**
+   * How the exchange joined its journey rather than being called into it
+   * (`"door"`, `"correlate"`, `"event"`); absent when it was called into it.
+   * Engine-owned.
+   */
+  "routecraft.journey.joined"?: string;
+
   /** Hierarchy path for split operations */
   "routecraft.split_hierarchy"?: readonly string[];
   /** Folded into the default cache key beside the body, when a source sets it. */

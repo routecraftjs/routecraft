@@ -1216,13 +1216,8 @@ function mcpEntryToResolvedTool(
       // dispatch continues into its route.
       hctx.exchangeId !== undefined
         ? traceContextFor(
-            {
-              exchangeId: hctx.exchangeId,
-              ...(hctx.correlationId !== undefined
-                ? { correlationId: hctx.correlationId }
-                : {}),
-            },
-            ctx.contextId,
+            { exchangeId: hctx.exchangeId, correlationId: hctx.correlationId },
+            ctx,
           )
         : undefined,
     );

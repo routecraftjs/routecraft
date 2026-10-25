@@ -11,6 +11,10 @@
  * plugin.
  */
 
+import {
+  TRACE_CONTEXT_MODES,
+  isTraceContextMode,
+} from "../../trace-context.ts";
 import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import { rcError } from "../../error";
@@ -456,14 +460,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
 
 function validate(options: OpsPluginOptions): void {
   const trace = options.traceContext;
-  if (
-    trace !== undefined &&
-    trace !== "authenticated" &&
-    trace !== "always" &&
-    trace !== "never"
-  ) {
+  if (trace !== undefined && !isTraceContextMode(trace)) {
     throw rcError("RC5003", undefined, {
-      message: `ops.traceContext must be "authenticated", "always" or "never"; received ${JSON.stringify(trace)}.`,
+      message: `ops.traceContext must be one of ${TRACE_CONTEXT_MODES.map((m) => JSON.stringify(m)).join(", ")}; received ${JSON.stringify(trace)}.`,
     });
   }
   for (const [name, value] of Object.entries(options.tiers ?? {})) {

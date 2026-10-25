@@ -983,9 +983,7 @@ export class McpServer {
             tracestate: stringOrUndefined(meta?.["tracestate"]),
           },
           {
-            ...(this.options.traceContext !== undefined
-              ? { mode: this.options.traceContext }
-              : {}),
+            mode: this.options.traceContext,
             authenticated: principal !== undefined,
           },
         ),

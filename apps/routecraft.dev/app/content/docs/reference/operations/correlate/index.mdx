@@ -14,11 +14,11 @@ Join the exchange to another journey: re-stamp its correlation id, its causation
 
 Every exchange carries two ids that place it in a journey. `routecraft.correlation_id` is shared by every exchange one request, timer or message led to. `routecraft.causation_id` is the `routecraft.id` of the exchange that caused this one, and is absent on a chain root. The engine sets both at every hand-off it makes, and carries them across the `http()`, ops and MCP doors as W3C trace context. `.correlate()` is for the hop the engine cannot see: a webhook back from GitHub about an issue a route created, a reply to a mail a route sent. The application records where each artefact came from, looks it up when the artefact comes back, and returns the ids here.
 
-```ts skip="fragment: findStoryOrigin and refineStory are the application's own"
+```ts skip="fragment: StoryOrigin, findStoryOrigin and refineStory are the application's own"
 craft()
   .id('refine-story')
   .from(http({ path: '/github/webhook', method: 'POST' }))
-  .enrich(findStoryOrigin, only((origin) => origin, 'origin')) // the application's artefact ledger
+  .enrich(findStoryOrigin, only((origin: StoryOrigin | undefined) => origin, 'origin')) // the application's artefact ledger
   .correlate((exchange) =>
     exchange.body.origin && {
       correlationId: exchange.body.origin.correlationId,
@@ -36,8 +36,8 @@ Recording the artefact is an ordinary step: read `exchange.headers[HeadersKeys.C
 | `{ correlationId }` or `{ causationId }` | That id replaced, the other kept |
 | `undefined`, `null` or `false` | The exchange is left as it is and nothing is emitted |
 
-The step changes everything that reads the two ids together: the exchange's logger is rebound to them, an `event()` route's guard follows the new cause, and [`route:exchange:correlated`](/docs/reference/events#exchange-events) records the ids before and after, so a ledger sees the stitch as an edge rather than a silent rewrite. Events emitted before the step carry the old ids; the terminal event carries the new ones. This is why [`.header()`](/docs/reference/operations/header) refuses both keys.
+The step changes everything that reads the two ids together: the exchange's logger is rebound to them, its lifecycle events report the new cause, and [`route:exchange:correlated`](/docs/reference/events#exchange-events) records the ids before and after, so a ledger sees the stitch as an edge rather than a silent rewrite. Events emitted before the step carry the old ids; the terminal event carries the new ones. An `event()` route still recognises the exchange as its own work afterwards: its guard follows which exchange started which in this process, not the reported cause. This is why [`.header()`](/docs/reference/operations/header) refuses both keys.
 
 An id must be a string of 1 to 128 characters from `[A-Za-z0-9._~:-]`, the alphabet a W3C `tracestate` value allows. Any other value fails the step with [`RC5003`](/docs/reference/errors#rc-5003): it came from the route's own code. Hash a longer key before returning it.
 
-The correlation id is an observability claim and never authority: nothing that authorizes, caches, rate-limits or resumes reads it, so re-stamping it grants nothing.
+The correlation id is an observability claim and never authority: nothing that authorizes, caches, rate-limits or resumes reads it, so re-stamping it grants nothing. A new correlation id marks the exchange as having joined its journey (`isJoinedJourney`), and what reaches a particular person by correlation id, such as an editor turn's [surface](/docs/reference/adapters/surface), does not resolve for a joined exchange: the id came from data, and another party could name it too. The correlation id is also sent to every service an exchange calls, in `tracestate`, so never build it from personal data.

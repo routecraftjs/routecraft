@@ -41,7 +41,7 @@ import {
 import { applicationPlugins } from "./kernel/defaults.ts";
 import { installFacet } from "./kernel/facets.ts";
 import { HeadersKeys, type Exchange } from "./exchange.ts";
-import { existingLineageOf, forgetLineage } from "./lineage.ts";
+import { existingLineageOf } from "./lineage.ts";
 import type { Plugin, RouteView } from "./kernel/plugin.ts";
 import { readonlyView } from "./kernel/readonly.ts";
 import {
@@ -1847,7 +1847,6 @@ export class CraftContext {
 
     this.logger.info({}, "Routecraft context stopped");
     this.emit("context:stopped", { forced, pending });
-    forgetLineage(this);
 
     if (drainError) {
       throw drainError;
@@ -2067,12 +2066,13 @@ export class CraftContext {
 }
 
 /**
- * Fill `causationId` on an exchange's lifecycle event (`route:exchange:*`)
- * that did not set it, so every emission site carries the edge without
- * spelling it: from the in-flight exchange's lineage entry, else from the
- * exchange the event carries (a revived or expired deferral that is not in
- * flight). Left as is when there is no cause, so a chain root's events carry
- * no field.
+ * Fill the journey fields on an exchange's lifecycle event
+ * (`route:exchange:*`) that did not set them, so every emission site carries
+ * them without spelling them: `causationId` from the in-flight exchange's
+ * lineage entry, else from the exchange the event carries (a revived or
+ * expired deferral that is not in flight), and on `route:exchange:started`
+ * the `remoteParent` a door adopted. A field with no value is left off, so a
+ * chain root's events carry no `causationId`.
  */
 function withCausation<D>(context: CraftContext, event: string, details: D): D {
   if (!event.startsWith("route:exchange:")) return details;
@@ -2084,10 +2084,15 @@ function withCausation<D>(context: CraftContext, event: string, details: D): D {
   if (typeof scoped.exchangeId !== "string" || "causationId" in scoped) {
     return details;
   }
+  const entry = existingLineageOf(context)?.get(scoped.exchangeId);
   const cause =
-    existingLineageOf(context)?.get(scoped.exchangeId)?.causationId ??
-    scoped.exchange?.headers?.[HeadersKeys.CAUSATION_ID];
-  return typeof cause === "string"
-    ? ({ ...details, causationId: cause } as D)
-    : details;
+    entry?.causationId ?? scoped.exchange?.headers?.[HeadersKeys.CAUSATION_ID];
+  const remoteParent =
+    event === "route:exchange:started" ? entry?.remoteParent : undefined;
+  if (typeof cause !== "string" && remoteParent === undefined) return details;
+  return {
+    ...details,
+    ...(typeof cause === "string" ? { causationId: cause } : {}),
+    ...(remoteParent !== undefined ? { remoteParent } : {}),
+  } as D;
 }

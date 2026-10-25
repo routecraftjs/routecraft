@@ -616,14 +616,7 @@ export function createOpsHttpClient(
         {
           method: "POST",
           body,
-          ...(trace !== undefined
-            ? {
-                headers: {
-                  traceparent: trace.traceparent,
-                  tracestate: trace.tracestate,
-                },
-              }
-            : {}),
+          ...(trace !== undefined ? { headers: { ...trace } } : {}),
         },
       ),
   };

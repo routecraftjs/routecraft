@@ -7,8 +7,7 @@ import {
   type Span,
   SpanStatusCode,
 } from "@opentelemetry/api";
-import { lineageById } from "../lineage.ts";
-import { registerSpanSource } from "../trace-context.ts";
+import { TRACE_SPANS, parseTraceparent } from "../trace-context.ts";
 import type { Plugin, PluginContext } from "../kernel/plugin.ts";
 import { safeStringify } from "../shared/safe-json.ts";
 import type { EventName, EventHandler } from "../types.ts";
@@ -66,6 +65,7 @@ const DEFAULT_MAX_SNAPSHOT_BYTES = 65_536;
 
 class TelemetryPlugin implements Plugin {
   readonly id = "routecraft.telemetry";
+  readonly provides = [TRACE_SPANS];
   private readonly options: TelemetryOptions;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
@@ -82,8 +82,9 @@ class TelemetryPlugin implements Plugin {
   private routeSpans = new Map<string, Span>();
   // Track active spans for exchange lifecycle
   private exchangeSpans = new Map<string, Span>();
-  // Per context, the unregister of the span lookup outbound calls read
-  private spanSources = new Map<string, () => void>();
+  // The same live exchange spans by exchange id alone, for outbound calls
+  // (exchange ids are UUIDs, so they never collide across contexts)
+  private liveSpans = new Map<string, Span>();
 
   constructor(options?: TelemetryOptions) {
     this.options = options ?? {};
@@ -148,6 +149,11 @@ class TelemetryPlugin implements Plugin {
       this.tracer = trace.getTracer("routecraft", TRACER_VERSION);
     }
 
+    // Outbound calls name the live exchange span in their traceparent.
+    ctx.provide(TRACE_SPANS, {
+      spanOf: (exchangeId) => this.liveSpans.get(exchangeId)?.spanContext(),
+    });
+
     // -- Subscribe to events --
     this.subscribeAll(ctx);
     this.subscribeRouteLifecycle(ctx);
@@ -159,8 +165,7 @@ class TelemetryPlugin implements Plugin {
       unsub();
     }
     this.unsubscribers = [];
-    for (const unregister of this.spanSources.values()) unregister();
-    this.spanSources.clear();
+    this.liveSpans.clear();
 
     // End any lingering route spans
     for (const span of this.routeSpans.values()) {
@@ -342,46 +347,26 @@ class TelemetryPlugin implements Plugin {
   /**
    * The parent of an exchange span: the causing exchange's span while it is
    * live in this process, else the remote span a door adopted for this
-   * exchange, else none, which makes it a root (a continuation resumed days
-   * later is one, linked to its cause by the causation attribute).
+   * exchange (`remoteParent` on `route:exchange:started`), else none, which
+   * makes it a root (a continuation resumed days later is one, linked to its
+   * cause by the causation attribute).
    */
   private parentOf(
     contextId: string,
-    exchangeId: string,
     causationId: string | undefined,
+    remoteParent: string | undefined,
   ): OtelContext | undefined {
     if (causationId !== undefined) {
       const causing = this.exchangeSpans.get(`${causationId}:${contextId}`);
       if (causing) return trace.setSpan(otelContext.active(), causing);
     }
-    const remote = lineageById(contextId)?.get(exchangeId)?.remoteParent;
-    const match =
-      remote === undefined
-        ? null
-        : /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/.exec(remote);
-    if (match === null) return undefined;
+    const remote =
+      remoteParent === undefined ? undefined : parseTraceparent(remoteParent);
+    if (remote === undefined) return undefined;
     return trace.setSpanContext(otelContext.active(), {
-      traceId: match[1]!,
-      spanId: match[2]!,
-      traceFlags: Number.parseInt(match[3]!, 16),
+      ...remote,
       isRemote: true,
     });
-  }
-
-  /**
-   * Offer this plugin's live exchange spans to outbound calls, so an
-   * `http()`, MCP or remote call's `traceparent` names the span it was made
-   * from. Registered on the first exchange of a context, which is when the
-   * plugin first learns the context's id.
-   */
-  private offerSpans(contextId: string): void {
-    if (this.spanSources.has(contextId)) return;
-    this.spanSources.set(
-      contextId,
-      registerSpanSource(contextId, (exchangeId) =>
-        this.exchangeSpans.get(`${exchangeId}:${contextId}`)?.spanContext(),
-      ),
-    );
   }
 
   // -- Exchange lifecycle (spans) --
@@ -397,10 +382,16 @@ class TelemetryPlugin implements Plugin {
           exchangeId: string;
           correlationId: string;
           causationId?: string;
+          remoteParent?: string;
         };
       }) => {
-        const { routeId, exchangeId, correlationId, causationId } =
-          payload.details;
+        const {
+          routeId,
+          exchangeId,
+          correlationId,
+          causationId,
+          remoteParent,
+        } = payload.details;
         const key = `${exchangeId}:${payload.contextId}`;
 
         // SQLite
@@ -415,7 +406,6 @@ class TelemetryPlugin implements Plugin {
 
         // OTel
         if (this.tracer) {
-          this.offerSpans(payload.contextId);
           const span = this.tracer.startSpan(
             `exchange:${exchangeId}`,
             {
@@ -430,9 +420,10 @@ class TelemetryPlugin implements Plugin {
                 [ATTR.CONTEXT_ID]: payload.contextId,
               },
             },
-            this.parentOf(payload.contextId, exchangeId, causationId),
+            this.parentOf(payload.contextId, causationId, remoteParent),
           );
           this.exchangeSpans.set(key, span);
+          this.liveSpans.set(exchangeId, span);
         }
       }) as EventHandler<EventName>),
     );
@@ -503,6 +494,7 @@ class TelemetryPlugin implements Plugin {
           span.setAttribute(ATTR.DURATION_MS, duration);
           span.end();
           this.exchangeSpans.delete(key);
+          this.liveSpans.delete(exchangeId);
         }
       }) as EventHandler<EventName>),
     );
@@ -552,6 +544,7 @@ class TelemetryPlugin implements Plugin {
           });
           span.end();
           this.exchangeSpans.delete(key);
+          this.liveSpans.delete(exchangeId);
         }
       }) as EventHandler<EventName>),
     );
@@ -595,6 +588,7 @@ class TelemetryPlugin implements Plugin {
           span.setAttribute(ATTR.DROP_REASON, dropReason);
           span.end();
           this.exchangeSpans.delete(key);
+          this.liveSpans.delete(exchangeId);
         }
       }) as EventHandler<EventName>),
     );

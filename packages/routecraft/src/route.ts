@@ -21,7 +21,8 @@ import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { lineageOf } from "./lineage.ts";
-import { TRACE_PARENT_HEADER, assertTraceId } from "./trace-context.ts";
+import { assertTraceId } from "./trace-context.ts";
+import { journeyOfHeaders } from "./journey-headers.ts";
 import type { Source, Subscription } from "./operations/from.ts";
 import type { ResolvedRetryOptions } from "./operations/retry-wrapper.ts";
 import type { ResolvedTimeoutOptions } from "./operations/timeout-wrapper.ts";
@@ -779,6 +780,8 @@ export class DefaultRoute implements Route {
     if (!this.executionController.signal.aborted) {
       this.executionController.abort(reason);
     }
+    // An abandoned exchange never reaches the code that leaves the index.
+    lineageOf(this.context).forgetRoute(this.definition.id);
   }
 
   /**
@@ -1336,7 +1339,7 @@ export class DefaultRoute implements Route {
     // every event this exchange causes; left after the terminal one.
     // Only an ingress offers the adopted remote parent: a continuation or an
     // error-channel run of the same exchange is a root of its own trace.
-    const leave = this.enterLineage(exchange, true);
+    const leave = this.enterIngressLineage(exchange);
 
     // Emit route:exchange:started event
     const correlationId = exchange.headers[
@@ -1402,19 +1405,30 @@ export class DefaultRoute implements Route {
   }
 
   /**
-   * Enter an exchange this route runs into the context's lineage index.
+   * Enter an exchange arriving at this route into the context's lineage
+   * index, offering the remote parent a door adopted for it.
    *
    * @returns The leave function
-   * @internal
    */
-  enterLineage(exchange: Exchange, remoteParent = false): () => void {
-    const cause = exchange.headers[HeadersKeys.CAUSATION_ID];
-    const parent = exchange.headers[TRACE_PARENT_HEADER];
+  private enterIngressLineage(exchange: Exchange): () => void {
     return lineageOf(this.context).enter(
       exchange.id,
       this.definition.id,
-      typeof cause === "string" ? cause : undefined,
-      remoteParent && typeof parent === "string" ? parent : undefined,
+      journeyOfHeaders(exchange.headers, true),
+    );
+  }
+
+  /**
+   * Enter an exchange this route runs again (its error channel) into the
+   * context's lineage index, as a root of its own trace.
+   *
+   * @returns The leave function
+   */
+  private enterRunLineage(exchange: Exchange): () => void {
+    return lineageOf(this.context).enter(
+      exchange.id,
+      this.definition.id,
+      journeyOfHeaders(exchange.headers, false),
     );
   }
 
@@ -1473,7 +1487,7 @@ export class DefaultRoute implements Route {
     operation: string,
   ): Promise<void> {
     const start = Date.now();
-    const leave = this.enterLineage(exchange);
+    const leave = this.enterRunLineage(exchange);
     try {
       await this.runErrorChannel(exchange, error, operation, start);
     } finally {

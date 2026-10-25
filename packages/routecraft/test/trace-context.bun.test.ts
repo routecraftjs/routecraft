@@ -6,6 +6,10 @@ import { signHs256, testContext, type TestContext } from "@routecraft/testing";
 import {
   adoptTraceContext,
   craft,
+  DefaultExchange,
+  httpPlugin,
+  remotesPlugin,
+  TRACE_SPANS,
   direct,
   http,
   HeadersKeys,
@@ -19,7 +23,8 @@ import {
   type Exchange,
   type TraceContextMode,
 } from "../src/index.ts";
-import { TRACE_PARENT_HEADER } from "../src/trace-context.ts";
+import { JOINED_HEADER, TRACE_PARENT_HEADER } from "../src/trace-context.ts";
+import { listen } from "./helpers/listen.ts";
 
 const SECRET = "trace-context-jwt-secret-please-change";
 const ISSUER = "https://idp.test";
@@ -45,21 +50,11 @@ function ids(exchange: Exchange): {
   };
 }
 
-async function listen(t: TestContext): Promise<number> {
-  let port: number | undefined;
-  t.ctx.on("server:listening", ({ details }) => {
-    port = details.port;
-  });
-  await t.startAndWaitReady();
-  if (port === undefined) throw new Error("no server reported a port");
-  return port;
-}
-
 describe("Trace context: the wire format", () => {
   /**
    * @case Adoption follows the mode and the caller's authentication
    * @preconditions A well-formed traceparent and an rc tracestate member, offered under each mode with and without a verified principal
-   * @expectedResult authenticated adopts only an authenticated caller, always adopts both, never adopts neither
+   * @expectedResult authenticated adopts only an authenticated caller, always adopts both, never adopts neither; an adopted context marks the exchange as having joined its journey at a door
    */
   test("adopts under the mode", () => {
     const inbound = {
@@ -82,6 +77,7 @@ describe("Trace context: the wire format", () => {
         [HeadersKeys.CORRELATION_ID]: "journey-1",
         [HeadersKeys.CAUSATION_ID]: "exchange-9",
         [TRACE_PARENT_HEADER]: PARENT,
+        [JOINED_HEADER]: "door",
       });
     }
   });
@@ -100,6 +96,7 @@ describe("Trace context: the wire format", () => {
     ).toEqual({
       [HeadersKeys.CORRELATION_ID]: "4bf92f35-77b3-4da6-a3ce-929d0e0e4736",
       [TRACE_PARENT_HEADER]: PARENT,
+      [JOINED_HEADER]: "door",
     });
   });
 
@@ -158,6 +155,132 @@ describe("Trace context: the wire format", () => {
     expect(isTraceId("a b")).toBe(false);
     expect(isTraceId("a,b")).toBe(false);
     expect(isTraceId(42)).toBe(false);
+  });
+});
+
+describe("Trace context: bounds and providers", () => {
+  let t: TestContext | undefined;
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case The rc member stays within the 256 characters W3C allows one value
+   * @preconditions An envelope whose correlation id and cause are both 128 characters, the longest accepted
+   * @expectedResult The member keeps the correlation id and leaves the exchange id off, and its value is at most 256 characters
+   */
+  test("tracestate stays within the W3C value limit", async () => {
+    t = await testContext().build();
+    const long = "c".repeat(128);
+    const cause = "x".repeat(128);
+    const envelope = new DefaultExchange(t.ctx, {
+      headers: {
+        [HeadersKeys.CORRELATION_ID]: long,
+        [HeadersKeys.CAUSATION_ID]: cause,
+      },
+    });
+    const { tracestate } = traceContextOf(envelope);
+    expect(tracestate).toBe(`rc=c:${long}`);
+    expect(tracestate.slice(3).length).toBeLessThanOrEqual(256);
+  });
+
+  /**
+   * @case A traceparent of a later version is read by its known prefix
+   * @preconditions A version 01 traceparent with an extra field, offered under "always"
+   * @expectedResult It is adopted, and the remote parent is stored in version 00 form
+   */
+  test("adopts a later traceparent version by its prefix", () => {
+    const adopted = adoptTraceContext(
+      {
+        traceparent:
+          "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-future",
+      },
+      { mode: "always", authenticated: false },
+    );
+    expect(adopted[TRACE_PARENT_HEADER]).toBe(PARENT);
+  });
+
+  /**
+   * @case A plugin other than the shipped telemetry names the outbound span through the TRACE_SPANS port
+   * @preconditions A third-party plugin provides TRACE_SPANS answering a fixed span for one exchange
+   * @expectedResult traceContextOf for that exchange sends the provided trace and span ids with the provided flags
+   */
+  test("a third-party span provider names the outbound traceparent", async () => {
+    const spanFor = new Map<string, string>();
+    t = await testContext()
+      .with({
+        plugins: [
+          {
+            id: "acme.tracing",
+            provides: [TRACE_SPANS],
+            bind(c) {
+              c.provide(TRACE_SPANS, {
+                spanOf: (id) =>
+                  spanFor.has(id)
+                    ? {
+                        traceId: "a".repeat(32),
+                        spanId: "b".repeat(16),
+                        traceFlags: 1,
+                      }
+                    : undefined,
+              });
+            },
+          },
+        ],
+      })
+      .build();
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const { setExchangeRoute } = await import("../src/exchange.ts");
+    setExchangeRoute(exchange, { definition: { id: "r" } } as never);
+    spanFor.set(exchange.id, "yes");
+    expect(traceContextOf(exchange).traceparent).toBe(
+      `00-${"a".repeat(32)}-${"b".repeat(16)}-01`,
+    );
+  });
+
+  /**
+   * @case Every door refuses a trace-context mode it does not know, and a remote a non-boolean
+   * @preconditions httpPlugin, opsPlugin and remotesPlugin each given an invalid traceContext
+   * @expectedResult Building a context with each fails with RC5003
+   */
+  test("option validation refuses unknown modes", async () => {
+    const builds = [
+      () =>
+        testContext()
+          .with({
+            plugins: [
+              httpPlugin({ traceContext: "sometimes" as TraceContextMode }),
+            ],
+          })
+          .build(),
+      () =>
+        testContext()
+          .with({
+            plugins: [
+              opsPlugin({ traceContext: "sometimes" as TraceContextMode }),
+            ],
+          })
+          .build(),
+      () =>
+        testContext()
+          .with({
+            plugins: [
+              remotesPlugin({
+                lab: {
+                  url: "http://127.0.0.1:1",
+                  traceContext: "yes" as unknown as boolean,
+                },
+              }),
+            ],
+          })
+          .build(),
+    ];
+    for (const build of builds) {
+      await expect((async () => build())()).rejects.toMatchObject({
+        rc: "RC5003",
+      });
+    }
   });
 });
 
@@ -480,5 +603,133 @@ describe("Trace context: doors and clients", () => {
     expect(remote).toHaveLength(1);
     expect(remote[0]!.correlationId).toBe(local!.correlationId);
     expect(remote[0]!.causationId).toBe(local!.id);
+  });
+
+  /**
+   * @case A mount's own traceContext overrides the plugin's
+   * @preconditions httpPlugin traceContext "never", with the default mount setting "always"; an unauthenticated POST carrying a trace context
+   * @expectedResult The mount's "always" wins: the exchange carries the caller's correlation id
+   */
+  test("http door: a mount's traceContext wins over the plugin's", async () => {
+    const seen: ReturnType<typeof ids>[] = [];
+    const port = await httpDoor(
+      {
+        http: {
+          traceContext: "never",
+          mounts: { default: { path: "/", traceContext: "always" } },
+        },
+      } as CraftConfig,
+      seen,
+    );
+    await fetch(`http://127.0.0.1:${port}/in`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...traced },
+      body: "{}",
+    });
+    expect(seen[0]?.correlationId).toBe("journey-1");
+  });
+
+  /**
+   * @case The ops dispatch mount adopts any caller's context under "always"
+   * @preconditions opsPlugin with an open dispatch tier and traceContext "always"; an anonymous dispatch carrying a trace context
+   * @expectedResult The dispatched exchange carries the caller's correlation id and cause
+   */
+  test('ops door: "always" adopts an anonymous dispatch\'s context', async () => {
+    const seen: ReturnType<typeof ids>[] = [];
+    other = await testContext()
+      .with({
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        plugins: [
+          opsPlugin({ tiers: { dispatch: true }, traceContext: "always" }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("dispatched")
+          .description("Dispatched by the ops door")
+          .input({ body: z.object({}) })
+          .from(direct())
+          .process((ex) => {
+            seen.push(ids(ex));
+            return ex;
+          })
+          .to(noop()),
+      )
+      .build();
+    const port = await listen(other);
+    const res = await fetch(
+      `http://127.0.0.1:${port}/ops/routes/dispatched/exchanges`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", ...traced },
+        body: "{}",
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(seen[0]).toMatchObject({
+      correlationId: "journey-1",
+      causationId: "exchange-9",
+    });
+  });
+
+  /**
+   * @case A remote configured with traceContext false sends no trace context
+   * @preconditions The two-context remotes setup with traceContext false on the remote
+   * @expectedResult The remote's exchange starts its own journey: a correlation id different from the caller's, and no cause
+   */
+  test("remotes: traceContext false sends nothing", async () => {
+    const remote: ReturnType<typeof ids>[] = [];
+    let local: ReturnType<typeof ids> | undefined;
+    other = await testContext()
+      .with({
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        plugins: [
+          opsPlugin({
+            auth: jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
+            tiers: { introspection: "ops:dispatch", dispatch: "ops:dispatch" },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("far-quiet")
+          .description("A route on the other instance")
+          .input({ body: z.object({}) })
+          .from(direct())
+          .process((ex) => {
+            remote.push(ids(ex));
+            return ex;
+          })
+          .to(noop()),
+      )
+      .build();
+    const port = await listen(other);
+    t = await testContext()
+      .with({
+        remotes: {
+          default: {
+            url: `http://127.0.0.1:${port}`,
+            auth: { token: () => bearer() },
+            traceContext: false,
+          },
+        },
+      } as CraftConfig)
+      .routes(
+        craft()
+          .id("near-quiet")
+          .from(direct())
+          .process((ex) => {
+            local = ids(ex);
+            return ex;
+          })
+          .to(direct("far-quiet")),
+      )
+      .build();
+    await t.startAndWaitReady();
+    await t.client.sendDirect("near-quiet", {});
+
+    expect(remote).toHaveLength(1);
+    expect(remote[0]!.correlationId).not.toBe(local!.correlationId);
+    expect(remote[0]!.causationId).toBeUndefined();
   });
 });

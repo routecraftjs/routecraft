@@ -9,7 +9,10 @@ import {
   type Exchange,
   type EventPayload,
 } from "@routecraft/routecraft";
-import { lineageOf } from "../src/lineage.ts";
+import { LineageIndex, lineageOf } from "../src/lineage.ts";
+import { isJoinedJourney } from "../src/trace-context.ts";
+import { asDeferred, deferring } from "./helpers/deferral.ts";
+import { z } from "zod";
 import { childBindings } from "../src/logger.ts";
 
 /** The correlation and causation ids an exchange carries. */
@@ -493,5 +496,202 @@ describe("Causation", () => {
         [HeadersKeys.CORRELATION_ID]: "a".repeat(129),
       }),
     ).rejects.toMatchObject({ rc: "RC5003" });
+  });
+
+  /**
+   * @case A deferred exchange keeps its journey across the park, and the resume records who resumed it
+   * @preconditions A route defers; a second route resumes it with .resume() from its own direct() ingress
+   * @expectedResult Execution two is the same exchange with the same correlation and causation ids, and route:exchange:resumed names the resume ingress exchange as resumerExchangeId
+   */
+  test("defer and resume: the journey survives, the resumer is recorded", async () => {
+    const runs: ReturnType<typeof ids>[] = [];
+    let resumer: string | undefined;
+    const resumed: Array<{ resumerExchangeId?: string }> = [];
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("parks")
+          .from(direct())
+          .process((ex) => {
+            runs.push(ids(ex));
+            return ex;
+          })
+          .defer({ schema: z.object({ ok: z.boolean() }) })
+          .process((ex) => {
+            runs.push(ids(ex));
+            return ex;
+          })
+          .to(spy()),
+        craft()
+          .id("resumes")
+          .from(direct())
+          .process((ex) => {
+            resumer = ex.id;
+            return ex;
+          })
+          .resume(),
+      ])
+      .on("route:exchange:resumed", ((payload: EventPayload<never>) => {
+        resumed.push(payload.details as { resumerExchangeId?: string });
+      }) as never)
+      .build();
+    await t.startAndWaitReady();
+    const deferred = asDeferred(
+      await t.client.sendDirect(
+        "parks",
+        {},
+        {
+          [HeadersKeys.CORRELATION_ID]: "parked-journey",
+          [HeadersKeys.CAUSATION_ID]: "parked-cause",
+        },
+      ),
+    );
+    await t.client.sendDirect("resumes", {
+      token: deferred.token,
+      result: { ok: true },
+    });
+
+    expect(runs).toHaveLength(2);
+    expect(runs[1]).toEqual(runs[0]!);
+    expect(runs[0]).toMatchObject({
+      correlationId: "parked-journey",
+      causationId: "parked-cause",
+    });
+    expect(resumed).toEqual([
+      expect.objectContaining({ resumerExchangeId: resumer }),
+    ]);
+  });
+
+  /**
+   * @case A watcher that calls a route which re-stamps its cause does not feed on itself
+   * @preconditions A watcher consumes route:exchange:completed and calls a route through direct(); that route runs .correlate() onto an external cause; a worker runs one exchange
+   * @expectedResult The callee runs once, for the worker's completion: the guard walks the in-process parent, which .correlate() leaves as it was
+   */
+  test(".correlate(): an event() watcher still recognises its own work", async () => {
+    let calls = 0;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("loop-watcher")
+          .from(event("route:exchange:completed"))
+          .filter(() => calls < 20)
+          .to(direct("loop-callee")),
+        craft()
+          .id("loop-callee")
+          .from(direct())
+          .correlate(() => ({ causationId: "external-ref-1" }))
+          .process((ex) => {
+            calls++;
+            return ex;
+          })
+          .to(spy()),
+        craft().id("loop-worker").from(simple("go")).to(spy()),
+      ])
+      .build();
+    await t.test();
+    await t.drain();
+
+    expect(calls).toBe(1);
+  });
+
+  /**
+   * @case An exchange that claimed its journey is marked joined, and the mark follows it in process
+   * @preconditions An event() watcher calls a route through direct(); that route re-dispatches through CraftClient with only the journey ids, as an agent tool does; a separate route re-stamps itself with .correlate(); a plain route runs too
+   * @expectedResult The watcher's exchange, its direct() callee and the envelope-dispatched route are joined, as is the re-stamped exchange after its step; the plain exchange is not
+   */
+  test("joined: claimed journeys are marked through every hop", async () => {
+    const joined: Record<string, boolean> = {};
+    const mark = (name: string) => (ex: Exchange) => {
+      joined[name] = isJoinedJourney(ex);
+      return ex;
+    };
+    t = await testContext()
+      .routes([
+        craft()
+          .id("joined-watcher")
+          .from(event("route:exchange:completed"))
+          .filter(
+            (ex) =>
+              (ex.body as { details: { routeId: string } }).details.routeId ===
+              "joined-plain",
+          )
+          .process(mark("watcher"))
+          .to(direct("joined-callee")),
+        craft()
+          .id("joined-callee")
+          .from(direct())
+          .process(mark("callee"))
+          .process(async (ex) => {
+            await t.client.sendDirect(
+              "joined-dispatched",
+              {},
+              {
+                [HeadersKeys.CORRELATION_ID]: ex.headers[
+                  HeadersKeys.CORRELATION_ID
+                ] as string,
+                [HeadersKeys.CAUSATION_ID]: ex.id,
+              },
+            );
+            return ex;
+          })
+          .to(spy()),
+        craft()
+          .id("joined-dispatched")
+          .from(direct())
+          .process(mark("dispatched"))
+          .to(spy()),
+        craft()
+          .id("joined-plain")
+          .from(simple("x"))
+          .process(mark("plain"))
+          .correlate(() => ({ correlationId: "elsewhere" }))
+          .process(mark("restamped"))
+          .to(spy()),
+      ])
+      .build();
+    await t.test();
+    await t.drain();
+
+    expect(joined).toEqual({
+      plain: false,
+      restamped: true,
+      watcher: true,
+      callee: true,
+      dispatched: true,
+    });
+  });
+
+  /**
+   * @case A cause adopted from outside never becomes a parent the event() guard walks
+   * @preconditions A lineage index with an event() route's exchange in flight; a root entered with that exchange as its reported cause but no in-process parent, as a door enters an adopted cause
+   * @expectedResult The root reports the cause, yet does not count as the event() route's own work
+   */
+  test("lineage: an adopted cause is reported, never walked", () => {
+    const index = new LineageIndex();
+    index.enter("watcher-exchange", "watcher", {});
+    index.enter("door-exchange", "door", {
+      causationId: "watcher-exchange",
+      parentId: undefined,
+      joined: true,
+    });
+    expect(index.get("door-exchange")?.causationId).toBe("watcher-exchange");
+    expect(index.descendsFrom("door-exchange", "watcher")).toBe(false);
+  });
+
+  /**
+   * @case A stopped route's abandoned exchanges leave the index
+   * @preconditions A lineage index holding a root and its descendant for one route and a root for another
+   * @expectedResult forgetRoute removes the first route's root and descendant and keeps the other route's
+   */
+  test("lineage: forgetRoute removes what a forced stop abandoned", () => {
+    const index = new LineageIndex();
+    index.enter("a", "stopping", {});
+    index.attach("a-child", "stopping", "a");
+    index.enter("b", "running", {});
+    index.forgetRoute("stopping");
+    expect(index.get("a")).toBeUndefined();
+    expect(index.get("a-child")).toBeUndefined();
+    expect(index.get("b")).toBeDefined();
   });
 });

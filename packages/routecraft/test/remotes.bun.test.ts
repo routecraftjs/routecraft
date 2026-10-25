@@ -20,6 +20,7 @@ import {
   type RemotesConfig,
 } from "../src/index.ts";
 import { rcCodeOf } from "../src/brand.ts";
+import { listen } from "./helpers/listen.ts";
 
 /**
  * The remotes plugin against a real second instance in the same process.
@@ -150,16 +151,6 @@ async function startLocal(options: {
     .build();
   options.onBuilt?.(t);
   return { t, port: await listen(t) };
-}
-
-async function listen(t: TestContext): Promise<number> {
-  let port: number | undefined;
-  t.ctx.on("server:listening", ({ details }) => {
-    port = details.port;
-  });
-  await t.startAndWaitReady();
-  if (port === undefined) throw new Error("no server reported a port");
-  return port;
 }
 
 /** A port nothing listens on right now, for an instance that comes up later. */

@@ -395,12 +395,7 @@ export function createDispatcher(
           traceparent: req.headers.get("traceparent"),
           tracestate: req.headers.get("tracestate"),
         },
-        {
-          ...(opts.traceContext !== undefined
-            ? { mode: opts.traceContext }
-            : {}),
-          authenticated: principal !== undefined,
-        },
+        { mode: opts.traceContext, authenticated: principal !== undefined },
       ),
     } as ExchangeHeaders;
 

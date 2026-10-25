@@ -147,15 +147,8 @@ export async function dispatchMcpCallRaw(
 ): Promise<McpRawToolResult> {
   const config = service?.clients.get(serverId);
   // A client registered with `traceContext: false` sends nothing.
-  const meta =
-    trace !== undefined &&
-    !(
-      typeof config === "object" &&
-      config !== null &&
-      (config as { traceContext?: boolean }).traceContext === false
-    )
-      ? traceMeta(trace)
-      : undefined;
+  const optedOut = typeof config === "object" && config.traceContext === false;
+  const meta = trace !== undefined && !optedOut ? { ...trace } : undefined;
   const manager = service?.stdio.get(serverId);
   if (manager) {
     try {
@@ -170,17 +163,6 @@ export async function dispatchMcpCallRaw(
 
   const http = resolveHttpConfig(service, serverId);
   return callRemoteToolRaw(http.url, toolName, args, http.auth, meta);
-}
-
-/**
- * The `_meta` entries a tool call carries its trace context in, the keys
- * MCP's SEP-414 defines (`traceparent`, `tracestate`), so the server
- * continues the caller's journey over every transport, stdio included.
- *
- * @internal
- */
-export function traceMeta(trace: TraceContextCarrier): Record<string, string> {
-  return { traceparent: trace.traceparent, tracestate: trace.tracestate };
 }
 
 /**

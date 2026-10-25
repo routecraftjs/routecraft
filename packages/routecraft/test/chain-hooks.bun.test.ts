@@ -365,6 +365,36 @@ describe("chain hooks", () => {
   });
 
   /**
+   * @case A mutate hook may not write the journey ids
+   * @preconditions A beforeAuth mutate hook setting routecraft.correlation_id, and one setting routecraft.causation_id
+   * @expectedResult Each exchange fails with RC1115 naming the header: the logger, the events and the lineage index read both, and only .correlate() re-stamps them together
+   */
+  test("a mutate hook may not write the correlation or causation id", async () => {
+    for (const header of [
+      "routecraft.correlation_id",
+      "routecraft.causation_id",
+    ]) {
+      t = await testContext()
+        .with({
+          plugins: [
+            plugin("test.journey", {
+              beforeAuth: setHeader("journey", header, "elsewhere"),
+            }),
+          ],
+        })
+        .routes([craft().id("work").from(direct()).to(noop())])
+        .build();
+      await t.startAndWaitReady();
+
+      await expect(t.client.sendDirect("work", {})).rejects.toMatchObject({
+        rc: "RC1115",
+        message: expect.stringContaining(header),
+      });
+      await t.stop();
+    }
+  });
+
+  /**
    * @case Two mutate hooks writing one header: the later wins and the framework warns once per route
    * @preconditions Two plugins whose admitted mutate hooks both write x-tenant, no writes declared; two routes, two exchanges each
    * @expectedResult The later hook's value reaches the pipeline, and exactly one warning per route names both hooks

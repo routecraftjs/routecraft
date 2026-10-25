@@ -1,5 +1,6 @@
 import { HeadersKeys } from "../../../exchange";
 import { lineageOf, type LineageIndex } from "../../../lineage";
+import { JOINED_HEADER } from "../../../journey-headers";
 import type { Source, Subscription } from "../../../operations/from";
 import type { EventName, EventPayload } from "../../../types";
 import type { EventFilter } from "./types";
@@ -17,8 +18,11 @@ import type { EventFilter } from "./types";
  *
  * A delivery continues the journey of the exchange that caused the event:
  * the new exchange carries that exchange's correlation id and records it as
- * its cause. An event that names no exchange (`route:started`, `plugin:*`)
- * starts a new chain.
+ * its cause. It joined that journey by observing it rather than being called
+ * into it (`isJoinedJourney`), so it does not reach whoever the journey's
+ * own exchanges reach by correlation id, such as an editor turn's surface.
+ * An event that names no exchange (`route:started`, `plugin:*`) starts a new
+ * chain.
  *
  * Two `event()` routes that each watch step or exchange events still feed
  * each other: every exchange one runs emits events the other consumes. Point
@@ -75,6 +79,8 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
                 ? {
                     [HeadersKeys.CORRELATION_ID]: cause.correlationId,
                     [HeadersKeys.CAUSATION_ID]: cause.exchangeId,
+                    // Observing a journey is not being called into it.
+                    [JOINED_HEADER]: "event",
                   }
                 : {},
           });

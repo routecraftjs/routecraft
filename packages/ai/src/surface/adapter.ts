@@ -25,6 +25,7 @@ import {
   rcError,
   tagAdapter,
   factoryArgs,
+  isJoinedJourney,
   type Destination,
   type Enricher,
   type Exchange,
@@ -406,7 +407,12 @@ function refFor(
 ): AgentSurfaceRef | undefined {
   const pinned = pinnedSurfaceOf(state, exchange.id);
   if (pinned !== undefined) return pinned;
-  const correlation = exchange.headers[HeadersKeys.CORRELATION_ID];
+  // A correlation id the exchange claimed (adopted at a door, re-stamped by
+  // `.correlate()`, continued by an `event()` delivery) names a journey some
+  // other party could name too, so it never selects a person's editor.
+  const correlation = isJoinedJourney(exchange)
+    ? undefined
+    : exchange.headers[HeadersKeys.CORRELATION_ID];
   const fromTurn = turnSurfaceOf(
     state,
     typeof correlation === "string" ? correlation : undefined,

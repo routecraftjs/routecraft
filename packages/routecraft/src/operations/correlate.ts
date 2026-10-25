@@ -9,6 +9,8 @@ import {
 } from "../exchange.ts";
 import { lineageOf } from "../lineage.ts";
 import { assertTraceId } from "../trace-context.ts";
+import { JOINED_HEADER } from "../journey-headers.ts";
+import { rcError } from "../error.ts";
 
 /**
  * Where an exchange belongs: the journey it continues and the exchange that
@@ -54,10 +56,14 @@ export interface Correlator<T = unknown> extends Adapter {
  *
  * It changes the correlation and causation ids together with everything that
  * reads them, which is why `.header()` refuses both keys: the exchange's
- * logger is rebound, its lineage entry points at the new cause, and
+ * logger is rebound, its lineage entry reports the new cause, and
  * `route:exchange:correlated` records the old and new ids, so a ledger sees
  * the stitch as an edge rather than a silent rewrite. Events emitted before
- * the step carry the old ids.
+ * the step carry the old ids. The in-process parent the `event()` guard walks
+ * is not re-stamped, so a route still recognises its own work after the
+ * stitch. A new correlation id marks the exchange as having joined its
+ * journey (`isJoinedJourney`): it came from data, so nothing that reaches a
+ * particular person by correlation id trusts it.
  *
  * A supplied id that is not well formed fails the step with `RC5003`: it came
  * from the route's own code.
@@ -71,6 +77,13 @@ export class CorrelateStep<T = unknown> implements Step<Correlator<T>> {
   }
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {
+    const context = getExchangeContext(exchange);
+    if (context === undefined) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "A .correlate() step ran on an exchange bound to no context; it can only re-stamp an exchange a route is running.",
+      });
+    }
     const found = await Promise.resolve(this.adapter.correlate(exchange));
     if (!found) return { kind: "continue", exchange };
     const site = "A .correlate() step";
@@ -93,29 +106,27 @@ export class CorrelateStep<T = unknown> implements Step<Correlator<T>> {
     ) {
       return { kind: "continue", exchange };
     }
+    const joined = correlationId !== previousCorrelation;
     const next = restampExchange(exchange, {
       ...exchange.headers,
       [HeadersKeys.CORRELATION_ID]: correlationId,
       ...(causationId !== undefined
         ? { [HeadersKeys.CAUSATION_ID]: causationId }
         : {}),
+      // A correlation id taken from data is a claim; see `isJoinedJourney`.
+      ...(joined ? { [JOINED_HEADER]: "correlate" } : {}),
     });
-    const context = getExchangeContext(exchange);
-    if (context) {
-      lineageOf(context).recause(exchange.id, causationId);
-      context.emit("route:exchange:correlated", {
-        routeId: routeIdOf(exchange),
-        exchangeId: exchange.id,
-        correlationId,
-        ...(causationId !== undefined ? { causationId } : {}),
-        previous: {
-          correlationId: previousCorrelation,
-          ...(previousCause !== undefined
-            ? { causationId: previousCause }
-            : {}),
-        },
-      });
-    }
+    lineageOf(context).recause(exchange.id, causationId, joined);
+    context.emit("route:exchange:correlated", {
+      routeId: routeIdOf(exchange),
+      exchangeId: exchange.id,
+      correlationId,
+      ...(causationId !== undefined ? { causationId } : {}),
+      previous: {
+        correlationId: previousCorrelation,
+        ...(previousCause !== undefined ? { causationId: previousCause } : {}),
+      },
+    });
     next.logger.debug(
       { previousCorrelationId: previousCorrelation },
       "Exchange joined another journey",

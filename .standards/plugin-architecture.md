@@ -359,7 +359,7 @@ a step of yours, is seen the same way.
 | `routecraft.principals`                                                  | `AUTHORITY` (mint, brand, isAuthentic, restore, isRestored, read)    |                                                   |
 | `routecraft.auth`                                                        | `ENFORCEMENT`                                                        | steps `authenticate`, `delegate`; facet `ex.auth` |
 | `routecraft.deferral`                                                    | `CONTINUATIONS` (store, signer, default deadline)                    | steps `defer`, `resume`; facet `ex.deferral`      |
-| `routecraft.telemetry`                                                   |                                                                      | observes                                          |
+| `routecraft.telemetry`                                                   | `TRACE_SPANS` (live exchange span for an outbound `traceparent`)     | observes                                          |
 | `routecraft.servers`                                                     | `WEB_INGRESS`                                                        |                                                   |
 | `routecraft.http`                                                        | `HTTP`                                                               |                                                   |
 | `routecraft.ops`                                                         | `OPS` (health, resources, indicators)                                |                                                   |

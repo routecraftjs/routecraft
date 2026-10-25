@@ -47,6 +47,7 @@
 
 import {
   HeadersKeys,
+  isJoinedJourney,
   type Exchange,
   type PluginContext,
 } from "@routecraft/routecraft";
@@ -120,7 +121,11 @@ export const SETTLE_TIMEOUT_MS = 10_000;
  * @internal
  */
 export function turnIdOf(exchange: Exchange<unknown>, session: string): string {
-  const correlation = exchange.headers[HeadersKeys.CORRELATION_ID];
+  // A claimed correlation id (`isJoinedJourney`) does not ride a turn's
+  // signal: whoever claimed it is not that turn.
+  const correlation = isJoinedJourney(exchange)
+    ? undefined
+    : exchange.headers[HeadersKeys.CORRELATION_ID];
   return typeof correlation === "string" ? correlation : `session:${session}`;
 }
 

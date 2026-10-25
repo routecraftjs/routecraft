@@ -1,4 +1,5 @@
 import { HeadersKeys } from "./exchange.ts";
+import { JOINED_HEADER, TRACE_PARENT_HEADER } from "./trace-context.ts";
 
 /**
  * Engine-owned headers, mapped to the remediation shown when something tries
@@ -19,6 +20,11 @@ import { HeadersKeys } from "./exchange.ts";
  *   values with no record of the change. `.correlate()` re-stamps all of them
  *   together and emits `route:exchange:correlated`. A source adapter still
  *   supplies both on `emit`, since that is construction, not a write.
+ * - `routecraft.trace.parent` and `routecraft.journey.joined`: what a door
+ *   adopted from a caller, and whether the exchange's journey is a claim
+ *   rather than an inheritance. A write could hand an exchange a remote
+ *   parent no caller sent, or clear the mark that keeps a claimed
+ *   correlation id from reaching a person's editor.
  *
  * The rest of the reserved `routecraft.*` namespace (principal, adapter
  * envelope keys) is deliberately settable: those keys are
@@ -49,6 +55,14 @@ const ENGINE_OWNED_HEADERS: ReadonlyMap<string, string> = new Map([
   [
     HeadersKeys.CAUSATION_ID,
     "The engine sets the causation id at every hand-off. Use .correlate((exchange) => ({ causationId })) to point an exchange at the one that caused it, or supply it from a source adapter's emit.",
+  ],
+  [
+    TRACE_PARENT_HEADER,
+    "A door sets the remote trace parent when it adopts a caller's trace context; configure the door's traceContext option instead.",
+  ],
+  [
+    JOINED_HEADER,
+    "The engine marks an exchange that joined its journey (a door adopted it, .correlate() re-stamped it, or an event() delivery continued it); it cannot be set or cleared by hand.",
   ],
   [
     HeadersKeys.OPERATION,
