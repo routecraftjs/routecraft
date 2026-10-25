@@ -515,6 +515,21 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
 }
 
 /**
+ * The id of the route an exchange runs on: the route the framework attached,
+ * or the route id header for an exchange built outside a route.
+ *
+ * @param exchange The exchange
+ * @returns The route id
+ * @internal
+ */
+export function routeIdOf(exchange: Exchange): string {
+  return (
+    getExchangeRoute(exchange)?.definition.id ??
+    (exchange.headers[HeadersKeys.ROUTE_ID] as string)
+  );
+}
+
+/**
  * Bind a route onto an exchange's internals. Symbol-key first (cross-instance
  * safe), WeakMap fallback -- the symmetric write half of {@link
  * getExchangeRoute}. Used wherever an exchange is constructed outside the

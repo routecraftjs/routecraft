@@ -100,11 +100,12 @@ export function wireIssues(
  * - `insufficient_scope`: the credential lacks a scope. `scopes` lists the
  *   missing ones, or with `anyOf` the whole accepted set, of which one
  *   suffices.
- * - `refused`: a plugin's validate hook refused the exchange on the
- *   dispatched route. `as` is the hook's own say over the answer and
- *   `reason` its words for the caller, clipped like a schema issue. The hook
- *   and the slot stay in the log: naming them would tell a prober which
- *   plugin it tripped.
+ * - `refused`: a plugin's validate hook, or the route's own `.validate()`
+ *   step, refused the exchange on the dispatched route with `refuse()`.
+ *   `as` is the refuser's own say over the answer and `reason` its words
+ *   for the caller, clipped like a schema issue. The hook or step and the
+ *   slot stay in the log: naming them would tell a prober which check it
+ *   tripped.
  */
 export type CallerRefusal =
   | ({ kind: "input"; in: "body" | "headers" } & WireIssues)
@@ -166,8 +167,10 @@ export interface CallerRefusalOrigin {
  *   one a step built by hand is that step's failure whatever shape it gave
  *   it, and one naming another route came up through `direct()`, so none of
  *   them is the caller's. The issues the door sends are the snapshot's.
- * - `RC5068` maps only when the kernel raised it for a validate hook and
- *   bound a hook snapshot naming the dispatched route, for the same reasons.
+ * - `RC5068` maps only when the kernel raised it for a validate hook or
+ *   the `.validate()` step raised it for a `refuse()` its validator
+ *   answered, each binding a snapshot naming the dispatched route, for the
+ *   same reasons.
  *   A hook refusing as `unauthenticated` on a door that reads no credential
  *   is answered as `forbidden`: a challenge would send the caller after a
  *   credential the door never reads.

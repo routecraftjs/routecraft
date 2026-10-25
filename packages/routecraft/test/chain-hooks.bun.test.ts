@@ -493,6 +493,7 @@ describe("chain hooks", () => {
     const cause = (refused as Error).cause;
     expect(isHookRefusal(cause)).toBe(true);
     expect(isHookRefusal(cause) && cause.refused).toEqual({
+      origin: "hook",
       hook: "test.guard/tenant",
       slot: "beforeAuth",
       routeId: "work",
