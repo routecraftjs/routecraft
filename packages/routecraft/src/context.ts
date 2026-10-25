@@ -178,17 +178,24 @@ function rejectStaleConfig(config: CraftConfig): void {
 }
 
 /**
- * `traceContext.outbound`, refused with `RC5003` when it is not a boolean:
- * a string `"false"` from an environment variable would otherwise read as
- * on and send what the setting was written to stop.
+ * `traceContext.outbound`, refused with `RC5003` when it is not a boolean
+ * or sits beside a key the block does not have: a string `"false"` from an
+ * environment variable, or `outbund` misspelt, would otherwise leave the
+ * default on and send what the setting was written to stop.
  */
 function resolveOutboundTraceContext(
   config: TraceContextConfig | undefined,
 ): boolean {
   if (config === undefined) return true;
-  if (typeof config !== "object" || config === null) {
+  if (typeof config !== "object" || config === null || Array.isArray(config)) {
     throw rcError("RC5003", undefined, {
       message: `traceContext must be an object such as { outbound: false }; got ${JSON.stringify(config)}.`,
+    });
+  }
+  const unknown = Object.keys(config).filter((key) => key !== "outbound");
+  if (unknown.length > 0) {
+    throw rcError("RC5003", undefined, {
+      message: `traceContext has no option ${unknown.map((key) => JSON.stringify(key)).join(", ")}; its one option is outbound.`,
     });
   }
   const { outbound } = config;

@@ -258,6 +258,12 @@ export class AgentSessionRuntime {
   /** Sessions that took a post while their turn was ending. */
   private readonly postedDuring = new Set<string>();
   /**
+   * The run whose settlement last landed on a session while its turn was
+   * running, so the boundary that revives the stored continuation for it
+   * names that run as what woke it, as an idle settlement does.
+   */
+  private readonly settledDuring = new Map<string, string>();
+  /**
    * The last request each session ran on here: what an append that lands
    * on an idle session without a continuation runs its turn on.
    */
@@ -832,8 +838,12 @@ export class AgentSessionRuntime {
     // Landing after the running turn read the inbox for its boundary and
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
-    if (running) this.postedDuring.add(key);
-    else this.deliverIdle(key, record, "settlement", settledBy);
+    if (running) {
+      this.postedDuring.add(key);
+      if (settledBy !== undefined) this.settledDuring.set(key, settledBy);
+    } else {
+      this.deliverIdle(key, record, "settlement", settledBy);
+    }
     return { depth: record.inbox.length, running };
   }
 
@@ -1576,6 +1586,8 @@ export class AgentSessionRuntime {
       while (this.postedDuring.delete(k) && after !== undefined) {
         boundary = (await this.store.load(key).catch(() => undefined)) ?? after;
       }
+      const wokenBy = this.settledDuring.get(k);
+      this.settledDuring.delete(k);
       // Work outstanding with no continuation stored: the request kept here
       // is the only thing a later append can run its turn on, so it is
       // held through evictions until the session's next turn starts.
@@ -1593,10 +1605,14 @@ export class AgentSessionRuntime {
       ) {
         if (boundary.deferral !== undefined) {
           this.active.delete(k);
-          this.revive(key, req.agent, boundary.deferral, "boundary", {
-            k,
-            req,
-          });
+          this.revive(
+            key,
+            req.agent,
+            boundary.deferral,
+            "boundary",
+            { k, req },
+            wokenBy,
+          );
         } else {
           this.followUpInProcess(k, req);
         }

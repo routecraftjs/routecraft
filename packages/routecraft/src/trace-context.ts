@@ -268,13 +268,21 @@ export interface TraceContextConfig {
  *
  * @param context - The calling exchange's context, if it has one
  * @param settings - The call's own settings, most specific first
+ * @throws RC5003 when a setting is not a boolean: a string `"false"` would
+ *   read as true and send what it was written to stop
  */
 export function sendsTraceContext(
   context: CraftContext | undefined,
   ...settings: ReadonlyArray<boolean | undefined>
 ): boolean {
   for (const setting of settings) {
-    if (setting !== undefined) return setting;
+    if (setting === undefined) continue;
+    if (typeof setting !== "boolean") {
+      throw rcError("RC5003", undefined, {
+        message: `traceContext must be a boolean; got ${JSON.stringify(setting)}.`,
+      });
+    }
+    return setting;
   }
   return context?.outboundTraceContext ?? true;
 }

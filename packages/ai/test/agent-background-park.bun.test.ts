@@ -217,12 +217,14 @@ function send(
   t: TestContext,
   body: ChatMessage,
   principal?: Principal,
+  headers: Record<string, string> = {},
 ): Promise<AgentResult> {
-  return t.client.sendDirect(
-    "chat",
-    body,
-    principal === undefined ? {} : { [HeadersKeys.AUTH_PRINCIPAL]: principal },
-  ) as Promise<AgentResult>;
+  return t.client.sendDirect("chat", body, {
+    ...headers,
+    ...(principal === undefined
+      ? {}
+      : { [HeadersKeys.AUTH_PRINCIPAL]: principal }),
+  }) as Promise<AgentResult>;
 }
 
 /** Answer the park, as the human's ingress would. */
@@ -261,12 +263,18 @@ async function parkFromTurn(
   t: TestContext,
   toolName: string,
   principal?: Principal,
+  headers?: Record<string, string>,
 ): Promise<BackgroundToolHandle> {
   llm.script.push(
     { toolCalls: [{ toolName, input: { ask: "may I?" } }] },
     { text: "asked, waiting" },
   );
-  const reply = await send(t, { session: "s", message: "go" }, principal);
+  const reply = await send(
+    t,
+    { session: "s", message: "go" },
+    principal,
+    headers,
+  );
   const receipt = reply.toolCalls?.[0]?.output as BackgroundToolHandle;
   expect(receipt.status).toBe("running");
   expect(receipt.handle).toMatch(/^[a-z]+:[0-9a-f-]{36}$/);
@@ -377,8 +385,8 @@ describe("background tools over a parking route", () => {
 
   /**
    * @case The turn a settled park revives records what woke it, and keeps its journey
-   * @preconditions A turn calls the parking route as a background tool and ends; the human answers through the resume ingress; the settlement revives the idle session
-   * @expectedResult The park's resume names the ingress exchange as resumerExchangeId; the revived chat exchange is the turn that parked, keeps its correlation and causation ids, and names the park's execution two as resumerExchangeId, so a ledger walks approval to call to revived turn
+   * @preconditions A turn sent with a known cause calls the parking route as a background tool and ends; the human answers through the resume ingress; the settlement revives the idle session
+   * @expectedResult The park records the turn as its cause and its resume names the ingress exchange as resumerExchangeId; the revived chat exchange is the turn that parked, keeps its correlation id and its seeded cause, and names the park's execution two as resumerExchangeId, so a ledger walks approval to call to revived turn
    */
   test("a revived turn names the run that woke it", async () => {
     t = await contextWith({ store: store! }).build();
@@ -421,7 +429,9 @@ describe("background tools over a parking route", () => {
     t.ctx.on("route:exchange:started", ({ details }) => {
       if (details.routeId === "answers") ingress = details.exchangeId;
     });
-    await parkFromTurn(t, "direct__park");
+    await parkFromTurn(t, "direct__park", undefined, {
+      [HeadersKeys.CAUSATION_ID]: "upstream-cause",
+    });
 
     llm.script.push({ text: "approved, proceeding" });
     await answer(t, { verdict: "approve" });
@@ -433,8 +443,10 @@ describe("background tools over a parking route", () => {
     expect(park.resumerExchangeId).toBe(ingress!);
     expect(chat.resumerExchangeId).toBe(park.exchangeId);
     const firstRun = started.get(chat.exchangeId)!;
+    expect(firstRun.causationId).toBe("upstream-cause");
     expect(chat.correlationId).toBe(firstRun.correlationId);
-    expect(chat.causationId).toBe(firstRun.causationId);
+    expect(chat.causationId).toBe("upstream-cause");
+    expect(started.get(park.exchangeId)!.causationId).toBe(chat.exchangeId);
     // The tool call ran in the turn's journey, so all three share it.
     expect(park.correlationId).toBe(firstRun.correlationId);
   });
@@ -563,7 +575,7 @@ describe("background tools over a parking route", () => {
   /**
    * @case A running turn sees the settlement at its boundary, as any background result
    * @preconditions The park is answered while a second turn on the session is still running
-   * @expectedResult No revival happens under the running turn; the boundary delivers the settlement as the next turn's user message
+   * @expectedResult No revival happens under the running turn; the boundary delivers the settlement as the next turn's user message, and the revival it runs names the park's execution two as resumerExchangeId, as an idle settlement's does
    */
   test("a running session takes the settlement at its boundary", async () => {
     t = await contextWith({
@@ -571,6 +583,20 @@ describe("background tools over a parking route", () => {
       tools: ["Direct(park)", "Direct(sandbox)"],
     }).build();
     await t.startAndWaitReady();
+    const resumed: Array<{
+      routeId: string;
+      exchangeId: string;
+      resumerExchangeId?: string;
+    }> = [];
+    t.ctx.on("route:exchange:resumed", ({ details }) => {
+      resumed.push({
+        routeId: details.routeId,
+        exchangeId: details.exchangeId,
+        ...(details.resumerExchangeId !== undefined
+          ? { resumerExchangeId: details.resumerExchangeId }
+          : {}),
+      });
+    });
     const receipt = await parkFromTurn(t, "direct__park");
     // A synchronous slow tool holds the second turn open.
     llm.script.push({
@@ -593,6 +619,9 @@ describe("background tools over a parking route", () => {
     expect(parts.some((p) => p.includes(`Handle: ${receipt.handle}`))).toBe(
       true,
     );
+    const park = resumed.find((r) => r.routeId === "park")!;
+    const chat = resumed.find((r) => r.routeId === "chat")!;
+    expect(chat.resumerExchangeId).toBe(park.exchangeId);
   });
 });
 

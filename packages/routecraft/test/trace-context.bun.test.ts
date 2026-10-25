@@ -12,6 +12,7 @@ import {
   definePlugin,
   httpPlugin,
   remotesPlugin,
+  sendsTraceContext,
   TRACE_SPANS,
   direct,
   http,
@@ -554,15 +555,54 @@ describe("Trace context: doors and clients", () => {
 
   /**
    * @case The trace headers are added beside what a route signed, never inside it
-   * @preconditions A route whose headers callback signs the method, path and body with an HMAC and sends the digest and the list of signed headers, as a vendor's request signing does; a recording server
-   * @expectedResult The request carries the route's signature headers byte for byte and the engine's traceparent and tracestate beside them: the callback runs first and never sees the trace headers, so they are outside every header it signed, and the body is untouched
+   * @preconditions A route whose headers callback signs the method, path, body and the headers it builds with an HMAC, and sends the digest and the list of signed headers, as a vendor's request signing does; a server that recomputes the HMAC from what it received
+   * @expectedResult The server's HMAC over the received method, path, body and listed headers matches the route's, the body arrives byte for byte, and traceparent and tracestate arrive beside the signature: the callback runs first, never sees them, and so never lists or signs them
    */
   test("http() client: trace headers sit beside a route's signature", async () => {
-    const { port, requests } = await recorder();
+    const received: Array<{
+      method: string;
+      path: string;
+      headers: IncomingHttpHeaders;
+      body: string;
+    }> = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk: Buffer) => {
+        body += chunk.toString("utf8");
+      });
+      req.on("end", () => {
+        received.push({
+          method: req.method ?? "",
+          path: req.url ?? "",
+          headers: req.headers,
+          body,
+        });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("{}");
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    close = () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      });
+    const port = (server.address() as AddressInfo).port;
     const body = JSON.stringify({ amount: 10 });
+    const canonical = (
+      method: string,
+      path: string,
+      headers: Record<string, string>,
+      names: string[],
+      payload: string,
+    ) =>
+      [method, path, ...names.map((n) => `${n}:${headers[n]}`), payload].join(
+        "\n",
+      );
     const sign = (payload: string) =>
       createHmac("sha256", "vendor-secret").update(payload).digest("hex");
-    let signedOver: string[] | undefined;
     t = await testContext()
       .routes(
         craft()
@@ -574,12 +614,14 @@ describe("Trace context: doors and clients", () => {
               method: "POST",
               body,
               headers: () => {
-                const headers = { "content-type": "application/json" };
-                signedOver = Object.keys(headers);
+                const signed = { "content-type": "application/json" };
+                const names = Object.keys(signed);
                 return {
-                  ...headers,
-                  "x-signed-headers": signedOver.join(";"),
-                  "x-signature": sign(`POST /pay ${body}`),
+                  ...signed,
+                  "x-signed-headers": names.join(";"),
+                  "x-signature": sign(
+                    canonical("POST", "/pay", signed, names, body),
+                  ),
                 };
               },
             }),
@@ -588,13 +630,34 @@ describe("Trace context: doors and clients", () => {
       .build();
     await t.test();
 
-    expect(requests).toHaveLength(1);
-    const sent = requests[0]!;
-    expect(sent["x-signature"]).toBe(sign(`POST /pay ${body}`));
-    expect(sent["x-signed-headers"]).toBe("content-type");
-    expect(signedOver).toEqual(["content-type"]);
-    expect(sent["traceparent"]).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
-    expect(sent["tracestate"]).toMatch(/^rc=c:/);
+    expect(received).toHaveLength(1);
+    const got = received[0]!;
+    expect(got.body).toBe(body);
+    const names = String(got.headers["x-signed-headers"]).split(";");
+    expect(names).toEqual(["content-type"]);
+    const asReceived = Object.fromEntries(
+      names.map((n) => [n, String(got.headers[n])]),
+    );
+    expect(got.headers["x-signature"]).toBe(
+      sign(canonical(got.method, got.path, asReceived, names, got.body)),
+    );
+    expect(got.headers["traceparent"]).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/,
+    );
+    expect(got.headers["tracestate"]).toMatch(/^rc=c:/);
+  });
+
+  /**
+   * @case A per-call or per-client traceContext that is not a boolean is refused
+   * @preconditions sendsTraceContext given the string "false" as a call's setting, as untyped JavaScript or an environment variable would pass it
+   * @expectedResult RC5003: the string is truthy and would send what it was written to stop
+   */
+  test("sendsTraceContext refuses a setting that is not a boolean", () => {
+    expect(() =>
+      sendsTraceContext(undefined, "false" as unknown as boolean),
+    ).toThrow(expect.objectContaining({ rc: "RC5003" }));
+    expect(sendsTraceContext(undefined, undefined, false)).toBe(false);
+    expect(sendsTraceContext(undefined)).toBe(true);
   });
 
   /**
@@ -906,11 +969,16 @@ describe("Trace context: doors and clients", () => {
 
   /**
    * @case traceContext.outbound is refused unless it is a boolean
-   * @preconditions A context built with traceContext { outbound: "false" }, and one with traceContext "off"
-   * @expectedResult Both are refused with RC5003 naming the key: a string "false" from an environment variable would otherwise read as on
+   * @preconditions A context built with traceContext { outbound: "false" }, one with traceContext "off", one with an array, and one with the key misspelt as outbund
+   * @expectedResult Each is refused with RC5003 naming traceContext: a string "false" from an environment variable, or a misspelt key, would otherwise leave the default on
    */
   test("the outbound default must be a boolean", () => {
-    for (const traceContext of [{ outbound: "false" }, "off"]) {
+    for (const traceContext of [
+      { outbound: "false" },
+      "off",
+      [],
+      { outbund: false },
+    ]) {
       expect(
         () => new CraftContext({ traceContext } as unknown as CraftConfig),
       ).toThrow(
