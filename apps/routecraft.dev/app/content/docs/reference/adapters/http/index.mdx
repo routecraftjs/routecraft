@@ -121,6 +121,7 @@ export const account = craft()
 - `routecraft.http.params` -- `Record<string, string>` of URL-decoded path params.
 - `routecraft.http.query` -- `Record<string, string>` of query params.
 - `routecraft.http.rawHeaders` -- `Record<string, string>` of the raw request headers, lower-cased. This is the open-ended pass-through wire-header remainder (the parsed envelope above is promoted to its own keys); it mirrors `routecraft.mail.rawHeaders`.
+- `routecraft.http.cookies` -- `Record<string, string>` of the request's cookies by name, parsed from its `Cookie` header. See [Cookies](#cookies).
 - `routecraft.http.rawBody` -- `Uint8Array` of the exact wire bytes of the request body. Only present when the route opted in via `http({ rawBody: true })`; empty-body requests carry an empty array. Opt-in because of retention and exposure, not cost: the bytes already exist in memory during parsing, but attaching them pins a buffer of up to `maxBodySize` for the exchange lifetime and surfaces raw payload bytes to anything that logs the exchange headers.
 - `routecraft.auth.principal` -- the authenticated `Principal` (when auth is configured). `ex.auth.principal` reads this header in a route; `principalOf(exchange)` reads it elsewhere.
 
@@ -147,7 +148,39 @@ Override via the exchange before the response is built:
 
 - `routecraft.http.response.status` -> numeric status (e.g. `201`).
 - `routecraft.http.response.contentType` -> explicit content-type.
-- `routecraft.http.response.headers` -> extra response headers.
+- `routecraft.http.response.headers` -> extra response headers, by name. A name replaces the framework's own header of that name, matched case-insensitively, and an empty array removes it. An array value sends one field per entry, which is how a response sets several cookies; for any other name the entries are combined into one comma-separated field.
+
+### Cookies
+
+A route reads the request's cookies by name from `routecraft.http.cookies`, and sets several in one response by giving `set-cookie` an array. A sign-in callback that checks the pending login, sets the session and clears the pending login in one redirect reads:
+
+```ts
+import { craft, http, noop } from '@routecraft/routecraft'
+
+const session = 'session=...; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200'
+const clearPending = 'pending-login=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'
+
+export default craft()
+  .id('sign-in-callback')
+  .from(http({ path: '/callback', method: 'GET' }))
+  .filter((exchange) => exchange.headers['routecraft.http.cookies']?.['pending-login'] !== undefined)
+  .header('routecraft.http.response.headers', {
+    location: '/',
+    'set-cookie': [session, clearPending],
+  })
+  .header('routecraft.http.response.status', 303)
+  .to(noop())
+```
+
+How the `Cookie` header is parsed:
+
+- Each `;`-separated pair splits on its first `=`, so a value may hold `=`. Names and values are trimmed.
+- A value is not percent-decoded and not unquoted: after trimming, it is kept exactly as sent.
+- A name sent twice keeps its first value. Browsers send the cookie of the most specific path first.
+- A pair with no `=`, or with an empty name, is skipped.
+- A name the request did not send reads as `undefined`, including names such as `constructor`. A request with no cookies gets an empty map.
+
+Each entry of a `set-cookie` array arrives as its own `Set-Cookie` field, on the buffered and the streaming response alike, under both Bun and Node. A single string sends one, as before. A [responder](#acknowledge-then-process) reads the same map as `request.cookies` and sets cookies the same way, through the `headers` of the descriptor it returns. Building the cookie string, with its attributes, is the route's own; the framework neither signs nor encrypts a value.
 
 ### Streaming responses (SSE)
 
