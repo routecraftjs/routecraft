@@ -1,5 +1,4 @@
-import { isRoutecraftError, rcError } from "@routecraft/routecraft";
-import { clipText } from "../shared/clip-text.ts";
+import { clipText, isRoutecraftError, rcError } from "@routecraft/routecraft";
 // Registers AI2003 before any dispatch can throw it.
 import "../errors.ts";
 import { connectMcpHttpClient } from "./sdk.ts";

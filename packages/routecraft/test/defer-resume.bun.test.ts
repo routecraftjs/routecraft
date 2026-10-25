@@ -21,6 +21,7 @@ import {
   deferralOf,
 } from "../src/index.ts";
 import { asDeferred, storeWith, deferring } from "./helpers/deferral.ts";
+import { MAX_STORED_MESSAGE } from "../src/kernel/continuation/types.ts";
 
 /**
  * A signing secret for the two-context tests, which share one store across
@@ -37,6 +38,22 @@ const Approval = z.object({
 interface Payout {
   amountCents: number;
   payee: string;
+}
+
+/** The payout every resume test defers. */
+const PAYOUT = { amountCents: 25_000, payee: "acme" };
+
+/** Presents `token` to "answers" twice: the first resume and its duplicate. */
+async function resumeTwice(
+  client: TestContext["client"],
+  token: string,
+): Promise<[ResumeAcknowledgment, ResumeAcknowledgment]> {
+  const answer = () =>
+    client.sendDirect("answers", {
+      token,
+      result: { approved: true },
+    }) as Promise<ResumeAcknowledgment>;
+  return [await answer(), await answer()];
 }
 
 describe("defer and resume", () => {
@@ -157,20 +174,8 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const deferred = asDeferred(
-      await t.client.sendDirect("payout", {
-        amountCents: 25_000,
-        payee: "acme",
-      }),
-    );
-    const first = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as { status: string; continuation: { status: string; body?: unknown } };
-    const second = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as { status: string; continuation: { status: string; body?: unknown } };
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
 
     expect(first.status).toBe("resumed");
     expect(second.status).toBe("duplicate");
@@ -200,20 +205,8 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const deferred = asDeferred(
-      await t.client.sendDirect("payout", {
-        amountCents: 25_000,
-        payee: "acme",
-      }),
-    );
-    const first = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as ResumeAcknowledgment;
-    const second = (await t.client.sendDirect("answers", {
-      token: deferred.token,
-      result: { approved: true },
-    })) as ResumeAcknowledgment;
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
 
     for (const ack of [first, second]) {
       expect(ack.continuation.status).toBe("completed");
@@ -225,6 +218,113 @@ describe("defer and resume", () => {
     }
     expect(first.status).toBe("resumed");
     expect(second.status).toBe("duplicate");
+  });
+
+  /**
+   * @case A continuation ends with a terminal body the serializer cannot persist
+   * @preconditions A deferred payout whose continuation leaves a function on the body, which the deferral serializer refuses
+   * @expectedResult Both acknowledgments report completed with no body rather than failing a run whose effects stand, and the route logs one warning naming the deferral, the route and the offending path, since it is the only record of the omission
+   */
+  test("a terminal body the serializer refuses is omitted and warned about", async () => {
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: Approval })
+          .transform(() => ({ paid: true, notify: () => undefined }))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
+
+    for (const ack of [first, second]) {
+      expect(ack.continuation.status).toBe("completed");
+      expect("body" in ack.continuation).toBe(false);
+    }
+    const warned = t.logger.warn.mock.calls.filter((call) =>
+      String(call[1]).includes("terminal body cannot be persisted"),
+    );
+    expect(warned).toHaveLength(1);
+    const bindings = warned[0]?.[0] as {
+      deferralId: string;
+      routeId: string;
+      err: { message: string };
+    };
+    expect(bindings.deferralId).toBe(deferred.deferralId);
+    expect(bindings.routeId).toBe("payout");
+    expect(bindings.err.message).toContain("notify");
+  });
+
+  /**
+   * @case A continuation fails with a message longer than the recorded outcome keeps
+   * @preconditions A deferred payout whose continuation throws an Error with a 5000-character message
+   * @expectedResult The failed outcome on the first acknowledgment and on the duplicate's cached one carries the message cut to 1024 characters ending in an ellipsis, so an upstream body in a cause cannot grow the store by its size
+   */
+  test("a failed outcome stores its message cut to the bound", async () => {
+    const long = "x".repeat(5000);
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: Approval })
+          .transform(() => {
+            throw new Error(long);
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
+
+    for (const ack of [first, second]) {
+      expect(ack.continuation.status).toBe("failed");
+      const message = ack.continuation.error?.message ?? "";
+      expect(message).toHaveLength(MAX_STORED_MESSAGE);
+      expect(message.endsWith("...")).toBe(true);
+      expect(message.startsWith("xxxx")).toBe(true);
+    }
+  });
+
+  /**
+   * @case A continuation fails with an empty message
+   * @preconditions A deferred payout whose continuation throws an Error whose message is the empty string
+   * @expectedResult The failed outcome on both acknowledgments carries a non-empty message, the fallback in place of the empty one, so a duplicate never reads a failure with no words
+   */
+  test("a failed outcome with an empty message records a fallback", async () => {
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: Approval })
+          .transform(() => {
+            throw new Error("");
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const [first, second] = await resumeTwice(t.client, deferred.token);
+
+    for (const ack of [first, second]) {
+      expect(ack.continuation.status).toBe("failed");
+      expect(ack.continuation.error?.message ?? "").not.toBe("");
+    }
   });
 
   /**

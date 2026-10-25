@@ -6,6 +6,7 @@ import {
   raisedInputValidation,
   validateAgainst,
 } from "../../pipeline/validation.ts";
+import { clipText } from "../../shared/text.ts";
 import { rcError } from "../../error.ts";
 import { rcCodeOf } from "../../brand.ts";
 import {
@@ -41,7 +42,7 @@ import type { DetachedKind } from "../../pipeline/chain-policy.ts";
 import type { DeferSite } from "./sites.ts";
 import type { ErrorHook } from "../hooks.ts";
 import type { Principal } from "../../principal.ts";
-import { resumable } from "./types.ts";
+import { MAX_STORED_MESSAGE, resumable } from "./types.ts";
 import type {
   ErrorPathRecord,
   DeferralSchema,
@@ -426,11 +427,10 @@ export async function reviveDeferral(
     // Winning `markResumed` means the sweeper cannot also report this, so
     // the notification is ours to send exactly once, store failure or not.
     try {
-      await runtime.store.recordContinuation(id, {
-        status: "failed",
-        error: { rc: "RC5047", message: expiry.message },
-        at: resumedAt,
-      });
+      await runtime.store.recordContinuation(
+        id,
+        failedOutcome(expiry, "the deferral expired", resumedAt),
+      );
     } catch (unrecorded) {
       route.logger.error(
         { deferralId: id, err: unrecorded },
@@ -474,6 +474,7 @@ export async function reviveDeferral(
 
     continuation = await runContinuation(
       route,
+      id,
       exchange,
       site.site.continuation,
       resumedAt,
@@ -486,17 +487,11 @@ export async function reviveDeferral(
     // reproducing one level up the condition this block exists to remove.
     // `rc` is carried like the expiry path carries RC5047, so a duplicate
     // resume and an operator dashboard see the code rather than prose.
-    const rc = rcCodeOf(error);
-    const failure = error as { message?: string } | undefined;
     try {
-      await runtime.store.recordContinuation(id, {
-        status: "failed",
-        error: {
-          ...(rc === undefined ? {} : { rc }),
-          message: failure?.message ?? "the revival failed",
-        },
-        at: resumedAt,
-      });
+      await runtime.store.recordContinuation(
+        id,
+        failedOutcome(error, "the revival failed", resumedAt),
+      );
     } catch (unrecorded) {
       route.logger.error(
         { deferralId: id, err: unrecorded },
@@ -920,6 +915,38 @@ function rehydrate(
 }
 
 /**
+ * The failed outcome the store caches and the acknowledgment carries for
+ * `error`: its code when it has one, its message cut to
+ * {@link MAX_STORED_MESSAGE} so an interpolated upstream response cannot
+ * grow the store by its size, and `fallback` when it carries no message.
+ * The one producer, so the bound holds for every site that records a
+ * failure rather than by each site's memory.
+ */
+function failedOutcome(
+  error: unknown,
+  fallback: string,
+  at: Date,
+): SerializedOutcome {
+  const rc = rcCodeOf(error);
+  const carrier = error as
+    { meta?: { message?: unknown }; message?: unknown } | undefined;
+  // A thrown value's message is whatever it carries; only a non-empty
+  // string is kept, so an empty one falls back like a missing one.
+  const message = [carrier?.meta?.message, carrier?.message].find(
+    (candidate): candidate is string =>
+      typeof candidate === "string" && candidate.length > 0,
+  );
+  return {
+    status: "failed",
+    error: {
+      ...(rc === undefined ? {} : { rc }),
+      message: clipText(message ?? fallback, MAX_STORED_MESSAGE),
+    },
+    at,
+  };
+}
+
+/**
  * Run the continuation and reduce it to the outcome the store caches.
  *
  * A continuation that reaches another `.defer()` caches no body: the body
@@ -933,6 +960,7 @@ function rehydrate(
  */
 async function runContinuation(
   route: Route,
+  deferralId: string,
   exchange: Exchange,
   continuation: ReadonlyArray<Step<Adapter>>,
   at: Date,
@@ -947,25 +975,20 @@ async function runContinuation(
     return { status: "dropped", reason: "dropped by the route", at };
   }
   if (result.failed) {
-    const rc = rcCodeOf(result.error);
-    const error = result.error as
-      { meta?: { message?: string }; message?: string } | undefined;
-    return {
-      status: "failed",
-      error: {
-        ...(rc === undefined ? {} : { rc }),
-        message:
-          error?.meta?.message ?? error?.message ?? "the continuation failed",
-      },
-      at,
-    };
+    return failedOutcome(result.error, "the continuation failed", at);
   }
   let body: unknown;
   try {
     // A detached copy, so the ingress route cannot reach into the exchange;
     // the walk also proves the body storable before the store sees it.
     body = detachPersistable(result.exchange.body, "terminal body");
-  } catch {
+  } catch (err) {
+    // The route ran and its effects stand, so the receipt is what is lost:
+    // this line is the only place the omission and the offending path survive.
+    route.logger.warn(
+      { deferralId, routeId: route.definition.id, err },
+      "The continuation's terminal body cannot be persisted and is omitted from the acknowledgment and the cached result",
+    );
     body = undefined;
   }
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clipText } from "../src/shared/clip-text.ts";
+import { clipText } from "../src/shared/text.ts";
 
 describe("clipText", () => {
   /**
@@ -25,5 +25,17 @@ describe("clipText", () => {
     expect([...clipped.slice(0, -3)].every((c) => c === "\u{1F600}")).toBe(
       true,
     );
+  });
+
+  /**
+   * @case A cap too small to hold the ellipsis
+   * @preconditions A 6-character text under caps of 0, 1, 2 and 3
+   * @expectedResult Caps under 3 keep the head alone and never exceed the cap; a cap of 3 is the ellipsis alone
+   */
+  test("never exceeds a cap smaller than the ellipsis", () => {
+    expect(clipText("abcdef", 0)).toBe("");
+    expect(clipText("abcdef", 1)).toBe("a");
+    expect(clipText("abcdef", 2)).toBe("ab");
+    expect(clipText("abcdef", 3)).toBe("...");
   });
 });
