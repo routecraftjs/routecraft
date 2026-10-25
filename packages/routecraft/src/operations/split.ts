@@ -228,8 +228,9 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       // (`routecraft.auth.principal`, future tracing/tenancy keys) flow
       // through to every child. A `splitChild` envelope's headers override
       // on collision EXCEPT for engine-owned keys: id, split hierarchy,
-      // route id, operation, correlation, causation (the parent) and the
-      // door marks are reasserted after the envelope spread,
+      // route id, operation, correlation and causation (the parent) are
+      // reasserted after the envelope spread, and the door marks are dropped
+      // from the envelope (`withoutDoorMarks`) so the parent's stand,
       // mirroring the `.header()` guard so the same runtime contract holds
       // on both APIs (an envelope value for those keys is ignored).
       const postProcessedExchange = new DefaultExchange<R>(context, {

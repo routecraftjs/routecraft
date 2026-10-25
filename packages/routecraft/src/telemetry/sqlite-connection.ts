@@ -243,7 +243,12 @@ function addMissingColumns(db: TelemetryDatabase): void {
     }
     db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // The failed statement may have rolled the transaction back already;
+      // the error worth reporting is the one that failed it.
+    }
     throw err;
   }
 }
