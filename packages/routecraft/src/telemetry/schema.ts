@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS events (
   details TEXT NOT NULL,
   exchange_id TEXT,
   correlation_id TEXT,
+  causation_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`;
 
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS exchanges (
   route_id TEXT NOT NULL,
   context_id TEXT NOT NULL,
   correlation_id TEXT NOT NULL,
+  causation_id TEXT,
   status TEXT NOT NULL DEFAULT 'started',
   started_at TEXT NOT NULL,
   completed_at TEXT,
@@ -92,6 +94,28 @@ CREATE TABLE IF NOT EXISTS exchange_snapshots (
   captured_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (exchange_id, context_id)
 )`;
+
+/** Index on exchanges.causation_id, for walking a journey's tree downwards. */
+export const CREATE_EXCHANGES_CAUSATION_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_exchanges_causation_id ON exchanges(causation_id)`;
+
+/**
+ * Columns added after a table first shipped, by table. A database created by
+ * an earlier version has the table without them, and `CREATE TABLE IF NOT
+ * EXISTS` leaves it as it is, so each is added in place when missing.
+ * Additive and nullable only: an older row reads the column as NULL.
+ */
+export const ADDED_COLUMNS: ReadonlyArray<{
+  readonly table: string;
+  readonly column: string;
+  readonly definition: string;
+}> = [
+  { table: "events", column: "causation_id", definition: "TEXT" },
+  { table: "exchanges", column: "causation_id", definition: "TEXT" },
+];
+
+/** DDL that depends on an added column, run after the columns are in place. */
+export const POST_MIGRATION_DDL = [CREATE_EXCHANGES_CAUSATION_INDEX] as const;
 
 /** All DDL statements in execution order. */
 export const ALL_DDL = [

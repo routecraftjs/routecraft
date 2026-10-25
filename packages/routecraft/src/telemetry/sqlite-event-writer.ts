@@ -36,7 +36,7 @@ export class SqliteEventWriter {
     this.flushIntervalMs = flushIntervalMs;
 
     this.insertStmt = connection.db.prepare(
-      "INSERT INTO events (timestamp, context_id, event_name, details, exchange_id, correlation_id) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO events (timestamp, context_id, event_name, details, exchange_id, correlation_id, causation_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
     );
 
     this.insertManyTxn = connection.db.transaction(
@@ -49,6 +49,7 @@ export class SqliteEventWriter {
             event.details,
             event.exchangeId ?? null,
             event.correlationId ?? null,
+            event.causationId ?? null,
           );
         }
       },

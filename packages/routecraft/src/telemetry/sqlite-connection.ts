@@ -6,7 +6,7 @@ import {
 } from "../shared/sqlite/driver.ts";
 import type { SqliteDatabase } from "../shared/sqlite/types.ts";
 import { resolveDatabasePath } from "../shared/sqlite/database.ts";
-import { ALL_DDL } from "./schema.ts";
+import { ADDED_COLUMNS, ALL_DDL, POST_MIGRATION_DDL } from "./schema.ts";
 import type { TelemetryLogger } from "./types.ts";
 
 /**
@@ -124,6 +124,10 @@ export class SqliteConnection {
       for (const ddl of ALL_DDL) {
         db.exec(ddl);
       }
+      addMissingColumns(db);
+      for (const ddl of POST_MIGRATION_DDL) {
+        db.exec(ddl);
+      }
 
       const conn = new SqliteConnection(db, logger);
       conn.startPruning(options?.maxExchanges ?? 0, options?.maxEvents ?? 0);
@@ -211,3 +215,18 @@ type TelemetryDatabaseConstructor = new (
 ) => TelemetryDatabase;
 
 export type { TelemetryDatabase };
+
+/**
+ * Add every column in {@link ADDED_COLUMNS} a table is missing, so a
+ * telemetry database an earlier version created keeps working. The table
+ * and column names come from that constant, never from input.
+ */
+function addMissingColumns(db: TelemetryDatabase): void {
+  for (const { table, column, definition } of ADDED_COLUMNS) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name?: unknown;
+    }>;
+    if (columns.some((c) => c.name === column)) continue;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
