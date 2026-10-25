@@ -435,6 +435,22 @@ export interface HttpBuiltinOptions {
 export type HttpConfig = HttpPluginOptions;
 
 /**
+ * Extra response headers a route or a responder adds, by name.
+ *
+ * A name is matched case-insensitively and replaces the framework's own
+ * header of that name; an empty array removes it. An array value sends one
+ * field per entry, which is what `set-cookie` needs to set or clear several
+ * cookies in one response; for any other name the entries are combined into
+ * one comma-separated field, as HTTP combines repeated fields. Spellings of
+ * `set-cookie` that differ only in case (`set-cookie`, `Set-Cookie`) all
+ * arrive, in order; for any other name the last spelling wins, as it did
+ * before arrays were accepted.
+ */
+export type HttpResponseHeaders = Readonly<
+  Record<string, string | readonly string[]>
+>;
+
+/**
  * What a {@link HttpResponder} returns to send an answer of its own, described
  * rather than constructed. The dispatcher serialises it exactly as it serialises a
  * pipeline result, so one place owns the wire format.
@@ -442,21 +458,6 @@ export type HttpConfig = HttpPluginOptions;
  * A `body` of `undefined` sends no body at all, which is what a bare
  * acknowledgement wants: `{ status: 202 }`.
  */
-/**
- * Extra response headers a route or a responder adds, by name.
- *
- * A name is matched case-insensitively and replaces the framework's own
- * header of that name. An array value sends one field per entry, which is
- * what `set-cookie` needs to set or clear several cookies in one response;
- * for any other name the entries are combined into one comma-separated
- * field, as HTTP combines repeated fields. Two spellings of one name
- * (`set-cookie` and `Set-Cookie`) are one header, their values kept in
- * order.
- */
-export type HttpResponseHeaders = Readonly<
-  Record<string, string | readonly string[]>
->;
-
 export interface HttpResponseDescriptor {
   /** Status code to send. Required: a responder exists to choose it. */
   status: number;
@@ -484,7 +485,11 @@ export interface HttpRespondRequest {
    * echoes this map leaks the bearer; read `principal` for identity instead.
    */
   headers: Readonly<Record<string, string>>;
-  /** The request's cookies by name, as the route reads them on `routecraft.http.cookies`. */
+  /**
+   * The request's cookies by name, as the route reads them on
+   * `routecraft.http.cookies`. A session cookie is a credential: a responder
+   * that logs or echoes this map leaks it, as it would leak `headers`.
+   */
   cookies: Readonly<Record<string, string>>;
   /** Resolved path parameters. */
   params: Readonly<Record<string, string>>;

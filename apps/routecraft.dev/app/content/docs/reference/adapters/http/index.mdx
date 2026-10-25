@@ -148,7 +148,7 @@ Override via the exchange before the response is built:
 
 - `routecraft.http.response.status` -> numeric status (e.g. `201`).
 - `routecraft.http.response.contentType` -> explicit content-type.
-- `routecraft.http.response.headers` -> extra response headers, by name. A name replaces the framework's own header of that name, matched case-insensitively. An array value sends one field per entry, which is how a response sets several cookies; for any other name the entries are combined into one comma-separated field.
+- `routecraft.http.response.headers` -> extra response headers, by name. A name replaces the framework's own header of that name, matched case-insensitively, and an empty array removes it. An array value sends one field per entry, which is how a response sets several cookies; for any other name the entries are combined into one comma-separated field.
 
 ### Cookies
 

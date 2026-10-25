@@ -105,6 +105,32 @@ describe("http cookies (cross-runtime contract)", () => {
   });
 
   /**
+   * @case Two spellings of another header keep the last, and an empty array removes a header
+   * @preconditions Response headers naming "Content-Type" then "content-type" with different types, and x-powered-by as an empty array over a value set earlier in the same override
+   * @expectedResult The content type is the last spelling's alone, never the two joined, and x-powered-by is absent
+   */
+  test("other headers keep their last spelling; an empty array removes", async () => {
+    const bound = await bootHttp(
+      craft()
+        .id("cookie-last-spelling")
+        .from(http({ path: "/last", method: "GET" }))
+        .header("routecraft.http.response.headers", {
+          "Content-Type": "text/plain",
+          "content-type": "application/x-ndjson",
+          "X-Powered-By": "routecraft",
+          "x-powered-by": [],
+        })
+        .transform(() => "{}")
+        .to(noop()),
+    );
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/last`);
+    expect(res.headers.get("content-type")).toBe("application/x-ndjson");
+    expect(res.headers.has("x-powered-by")).toBe(false);
+  });
+
+  /**
    * @case A single set-cookie string behaves as before, and an array on another header combines
    * @preconditions Response headers with set-cookie as one string and vary as an array of two values
    * @expectedResult One Set-Cookie field carrying the string, and one vary field joining the two values with ", "

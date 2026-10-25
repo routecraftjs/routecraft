@@ -760,8 +760,10 @@ function parseCookies(header: string | null): Readonly<Record<string, string>> {
  * appended entry by entry: `set-cookie` keeps one field per cookie, which
  * the node server writes through `getSetCookie()` and Bun sends as it is,
  * and any other name combines its entries the way HTTP combines repeated
- * fields. Spellings of one name are gathered first, in order, so
- * `set-cookie` and `Set-Cookie` in one override both arrive.
+ * fields. An empty array removes the header. Spellings of `set-cookie` are
+ * gathered in order, so `set-cookie` and `Set-Cookie` in one override both
+ * arrive; any other name keeps its last spelling, since joining two
+ * spellings of `content-type` would send a type that is neither.
  */
 function withOverrides(
   defaults: Readonly<Record<string, string>>,
@@ -772,10 +774,13 @@ function withOverrides(
   const byName = new Map<string, string[]>();
   for (const [name, value] of Object.entries(overrides)) {
     const key = name.toLowerCase();
-    const values = byName.get(key) ?? [];
-    if (Array.isArray(value)) values.push(...(value as readonly string[]));
-    else values.push(value as string);
-    byName.set(key, values);
+    const entries = Array.isArray(value)
+      ? [...(value as readonly string[])]
+      : [value as string];
+    byName.set(
+      key,
+      key === "set-cookie" ? [...(byName.get(key) ?? []), ...entries] : entries,
+    );
   }
   for (const [name, values] of byName) {
     headers.delete(name);
