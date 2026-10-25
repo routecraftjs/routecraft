@@ -777,9 +777,13 @@ function withOverrides(
     const entries = Array.isArray(value)
       ? [...(value as readonly string[])]
       : [value as string];
+    // An empty array removes, so it also clears cookies an earlier spelling
+    // of set-cookie gathered in this same override.
     byName.set(
       key,
-      key === "set-cookie" ? [...(byName.get(key) ?? []), ...entries] : entries,
+      key === "set-cookie" && entries.length > 0
+        ? [...(byName.get(key) ?? []), ...entries]
+        : entries,
     );
   }
   for (const [name, values] of byName) {
@@ -790,9 +794,12 @@ function withOverrides(
 }
 
 /**
- * Translate the final exchange body + response hint headers into a Response
- * according to the documented convention.
+ * Statuses the Fetch specification forbids a body on. Node throws when one
+ * carries a body and Bun does not, so the body is dropped here and the two
+ * runtimes answer the same way rather than one of them 500ing.
  */
+const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([101, 204, 205, 304]);
+
 /**
  * Turn a responder's descriptor into a Response. Body serialisation follows
  * the same rules as a pipeline result, so one set of rules governs both
@@ -804,13 +811,6 @@ function withOverrides(
  * accounting and its own expiry handling, both of which belong to the
  * framework's path, so a route that streams does not configure a responder.
  */
-/**
- * Statuses the Fetch specification forbids a body on. Node throws when one
- * carries a body and Bun does not, so the body is dropped here and the two
- * runtimes answer the same way rather than one of them 500ing.
- */
-const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([101, 204, 205, 304]);
-
 function serialiseDescriptor(descriptor: HttpResponseDescriptor): Response {
   const { status, body } = descriptor;
   if (!Number.isInteger(status) || status < 200 || status > 599) {
@@ -879,6 +879,10 @@ function bodyToWire(body: unknown): {
   };
 }
 
+/**
+ * Translate the final exchange body + response hint headers into a Response
+ * according to the documented convention.
+ */
 function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
   const hint = readResponseHint(headers);
 

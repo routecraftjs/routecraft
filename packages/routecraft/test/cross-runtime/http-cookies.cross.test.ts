@@ -19,6 +19,10 @@ import {
  * through the buffered arm, the streaming arm and a responder alike.
  */
 
+/**
+ * Start a test context serving `routes` on an ephemeral port and resolve
+ * with the context and the port it bound.
+ */
 async function bootHttp(
   routes: Parameters<ReturnType<typeof testContext>["routes"]>[0],
 ): Promise<{ ctx: TestContext; port: number }> {
@@ -106,8 +110,8 @@ describe("http cookies (cross-runtime contract)", () => {
 
   /**
    * @case Two spellings of another header keep the last, and an empty array removes a header
-   * @preconditions Response headers naming "Content-Type" then "content-type" with different types, and x-powered-by as an empty array over a value set earlier in the same override
-   * @expectedResult The content type is the last spelling's alone, never the two joined, and x-powered-by is absent
+   * @preconditions Response headers naming "Content-Type" then "content-type" with different types, x-powered-by as an empty array over a value set earlier in the same override, and set-cookie as an empty array over a cookie an earlier "Set-Cookie" spelling set
+   * @expectedResult The content type is the last spelling's alone, never the two joined, and neither x-powered-by nor any Set-Cookie field is sent
    */
   test("other headers keep their last spelling; an empty array removes", async () => {
     const bound = await bootHttp(
@@ -119,6 +123,8 @@ describe("http cookies (cross-runtime contract)", () => {
           "content-type": "application/x-ndjson",
           "X-Powered-By": "routecraft",
           "x-powered-by": [],
+          "Set-Cookie": "stale=1; Path=/",
+          "set-cookie": [],
         })
         .transform(() => "{}")
         .to(noop()),
@@ -128,6 +134,7 @@ describe("http cookies (cross-runtime contract)", () => {
     const res = await fetch(`http://127.0.0.1:${bound.port}/last`);
     expect(res.headers.get("content-type")).toBe("application/x-ndjson");
     expect(res.headers.has("x-powered-by")).toBe(false);
+    expect(res.headers.getSetCookie()).toEqual([]);
   });
 
   /**
