@@ -6,11 +6,16 @@ import {
   event,
   HeadersKeys,
   simple,
+  splitChild,
   type Exchange,
   type EventPayload,
 } from "@routecraft/routecraft";
 import { LineageIndex, lineageOf } from "../src/lineage.ts";
-import { isJoinedJourney } from "../src/trace-context.ts";
+import {
+  JOINED_HEADER,
+  TRACE_PARENT_HEADER,
+  isJoinedJourney,
+} from "../src/trace-context.ts";
 import { asDeferred, deferring } from "./helpers/deferral.ts";
 import { z } from "zod";
 import { childBindings } from "../src/logger.ts";
@@ -182,6 +187,44 @@ describe("Causation", () => {
   });
 
   /**
+   * @case A splitChild envelope cannot set the door marks on a child
+   * @preconditions A route that never joined a journey splits with splitChild envelopes naming routecraft.journey.joined and routecraft.trace.parent
+   * @expectedResult No child is marked as joined and none carries a trace parent: the child keeps its parent's marks, as it keeps every other engine-owned key
+   */
+  test("split: an envelope cannot mark a child as joined", async () => {
+    const children: Array<{ joined: boolean; parent: unknown }> = [];
+    t = await testContext()
+      .routes(
+        craft()
+          .id("splits-marked")
+          .from(simple({ items: [1, 2] }))
+          .split((ex) => ex.body.items.map((item) =>
+            splitChild(item, {
+              [JOINED_HEADER]: "door",
+              [TRACE_PARENT_HEADER]:
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            }),
+          ))
+          .process((ex) => {
+            children.push({
+              joined: isJoinedJourney(ex),
+              parent: ex.headers[TRACE_PARENT_HEADER],
+            });
+            return ex;
+          })
+          .aggregate()
+          .to(spy()),
+      )
+      .build();
+    await t.test();
+
+    expect(children).toEqual([
+      { joined: false, parent: undefined },
+      { joined: false, parent: undefined },
+    ]);
+  });
+
+  /**
    * @case A tap's snapshot records the exchange it was taken from as its cause
    * @preconditions A route taps and records what the tap receives
    * @expectedResult The snapshot's causation id is the tapped exchange's id
@@ -218,6 +261,10 @@ describe("Causation", () => {
   test("debounce: the release's cause is the held arrival", async () => {
     let arrival: ReturnType<typeof ids> | undefined;
     let released: ReturnType<typeof ids> | undefined;
+    let arrived!: () => void;
+    const arriving = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
     t = await testContext()
       .routes(
         craft()
@@ -225,6 +272,7 @@ describe("Causation", () => {
           .from(simple("go"))
           .process((ex) => {
             arrival = ids(ex);
+            arrived();
             return ex;
           })
           .debounce({ wait: 10_000 })
@@ -234,7 +282,8 @@ describe("Causation", () => {
       )
       .build();
     await t.ctx.start();
-    await delay(20);
+    // In flight from here, so the drain waits for it to reach the hold.
+    await arriving;
     await t.drain();
 
     expect(released?.causationId).toBe(arrival!.id);
@@ -501,12 +550,13 @@ describe("Causation", () => {
   /**
    * @case A deferred exchange keeps its journey across the park, and the resume records who resumed it
    * @preconditions A route defers; a second route resumes it with .resume() from its own direct() ingress
-   * @expectedResult Execution two is the same exchange with the same correlation and causation ids, and route:exchange:resumed names the resume ingress exchange as resumerExchangeId
+   * @expectedResult Execution two is the same exchange with the same correlation and causation ids, and route:exchange:resumed carries the parked exchange's cause and names the resume ingress exchange as resumerExchangeId
    */
   test("defer and resume: the journey survives, the resumer is recorded", async () => {
     const runs: ReturnType<typeof ids>[] = [];
     let resumer: string | undefined;
-    const resumed: Array<{ resumerExchangeId?: string }> = [];
+    const resumed: Array<{ causationId?: string; resumerExchangeId?: string }> =
+      [];
     t = await testContext()
       .with(deferring())
       .routes([
@@ -533,7 +583,12 @@ describe("Causation", () => {
           .resume(),
       ])
       .on("route:exchange:resumed", ((payload: EventPayload<never>) => {
-        resumed.push(payload.details as { resumerExchangeId?: string });
+        resumed.push(
+          payload.details as {
+            causationId?: string;
+            resumerExchangeId?: string;
+          },
+        );
       }) as never)
       .build();
     await t.startAndWaitReady();
@@ -559,7 +614,10 @@ describe("Causation", () => {
       causationId: "parked-cause",
     });
     expect(resumed).toEqual([
-      expect.objectContaining({ resumerExchangeId: resumer }),
+      expect.objectContaining({
+        causationId: "parked-cause",
+        resumerExchangeId: resumer,
+      }),
     ]);
   });
 

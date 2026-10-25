@@ -103,12 +103,12 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     if (
       this.options.traceContext !== false &&
       typeof exchange.headers?.[HeadersKeys.ID] === "string" &&
-      !hasKey(headers, "traceparent")
+      !hasHeader(headers, "traceparent")
     ) {
       const carrier = traceContextOf(exchange);
-      headers["traceparent"] = carrier.traceparent;
-      if (!hasKey(headers, "tracestate")) {
-        headers["tracestate"] = carrier.tracestate;
+      setHeader(headers, "traceparent", carrier.traceparent);
+      if (!hasHeader(headers, "tracestate")) {
+        setHeader(headers, "tracestate", carrier.tracestate);
       }
     }
     const query = this.resolve(this.options.query, exchange);
@@ -416,10 +416,21 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
   return false;
 }
 
-/** Case-insensitive lookup for a header the route set, whatever its value. */
-function hasKey(headers: Record<string, string>, name: string): boolean {
+/**
+ * Set a header in place of any spelling of it already present, so an empty
+ * value {@link hasHeader} treats as unset is replaced rather than sent
+ * beside the new one.
+ */
+function setHeader(
+  headers: Record<string, string>,
+  name: string,
+  value: string,
+): void {
   const wanted = name.toLowerCase();
-  return Object.keys(headers).some((key) => key.toLowerCase() === wanted);
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === wanted) delete headers[key];
+  }
+  headers[name] = value;
 }
 
 /**

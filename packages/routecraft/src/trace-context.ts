@@ -361,7 +361,9 @@ export function adoptTraceContext(
 ): AdoptedTraceHeaders {
   const mode = options.mode ?? "authenticated";
   if (mode === "never") return {};
-  if (mode === "authenticated" && !options.authenticated) return {};
+  // Only "always" skips the principal check, so a mode no caller validated
+  // falls back to the authenticated rule rather than to adoption.
+  if (mode !== "always" && !options.authenticated) return {};
   if (typeof inbound.traceparent !== "string") return {};
   const parent = parseTraceparent(inbound.traceparent);
   if (parent === undefined) return {};

@@ -54,7 +54,7 @@ describe("Trace context: the wire format", () => {
   /**
    * @case Adoption follows the mode and the caller's authentication
    * @preconditions A well-formed traceparent and an rc tracestate member, offered under each mode with and without a verified principal
-   * @expectedResult authenticated adopts only an authenticated caller, always adopts both, never adopts neither; an adopted context marks the exchange as having joined its journey at a door
+   * @expectedResult authenticated adopts only an authenticated caller, always adopts both, never adopts neither, and a mode no caller validated falls back to authenticated; an adopted context marks the exchange as having joined its journey at a door
    */
   test("adopts under the mode", () => {
     const inbound = {
@@ -72,6 +72,7 @@ describe("Trace context: the wire format", () => {
     expect(adopted(undefined, false)).toEqual({});
     expect(adopted("authenticated", false)).toEqual({});
     expect(adopted("never", true)).toEqual({});
+    expect(adopted("open" as TraceContextMode, false)).toEqual({});
     for (const result of [adopted(undefined, true), adopted("always", false)]) {
       expect(result).toEqual({
         [HeadersKeys.CORRELATION_ID]: "journey-1",
@@ -521,6 +522,42 @@ describe("Trace context: doors and clients", () => {
     // Without telemetry the trace id is the correlation UUID's 32 digits.
     expect(sent["traceparent"]).toContain(
       sender!.correlationId.replace(/-/g, ""),
+    );
+  });
+
+  /**
+   * @case An empty traceparent the route set counts as unset, as an empty Content-Type does
+   * @preconditions A route calling a recording server with headers TraceParent and tracestate set to the empty string, as a callback building headers with `?? ""` does
+   * @expectedResult The engine's traceparent and rc tracestate are sent, once each, in place of the empty values
+   */
+  test("http() client: an empty route header is replaced", async () => {
+    const { port, requests } = await recorder();
+    let sender: ReturnType<typeof ids> | undefined;
+    t = await testContext()
+      .routes(
+        craft()
+          .id("sends-empty")
+          .from(simple("a"))
+          .process((ex) => {
+            sender = ids(ex);
+            return ex;
+          })
+          .to(
+            http({
+              url: `http://127.0.0.1:${port}/out`,
+              headers: { TraceParent: "", tracestate: "" },
+            }),
+          ),
+      )
+      .build();
+    await t.test();
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!["traceparent"]).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/,
+    );
+    expect(requests[0]!["tracestate"]).toBe(
+      `rc=c:${sender!.correlationId};x:${sender!.id}`,
     );
   });
 

@@ -21,6 +21,7 @@ import {
   simple,
   telemetry,
   SqliteConnection,
+  SqliteSpanProcessor,
   type CraftConfig,
 } from "../src/index.ts";
 
@@ -227,6 +228,37 @@ describe("Telemetry: causation", () => {
         .get(),
     ).toEqual({ name: "idx_exchanges_causation_id" });
     db.close();
+  });
+
+  /**
+   * @case The span processor registered directly with an OpenTelemetry provider records an exchange's cause
+   * @preconditions A SqliteSpanProcessor on a fresh database, handed an exchange span whose attributes carry routecraft.causation.id
+   * @expectedResult The exchange row carries that id as causation_id
+   */
+  test("the span processor records causation_id from the span", async () => {
+    const conn = await SqliteConnection.open({
+      dbPath: resolve(testDir, "processor.db"),
+    });
+    expect(conn).not.toBeNull();
+    try {
+      new SqliteSpanProcessor(conn!).onStart({
+        attributes: {
+          "routecraft.span.kind": "exchange",
+          "routecraft.context.id": "c",
+          "routecraft.exchange.id": "e2",
+          "routecraft.route.id": "r",
+          "routecraft.correlation.id": "k",
+          "routecraft.causation.id": "e1",
+        },
+      } as unknown as Parameters<SqliteSpanProcessor["onStart"]>[0]);
+      expect(
+        conn!.db
+          .prepare("SELECT causation_id FROM exchanges WHERE id = 'e2'")
+          .get(),
+      ).toEqual({ causation_id: "e1" });
+    } finally {
+      conn!.close();
+    }
   });
 
   /**

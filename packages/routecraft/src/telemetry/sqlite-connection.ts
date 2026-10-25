@@ -112,10 +112,11 @@ export class SqliteConnection {
       return null;
     }
 
+    let db: TelemetryDatabase | undefined;
     try {
       mkdirSync(dirname(dbPath), { recursive: true });
 
-      const db = new Database(dbPath);
+      db = new Database(dbPath);
 
       if (walMode) {
         db.exec("PRAGMA journal_mode = WAL");
@@ -134,6 +135,12 @@ export class SqliteConnection {
       return conn;
     } catch (err) {
       logger?.warn({ err }, "Failed to open telemetry SQLite database");
+      try {
+        db?.close();
+      } catch {
+        // The open already failed and was reported; a close that fails too
+        // has nothing to add.
+      }
       return null;
     }
   }
@@ -222,11 +229,21 @@ export type { TelemetryDatabase };
  * and column names come from that constant, never from input.
  */
 function addMissingColumns(db: TelemetryDatabase): void {
-  for (const { table, column, definition } of ADDED_COLUMNS) {
-    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
-      name?: unknown;
-    }>;
-    if (columns.some((c) => c.name === column)) continue;
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  // One write transaction around the check and the add: two processes
+  // opening the same file would otherwise both see a column missing, and the
+  // second ALTER would fail with a duplicate column and lose its sink.
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const { table, column, definition } of ADDED_COLUMNS) {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+        name?: unknown;
+      }>;
+      if (columns.some((c) => c.name === column)) continue;
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
   }
 }

@@ -483,7 +483,8 @@ export type ExchangeScoped = {
  *
  * Step and operation events keep the plain {@link ExchangeScoped} shape: the
  * edge is a property of the exchange, recorded once per lifecycle event, so a
- * ledger needs only `route:exchange:started` to store it.
+ * ledger stores it from `route:exchange:started`, then from
+ * `route:exchange:correlated` when `.correlate()` changes it.
  */
 export type ExchangeLifecycle = ExchangeScoped & {
   /**

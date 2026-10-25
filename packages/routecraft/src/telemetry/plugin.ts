@@ -428,7 +428,7 @@ class TelemetryPlugin implements Plugin {
       }) as EventHandler<EventName>),
     );
 
-    // Exchange joined another journey: the row and the span follow it.
+    // Exchange re-stamped by `.correlate()`: the row and the span follow it.
     this.unsubscribers.push(
       ctx.observe("route:exchange:correlated", ((payload: {
         contextId: string;

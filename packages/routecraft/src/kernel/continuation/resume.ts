@@ -470,10 +470,14 @@ export async function reviveDeferral(
       );
     }
 
+    // Set here rather than filled by `emit`: the resumed run has not entered
+    // the lineage index yet, and the event carries no exchange to read.
+    const causationId = exchange.headers[HeadersKeys.CAUSATION_ID];
     context.emit("route:exchange:resumed", {
       routeId: deferral.routeId,
       exchangeId: exchange.id,
       correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      ...(typeof causationId === "string" ? { causationId } : {}),
       deferralId: id,
       position: deferral.position,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),

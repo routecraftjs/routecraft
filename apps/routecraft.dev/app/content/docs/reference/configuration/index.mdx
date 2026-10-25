@@ -274,7 +274,7 @@ Each entry is one remote, keyed by name. The routes of `default` are advertised 
 | `auth.token` | `string \| () => string \| undefined \| Promise<...>` | -- | Bearer for the remote's door, evaluated per request when a function |
 | `timeout` | `Duration` | `'30s'` | Per-request deadline against the remote |
 | `refresh` | `Duration \| false` | `'60s'` | How often the inventory is re-read; `false` disables the interval |
-| `traceContext` | `boolean` | `true` | Send each dispatch's W3C trace context so the remote continues the [journey](/docs/introduction/exchange#journeys-correlation-and-causation); `false` sends nothing |
+| `traceContext` | `boolean` | `true` | Send each dispatch's W3C trace context so the remote can continue the [journey](/docs/introduction/exchange#journeys-correlation-and-causation). The remote adopts it by default only from a caller its dispatch tier authenticated; `false` sends nothing |
 
 The key applies after `ops`, whatever order the two are written in, so each remote's `remote.<name>` health indicator has a ledger to report into when the app carries an ops surface. The credential is read from the environment; the CLI's `.routecraft/settings.yaml` is for the local instance `craft` talks to and is never read here.
 

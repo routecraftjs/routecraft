@@ -173,7 +173,7 @@ The exchange lifecycle event names (`route:exchange:started` / `:completed` / `:
 
 - Child exchanges (from split) get their own `started`/`completed`/`failed`/`dropped` events.
 - The `exchangeId` field must be `exchange.id` (not `correlationId`). Use `correlationId` for grouping related exchanges.
-- Do not set `causationId` on a `route:exchange:*` emission: `CraftContext.emit` fills it from the in-flight exchange's lineage entry, or the exchange the event carries, so every site carries the edge without spelling it. An emission site that sets it (`route:exchange:correlated`) is the one that changed it.
+- Do not set `causationId` on a `route:exchange:*` emission: `CraftContext.emit` fills it from the in-flight exchange's lineage entry, or the exchange the event carries, so every site carries the edge without spelling it. A site sets it only when `emit` cannot see the cause: `route:exchange:correlated`, because `.correlate()` has just changed it, and `route:exchange:resumed`, because it fires before the resumed run enters the lineage index and carries no exchange.
 - A new hand-off that runs an exchange from another (a clone, a fan-out, a new kind of call) records the source as `routecraft.causation_id` and enters or attaches the new exchange in the lineage index (`packages/routecraft/src/lineage.ts`) before its first event, or an `event()` route watching it feeds on itself.
 - Operations that drop exchanges (filter, debounce, sample) must emit `route:exchange:dropped` with a `reason` string.
 - Operations that restore from cache must emit `route:exchange:restored` with a `source` string.

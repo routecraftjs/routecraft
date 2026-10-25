@@ -1,5 +1,5 @@
 import { HeadersKeys } from "./exchange.ts";
-import { JOINED_HEADER, TRACE_PARENT_HEADER } from "./trace-context.ts";
+import { JOINED_HEADER, TRACE_PARENT_HEADER } from "./journey-headers.ts";
 
 /**
  * Engine-owned headers, mapped to the remediation shown when something tries

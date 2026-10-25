@@ -309,7 +309,15 @@ export class SqliteSpanProcessor {
       const exchangeId = attrs[ATTR.EXCHANGE_ID] as string;
       const routeId = attrs[ATTR.ROUTE_ID] as string;
       const correlationId = attrs[ATTR.CORRELATION_ID] as string;
-      this.writeExchange(exchangeId, routeId, contextId, correlationId, ts);
+      const causationId = attrs[ATTR.CAUSATION_ID] as string | undefined;
+      this.writeExchange(
+        exchangeId,
+        routeId,
+        contextId,
+        correlationId,
+        ts,
+        causationId,
+      );
     }
   }
 

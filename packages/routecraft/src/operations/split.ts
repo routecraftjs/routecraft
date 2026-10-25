@@ -7,6 +7,7 @@ import {
 } from "../types.ts";
 import { BRAND, isBranded, isExchange } from "../brand.ts";
 import { rcError } from "../error.ts";
+import { JOINED_HEADER, TRACE_PARENT_HEADER } from "../journey-headers.ts";
 import { lineageOf } from "../lineage.ts";
 import {
   type Exchange,
@@ -78,6 +79,27 @@ export function splitChild<R>(
 /** Type guard for {@link SplitChild} envelopes. */
 export function isSplitChild(value: unknown): value is SplitChild {
   return isBranded(value, SPLIT_CHILD);
+}
+
+/**
+ * An envelope's headers without the door marks, so a child keeps its
+ * parent's. Dropped rather than reasserted after the spread like the other
+ * engine-owned keys: a parent that carries neither must give a child that
+ * carries neither, not one with the keys set to undefined.
+ */
+function withoutDoorMarks(
+  headers: ExchangeHeaders | undefined,
+): ExchangeHeaders | undefined {
+  if (
+    headers === undefined ||
+    (!(TRACE_PARENT_HEADER in headers) && !(JOINED_HEADER in headers))
+  ) {
+    return headers;
+  }
+  const rest: Record<string, unknown> = { ...headers };
+  delete rest[TRACE_PARENT_HEADER];
+  delete rest[JOINED_HEADER];
+  return rest as ExchangeHeaders;
 }
 
 /**
@@ -206,8 +228,8 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       // (`routecraft.auth.principal`, future tracing/tenancy keys) flow
       // through to every child. A `splitChild` envelope's headers override
       // on collision EXCEPT for engine-owned keys: id, split hierarchy,
-      // route id, operation, correlation and causation (the parent) are
-      // reasserted after the envelope spread,
+      // route id, operation, correlation, causation (the parent) and the
+      // door marks are reasserted after the envelope spread,
       // mirroring the `.header()` guard so the same runtime contract holds
       // on both APIs (an envelope value for those keys is ignored).
       const postProcessedExchange = new DefaultExchange<R>(context, {
@@ -216,7 +238,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
           ...exchange.headers,
           // Spreading undefined is a no-op, so plain children pay no
           // empty-object allocation.
-          ...envelope?.headers,
+          ...(envelope ? withoutDoorMarks(envelope.headers) : undefined),
           [HeadersKeys.ROUTE_ID]: exchange.headers[
             HeadersKeys.ROUTE_ID
           ] as string,

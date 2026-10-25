@@ -277,6 +277,60 @@ describe("surface(), reaching the editor from a route", () => {
   });
 
   /**
+   * @case A route the turn called that re-stamps itself onto another journey no longer reaches the turn's editor
+   * @preconditions A client answering fs/read_text_file, an agent calling a route that runs `.correlate()` with a different correlation id before its surface call
+   * @expectedResult The route fails with AI1013 and the editor is never asked: it carries the turn's surface header, but it left the turn, so the turn's cancel would no longer reach what it sent
+   */
+  test("a re-correlated route has no surface", async () => {
+    const asked: string[] = [];
+    const failures: unknown[] = [];
+    const elsewhereRoute = craft()
+      .id("read-elsewhere")
+      .description("Read a file on behalf of another journey")
+      .input({ body: z.object({ path: z.string() }) })
+      .from(direct())
+      .correlate(() => ({ correlationId: "story-42" }))
+      .enrich(surface("fs/read_text_file", (ex) => ({ path: ex.body.path })))
+      .to(noop());
+    h = await acpHarness({
+      agents: {
+        max: { ...AGENT.max, tools: tools(["Direct(read-elsewhere)"]) },
+      },
+      plugins: [agentPlugin({ functions: {} })],
+      routes: [elsewhereRoute],
+      handlers: (app) => {
+        app.onRequest("fs/read_text_file", ({ params }) => {
+          asked.push(params.path);
+          return { content: "the file's contents" };
+        });
+      },
+    });
+    h.t.ctx.on("route:exchange:failed", ({ details }) => {
+      if (details.routeId === "read-elsewhere") failures.push(details.error);
+    });
+    llm.script.push(
+      {
+        toolCalls: [
+          { toolName: "direct__read-elsewhere", input: { path: "/a.ts" } },
+        ],
+      },
+      { text: "could not" },
+    );
+
+    await h.connect(
+      (agent) =>
+        agent.buildSession("/work").withSession(async (session) => {
+          await session.prompt("read /a.ts");
+        }),
+      { capabilities: { fs: { readTextFile: true } } },
+    );
+
+    await until(() => failures.length === 1);
+    expect(rcCodeOf(failures[0])).toBe("AI1013");
+    expect(asked).toEqual([]);
+  });
+
+  /**
    * @case A turn whose editor went away mid-flight is told so, rather than told there never was one
    * @preconditions An exchange carrying a surface header naming a connection the registry does not hold
    * @expectedResult AI1014, distinct from AI1013, because the fix is different: there is nothing to retry against on this exchange

@@ -118,9 +118,12 @@ export interface HttpClientOptions<T = unknown> {
    * the service called continues the journey: an OpenTelemetry service
    * parents its spans under this one, and a Routecraft service keeps the
    * correlation id and records this exchange as the cause. On by default:
-   * a server that does not participate ignores both headers, which carry
-   * only random ids. A `traceparent` the route sets in `headers` wins, and
-   * then neither header is added. `false` sends nothing.
+   * a server that does not participate ignores both headers. They carry the
+   * exchange id and the correlation id, which the engine minted or the
+   * application chose (a source, `.correlate()`), so a call to a third party
+   * that must not see them sets `false`. A `traceparent` the route sets in
+   * `headers` wins, and then neither header is added. `false` sends
+   * nothing.
    */
   traceContext?: boolean;
   /**

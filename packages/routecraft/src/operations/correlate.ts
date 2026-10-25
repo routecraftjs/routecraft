@@ -128,8 +128,13 @@ export class CorrelateStep<T = unknown> implements Step<Correlator<T>> {
       },
     });
     next.logger.debug(
-      { previousCorrelationId: previousCorrelation },
-      "Exchange joined another journey",
+      {
+        previousCorrelationId: previousCorrelation,
+        ...(previousCause !== undefined
+          ? { previousCausationId: previousCause }
+          : {}),
+      },
+      "Exchange journey re-stamped",
     );
     return { kind: "continue", exchange: next };
   }
