@@ -651,9 +651,12 @@ export interface EventDetailsMap {
     /** Who resumed it, when the resume ingress had an authenticated principal. */
     resumedBy?: PrincipalRef;
     /**
-     * The ingress exchange that presented the resume token, absent for a
-     * revival a plugin drove. Each resume attempt is its own chain (the
-     * approver's click); this is the edge from it to the exchange it revived.
+     * The exchange that resumed this one: the ingress that presented the
+     * resume token, or, for a revival a plugin drove, the exchange the plugin
+     * named (an agent session woken by a parked call's settlement names the
+     * call's run). Each resume attempt is its own chain (the approver's
+     * click); this is the edge from it to the exchange it revived. Absent for
+     * a plugin revival that names none.
      */
     resumerExchangeId?: string;
   };

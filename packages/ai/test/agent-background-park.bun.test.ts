@@ -376,6 +376,70 @@ describe("background tools over a parking route", () => {
   });
 
   /**
+   * @case The turn a settled park revives records what woke it, and keeps its journey
+   * @preconditions A turn calls the parking route as a background tool and ends; the human answers through the resume ingress; the settlement revives the idle session
+   * @expectedResult The park's resume names the ingress exchange as resumerExchangeId; the revived chat exchange is the turn that parked, keeps its correlation and causation ids, and names the park's execution two as resumerExchangeId, so a ledger walks approval to call to revived turn
+   */
+  test("a revived turn names the run that woke it", async () => {
+    t = await contextWith({ store: store! }).build();
+    await t.startAndWaitReady();
+    const started = new Map<
+      string,
+      { correlationId: string; causationId?: string }
+    >();
+    const resumed: Array<{
+      routeId: string;
+      exchangeId: string;
+      correlationId: string;
+      causationId?: string;
+      resumerExchangeId?: string;
+    }> = [];
+    t.ctx.on("route:exchange:started", ({ details }) => {
+      if (!started.has(details.exchangeId)) {
+        started.set(details.exchangeId, {
+          correlationId: details.correlationId,
+          ...(details.causationId !== undefined
+            ? { causationId: details.causationId }
+            : {}),
+        });
+      }
+    });
+    t.ctx.on("route:exchange:resumed", ({ details }) => {
+      resumed.push({
+        routeId: details.routeId,
+        exchangeId: details.exchangeId,
+        correlationId: details.correlationId,
+        ...(details.causationId !== undefined
+          ? { causationId: details.causationId }
+          : {}),
+        ...(details.resumerExchangeId !== undefined
+          ? { resumerExchangeId: details.resumerExchangeId }
+          : {}),
+      });
+    });
+    let ingress: string | undefined;
+    t.ctx.on("route:exchange:started", ({ details }) => {
+      if (details.routeId === "answers") ingress = details.exchangeId;
+    });
+    await parkFromTurn(t, "direct__park");
+
+    llm.script.push({ text: "approved, proceeding" });
+    await answer(t, { verdict: "approve" });
+    await until(() => llm.calls.length === 2);
+    await t.ctx.getRouteById("chat")!.drain();
+
+    const park = resumed.find((r) => r.routeId === "park")!;
+    const chat = resumed.find((r) => r.routeId === "chat")!;
+    expect(park.resumerExchangeId).toBe(ingress!);
+    expect(chat.resumerExchangeId).toBe(park.exchangeId);
+    const firstRun = started.get(chat.exchangeId)!;
+    expect(chat.correlationId).toBe(firstRun.correlationId);
+    expect(chat.causationId).toBe(firstRun.causationId);
+    // The tool call ran in the turn's journey, so all three share it.
+    expect(park.correlationId).toBe(firstRun.correlationId);
+  });
+
+  /**
    * @case A decline is an ordinary background message the model revises from
    * @preconditions The parked route answers a decline as a result rather than a drop; the human declines with a reason
    * @expectedResult The handle settles completed with the route's own answer, and the revived turn reads the reason beside its original call, so asking again is the next turn

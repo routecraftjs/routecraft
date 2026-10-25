@@ -45,7 +45,8 @@ export interface RemoteDefinition {
    * so the remote's exchange continues this journey: it keeps the
    * correlation id and records the sending exchange as its cause, when the
    * remote's ops mount adopts it (by default, from a caller its dispatch
-   * tier authenticated). On by default; `false` sends nothing.
+   * tier authenticated). `false` sends nothing; unset follows the config's
+   * `traceContext.outbound`, which is on unless set.
    */
   traceContext?: boolean;
 }

@@ -10,7 +10,6 @@ import {
   when,
   type CraftConfig,
   type EventName,
-  type HttpPluginOptions,
   type Source,
   type Subscription,
 } from "../src/index.ts";
@@ -100,7 +99,7 @@ describe("defer and resume across transports", () => {
         ...deferring(),
         servers: { default: { port: 0 } },
         http: {},
-      } as CraftConfig & HttpPluginOptions)
+      } as CraftConfig)
       .routes([
         craft()
           .id("payout")
@@ -160,7 +159,7 @@ describe("defer and resume across transports", () => {
         ...deferring(),
         servers: { default: { port: 0 } },
         http: {},
-      } as CraftConfig & HttpPluginOptions)
+      } as CraftConfig)
       .routes([
         craft()
           .id("payout")
@@ -210,7 +209,7 @@ describe("defer and resume across transports", () => {
         ...deferring(),
         servers: { default: { port: 0 } },
         http: {},
-      } as CraftConfig & HttpPluginOptions)
+      } as CraftConfig)
       .routes([
         craft()
           .id("expense-approval")

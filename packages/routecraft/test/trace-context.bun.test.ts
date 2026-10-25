@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createHmac } from "node:crypto";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import { z } from "zod";
@@ -6,7 +7,9 @@ import { signHs256, testContext, type TestContext } from "@routecraft/testing";
 import {
   adoptTraceContext,
   craft,
+  CraftContext,
   DefaultExchange,
+  definePlugin,
   httpPlugin,
   remotesPlugin,
   TRACE_SPANS,
@@ -21,6 +24,7 @@ import {
   traceContextOf,
   type CraftConfig,
   type Exchange,
+  type Plugin,
   type TraceContextMode,
 } from "../src/index.ts";
 import { JOINED_HEADER, TRACE_PARENT_HEADER } from "../src/trace-context.ts";
@@ -48,6 +52,26 @@ function ids(exchange: Exchange): {
       string | undefined,
     remoteParent: exchange.headers[TRACE_PARENT_HEADER],
   };
+}
+
+/**
+ * A plugin whose `beforeAuth` observe hook records the journey ids, as a
+ * ledger writing "capability requested" reads them: the earliest point a
+ * plugin sees the exchange.
+ */
+function beforeAuthWitness(seen: ReturnType<typeof ids>[]): Plugin {
+  return definePlugin({
+    id: "test.ledger",
+    hooks: {
+      beforeAuth: {
+        id: "requested",
+        phase: "observe",
+        run(exchange) {
+          seen.push(ids(exchange));
+        },
+      },
+    },
+  });
 }
 
 describe("Trace context: the wire format", () => {
@@ -371,17 +395,19 @@ describe("Trace context: doors and clients", () => {
   });
 
   /**
-   * @case The http door adopts an authenticated caller's context by default
-   * @preconditions An http mount walled by a JWT validator; a POST with a valid bearer and a trace context
-   * @expectedResult The exchange carries the caller's correlation id and cause
+   * @case The http door adopts an authenticated caller's context by default, before the first plugin hook
+   * @preconditions An http mount walled by a JWT validator; a plugin with a beforeAuth observe hook; a POST with a valid bearer and a trace context
+   * @expectedResult The exchange carries the caller's correlation id and cause, and the beforeAuth hook already sees both
    */
   test("http door: authenticated context is adopted by default", async () => {
     const seen: ReturnType<typeof ids>[] = [];
+    const early: ReturnType<typeof ids>[] = [];
     const port = await httpDoor(
       {
         http: {
           auth: jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
         },
+        plugins: [beforeAuthWitness(early)],
       } as CraftConfig,
       seen,
     );
@@ -399,6 +425,7 @@ describe("Trace context: doors and clients", () => {
       correlationId: "journey-1",
       causationId: "exchange-9",
     });
+    expect(early).toEqual([seen[0]!]);
   });
 
   /**
@@ -523,6 +550,51 @@ describe("Trace context: doors and clients", () => {
     expect(sent["traceparent"]).toContain(
       sender!.correlationId.replace(/-/g, ""),
     );
+  });
+
+  /**
+   * @case The trace headers are added beside what a route signed, never inside it
+   * @preconditions A route whose headers callback signs the method, path and body with an HMAC and sends the digest and the list of signed headers, as a vendor's request signing does; a recording server
+   * @expectedResult The request carries the route's signature headers byte for byte and the engine's traceparent and tracestate beside them: the callback runs first and never sees the trace headers, so they are outside every header it signed, and the body is untouched
+   */
+  test("http() client: trace headers sit beside a route's signature", async () => {
+    const { port, requests } = await recorder();
+    const body = JSON.stringify({ amount: 10 });
+    const sign = (payload: string) =>
+      createHmac("sha256", "vendor-secret").update(payload).digest("hex");
+    let signedOver: string[] | undefined;
+    t = await testContext()
+      .routes(
+        craft()
+          .id("signs")
+          .from(simple("pay"))
+          .to(
+            http({
+              url: `http://127.0.0.1:${port}/pay`,
+              method: "POST",
+              body,
+              headers: () => {
+                const headers = { "content-type": "application/json" };
+                signedOver = Object.keys(headers);
+                return {
+                  ...headers,
+                  "x-signed-headers": signedOver.join(";"),
+                  "x-signature": sign(`POST /pay ${body}`),
+                };
+              },
+            }),
+          ),
+      )
+      .build();
+    await t.test();
+
+    expect(requests).toHaveLength(1);
+    const sent = requests[0]!;
+    expect(sent["x-signature"]).toBe(sign(`POST /pay ${body}`));
+    expect(sent["x-signed-headers"]).toBe("content-type");
+    expect(signedOver).toEqual(["content-type"]);
+    expect(sent["traceparent"]).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/);
+    expect(sent["tracestate"]).toMatch(/^rc=c:/);
   });
 
   /**
@@ -668,16 +740,18 @@ describe("Trace context: doors and clients", () => {
 
   /**
    * @case The ops dispatch mount adopts any caller's context under "always"
-   * @preconditions opsPlugin with an open dispatch tier and traceContext "always"; an anonymous dispatch carrying a trace context
-   * @expectedResult The dispatched exchange carries the caller's correlation id and cause
+   * @preconditions opsPlugin with an open dispatch tier and traceContext "always"; a plugin with a beforeAuth observe hook; an anonymous dispatch carrying a trace context
+   * @expectedResult The dispatched exchange carries the caller's correlation id and cause, and the beforeAuth hook already sees both
    */
   test('ops door: "always" adopts an anonymous dispatch\'s context', async () => {
     const seen: ReturnType<typeof ids>[] = [];
+    const early: ReturnType<typeof ids>[] = [];
     other = await testContext()
       .with({
         servers: { default: { port: 0, host: "127.0.0.1" } },
         plugins: [
           opsPlugin({ tiers: { dispatch: true }, traceContext: "always" }),
+          beforeAuthWitness(early),
         ],
       })
       .routes(
@@ -707,66 +781,144 @@ describe("Trace context: doors and clients", () => {
       correlationId: "journey-1",
       causationId: "exchange-9",
     });
+    expect(early).toEqual([seen[0]!]);
   });
 
   /**
-   * @case A remote configured with traceContext false sends no trace context
-   * @preconditions The two-context remotes setup with traceContext false on the remote
-   * @expectedResult The remote's exchange starts its own journey: a correlation id different from the caller's, and no cause
+   * @case A remote's own traceContext decides, and an unset one follows the config's outbound default
+   * @preconditions The two-context remotes setup, run three times: the remote set to false; the remote unset under traceContext { outbound: false }; the remote set to true under the same default
+   * @expectedResult The first two start their own journey on the remote (a different correlation id, no cause); the third continues the caller's, because the remote's own true wins over the default
    */
-  test("remotes: traceContext false sends nothing", async () => {
-    const remote: ReturnType<typeof ids>[] = [];
-    let local: ReturnType<typeof ids> | undefined;
-    other = await testContext()
-      .with({
-        servers: { default: { port: 0, host: "127.0.0.1" } },
-        plugins: [
-          opsPlugin({
-            auth: jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
-            tiers: { introspection: "ops:dispatch", dispatch: "ops:dispatch" },
-          }),
-        ],
-      })
-      .routes(
-        craft()
-          .id("far-quiet")
-          .description("A route on the other instance")
-          .input({ body: z.object({}) })
-          .from(direct())
-          .process((ex) => {
-            remote.push(ids(ex));
-            return ex;
-          })
-          .to(noop()),
-      )
-      .build();
-    const port = await listen(other);
-    t = await testContext()
-      .with({
-        remotes: {
-          default: {
-            url: `http://127.0.0.1:${port}`,
-            auth: { token: () => bearer() },
-            traceContext: false,
+  test("remotes: the remote's setting wins, else the outbound default", async () => {
+    const cases: Array<{
+      remote: boolean | undefined;
+      outbound: boolean | undefined;
+      sends: boolean;
+    }> = [
+      { remote: false, outbound: undefined, sends: false },
+      { remote: undefined, outbound: false, sends: false },
+      { remote: true, outbound: false, sends: true },
+    ];
+    for (const { remote: setting, outbound, sends } of cases) {
+      const remote: ReturnType<typeof ids>[] = [];
+      let local: ReturnType<typeof ids> | undefined;
+      other = await testContext()
+        .with({
+          servers: { default: { port: 0, host: "127.0.0.1" } },
+          plugins: [
+            opsPlugin({
+              auth: jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
+              tiers: {
+                introspection: "ops:dispatch",
+                dispatch: "ops:dispatch",
+              },
+            }),
+          ],
+        })
+        .routes(
+          craft()
+            .id("far-quiet")
+            .description("A route on the other instance")
+            .input({ body: z.object({}) })
+            .from(direct())
+            .process((ex) => {
+              remote.push(ids(ex));
+              return ex;
+            })
+            .to(noop()),
+        )
+        .build();
+      const port = await listen(other);
+      t = await testContext()
+        .with({
+          ...(outbound !== undefined ? { traceContext: { outbound } } : {}),
+          remotes: {
+            default: {
+              url: `http://127.0.0.1:${port}`,
+              auth: { token: () => bearer() },
+              ...(setting !== undefined ? { traceContext: setting } : {}),
+            },
           },
-        },
-      } as CraftConfig)
-      .routes(
-        craft()
-          .id("near-quiet")
-          .from(direct())
-          .process((ex) => {
-            local = ids(ex);
-            return ex;
-          })
-          .to(direct("far-quiet")),
-      )
-      .build();
-    await t.startAndWaitReady();
-    await t.client.sendDirect("near-quiet", {});
+        } as CraftConfig)
+        .routes(
+          craft()
+            .id("near-quiet")
+            .from(direct())
+            .process((ex) => {
+              local = ids(ex);
+              return ex;
+            })
+            .to(direct("far-quiet")),
+        )
+        .build();
+      await t.startAndWaitReady();
+      await t.client.sendDirect("near-quiet", {});
 
-    expect(remote).toHaveLength(1);
-    expect(remote[0]!.correlationId).not.toBe(local!.correlationId);
-    expect(remote[0]!.causationId).toBeUndefined();
+      expect(remote).toHaveLength(1);
+      if (sends) {
+        expect(remote[0]!.correlationId).toBe(local!.correlationId);
+        expect(remote[0]!.causationId).toBe(local!.id);
+      } else {
+        expect(remote[0]!.correlationId).not.toBe(local!.correlationId);
+        expect(remote[0]!.causationId).toBeUndefined();
+      }
+      await t.stop();
+      await other.stop();
+      t = undefined;
+      other = undefined;
+    }
+  });
+
+  /**
+   * @case The config's outbound default stops the http() client, and a call's own traceContext still wins
+   * @preconditions traceContext { outbound: false } in the config; one route calls a recording server with defaults, one with traceContext true
+   * @expectedResult The default call carries neither header; the call that opts in carries traceparent and its rc tracestate
+   */
+  test("http() client: the outbound default applies, a call's own setting wins", async () => {
+    const { port, requests } = await recorder();
+    const url = `http://127.0.0.1:${port}/out`;
+    t = await testContext()
+      .with({ traceContext: { outbound: false } })
+      .routes([
+        craft()
+          .id("quiet-by-default")
+          .from(simple("a"))
+          .to(http({ url, headers: { "x-route": "default" } })),
+        craft()
+          .id("opts-in")
+          .from(simple("b"))
+          .to(
+            http({ url, headers: { "x-route": "opt-in" }, traceContext: true }),
+          ),
+      ])
+      .build();
+    await t.test();
+
+    const byRoute = (route: string) =>
+      requests.find((h) => h["x-route"] === route)!;
+    expect(byRoute("default")["traceparent"]).toBeUndefined();
+    expect(byRoute("default")["tracestate"]).toBeUndefined();
+    expect(byRoute("opt-in")["traceparent"]).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/,
+    );
+    expect(byRoute("opt-in")["tracestate"]).toMatch(/^rc=c:/);
+  });
+
+  /**
+   * @case traceContext.outbound is refused unless it is a boolean
+   * @preconditions A context built with traceContext { outbound: "false" }, and one with traceContext "off"
+   * @expectedResult Both are refused with RC5003 naming the key: a string "false" from an environment variable would otherwise read as on
+   */
+  test("the outbound default must be a boolean", () => {
+    for (const traceContext of [{ outbound: "false" }, "off"]) {
+      expect(
+        () => new CraftContext({ traceContext } as unknown as CraftConfig),
+      ).toThrow(
+        expect.objectContaining({
+          rc: "RC5003",
+          message: expect.stringContaining("traceContext"),
+        }),
+      );
+    }
   });
 });

@@ -3,6 +3,7 @@ import {
   getExchangeContext,
   HeadersKeys,
   rcError,
+  sendsTraceContext,
   traceContextOf,
 } from "@routecraft/routecraft";
 import type {
@@ -157,10 +158,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     const context = getExchangeContext(exchange);
     const argsExtractor = this.options.args ?? defaultArgs;
     const args = argsExtractor(exchange);
-    const trace =
-      this.options.traceContext === false
-        ? undefined
-        : traceContextOf(exchange);
+    const own = this.options.traceContext;
 
     // serverId path -> registered MCP client (stdio or http). Delegates
     // to `dispatchMcpCall` so transport selection (stdio manager vs
@@ -179,7 +177,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
         this.options.serverId,
         toolName,
         args,
-        trace,
+        { context, own, carrier: () => traceContextOf(exchange) },
       );
       if (result && typeof result === "object") {
         metadataOf.set(result, {
@@ -202,7 +200,9 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
       args,
       auth,
       // `_meta.traceparent` and `_meta.tracestate`, as SEP-414 names them.
-      trace === undefined ? undefined : { ...trace },
+      sendsTraceContext(context, own)
+        ? { ...traceContextOf(exchange) }
+        : undefined,
     );
     if (result && typeof result === "object") {
       metadataOf.set(result, { toolName, url, transport: "http" });

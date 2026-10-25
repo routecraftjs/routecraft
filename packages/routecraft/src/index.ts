@@ -437,6 +437,7 @@ export {
   isJoinedJourney,
   isTraceContextMode,
   isTraceId,
+  sendsTraceContext,
   traceContextFor,
   traceContextOf,
   MAX_TRACE_ID_LENGTH,
@@ -446,6 +447,7 @@ export {
   type InboundTraceContext,
   type SpanContextLike,
   type TraceContextCarrier,
+  type TraceContextConfig,
   type TraceContextMode,
   type TraceSpans,
 } from "./trace-context.ts";

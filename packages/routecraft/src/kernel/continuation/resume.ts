@@ -138,8 +138,9 @@ export interface ResumeDoor {
   /**
    * The ingress exchange presenting the token, recorded on
    * `route:exchange:resumed` as `resumerExchangeId`: the edge from the
-   * resume attempt's own chain to the exchange it revived. Absent on a
-   * plugin-driven resume.
+   * resume attempt's own chain to the exchange it revived. On a
+   * plugin-driven resume, the exchange the plugin names in
+   * {@link RevivalOptions.exchangeId}, when it names one.
    */
   readonly exchangeId?: string;
 }
@@ -166,6 +167,13 @@ export interface RevivalOptions {
    * claimed, so the park stays exactly as it was.
    */
   readonly reidentified?: Principal;
+  /**
+   * The exchange whose outcome woke this revival, recorded on
+   * `route:exchange:resumed` as `resumerExchangeId`, as a door records the
+   * ingress that presented the token: a plugin that revives a session when
+   * a parked call it was waiting on settles names that call's run here.
+   */
+  readonly exchangeId?: string;
 }
 
 /**

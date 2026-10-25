@@ -11,7 +11,7 @@
  * caller can tell apart.
  */
 
-import { traceContextOf } from "../../trace-context.ts";
+import { sendsTraceContext, traceContextOf } from "../../trace-context.ts";
 import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
 import {
@@ -58,8 +58,12 @@ export interface RemoteTarget {
   /** The local endpoint, for log lines and messages. */
   endpoint: string;
   client: OpsHttpClient;
-  /** Whether a dispatch sends its trace context; see `RemoteDefinition.traceContext`. */
-  traceContext: boolean;
+  /**
+   * Whether a dispatch sends its trace context, when the remote says; see
+   * `RemoteDefinition.traceContext`. Unset defers to the context's
+   * `traceContext.outbound`.
+   */
+  traceContext: boolean | undefined;
   /** The remote named for a reader, without the credential. */
   describe(): string;
   /**
@@ -135,7 +139,9 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
       outcome = await client.dispatch(
         id,
         exchange.body,
-        this.target.traceContext ? traceContextOf(exchange) : undefined,
+        sendsTraceContext(ctx, this.target.traceContext)
+          ? traceContextOf(exchange)
+          : undefined,
       );
     } catch (error: unknown) {
       throw await this.translate(error);

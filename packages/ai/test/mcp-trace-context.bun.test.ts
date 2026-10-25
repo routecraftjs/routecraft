@@ -2,11 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import {
   craft,
+  CraftContext,
+  definePlugin,
   HeadersKeys,
   noop,
   simple,
   type AnyRouteBuilder,
   type Exchange,
+  type Plugin,
   type TraceContextMode,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
@@ -28,6 +31,33 @@ const CARRIER = {
   traceparent: PARENT,
   tracestate: "rc=c:journey-1;x:exchange-9",
 };
+
+type Ids = { correlationId: string; causationId?: string };
+
+function idsOf(ex: Exchange): Ids {
+  return {
+    correlationId: ex.headers[HeadersKeys.CORRELATION_ID] as string,
+    ...(typeof ex.headers[HeadersKeys.CAUSATION_ID] === "string"
+      ? { causationId: ex.headers[HeadersKeys.CAUSATION_ID] as string }
+      : {}),
+  };
+}
+
+/** A plugin whose `beforeAuth` observe hook records the journey ids, the earliest a plugin sees them. */
+function beforeAuthWitness(seen: Ids[]): Plugin {
+  return definePlugin({
+    id: "test.ledger",
+    hooks: {
+      beforeAuth: {
+        id: "requested",
+        phase: "observe",
+        run(exchange) {
+          seen.push(idsOf(exchange));
+        },
+      },
+    },
+  });
+}
 
 describe("MCP trace context", () => {
   let t: TestContext | undefined;
@@ -70,20 +100,65 @@ describe("MCP trace context", () => {
       ]),
     });
 
-    await dispatchMcpCallRaw(service, "traced", "tool", {}, CARRIER);
-    await dispatchMcpCallRaw(service, "quiet", "tool", {}, CARRIER);
+    const trace = { context: undefined, carrier: () => CARRIER };
+    await dispatchMcpCallRaw(service, "traced", "tool", {}, trace);
+    await dispatchMcpCallRaw(service, "quiet", "tool", {}, trace);
 
     expect(seen.get("traced")).toEqual(CARRIER);
     expect(seen.get("quiet")).toBeUndefined();
+  });
+
+  /**
+   * @case The most specific trace-context setting decides: the call, then the client, then the config
+   * @preconditions A context built with traceContext { outbound: false }; stdio clients registered with traceContext true, false and unset, recorded by a fake caller; dispatchMcpCallRaw called with and without the call's own setting
+   * @expectedResult Unset everywhere follows the config and sends nothing; a client registered true sends; a call's own true sends to a client registered false; a call's own false sends nothing to a client registered true
+   */
+  test("client: the call, then the client, then the outbound default", async () => {
+    const seen: Array<Record<string, string> | undefined> = [];
+    const caller: McpStdioToolCaller = {
+      async callTool() {
+        return {};
+      },
+      async callToolRaw(_name, _args, meta) {
+        seen.push(meta);
+        return { content: [] };
+      },
+    };
+    const service = createMcpService({
+      stdio: new Map([
+        ["unset", caller],
+        ["on", caller],
+        ["off", caller],
+      ]),
+      clients: new Map([
+        ["unset", { transport: "stdio", command: "x" }],
+        ["on", { transport: "stdio", command: "x", traceContext: true }],
+        ["off", { transport: "stdio", command: "x", traceContext: false }],
+      ]),
+    });
+    const context = new CraftContext({ traceContext: { outbound: false } });
+    const call = (own?: boolean) => ({
+      context,
+      ...(own !== undefined ? { own } : {}),
+      carrier: () => CARRIER,
+    });
+
+    await dispatchMcpCallRaw(service, "unset", "tool", {}, call());
+    await dispatchMcpCallRaw(service, "on", "tool", {}, call());
+    await dispatchMcpCallRaw(service, "off", "tool", {}, call(true));
+    await dispatchMcpCallRaw(service, "on", "tool", {}, call(false));
+
+    expect(seen).toEqual([undefined, CARRIER, CARRIER, undefined]);
   });
 
   async function connect(
     options: McpPluginOptions,
     seen: Array<{ correlationId: string; causationId?: string }>,
     headers: Record<string, string> = {},
+    plugins: Plugin[] = [],
   ): Promise<Client> {
     t = await testContext()
-      .with({ plugins: [mcpPort()] })
+      .with({ plugins: [mcpPort(), ...plugins] })
       .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .routes([
         craft()
@@ -151,11 +226,12 @@ describe("MCP trace context", () => {
 
   /**
    * @case An authenticated tool call's trace context is adopted under the default mode
-   * @preconditions An HTTP MCP server whose auth validator admits the token "good", traceContext left at its default; a tools/call with that bearer and the trace context in _meta
-   * @expectedResult The exchange carries the caller's correlation id and the caller's exchange as its cause
+   * @preconditions An HTTP MCP server whose auth validator admits the token "good", traceContext left at its default; a plugin with a beforeAuth observe hook; a tools/call with that bearer and the trace context in _meta
+   * @expectedResult The exchange carries the caller's correlation id and the caller's exchange as its cause, and the beforeAuth hook already sees both
    */
   test("server: authenticated _meta is adopted by default", async () => {
     const seen: Array<{ correlationId: string; causationId?: string }> = [];
+    const early: Ids[] = [];
     const c = await connect(
       {
         auth: {
@@ -167,11 +243,13 @@ describe("MCP trace context", () => {
       },
       seen,
       { Authorization: "Bearer good" },
+      [beforeAuthWitness(early)],
     );
     await c.callTool({ name: "traced-tool", arguments: {}, _meta: CARRIER });
     expect(seen).toEqual([
       { correlationId: "journey-1", causationId: "exchange-9" },
     ]);
+    expect(early).toEqual(seen);
   });
 
   /**

@@ -2,6 +2,8 @@ import {
   clipText,
   isRoutecraftError,
   rcError,
+  sendsTraceContext,
+  type CraftContext,
   type TraceContextCarrier,
 } from "@routecraft/routecraft";
 // Registers AI2003 before any dispatch can throw it.
@@ -14,6 +16,22 @@ import {
   type McpClientHttpConfig,
   type McpRawToolResult,
 } from "./types.ts";
+
+/**
+ * The trace context a tool call may carry, and what has a say over whether
+ * it does: the call's own `traceContext`, then the client's registration,
+ * then the context's `traceContext.outbound`.
+ *
+ * @internal
+ */
+export interface McpCallTrace {
+  /** The calling exchange's context, whose `traceContext.outbound` is the last word. */
+  readonly context: CraftContext | undefined;
+  /** The call's own `traceContext`, when it set one. */
+  readonly own?: boolean | undefined;
+  /** Builds the carrier, and only runs when the call sends it. */
+  readonly carrier: () => TraceContextCarrier;
+}
 
 /**
  * Dispatch an MCP tool call against a server registered via
@@ -42,7 +60,7 @@ export async function dispatchMcpCall(
   serverId: string,
   toolName: string,
   args: Record<string, unknown>,
-  trace?: TraceContextCarrier,
+  trace?: McpCallTrace,
 ): Promise<unknown> {
   return toolResultBody(
     await dispatchMcpCallRaw(service, serverId, toolName, args, trace),
@@ -143,12 +161,16 @@ export async function dispatchMcpCallRaw(
   serverId: string,
   toolName: string,
   args: Record<string, unknown>,
-  trace?: TraceContextCarrier,
+  trace?: McpCallTrace,
 ): Promise<McpRawToolResult> {
   const config = service?.clients.get(serverId);
-  // A client registered with `traceContext: false` sends nothing.
-  const optedOut = typeof config === "object" && config.traceContext === false;
-  const meta = trace !== undefined && !optedOut ? { ...trace } : undefined;
+  const registered =
+    typeof config === "object" ? config.traceContext : undefined;
+  const meta =
+    trace !== undefined &&
+    sendsTraceContext(trace.context, trace.own, registered)
+      ? { ...trace.carrier() }
+      : undefined;
   const manager = service?.stdio.get(serverId);
   if (manager) {
     try {

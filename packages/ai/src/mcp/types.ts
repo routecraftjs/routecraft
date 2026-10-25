@@ -741,8 +741,9 @@ export interface McpClientOptions {
    * Send the exchange's W3C trace context on the call, in `_meta` as MCP
    * carries it (SEP-414), so the server continues the journey: a Routecraft
    * server keeps the correlation id and records this exchange as the cause
-   * when it adopts the context. On by default; `false` sends nothing. A
-   * client registered with `traceContext: false` sends nothing either.
+   * when it adopts the context. `false` sends nothing and `true` sends it
+   * whatever else says; unset follows the client's registration, then the
+   * config's `traceContext.outbound`, which is on unless set.
    */
   traceContext?: boolean;
 }

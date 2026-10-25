@@ -1206,21 +1206,23 @@ function mcpEntryToResolvedTool(
     }
   }
   const input = standardSchemaFromJsonSchema(entry.inputSchema);
-  const handler: FnOptions["handler"] = async (rawInput, hctx) =>
-    dispatchMcpCall(
+  const handler: FnOptions["handler"] = async (rawInput, hctx) => {
+    const { exchangeId, correlationId } = hctx;
+    return dispatchMcpCall(
       ctx.lookup(MCP),
       entry.source,
       entry.name,
       objectArguments(name, rawInput),
       // The turn's journey continues into the server, as a `directTool`
       // dispatch continues into its route.
-      hctx.exchangeId !== undefined
-        ? traceContextFor(
-            { exchangeId: hctx.exchangeId, correlationId: hctx.correlationId },
-            ctx,
-          )
+      exchangeId !== undefined
+        ? {
+            context: ctx,
+            carrier: () => traceContextFor({ exchangeId, correlationId }, ctx),
+          }
         : undefined,
     );
+  };
   const tool: ResolvedTool = {
     name,
     description,

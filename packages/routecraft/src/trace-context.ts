@@ -246,6 +246,40 @@ export function traceContextOf(exchange: Exchange): TraceContextCarrier {
 }
 
 /**
+ * The application's say over the trace context its outbound clients send,
+ * set once as `traceContext` in the config.
+ */
+export interface TraceContextConfig {
+  /**
+   * Whether the `http()` client, the MCP clients and the remotes channel
+   * send `traceparent` and `tracestate` when nothing more specific says.
+   * `false` keeps journey ids from every third party at once; a call's own
+   * `traceContext`, then its MCP client's or remote's, still wins. Defaults
+   * to `true`. Inbound adoption is each door's own option.
+   */
+  readonly outbound?: boolean;
+}
+
+/**
+ * Whether an outbound call sends its trace context: the first setting that
+ * says, most specific first (the call's own `traceContext`, then its MCP
+ * client's or remote's), else the context's `traceContext.outbound`, else
+ * yes.
+ *
+ * @param context - The calling exchange's context, if it has one
+ * @param settings - The call's own settings, most specific first
+ */
+export function sendsTraceContext(
+  context: CraftContext | undefined,
+  ...settings: ReadonlyArray<boolean | undefined>
+): boolean {
+  for (const setting of settings) {
+    if (setting !== undefined) return setting;
+  }
+  return context?.outboundTraceContext ?? true;
+}
+
+/**
  * The trace context a call carries when the caller holds the ids of the
  * exchange it runs for rather than the exchange itself: an agent's tool
  * handler, which sees its turn's correlation and exchange ids on the

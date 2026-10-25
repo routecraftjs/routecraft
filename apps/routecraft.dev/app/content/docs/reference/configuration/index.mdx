@@ -100,6 +100,7 @@ A disabled route is registered and known to the context, not started, not intaki
 | `shutdown` | `{ timeout?: Duration }` | No | `{ timeout: 30000 }` | How long a graceful shutdown may drain before it is forced ([details](#shutdown)) |
 | `plugins` | `Plugin[]` | No | -- | Plugins to install, bound in dependency order before routes are registered ([details](/docs/reference/plugins)) |
 | `hooks` | `HooksConfig` | No | -- | The order of plugin hooks within a slot, and hooks switched off ([details](#hooks)) |
+| `traceContext` | `{ outbound?: boolean }` | No | `{ outbound: true }` | Whether the outbound clients send W3C trace context when nothing more specific says ([details](#trace-context)) |
 
 ### Ecosystem keys (added by `@routecraft/ai`)
 
@@ -274,7 +275,7 @@ Each entry is one remote, keyed by name. The routes of `default` are advertised 
 | `auth.token` | `string \| () => string \| undefined \| Promise<...>` | -- | Bearer for the remote's door, evaluated per request when a function |
 | `timeout` | `Duration` | `'30s'` | Per-request deadline against the remote |
 | `refresh` | `Duration \| false` | `'60s'` | How often the inventory is re-read; `false` disables the interval |
-| `traceContext` | `boolean` | `true` | Send each dispatch's W3C trace context so the remote can continue the [journey](/docs/introduction/exchange#journeys-correlation-and-causation). The remote adopts it by default only from a caller its dispatch tier authenticated; `false` sends nothing |
+| `traceContext` | `boolean` | [`traceContext.outbound`](#trace-context) | Send each dispatch's W3C trace context so the remote can continue the [journey](/docs/introduction/exchange#journeys-correlation-and-causation). The remote adopts it by default only from a caller its dispatch tier authenticated; `false` sends nothing |
 
 The key applies after `ops`, whatever order the two are written in, so each remote's `remote.<name>` health indicator has a ledger to report into when the app carries an ops surface. The credential is read from the environment; the CLI's `.routecraft/settings.yaml` is for the local instance `craft` talks to and is never read here.
 
@@ -456,6 +457,28 @@ defaults to 30 seconds. A context with an HTTP mount and both defaults can
 therefore take up to 60 seconds to exit. When you size `timeout` against a
 platform kill timer, budget for the plugin stop that follows it, not for
 `timeout` alone.
+
+### traceContext
+
+`traceContext.outbound` decides whether the `http()` client, the MCP
+clients and the remotes channel send the exchange's W3C trace context
+(`traceparent` and `tracestate`, in `_meta` for MCP) when nothing more
+specific says. It defaults to `true`. Set it to `false` once when journey
+ids must not reach third parties, and opt the calls you trust back in:
+
+```ts
+export const craftConfig = defineConfig({
+  traceContext: { outbound: false },
+})
+```
+
+The most specific setting wins: a call's own `traceContext` (`http()`,
+`mcp()`), then the MCP client's or the remote's registration, then this
+key. A value that is not a boolean is refused with
+[`RC5003`](/docs/reference/errors#rc-5003). Inbound adoption is each
+door's own option: see [httpPlugin](/docs/reference/plugins/httpplugin),
+[opsPlugin](/docs/reference/plugins/opsplugin) and
+[mcpPlugin](/docs/reference/plugins/mcpplugin).
 
 ## Hooks
 

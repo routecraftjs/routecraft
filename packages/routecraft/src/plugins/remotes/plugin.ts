@@ -549,7 +549,7 @@ function target(
     id,
     endpoint,
     client: remote.client,
-    traceContext: remote.definition.traceContext !== false,
+    traceContext: remote.definition.traceContext,
     describe: () => remote.definition.url,
     onMissing: () => refresh(host, remote),
   };

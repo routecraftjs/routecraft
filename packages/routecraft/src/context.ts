@@ -42,6 +42,7 @@ import { applicationPlugins } from "./kernel/defaults.ts";
 import { installFacet } from "./kernel/facets.ts";
 import { HeadersKeys, type Exchange } from "./exchange.ts";
 import { existingLineageOf } from "./lineage.ts";
+import type { TraceContextConfig } from "./trace-context.ts";
 import type { Plugin, RouteView } from "./kernel/plugin.ts";
 import { readonlyView } from "./kernel/readonly.ts";
 import {
@@ -176,6 +177,29 @@ function rejectStaleConfig(config: CraftConfig): void {
   rejectStaleOptions(config.telemetry?.sqlite, "telemetry.sqlite");
 }
 
+/**
+ * `traceContext.outbound`, refused with `RC5003` when it is not a boolean:
+ * a string `"false"` from an environment variable would otherwise read as
+ * on and send what the setting was written to stop.
+ */
+function resolveOutboundTraceContext(
+  config: TraceContextConfig | undefined,
+): boolean {
+  if (config === undefined) return true;
+  if (typeof config !== "object" || config === null) {
+    throw rcError("RC5003", undefined, {
+      message: `traceContext must be an object such as { outbound: false }; got ${JSON.stringify(config)}.`,
+    });
+  }
+  const { outbound } = config;
+  if (outbound !== undefined && typeof outbound !== "boolean") {
+    throw rcError("RC5003", undefined, {
+      message: `traceContext.outbound must be a boolean; got ${JSON.stringify(outbound)}.`,
+    });
+  }
+  return outbound ?? true;
+}
+
 /** Shared empty set, so the no-predicate boot path allocates nothing. */
 const EMPTY_ROUTE_IDS: ReadonlySet<string> = new Set<string>();
 
@@ -197,6 +221,7 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "plugins",
   "shutdown",
   "hooks",
+  "traceContext",
 ]);
 
 /**
@@ -254,6 +279,16 @@ export interface CraftConfig {
    * ```
    */
   hooks?: HooksConfig;
+  /**
+   * The trace context the outbound clients send.
+   *
+   * @example
+   * ```typescript
+   * // No journey ids to vendors unless a call opts in.
+   * traceContext: { outbound: false }
+   * ```
+   */
+  traceContext?: TraceContextConfig;
 }
 
 /**
@@ -344,6 +379,15 @@ export class CraftContext {
 
   /** Service / application name, surfaced on logs as `service.name`. */
   public readonly name?: string;
+
+  /**
+   * Whether outbound clients send trace context when nothing more specific
+   * says: `traceContext.outbound` from the config. Read through
+   * `sendsTraceContext`.
+   *
+   * @internal
+   */
+  public readonly outboundTraceContext: boolean = true;
 
   /** Routes registered with this context */
   private routes: Route[] = [];
@@ -445,6 +489,9 @@ export class CraftContext {
     setBrand(this, BRAND.CraftContext);
     if (config !== undefined) rejectStaleConfig(config);
     if (config?.name !== undefined) this.name = config.name;
+    this.outboundTraceContext = resolveOutboundTraceContext(
+      config?.traceContext,
+    );
     this.shutdownTimeoutMs = resolveShutdownTimeout(config?.shutdown?.timeout);
     this.hooksConfig = config?.hooks ?? {};
     this.logger = logger.child(childBindings(this));

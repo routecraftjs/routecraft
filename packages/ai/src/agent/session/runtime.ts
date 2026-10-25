@@ -411,10 +411,11 @@ export class AgentSessionRuntime {
     const call = snapshot && backgroundCallOf(snapshot.headers);
     if (!call) return;
     this.track(
-      this.settleBackground(call.session, {
-        handle: call.handle,
-        ...outcome(),
-      }),
+      this.settleBackground(
+        call.session,
+        { handle: call.handle, ...outcome() },
+        exchangeId,
+      ),
       call,
     );
   }
@@ -800,10 +801,15 @@ export class AgentSessionRuntime {
    * `undefined` and writes nothing, so the event that ended the run and a
    * dispatch that rejected without one can both report it, and whichever
    * lands first is the settlement.
+   *
+   * @param settledBy - The run whose outcome this is, when one ran: the
+   *   revival it wakes records it as `resumerExchangeId`, so a ledger links
+   *   the approval that resumed the call to the turn the call woke.
    */
   async settleBackground(
     key: AgentSessionKey,
     outcome: BackgroundOutcome,
+    settledBy?: string,
   ): Promise<{ depth: number; running: boolean } | undefined> {
     const current = await this.store.load(key);
     const call = current?.background.find((b) => b.handle === outcome.handle);
@@ -827,7 +833,7 @@ export class AgentSessionRuntime {
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
     if (running) this.postedDuring.add(key);
-    else this.deliverIdle(key, record, "settlement");
+    else this.deliverIdle(key, record, "settlement", settledBy);
     return { depth: record.inbox.length, running };
   }
 
@@ -1708,6 +1714,8 @@ export class AgentSessionRuntime {
    *
    * @param wake - What woke the session; a `settlement` re-identifies the
    *   parked principal before the revival ({@link reidentify}).
+   * @param wokenBy - The exchange whose outcome woke the session, recorded
+   *   on the revived turn's `route:exchange:resumed` as `resumerExchangeId`
    */
   private revive<T>(
     key: AgentSessionKey,
@@ -1715,6 +1723,7 @@ export class AgentSessionRuntime {
     deferral: AgentSessionDeferral,
     wake: Wake,
     fallback?: { k: string; req: AgentTurnRequest<T> },
+    wokenBy?: string,
   ): void {
     const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
@@ -1733,7 +1742,10 @@ export class AgentSessionRuntime {
         deferral.deferralId,
         new Date(),
       );
-      await this.host.resume({ token, result: undefined }, options);
+      await this.host.resume(
+        { token, result: undefined },
+        wokenBy === undefined ? options : { ...options, exchangeId: wokenBy },
+      );
     })()
       .catch(async (err: unknown) => {
         this.host.logger.error(
@@ -1865,6 +1877,7 @@ export class AgentSessionRuntime {
     key: AgentSessionKey,
     record: AgentSessionRecord,
     wake: "append" | "settlement",
+    wokenBy?: string,
   ): void {
     // Once shutdown began the append stays in the record for the next
     // process: a turn started now would run on a context being drained.
@@ -1878,6 +1891,7 @@ export class AgentSessionRuntime {
         record.deferral,
         wake,
         last ? { k, req: last } : undefined,
+        wokenBy,
       );
     } else if (record.inbox.length > 0 && last && !this.active.has(k)) {
       this.followUpInProcess(k, last);
