@@ -82,7 +82,7 @@
         "@types/mdx": "^2.0.13",
         "@types/node": "^25.9.9",
         "@types/react": "^19.2.18",
-        "@types/react-dom": "^19.2.4",
+        "@types/react-dom": "^19.2.7",
         "@vitejs/plugin-react": "^6.1.2",
         "acorn": "^8.19.0",
         "bun-types": "^1.4.3",
@@ -99,7 +99,7 @@
         "remark-frontmatter": "^5.0.0",
         "remark-gfm": "^4.0.1",
         "remark-mdx-frontmatter": "^5.2.0",
-        "satori": "^0.35.2",
+        "satori": "^0.47.1",
         "sharp": "^0.35.5",
         "typescript-eslint": "^8.71.2",
         "unist-util-visit": "^5.0.0",
@@ -283,7 +283,7 @@
         "pino": "^10.4.0",
       },
       "devDependencies": {
-        "@opentelemetry/sdk-trace-base": "2.12.0",
+        "@opentelemetry/sdk-trace-base": "^2.12.0",
         "@routecraft/testing": "workspace:*",
         "@sinonjs/fake-timers": "^11.3.1",
         "@types/better-sqlite3": "^7.6.13",
@@ -297,13 +297,13 @@
         "croner": "^10.0.1",
         "fast-xml-parser": "^5.11.2",
         "imapflow": "^1.7.8",
-        "mailauth": "7.3.1",
-        "mailparser": "3.9.47",
-        "nodemailer": "10.1.7",
+        "mailauth": "^7.3.1",
+        "mailparser": "^3.9.47",
+        "nodemailer": "^10.1.7",
         "papaparse": "^5.7.0",
         "semver": "^7.8.5",
-        "tsdav": "2.5.0",
-        "vitest": "4.1.12",
+        "tsdav": "^2.5.0",
+        "vitest": "^4.1.12",
         "zod": "^4.6.6",
       },
       "optionalDependencies": {
@@ -2673,7 +2673,7 @@
 
     "sass-lookup": ["sass-lookup@6.1.2", "", { "dependencies": { "commander": "^12.1.0", "enhanced-resolve": "^5.20.0" }, "bin": { "sass-lookup": "bin/cli.js" } }, "sha512-GjmndmKQBtlPil79RK72L7yc5kDXZPCQeH97bP8R8DcxtXQJO6vECExb3WP/m6+cxaV9h4ZxrSRvCkPG2v/VSw=="],
 
-    "satori": ["satori@0.35.2", "", { "dependencies": { "@shuding/opentype.js": "1.4.0-beta.0", "css-background-parser": "^0.1.0", "css-box-shadow": "1.0.0-3", "css-gradient-parser": "^0.0.17", "css-to-react-native": "^3.0.0", "emoji-regex-xs": "^2.0.1", "escape-html": "^1.0.3", "fflate": "0.7.3", "harfbuzzjs": "0.10.0", "linebreak": "^1.1.0", "parse-css-color": "^0.2.1", "postcss-value-parser": "^4.2.0", "yoga-layout": "^3.2.1" } }, "sha512-QOW836h7eF/ABYGY2IS8tb7JOf9S4T0jTkpQJfnK3W/WWKDhEoEp0Ax5KewSqU/KZh6cxGskA0tev35u4Jl/XA=="],
+    "satori": ["satori@0.47.1", "", { "dependencies": { "@shuding/opentype.js": "1.4.0-beta.0", "css-background-parser": "^0.1.0", "css-box-shadow": "1.0.0-3", "css-gradient-parser": "^0.0.17", "css-to-react-native": "^3.0.0", "emoji-regex-xs": "^2.0.1", "escape-html": "^1.0.3", "fflate": "0.7.3", "harfbuzzjs": "0.10.0", "linebreak": "^1.1.0", "parse-css-color": "^0.2.1", "postcss-value-parser": "^4.2.0" } }, "sha512-hoRMFMXQ9o4VvcOZ+5pXKRAuWJkjvUzRz3fZJoFrAT3MVfuUvMWROe50lB7AREI1m9a0FAlEMDdQ3WPvHLm7FA=="],
 
     "sax": ["sax@1.6.0", "", {}, "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA=="],
 
