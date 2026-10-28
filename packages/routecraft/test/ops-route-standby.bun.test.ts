@@ -59,6 +59,7 @@ describe("routes on standby", () => {
     });
     const on = await health(port);
     expect(on.status).toBe(200);
+    expect(on.body.status).toBe("up");
     expect(on.body.routes["vendor-search"]).toMatchObject({
       status: "inactive",
       details: {

@@ -909,9 +909,19 @@ export class McpServer {
    */
   private watchExactProxies(): void {
     this.checkExactProxies();
+    const check = (): void => {
+      try {
+        this.checkExactProxies();
+      } catch (error) {
+        this.host.logger.error(
+          { err: error },
+          "Failed to check MCP proxy routes against their clients' tools",
+        );
+      }
+    };
     this.stopObservingClients.push(
-      this.service.tools.onChange(() => this.checkExactProxies()),
-      this.service.onChange(() => this.checkExactProxies()),
+      this.service.tools.onChange(check),
+      this.service.onChange(check),
     );
   }
 
@@ -1296,6 +1306,8 @@ export class McpServer {
     // context subscription that must not outlive it.
     this.stopListeningForServer();
     for (const stop of this.stopObservingClients.splice(0)) stop();
+    // A server started again judges every exact route afresh.
+    this.exactProxyStates.clear();
     this.stdioServers.clear();
     if (!this.running && !this.unmountHttp && this.mcpHandlers.size === 0) {
       return;

@@ -49,7 +49,16 @@ export class McpToolRegistry {
 
   private changed(): void {
     this.changeVersion++;
-    for (const listener of this.listeners) listener();
+    // A listener that throws must not fail the listing that changed the
+    // tools, nor keep the listeners after it from running; each one logs
+    // its own failures.
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch {
+        // Owned by the listener.
+      }
+    }
   }
 
   /**

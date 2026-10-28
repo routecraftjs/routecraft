@@ -243,9 +243,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       c.observe("route:standby:changed", ({ details }) => {
         state.setRouteStandby(
           details.routeId,
-          details.standby
-            ? (details.reason ?? "the route has nothing to serve")
-            : undefined,
+          details.standby ? details.reason : undefined,
         );
       });
       // The only route-liveness signal. `context:error` is deliberately not

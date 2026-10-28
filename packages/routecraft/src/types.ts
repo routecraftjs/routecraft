@@ -574,11 +574,9 @@ export interface EventDetailsMap {
    * `reason` is present only when `standby` is true, and is what ops
    * reports next to the route, which reads `inactive` while it holds.
    */
-  "route:standby:changed": {
-    routeId: string;
-    standby: boolean;
-    reason?: string;
-  };
+  "route:standby:changed":
+    | { routeId: string; standby: true; reason: string }
+    | { routeId: string; standby: false };
   "route:starting": { routeId: string; route: Route };
   "route:started": { routeId: string; route: Route };
   "route:stopping": {
