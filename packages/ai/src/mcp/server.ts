@@ -1306,8 +1306,10 @@ export class McpServer {
     // context subscription that must not outlive it.
     this.stopListeningForServer();
     for (const stop of this.stopObservingClients.splice(0)) stop();
-    // A server started again judges every exact route afresh.
-    this.exactProxyStates.clear();
+    // The exact-proxy states are kept: they mirror the standby ops holds,
+    // so a server started again compares against them and announces a
+    // recovery, while a registration withdrawn meanwhile is cleared by the
+    // next check. Clearing them here would strand a route on standby.
     this.stdioServers.clear();
     if (!this.running && !this.unmountHttp && this.mcpHandlers.size === 0) {
       return;

@@ -139,6 +139,28 @@ describe("exact proxy routes over a missing remote tool", () => {
   });
 
   /**
+   * @case A server started again announces the recovery of a route it had put on standby
+   * @preconditions An exact route on standby; the MCP server stops while the route stays registered, the client lists the tool, and the server starts again
+   * @expectedResult route:standby:changed { standby: false } follows the standby event, so the route is not left stuck on standby
+   */
+  test("a restarted server announces a recovery", async () => {
+    const { registry, events } = await serve([exactSearch()], ["find"]);
+    await server!.stop();
+    registry.setToolsForSource("vendor", "stdio", [
+      { name: "search", inputSchema: { type: "object" } },
+    ]);
+    await server!.start();
+    expect(events).toEqual([
+      {
+        routeId: "vendor-search",
+        standby: true,
+        reason: 'client "vendor" does not list tool "search"',
+      },
+      { routeId: "vendor-search", standby: false },
+    ]);
+  });
+
+  /**
    * @case An exact route whose tool is listed, and a star route, emit nothing
    * @preconditions The client lists "search"; an exact route over vendor:search and a star route over vendor
    * @expectedResult No route:standby:changed event and no warning naming either route
