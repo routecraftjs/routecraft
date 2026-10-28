@@ -102,7 +102,7 @@ export function mcp(
     if (
       options !== undefined &&
       typeof options === "object" &&
-      "auth" in options
+      (options as { auth?: unknown }).auth !== undefined
     ) {
       throw authBesideServerId(serverId);
     }
@@ -149,7 +149,7 @@ export function mcp(
 function authBesideServerId(serverId: string): Error {
   return rcError("RC5003", undefined, {
     message: `mcp(): auth cannot be passed beside serverId "${serverId}": a registered client calls with the auth its registration holds`,
-    suggestion: `Set the credential on the client in mcpPlugin({ clients: { ${JSON.stringify(serverId)}: { url, auth } } }), or call an inline mcp({ url, tool, auth }) for a credential this route owns.`,
+    suggestion: `An HTTP client takes its credential on its registration, mcpPlugin({ clients: { ${JSON.stringify(serverId)}: { url, auth } } }); a stdio client takes none. For a credential this route owns, call an inline mcp({ url, tool, auth }).`,
   });
 }
 

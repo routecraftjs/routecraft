@@ -34,10 +34,13 @@ describe("mcp() auth beside serverId", () => {
   let capture: ReturnType<typeof captureAuthorization> | undefined;
 
   afterEach(async () => {
-    if (t) await t.stop();
-    t = undefined;
-    capture?.restore();
-    capture = undefined;
+    try {
+      if (t) await t.stop();
+    } finally {
+      t = undefined;
+      capture?.restore();
+      capture = undefined;
+    }
   });
 
   /**
@@ -60,6 +63,24 @@ describe("mcp() auth beside serverId", () => {
     expect(() =>
       mcp("github:create_issue", { auth: { token: "b" } } as never),
     ).toThrow(expect.objectContaining({ rc: "RC5003" }));
+  });
+
+  /**
+   * @case An auth key left undefined is no credential, in either form
+   * @preconditions mcp({ serverId, tool, auth: undefined }) and mcp("server:tool", { auth: undefined })
+   * @expectedResult Neither throws
+   */
+  test("an undefined auth is not refused", () => {
+    expect(() =>
+      mcp({
+        serverId: "github",
+        tool: "create_issue",
+        auth: undefined,
+      } as never),
+    ).not.toThrow();
+    expect(() =>
+      mcp("github:create_issue", { auth: undefined } as never),
+    ).not.toThrow();
   });
 
   /**
