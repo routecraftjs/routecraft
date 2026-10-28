@@ -1769,7 +1769,7 @@ export class McpServer {
           ? undefined
           : unalteredHopResult(requestId, publishedBody);
       const content =
-        unaltered?.content !== undefined && unaltered.content.length > 0
+        unaltered?.content !== undefined
           ? unaltered.content
           : [{ type: "text", text: resultText }];
       const result: McpToolCallResult = { content };

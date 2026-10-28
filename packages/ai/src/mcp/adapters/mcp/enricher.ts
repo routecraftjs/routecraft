@@ -185,9 +185,13 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
         raw,
         `"${this.options.serverId}:${toolName}"`,
       );
-      // Only a hop to the client the proxied call addressed; the server
-      // keeps it only while it is answering that call.
-      if (exchange.headers[McpHeadersKeys.CLIENT] === this.options.serverId) {
+      // Only a hop to the tool the proxied call addressed, on its client: a
+      // route that answers with another tool's result is shaping the answer.
+      // The server keeps the record only while it is answering that call.
+      if (
+        exchange.headers[McpHeadersKeys.CLIENT] === this.options.serverId &&
+        exchange.headers[McpHeadersKeys.TOOL] === toolName
+      ) {
         recordHopResult(exchange.headers[McpHeadersKeys.REQUEST], result, raw);
       }
       if (result && typeof result === "object") {

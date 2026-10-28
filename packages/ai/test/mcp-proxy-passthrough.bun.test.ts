@@ -67,11 +67,13 @@ describe("proxied results pass through when the route leaves them alone", () => 
         },
       },
       { name: "failing", inputSchema: { type: "object" } },
+      { name: "empty", inputSchema: { type: "object" } },
     ]);
     const answers: Record<string, McpRawToolResult> = {
       get_thumbnail: IMAGE,
       list_lines: TWO_TEXTS,
       get_contact: STRUCTURED,
+      empty: { content: [], _meta: { "vendor/empty": true } },
       failing: {
         content: [{ type: "text", text: "quota exceeded" }],
         isError: true,
@@ -82,7 +84,9 @@ describe("proxied results pass through when the route leaves them alone", () => 
         "drive",
         {
           callTool: async () => "unused",
-          callToolRaw: async (name: string) => answers[name]!,
+          // A copy per call, as a remote's answer is, so a route that edits
+          // the body in place cannot change the fixture under later tests.
+          callToolRaw: async (name: string) => structuredClone(answers[name]!),
         },
       ],
     ]);
@@ -170,6 +174,38 @@ describe("proxied results pass through when the route leaves them alone", () => 
       { type: "text", text: JSON.stringify({ redacted: true }) },
     ]);
     expect(result._meta).toBeUndefined();
+  });
+
+  /**
+   * @case An empty content array passes through as the remote sent it
+   * @preconditions The remote answers content: [] and _meta
+   * @expectedResult content is [], not a text block of the raw result, and _meta is carried
+   */
+  test("an empty content array passes through", async () => {
+    const result = await call(await serve([star()]), "drive_empty");
+    expect(result.content).toEqual([]);
+    expect(result._meta).toEqual({ "vendor/empty": true });
+  });
+
+  /**
+   * @case A route that answers with another tool's result is serialised
+   * @preconditions Star route whose last hop calls a different tool of the same client than the one the caller addressed
+   * @expectedResult content is one text block of the body, and the other tool's raw result is not passed through
+   */
+  test("an answer from another tool is serialised", async () => {
+    const result = await call(
+      await serve([
+        craft()
+          .id("drive")
+          .from(mcp({ proxy: "drive:*" }))
+          .to(mcp("drive:*"))
+          .to(mcp("drive:list_lines")),
+      ]),
+      "drive_get_thumbnail",
+    );
+    expect(result.content).toEqual([
+      { type: "text", text: JSON.stringify(TWO_TEXTS.content) },
+    ]);
   });
 
   /**
