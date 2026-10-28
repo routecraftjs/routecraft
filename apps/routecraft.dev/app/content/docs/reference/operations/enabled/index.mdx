@@ -50,7 +50,7 @@ The agent tool list is derived from what the context has enabled, so a disabled 
 ctx.capabilities() // the disabled route's endpoint is absent
 ```
 
-**Disabled is not down**, and it is not a typo either. Whatever refers to a disabled route by its id follows its enablement rather than failing:
+**Disabled is not down**, and it is not a typo either. An agent's tool references and a health indicator bound to the route follow its enablement rather than failing. Sending work to a disabled route is still refused, because a caller that sends work expects it done: an ops dispatch to it answers [`RC5060`](/docs/reference/errors#rc-5060). What follows the enablement:
 
 - An agent's `Direct(<id>)` reference, in code or in an agent's `.md` frontmatter, and a `directTool(<id>)` registered as a fn are left out of the agent's tools with one warning naming the reference, the route and the reason, and come back once the route is enabled. A reference to an id no route declares still fails, so a misspelling is not dropped quietly. See [disabled routes](/docs/reference/plugins/agentplugin#disabled-routes-are-not-offered).
 - An indicator bound to the route with `route` reports `inactive` with the route's reason and never goes stale. See [disabled is not down](/docs/reference/plugins/opsplugin#disabled-is-not-down).

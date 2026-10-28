@@ -118,6 +118,12 @@ export type EnablementState =
   | { readonly enabled: true }
   | { readonly enabled: false; readonly reason: string };
 
+/** Whether two states are the same verdict, with the same reason when disabled. */
+function sameState(a: EnablementState, b: EnablementState): boolean {
+  if (a.enabled || b.enabled) return a.enabled === b.enabled;
+  return a.reason === b.reason;
+}
+
 /** Reason recorded when a predicate returns a bare `false`. */
 export const DEFAULT_DISABLED_REASON =
   "the route's enabled() predicate returned false";
@@ -240,7 +246,19 @@ export function evaluateEnablementOnce(
 ): Promise<EnablementState> {
   const predicate: EnablementPredicate =
     typeof declaration === "function" ? declaration : () => declaration;
-  return evaluateEnablement({ predicate }, onThrow, subject);
+  // Reporting the failure must not undo the promise above: a logger that
+  // throws would turn a handled predicate error into a bind failure.
+  const report =
+    onThrow === undefined
+      ? undefined
+      : (err: unknown): void => {
+          try {
+            onThrow(err);
+          } catch {
+            // The predicate's failure is already the state's reason.
+          }
+        };
+  return evaluateEnablement({ predicate }, report, subject);
 }
 
 /**
@@ -594,10 +612,12 @@ export class RouteEnablementCoordinator<
   #record(route: R, state: EnablementState): void {
     const previous = this.#states.get(route.definition.id);
     this.#states.set(route.definition.id, state);
-    // Only a real transition is announced. A five-minute cadence over a
-    // stable predicate would otherwise emit a heartbeat that every listener
+    // Only a real change is announced: a flip, or a disabled route whose
+    // reason changed (one missing secret supplied, another still unset), so
+    // what ops shows is the reason that holds now. A five-minute cadence over
+    // a stable predicate would otherwise emit a heartbeat that every listener
     // has to filter, and the one event that matters would be lost in it.
-    if (previous !== undefined && previous.enabled === state.enabled) return;
+    if (previous !== undefined && sameState(previous, state)) return;
     this.deps.emitChanged(route, state);
   }
 

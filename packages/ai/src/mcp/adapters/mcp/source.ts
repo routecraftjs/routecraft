@@ -281,12 +281,15 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       !service.clients.has(ref.serverId) &&
       !service.disabledClients.has(ref.serverId)
     ) {
-      const known = [...service.clients.keys()];
+      const known = [
+        ...service.clients.keys(),
+        ...service.disabledClients.keys(),
+      ];
       throw rcError("RC5003", undefined, {
         message: `Route "${routeId}" proxies client "${ref.serverId}", which is not registered`,
         suggestion:
           known.length > 0
-            ? `Register it under mcpPlugin({ clients }). Registered clients: ${known.map((k) => `"${k}"`).join(", ")}.`
+            ? `Register it under mcpPlugin({ clients }). Declared clients: ${known.map((k) => `"${k}"`).join(", ")}.`
             : "Register it under mcpPlugin({ clients }); no clients are registered in this context.",
       });
     }

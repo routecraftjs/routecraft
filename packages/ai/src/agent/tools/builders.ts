@@ -163,8 +163,9 @@ export function directTool<TIn = unknown>(
     [LAZY_FN_BRAND]: true,
     kind: "direct",
     targetId: routeId,
-    checkTarget(discovery, fnId) {
+    checkTarget(host, discovery, fnId) {
       describedOrThrow(routeId, fnId, overrides, discovery);
+      parksOrThrow(host, routeId, fnId, overrides);
     },
     resolve(host, fnId): RegisteredFn {
       const route = readDirectRoute(host, routeId, fnId);
@@ -175,12 +176,7 @@ export function directTool<TIn = unknown>(
         route,
       );
       const tags = route.tags;
-      const parks = host.canDefer(routeId);
-      if (overrides?.background === false && parks) {
-        throw rcError("RC5003", undefined, {
-          message: `directTool: route "${routeId}" can park (a .defer(), a defer-capable step, or an error-slot hook that may park it), so its dispatch may answer with a Deferred acknowledgment in place of a result; a synchronous tool over it would tell the model the call completed. Drop background: false on it (referenced as fn "${fnId}").`,
-        });
-      }
+      const parks = parksOrThrow(host, routeId, fnId, overrides);
       const fields = {
         input,
         ...(tags && tags.length > 0 ? { tags: [...tags] } : {}),
@@ -204,6 +200,29 @@ export function directTool<TIn = unknown>(
       };
     },
   };
+}
+
+/**
+ * Whether the route can park, refusing a tool declared synchronous over a
+ * route that can: its dispatch may answer with a Deferred acknowledgment in
+ * place of a result, and a synchronous tool would tell the model the call
+ * completed.
+ *
+ * @throws RC5003 when `background: false` is declared over a parking route
+ */
+function parksOrThrow(
+  host: ToolHost,
+  routeId: string,
+  fnId: string,
+  overrides: { background?: boolean } | undefined,
+): boolean {
+  const parks = host.canDefer(routeId);
+  if (overrides?.background === false && parks) {
+    throw rcError("RC5003", undefined, {
+      message: `directTool: route "${routeId}" can park (a .defer(), a defer-capable step, or an error-slot hook that may park it), so its dispatch may answer with a Deferred acknowledgment in place of a result; a synchronous tool over it would tell the model the call completed. Drop background: false on it (referenced as fn "${fnId}").`,
+    });
+  }
+  return parks;
 }
 
 /**

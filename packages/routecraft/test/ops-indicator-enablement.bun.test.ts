@@ -118,6 +118,41 @@ describe("indicators follow enablement", () => {
   });
 
   /**
+   * @case A route that stays disabled with a new reason carries the new reason to its bound indicator
+   * @preconditions Probe route disabled with one reason; its predicate's reason changes and the route is re-evaluated, still disabled
+   * @expectedResult The route and its bound indicator both report the new reason
+   */
+  test("a changed disabled reason reaches the bound indicator", async () => {
+    const missing = { name: "UPTIME_TOKEN" };
+    const probe = defineIndicator({
+      name: "uptime",
+      maxAge: "150ms",
+      route: "probe-uptime",
+    });
+    const port = await start({ indicators: [probe] }, [
+      craft()
+        .id("probe-uptime")
+        .enabled(() => `${missing.name} is unset`, { refresh: "1h" })
+        .from(direct())
+        .to(noop()),
+      craft().id("worker").from(direct()).to(noop()),
+    ]);
+
+    missing.name = "UPTIME_URL";
+    await t!.ctx.reevaluateEnablement("probe-uptime");
+
+    const report = await health(port);
+    expect(report.body.indicators["uptime"]).toMatchObject({
+      status: "inactive",
+      details: { reason: expect.stringContaining("UPTIME_URL is unset") },
+    });
+    expect(report.body.routes["probe-uptime"]).toMatchObject({
+      status: "inactive",
+      details: { reason: expect.stringContaining("UPTIME_URL is unset") },
+    });
+  });
+
+  /**
    * @case An indicator disabled by its own declaration reports inactive and ignores pushes
    * @preconditions defineIndicator({ name: "ledger", enabled: "LEDGER_URL is unset" }); the app pushes down() after start
    * @expectedResult The indicator is inactive with the reason; the push is ignored, so the aggregate stays 200

@@ -215,6 +215,35 @@ describe("directTool fns over a disabled route", () => {
   });
 
   /**
+   * @case A synchronous fn over a disabled route that can park still fails the start
+   * @preconditions directTool("park", { background: false }) over a disabled, described route with a .defer()
+   * @expectedResult context start rejects with RC5003 naming the route as able to park, as it would for an enabled route
+   */
+  test("background: false over a disabled parking route is refused at start", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("park")
+          .enabled(() => "PARK_TOKEN is unset", { refresh: "1h" })
+          .description("Ask before acting")
+          .input(z.object({}))
+          .from(direct())
+          .defer({ schema: z.object({ ok: z.boolean() }) })
+          .to(log()),
+      ])
+      .with({
+        deferral: {},
+        plugins: [
+          agentPlugin({
+            functions: { park: directTool("park", { background: false }) },
+          }),
+        ],
+      })
+      .build();
+    await expect(t.ctx.start()).rejects.toThrow(/route "park" can park/);
+  });
+
+  /**
    * @case A fn whose route comes up after start resolves once and is announced then
    * @preconditions directTool fn "monitors" over a route disabled at start; the route is enabled; the fn is referenced on two dispatches
    * @expectedResult One agent:tool:registered event for "monitors" after the route came up, and none at start

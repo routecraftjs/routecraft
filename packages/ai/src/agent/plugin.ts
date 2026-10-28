@@ -435,10 +435,11 @@ function resolveLazyTools(
     // is offered nothing for it (with a warning at that reference), and it
     // resolves, and is announced, on the first dispatch after the route
     // comes up. What its definition already says is checked now, so a
-    // route missing its description or input still fails the start.
+    // route missing its description or input, or a synchronous tool over a
+    // route that can park, still fails the start.
     if (withheldRouteReason(tools, entry.targetId) !== undefined) {
       const view = c.routes.get(entry.targetId);
-      entry.checkTarget?.(view?.definition.discovery, id);
+      entry.checkTarget?.(tools, view?.definition.discovery, id);
       registry.awaitingRoute.add(id);
       continue;
     }
