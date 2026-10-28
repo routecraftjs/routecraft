@@ -64,6 +64,9 @@ export function mcp(
     ("url" in arg || "serverId" in arg)
   ) {
     const clientOpts = arg as McpClientOptions;
+    if (clientOpts.serverId !== undefined && clientOpts.auth !== undefined) {
+      throw authBesideServerId(clientOpts.serverId);
+    }
     if (typeof clientOpts.auth?.token === "string") {
       if (clientOpts.auth.token.trim().length === 0) {
         throw new TypeError(
@@ -96,6 +99,13 @@ export function mcp(
     const colonIndex = arg.indexOf(":");
     const serverId = arg.slice(0, colonIndex);
     const tool = arg.slice(colonIndex + 1);
+    if (
+      options !== undefined &&
+      typeof options === "object" &&
+      "auth" in options
+    ) {
+      throw authBesideServerId(serverId);
+    }
     const clientOptions: McpClientOptions = { serverId, tool };
     if (
       options !== undefined &&
@@ -129,6 +139,18 @@ export function mcp(
     mcp,
     factoryArgs(arg, options),
   );
+}
+
+/**
+ * A registered client is one identity: its credential is the one its
+ * registration holds, and its connection is kept under its id. A route that
+ * owns its own credential calls an inline `url` instead.
+ */
+function authBesideServerId(serverId: string): Error {
+  return rcError("RC5003", undefined, {
+    message: `mcp(): auth cannot be passed beside serverId "${serverId}": a registered client calls with the auth its registration holds`,
+    suggestion: `Set the credential on the client in mcpPlugin({ clients: { ${JSON.stringify(serverId)}: { url, auth } } }), or call an inline mcp({ url, tool, auth }) for a credential this route owns.`,
+  });
 }
 
 // Re-export types for public API

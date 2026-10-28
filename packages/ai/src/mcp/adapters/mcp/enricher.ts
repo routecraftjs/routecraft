@@ -10,7 +10,6 @@ import type {
   McpClientOptions,
   McpArgsExtractor,
   McpClientAuthOptions,
-  McpClientHttpConfig,
 } from "../../types.ts";
 import { MCP } from "../../port.ts";
 import { McpHeadersKeys } from "../../types.ts";
@@ -32,60 +31,21 @@ function assertHttpUrl(url: string): void {
 }
 
 /**
- * Look up the registered server config from the MCP plugin.
- * Returns undefined when no context or no matching serverId.
- * Backward-compat: store value may be a plain string (url only).
+ * The URL and auth of an inline-url call. A registered client's call never
+ * comes here: it goes through `dispatchMcpCall` with the client's own auth,
+ * and `mcp()` refuses `auth` beside `serverId`.
  */
-function resolveServerConfig(
-  options: McpClientOptions,
-  context: ReturnType<typeof getExchangeContext>,
-): McpClientHttpConfig | string | undefined {
-  if (!options.serverId || !context) return undefined;
-  const servers = context.lookup(MCP)?.clients;
-  const cfg = servers?.get(options.serverId);
-  if (cfg && typeof cfg === "object" && "transport" in cfg) {
-    // stdio configs surface through dispatchMcpCall; resolveConnection only
-    // needs the http variant for the inline-URL or http-serverId fall-through.
-    return undefined;
-  }
-  return cfg as McpClientHttpConfig | string | undefined;
-}
-
-/**
- * Resolves the URL and auth for the MCP server from options or context (serverId).
- * Returns both in a single lookup to avoid duplicate store reads.
- */
-function resolveConnection(
-  options: McpClientOptions,
-  context: ReturnType<typeof getExchangeContext>,
-): { url: string; auth?: McpClientAuthOptions | undefined } {
-  if (options.url) {
-    assertHttpUrl(options.url);
-    return { url: options.url, auth: options.auth };
-  }
-  if (options.serverId && !context) {
+function resolveConnection(options: McpClientOptions): {
+  url: string;
+  auth?: McpClientAuthOptions | undefined;
+} {
+  if (!options.url) {
     throw new Error(
-      `MCP client: serverId "${options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so the MCP plugin's clients can be read.`,
+      "MCP client: either url or serverId must be provided in McpClientOptions.",
     );
   }
-  if (options.serverId && context) {
-    const config = resolveServerConfig(options, context);
-    if (!config) {
-      throw new Error(
-        `MCP client: serverId "${options.serverId}" is not a registered MCP client. Register it via mcpPlugin({ clients }).`,
-      );
-    }
-    const url = typeof config === "string" ? config : config.url;
-    const auth =
-      options.auth ??
-      (typeof config === "object" && "auth" in config
-        ? config.auth
-        : undefined);
-    return { url, auth };
-  }
-  throw new Error(
-    "MCP client: either url or serverId must be provided in McpClientOptions.",
-  );
+  assertHttpUrl(options.url);
+  return { url: options.url, auth: options.auth };
 }
 
 /** Where a call's metadata lives, beside the result rather than inside it. */
@@ -193,7 +153,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     // registry. Uses the shared `callRemoteTool` helper so transport
     // setup, auth-header building, and cleanup stay aligned with
     // `dispatchMcpCall`.
-    const { url, auth } = resolveConnection(this.options, context);
+    const { url, auth } = resolveConnection(this.options);
     const result = await callRemoteTool(
       url,
       toolName,
