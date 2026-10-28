@@ -62,7 +62,7 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { toolFailureText } from "./tool-failure.ts";
-import { takeUnalteredHopResult } from "./dispatch.ts";
+import { openHopResult, unalteredHopResult } from "./dispatch.ts";
 import {
   loadUiHtml,
   MCP_APP_MIME_TYPE,
@@ -1643,6 +1643,7 @@ export class McpServer {
     // The route that ran: the tool's own for a local tool, the proxy route
     // for a proxied one. What a refusal is classified against.
     let routeId = toolName;
+    let closeHop: (() => void) | undefined;
     try {
       // Normalize args once (the SDK may pass a parsed object or a raw JSON
       // string). MCP tool arguments are always a JSON object; a primitive,
@@ -1688,11 +1689,13 @@ export class McpServer {
       // enrichment, so branding here marks the verified identity as
       // authentic for downstream `authorize()` without freezing it too
       // early to enrich.
+      const requestId = crypto.randomUUID();
       const headers: Record<string, unknown> = {
         ...trace,
         [McpHeadersKeys.TOOL]: toolName,
-        [McpHeadersKeys.REQUEST]: crypto.randomUUID(),
+        [McpHeadersKeys.REQUEST]: requestId,
       };
+      if (found.proxied) closeHop = openHopResult(requestId);
       if (principal) {
         admitted = this.host.authority.brand(principal);
         headers[HeadersKeys.AUTH_PRINCIPAL] = admitted;
@@ -1764,7 +1767,7 @@ export class McpServer {
       const unaltered =
         found.proxied === undefined
           ? undefined
-          : takeUnalteredHopResult(resultExchange.id, publishedBody);
+          : unalteredHopResult(requestId, publishedBody);
       const content =
         unaltered?.content !== undefined && unaltered.content.length > 0
           ? unaltered.content
@@ -1805,6 +1808,8 @@ export class McpServer {
       return toolErrorResult(
         toolFailureText(toolName, error, refusal, origin.routeId),
       );
+    } finally {
+      closeHop?.();
     }
   }
 }

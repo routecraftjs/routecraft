@@ -69,59 +69,90 @@ export async function dispatchMcpCall(
 }
 
 /**
- * The remote result a proxied call's MCP hop produced, beside the body it
- * made of it, by the id of the exchange the hop ran on. By id rather than
- * by object, because each step hands the next a new exchange object for
- * the same exchange.
- *
- * Bounded, oldest first out: an entry is taken when the server answers the
- * call, so the bound only matters for a call that failed after its hop,
- * and an evicted entry costs that answer its pass-through, never its
- * correctness.
+ * The remote result each proxied call's MCP hop produced, beside the body it
+ * made of it, by the MCP request the call arrived as. The server opens a
+ * slot before it runs the proxy route and closes it when it answers, on
+ * every path, so a record exists only while a call that can take it is in
+ * flight: an agent's call through the same route, or a hop in any other
+ * route, finds no slot and records nothing.
  */
-const HOP_RESULTS = new Map<
-  string,
-  { readonly body: unknown; readonly raw: McpRawToolResult }
->();
-const HOP_RESULTS_LIMIT = 1024;
+const HOP_RESULTS = new Map<string, HopRecord | null>();
+
+interface HopRecord {
+  readonly body: unknown;
+  readonly raw: McpRawToolResult;
+  /**
+   * The body's JSON when the hop recorded it. Identity alone cannot tell a
+   * body the route left alone from one it edited in place, and an in-place
+   * edit (a field deleted to redact it) must not let the remote's own
+   * content blocks and `_meta`, which still carry the field, through.
+   */
+  readonly snapshot: string | undefined;
+}
+
+/**
+ * Open the slot a proxied call's hop records its result into. Returns the
+ * function that closes it, which the server calls on every exit.
+ *
+ * @internal
+ */
+export function openHopResult(requestId: string): () => void {
+  HOP_RESULTS.set(requestId, null);
+  return () => {
+    HOP_RESULTS.delete(requestId);
+  };
+}
 
 /**
  * Record what a proxied call's MCP hop returned: the raw remote result and
- * the body the hop set from it. A later hop on the same exchange replaces
- * it.
+ * the body the hop set from it. Nothing is recorded without an open slot
+ * for the request. A later hop on the same request replaces it.
  *
  * @internal
  */
 export function recordHopResult(
-  exchangeId: string,
+  requestId: unknown,
   body: unknown,
   raw: McpRawToolResult,
 ): void {
-  HOP_RESULTS.delete(exchangeId);
-  HOP_RESULTS.set(exchangeId, { body, raw });
-  if (HOP_RESULTS.size > HOP_RESULTS_LIMIT) {
-    const oldest = HOP_RESULTS.keys().next().value;
-    if (oldest !== undefined) HOP_RESULTS.delete(oldest);
-  }
+  if (typeof requestId !== "string" || !HOP_RESULTS.has(requestId)) return;
+  HOP_RESULTS.set(requestId, { body, raw, snapshot: snapshotOf(body) });
 }
 
 /**
- * Take the remote result to answer a proxied call with as published, when
- * the exchange's final body is still exactly what its last MCP hop set:
- * the route left the result alone, so the caller, who addressed the remote,
- * receives the remote's own content blocks, `structuredContent` and
- * `_meta`. `undefined` once any step replaced the body, which is the route
- * saying it shapes the answer itself. Taking it removes the record.
+ * The remote result to answer a proxied call with as published, when the
+ * call's final body is still exactly what its last MCP hop set, the same
+ * value and unedited: the route left the result alone, so the caller, who
+ * addressed the remote, receives the remote's own content blocks,
+ * `structuredContent` and `_meta`. `undefined` once any step replaced or
+ * edited the body, which is the route saying it shapes the answer itself.
  *
  * @internal
  */
-export function takeUnalteredHopResult(
-  exchangeId: string,
+export function unalteredHopResult(
+  requestId: string,
   body: unknown,
 ): McpRawToolResult | undefined {
-  const hop = HOP_RESULTS.get(exchangeId);
-  HOP_RESULTS.delete(exchangeId);
-  return hop !== undefined && Object.is(hop.body, body) ? hop.raw : undefined;
+  const hop = HOP_RESULTS.get(requestId);
+  if (hop === undefined || hop === null || !Object.is(hop.body, body)) {
+    return undefined;
+  }
+  if (hop.snapshot === undefined) return hop.raw;
+  return snapshotOf(body) === hop.snapshot ? hop.raw : undefined;
+}
+
+/**
+ * The JSON of an object body, `undefined` for a primitive (which cannot be
+ * edited in place). A body that cannot be serialised gets a snapshot no
+ * later body matches, so it is never passed through.
+ */
+function snapshotOf(body: unknown): string | undefined {
+  if (body === null || typeof body !== "object") return undefined;
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return `unserialisable:${crypto.randomUUID()}`;
+  }
 }
 
 /** How much of a remote error text reaches a message and a log line. */
