@@ -16,9 +16,11 @@ import { MCP } from "../../port.ts";
 import { McpHeadersKeys } from "../../types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
 import {
-  callRemoteTool,
-  dispatchMcpCall,
+  callRemoteToolRaw,
+  dispatchMcpCallRaw,
+  recordHopResult,
   relayRemoteError,
+  toolResultBody,
 } from "../../dispatch.ts";
 
 /** Ensure inline url is HTTP(S) only. Stdio clients are reached via dispatchMcpCall. */
@@ -172,13 +174,22 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
         );
       }
       const transport = resolveServerTransport(context, this.options.serverId);
-      const result = await dispatchMcpCall(
+      const raw = await dispatchMcpCallRaw(
         context.lookup(MCP),
         this.options.serverId,
         toolName,
         args,
         { context, own, carrier: () => traceContextOf(exchange) },
       );
+      const result = toolResultBody(
+        raw,
+        `"${this.options.serverId}:${toolName}"`,
+      );
+      // Only a proxied call's own hop: the server answers that call, and
+      // nothing reads a record for any other exchange.
+      if (exchange.headers[McpHeadersKeys.CLIENT] === this.options.serverId) {
+        recordHopResult(exchange.id, result, raw);
+      }
       if (result && typeof result === "object") {
         metadataOf.set(result, {
           toolName,
@@ -194,7 +205,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     // setup, auth-header building, and cleanup stay aligned with
     // `dispatchMcpCall`.
     const { url, auth } = resolveConnection(this.options, context);
-    const result = await callRemoteTool(
+    const raw = await callRemoteToolRaw(
       url,
       toolName,
       args,
@@ -204,6 +215,8 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
         ? { ...traceContextOf(exchange) }
         : undefined,
     );
+    // The URL is configuration, not part of the answer, as in callRemoteTool.
+    const result = toolResultBody(raw, `"${toolName}"`);
     if (result && typeof result === "object") {
       metadataOf.set(result, { toolName, url, transport: "http" });
     }

@@ -68,6 +68,62 @@ export async function dispatchMcpCall(
   );
 }
 
+/**
+ * The remote result a proxied call's MCP hop produced, beside the body it
+ * made of it, by the id of the exchange the hop ran on. By id rather than
+ * by object, because each step hands the next a new exchange object for
+ * the same exchange.
+ *
+ * Bounded, oldest first out: an entry is taken when the server answers the
+ * call, so the bound only matters for a call that failed after its hop,
+ * and an evicted entry costs that answer its pass-through, never its
+ * correctness.
+ */
+const HOP_RESULTS = new Map<
+  string,
+  { readonly body: unknown; readonly raw: McpRawToolResult }
+>();
+const HOP_RESULTS_LIMIT = 1024;
+
+/**
+ * Record what a proxied call's MCP hop returned: the raw remote result and
+ * the body the hop set from it. A later hop on the same exchange replaces
+ * it.
+ *
+ * @internal
+ */
+export function recordHopResult(
+  exchangeId: string,
+  body: unknown,
+  raw: McpRawToolResult,
+): void {
+  HOP_RESULTS.delete(exchangeId);
+  HOP_RESULTS.set(exchangeId, { body, raw });
+  if (HOP_RESULTS.size > HOP_RESULTS_LIMIT) {
+    const oldest = HOP_RESULTS.keys().next().value;
+    if (oldest !== undefined) HOP_RESULTS.delete(oldest);
+  }
+}
+
+/**
+ * Take the remote result to answer a proxied call with as published, when
+ * the exchange's final body is still exactly what its last MCP hop set:
+ * the route left the result alone, so the caller, who addressed the remote,
+ * receives the remote's own content blocks, `structuredContent` and
+ * `_meta`. `undefined` once any step replaced the body, which is the route
+ * saying it shapes the answer itself. Taking it removes the record.
+ *
+ * @internal
+ */
+export function takeUnalteredHopResult(
+  exchangeId: string,
+  body: unknown,
+): McpRawToolResult | undefined {
+  const hop = HOP_RESULTS.get(exchangeId);
+  HOP_RESULTS.delete(exchangeId);
+  return hop !== undefined && Object.is(hop.body, body) ? hop.raw : undefined;
+}
+
 /** How much of a remote error text reaches a message and a log line. */
 const REMOTE_ERROR_TEXT_LIMIT = 500;
 

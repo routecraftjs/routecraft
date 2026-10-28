@@ -62,6 +62,7 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { toolFailureText } from "./tool-failure.ts";
+import { takeUnalteredHopResult } from "./dispatch.ts";
 import {
   loadUiHtml,
   MCP_APP_MIME_TYPE,
@@ -131,6 +132,7 @@ type McpToolCallResult = {
   content: Array<{ type: string; [key: string]: unknown }>;
   structuredContent?: unknown;
   isError?: boolean;
+  _meta?: Record<string, unknown>;
   advertisedOutputSchema?: Record<string, unknown>;
 };
 
@@ -1754,12 +1756,28 @@ export class McpServer {
       // as-is, and the wire seam wraps it to match the projection the same era
       // applied to the advertisement carried back beside it.
       const advertisedOutputSchema = this.advertisedOutputSchema(entry);
-      const result: McpToolCallResult = {
-        content: [{ type: "text", text: resultText }],
-      };
+      // A proxied call whose route left the hop's result alone answers with
+      // the remote's result as published: its content blocks (images,
+      // resources, several texts) with their MIME types, its
+      // structuredContent and its _meta. Re-serialising the body would turn
+      // an image into its base64 as text and drop the rest.
+      const unaltered =
+        found.proxied === undefined
+          ? undefined
+          : takeUnalteredHopResult(resultExchange.id, publishedBody);
+      const content =
+        unaltered?.content !== undefined && unaltered.content.length > 0
+          ? unaltered.content
+          : [{ type: "text", text: resultText }];
+      const result: McpToolCallResult = { content };
       if (advertisedOutputSchema !== undefined) {
-        result.structuredContent = publishedBody;
+        result.structuredContent =
+          unaltered?.structuredContent ?? publishedBody;
         result.advertisedOutputSchema = advertisedOutputSchema;
+      }
+      const meta = unaltered?.["_meta"];
+      if (meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
+        result._meta = meta as Record<string, unknown>;
       }
       return result;
     } catch (error) {
