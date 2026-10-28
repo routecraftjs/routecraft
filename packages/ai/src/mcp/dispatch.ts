@@ -45,8 +45,9 @@ export interface McpCallTrace {
  *   to the long-lived `StdioClientManager.callToolRaw`.
  * - For HTTP clients (the url of the service's `clients` entry),
  *   calls on the client's connection in the service's `http`
- *   connections, the one its tool listing uses, so a call costs no
- *   handshake and a stateful remote sees one session per client.
+ *   connections, the one its tool listing uses, so while that connection
+ *   holds a call costs no handshake and a stateful remote sees one
+ *   session per client.
  *
  * Throws `RC5003` when the server is not registered, when a stdio
  * server is registered but its manager is absent (mcpPlugin

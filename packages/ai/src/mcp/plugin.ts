@@ -190,8 +190,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     config: McpClientHttpConfig,
   ): Promise<void> {
     try {
-      // On the client's shared connection, which a failure evicts so the
-      // next refresh reconnects.
+      // On the client's shared connection. A failure the remote did not
+      // answer evicts it, so the next refresh reconnects.
       const result = await service.http.listTools(serverId, config);
       const tools = result.tools ?? [];
       service.tools.setToolsForSource(serverId, "http", tools);

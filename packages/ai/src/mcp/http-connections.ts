@@ -158,7 +158,9 @@ export function createMcpHttpConnections(): McpHttpConnections {
       const status = httpStatusOf(error);
       const stale = status === 404 && sessionId !== undefined;
       if (stale || (status === undefined && !(await isJsonRpcError(error)))) {
-        await cache.evict(serverId, pending);
+        // The entry leaves the cache at once; closing it, which may wait on
+        // the remote for the session DELETE, happens off this call's path.
+        void cache.evict(serverId, pending).catch(() => undefined);
       }
       if (stale && !resent) return use(serverId, config, request, true);
       throw error;

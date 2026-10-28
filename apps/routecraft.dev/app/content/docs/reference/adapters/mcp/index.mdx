@@ -52,7 +52,7 @@ The result the client hands the route is the remote's `structuredContent` when i
 
 When using the `serverId` path (recommended), auth configured on the client in `mcpPlugin({ clients })` flows to the tool call automatically. Inline `auth` on `McpClientOptions` is available as an escape hatch for the raw `url` path or to override registered config, but prefer centralizing credentials in the plugin config.
 
-**A registered client keeps one connection.** A call through `serverId`, a proxy route's hop and an agent's `MCP(server:tool)` reference all use the client's connection, the same one its tool listing uses. A call does not pay for a handshake, and a stateful remote sees one session per client. Auth headers are still resolved on every request, so the connection never keeps an expired token.
+**A registered client keeps one connection.** A call through `serverId`, a proxy route's hop and an agent's `MCP(server:tool)` reference all use the client's connection, the same one its tool listing uses. A call does not pay for a handshake, and a stateful remote sees one session per client. Auth headers are still resolved on every request, so a token provider or a token array rotates credentials on the open connection; a static token is sent as configured until you change it.
 
 - **A failed call is reported, never sent again,** because it may have reached the remote.
 - **An answer keeps the connection.** A JSON-RPC error or an HTTP error status is the remote speaking over a session that still holds.

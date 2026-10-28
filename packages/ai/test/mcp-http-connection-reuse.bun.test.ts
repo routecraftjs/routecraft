@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
   craft,
   direct,
@@ -13,6 +13,15 @@ import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
 import { statefulRemote } from "./helpers/stateful-remote.ts";
 
 const URL_ = "http://remote.test/mcp";
+
+// Another suite in the same process may have replaced the SDK loader seam
+// with a mock client, and `mock.module` outlives the suite that set it. This
+// suite drives the real client, so it puts the real loader back first.
+const realSdk = await import("../src/mcp/sdk.ts");
+mock.module("../src/mcp/sdk.ts", () => ({
+  ...realSdk,
+  loadMcpClientSdk: async () => import("@modelcontextprotocol/client"),
+}));
 
 /**
  * A registered HTTP client keeps one connection, shared by its tool listing
