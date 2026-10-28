@@ -10,6 +10,7 @@ import {
   MCP_TOOL_NAME_PATTERN,
   McpHeadersKeys,
   type McpLocalToolEntry,
+  type McpProxiedToolInfo,
   type McpProxyRegistration,
   type McpToolRegistryEntry,
 } from "./types.ts";
@@ -304,6 +305,20 @@ export function resolveClientEntries(
   return resolved;
 }
 
+/** The remote tool as a star route's schema derivation sees it. */
+function proxiedToolInfo(remote: McpToolRegistryEntry): McpProxiedToolInfo {
+  return {
+    name: remote.name,
+    inputSchema: remote.inputSchema,
+    ...(remote.outputSchema !== undefined
+      ? { outputSchema: remote.outputSchema }
+      : {}),
+    ...(remote.annotations !== undefined
+      ? { annotations: remote.annotations }
+      : {}),
+  };
+}
+
 /**
  * The local entry a registration exposes a remote tool as, under
  * `exposedName`. Shared with the agent tool resolver, which sends an
@@ -342,7 +357,21 @@ export function proxiedEntry(
   };
   const title = registration.title ?? remote.title;
   if (title !== undefined) entry.title = title;
-  if (remote.outputSchema !== undefined) {
+  // The route's own schemas win: an exact route's `.input()` / `.output()`,
+  // else what a star route derives from the remote's, else the remote's.
+  const derived = registration.schemas?.(proxiedToolInfo(remote));
+  if (registration.input !== undefined) {
+    entry.input = registration.input;
+  } else if (derived?.input !== undefined) {
+    entry.input = { body: standardSchemaFromJsonSchema(derived.input) };
+  }
+  if (registration.output !== undefined) {
+    entry.output = registration.output;
+  } else if (derived?.output !== undefined) {
+    if (derived.output !== null) {
+      entry.output = { body: standardSchemaFromJsonSchema(derived.output) };
+    }
+  } else if (remote.outputSchema !== undefined) {
     entry.output = { body: standardSchemaFromJsonSchema(remote.outputSchema) };
   }
   const annotations = mergeAnnotations(

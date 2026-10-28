@@ -1314,7 +1314,10 @@ function governedMcpTool(
     return exchange.body;
   };
   const fields = {
-    input: standardSchemaFromJsonSchema(entry.inputSchema),
+    // The covering route's advertised input: its own `.input()` or what a
+    // star route derives, else the remote's.
+    input:
+      governed.input?.body ?? standardSchemaFromJsonSchema(entry.inputSchema),
     ...(entry.tags && entry.tags.length > 0 ? { tags: [...entry.tags] } : {}),
   };
   if (covering.deferrable) {
