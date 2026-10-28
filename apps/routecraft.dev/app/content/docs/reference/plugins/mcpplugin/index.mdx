@@ -327,6 +327,8 @@ craft()
 
 An owner's `tools/list` shows every `vendor` tool except `search`, which is the exact route's and needs `vendor:read`. A member holding `vendor:read` sees `vendor_search` alone, and `search` alone on `/mcp/vendor`.
 
+`resources/list` and `resources/read` follow the same rule for [MCP Apps views](/docs/reference/adapters/mcp#mcp-apps-views): a view of a tool the caller is not listed is not listed or served either.
+
 The listing is a view, never the gate. `tools/call` runs the route's own authorizers at their chain position as before, so a tool called by name without being listed is refused the same way. Routes without `.authorize()` list as before, and the `tools` filter still applies on top. The check is the same decision the gate makes (`authorizeAdmits`). A plugin that replaces the `ENFORCEMENT` port lists every tool, as before, unless its provider implements `admits`, because the server cannot guess what a replaced gate decides.
 
 ## Mounts

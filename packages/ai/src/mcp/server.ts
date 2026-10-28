@@ -1007,9 +1007,15 @@ export class McpServer {
     });
 
     // A view belongs to a tool a route defines, so a client mount, which
-    // lists only proxied tools, has none to serve.
+    // lists only proxied tools, has none to serve. A view of a tool the
+    // caller is not listed is not listed either: its name, title and URI
+    // would tell the caller what the tool listing withheld.
     const viewEntries = (): McpLocalToolEntry[] =>
-      mount.kind === "client" ? [] : this.getExposedLocalEntries();
+      mount.kind === "client"
+        ? []
+        : this.getExposedLocalEntries().filter((entry) =>
+            this.admits(entry.authorize, principal),
+          );
     server.setRequestHandler("resources/list", () => ({
       resources: viewEntries()
         .filter((entry) => entry.ui !== undefined)
@@ -1035,8 +1041,8 @@ export class McpServer {
 
   /**
    * Serve one MCP Apps view for `resources/read`. Only views of tools that
-   * pass the `tools` filter resolve, so a hidden tool's view is as invisible
-   * as the tool.
+   * pass the `tools` filter, and whose route admits the caller, resolve, so
+   * a hidden tool's view is as invisible as the tool.
    *
    * A loader failure is logged with its cause and answered generically: a
    * file loader's error names an absolute path on this host, which is the
@@ -1402,9 +1408,15 @@ export class McpServer {
     const enforcement = this.host.enforcement?.();
     const admits = enforcement?.admits;
     if (admits === undefined) return true;
+    // Branded as `handleToolCall` brands it before the gate sees it, so the
+    // listing and the call judge the same identity.
+    const judged =
+      principal === undefined
+        ? undefined
+        : this.host.authority.brand(principal);
     try {
       return authorizers.every((options) =>
-        admits.call(enforcement, options, principal, this.host.authority),
+        admits.call(enforcement, options, judged, this.host.authority),
       );
     } catch {
       return false;

@@ -107,7 +107,7 @@ All codes flow through the route's normal error path: `.error()` handles them li
 
 ## What a caller is shown
 
-A door that lists what a caller may call asks the same question in advance. The MCP server's `tools/list` shows each caller only the tools whose route `.authorize()` admits them; see [the listing follows `.authorize()`](/docs/reference/plugins/mcpplugin#the-listing-follows-authorize). The decision is the gate's own, exported as `authorizeAdmits(options, principal, authority)`, so what a caller is shown and what the gate lets through cannot disagree. Being listed is never the check: the gate still runs on every call.
+A door that lists what a caller may call asks the same question in advance. The MCP server's `tools/list` shows each caller only the tools whose route `.authorize()` admits them; see [the listing follows `.authorize()`](/docs/reference/plugins/mcpplugin#the-listing-follows-authorize). The decision is the gate's own, exported as `authorizeAdmits(options, principal, authority)`, so the listing applies exactly the route's `.authorize()` decisions. Being listed is never the check: the gate still runs on every call, and other steps at call time (a plugin hook around the gate, a `.validate()` that refuses) can still refuse a listed tool.
 
 ## What an HTTP caller receives
 
