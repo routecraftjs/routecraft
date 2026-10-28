@@ -100,6 +100,67 @@ describe("the health ledger and standby", () => {
   });
 
   /**
+   * @case A route on standby that is then disabled reports the disabled reason, not the stale standby one
+   * @preconditions A route on standby; setRouteDisabled; then the source withdraws (standby cleared) and the route stops
+   * @expectedResult The route reads disabled with the disabled reason throughout
+   */
+  test("disabling a standby route drops the standby reason", () => {
+    const state = new HealthState({ now: () => 0 });
+    state.contextStarted();
+    state.routeStarted("r");
+    state.setRouteStandby("r", "target gone");
+    state.setRouteDisabled("r", "TOKEN is unset");
+    state.setRouteStandby("r", undefined);
+    state.routeStopped("r");
+    expect(state.routeComponentOf("r")).toMatchObject({
+      status: "inactive",
+      details: { lifecycle: "disabled", reason: "TOKEN is unset" },
+    });
+  });
+
+  /**
+   * @case A standby route whose source dies reports failed without the stale reason
+   * @preconditions A route on standby; sourceDied
+   * @expectedResult The route reads down with lifecycle failed and no reason
+   */
+  test("a dead source drops the standby reason", () => {
+    const state = new HealthState({ now: () => 0 });
+    state.contextStarted();
+    state.routeStarted("r");
+    state.setRouteStandby("r", "target gone");
+    state.sourceDied("r");
+    const component = state.routeComponentOf("r");
+    expect(component?.status).toBe("down");
+    expect(component?.details?.["reason"]).toBe(undefined);
+  });
+
+  /**
+   * @case A standby route that stops goes straight to stopped
+   * @preconditions A route on standby; routeStopping, then the standby is cleared, then routeStopped; transitions recorded
+   * @expectedResult No transition to up; the route ends inactive and stopped
+   */
+  test("stopping from standby never passes through up", () => {
+    const moves: string[] = [];
+    const state = new HealthState({
+      now: () => 0,
+      onChange: (change) => {
+        if (change.name === "r") moves.push(change.to);
+      },
+    });
+    state.contextStarted();
+    state.routeStarted("r");
+    state.setRouteStandby("r", "target gone");
+    state.routeStopping("r");
+    state.setRouteStandby("r", undefined);
+    state.routeStopped("r");
+    expect(moves).not.toContain("up");
+    expect(state.routeComponentOf("r")).toMatchObject({
+      status: "inactive",
+      details: { lifecycle: "stopped" },
+    });
+  });
+
+  /**
    * @case Standby never overrides a truer disposition
    * @preconditions A route disabled by its predicate, then reported on standby
    * @expectedResult It stays disabled with the disabled reason

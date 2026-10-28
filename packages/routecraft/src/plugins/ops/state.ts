@@ -83,6 +83,13 @@ interface RouteRecord {
    * `standby`.
    */
   standbyReason?: string;
+  /**
+   * The route is stopping. A source withdrawing what it registered says
+   * "nothing to serve" on its way out, which is not the target coming
+   * back, so a standby that clears now is forgotten without reporting the
+   * route running for the moment before it stops.
+   */
+  stopping?: boolean;
 }
 
 interface IndicatorRecord {
@@ -142,7 +149,7 @@ function routeComponent(record: RouteRecord): HealthComponent {
   if (record.disabledReason !== undefined) {
     details["reason"] = record.disabledReason;
   }
-  if (record.standbyReason !== undefined) {
+  if (lifecycle === "standby" && record.standbyReason !== undefined) {
     details["reason"] = record.standbyReason;
   }
   if (breakers.size > 0) {
@@ -318,6 +325,8 @@ export class HealthState implements HealthLedger {
     const record = this.ensureRoute(routeId);
     record.lifecycle = "disabled";
     record.disabledReason = reason;
+    delete record.standbyReason;
+    this.standby.delete(routeId);
     record.breakers.clear();
     record.consecutiveFailures = 0;
     this.settleRoute(routeId, record);
@@ -357,11 +366,23 @@ export class HealthState implements HealthLedger {
       record.lifecycle = "standby";
       record.standbyReason = reason;
     } else {
-      if (record.lifecycle !== "standby") return;
-      record.lifecycle = "running";
       delete record.standbyReason;
+      // Stopping: `routeStopped` settles the route, from standby straight
+      // to stopped, with no false recovery in between.
+      if (record.lifecycle !== "standby" || record.stopping === true) return;
+      record.lifecycle = "running";
     }
     this.settleRoute(routeId, record);
+  }
+
+  /**
+   * A route began stopping. Its standby, if any, ends with it: whatever
+   * the source withdraws on the way out is not news about its target.
+   */
+  routeStopping(routeId: string): void {
+    this.standby.delete(routeId);
+    const record = this.routes.get(routeId);
+    if (record) record.stopping = true;
   }
 
   /**
@@ -419,6 +440,7 @@ export class HealthState implements HealthLedger {
   sourceDied(routeId: string): void {
     const record = this.ensureRoute(routeId);
     record.lifecycle = "failed";
+    delete record.standbyReason;
     this.settleRoute(routeId, record);
   }
 

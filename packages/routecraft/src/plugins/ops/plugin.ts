@@ -218,6 +218,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       c.observe("route:started", ({ details }) => {
         state.routeStarted(details.routeId);
       });
+      c.observe("route:stopping", ({ details }) => {
+        state.routeStopping(details.routeId);
+      });
       c.observe("route:stopped", ({ details }) => {
         state.routeStopped(details.routeId);
       });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { craft, type AnyRouteBuilder } from "@routecraft/routecraft";
+import { craft, opsPlugin, type AnyRouteBuilder } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import type { McpServer } from "../src/mcp/server.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
@@ -55,7 +55,12 @@ describe("exact proxy routes over a missing remote tool", () => {
       ],
     ]);
     t = await testContext()
-      .with({ plugins: [mcpPort({ tools: registry, clients, stdio })] })
+      .with({
+        plugins: [
+          mcpPort({ tools: registry, clients, stdio }),
+          opsPlugin({ health: { details: "always" } }),
+        ],
+      })
       .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .routes(routes)
       .build();
@@ -151,6 +156,24 @@ describe("exact proxy routes over a missing remote tool", () => {
     );
     expect(events).toEqual([]);
     expect(warnings.filter((w) => w["route"] !== undefined)).toEqual([]);
+  });
+
+  /**
+   * @case Stopping a route on standby reports no recovery on the way out
+   * @preconditions An exact route on standby (its tool unlisted), with the ops plugin recording health transitions; the context stops
+   * @expectedResult No plugin:ops:health:changed for the route moves it to up: the withdrawal on stop is not the tool coming back
+   */
+  test("a standby route stops without a false recovery", async () => {
+    await serve([exactSearch()], ["find"]);
+    const moves: Array<{ to: string }> = [];
+    t!.ctx.on("plugin:ops:health:changed", ({ details }) => {
+      if (details.name === "vendor-search") moves.push({ to: details.to });
+    });
+    await server!.stop();
+    server = undefined;
+    await t!.stop();
+    t = undefined;
+    expect(moves.filter((m) => m.to === "up")).toEqual([]);
   });
 
   /**
