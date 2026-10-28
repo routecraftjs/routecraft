@@ -56,7 +56,7 @@ describe("HTTP MCP clients reuse one connection", () => {
     const { remote, service } = await start();
     expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");
     expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");
-    expect(remote.counts).toEqual({ initialize: 1, call: 2 });
+    expect(remote.counts).toMatchObject({ initialize: 1, call: 2 });
   });
 
   /**
@@ -83,42 +83,81 @@ describe("HTTP MCP clients reuse one connection", () => {
 
   /**
    * @case A stale session is replaced and the call resent once
-   * @preconditions The remote forgets its sessions after the listing, so the next call carries an unknown Mcp-Session-Id and gets 404
-   * @expectedResult The call answers, through a second initialize, and the remote ran the tool once
+   * @preconditions One call on the shared connection, then the remote forgets its sessions, so the next call carries an unknown Mcp-Session-Id and gets 404
+   * @expectedResult The second call answers through exactly one new initialize, two in all, and the remote ran the tool once per call
    */
   test("a stale session reconnects and resends once", async () => {
     const { remote, service } = await start();
+    expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");
     remote.dropSessions();
     expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");
-    expect(remote.counts).toEqual({ initialize: 2, call: 1 });
+    expect(remote.counts).toMatchObject({ initialize: 2, call: 2 });
   });
 
   /**
-   * @case A second 404 is a failure, not another resend
-   * @preconditions The remote answers 404 to every session request from now on
-   * @expectedResult The call fails with RC5003 after exactly one reconnect
+   * @case A second 404 on the resent call is a failure, not another resend
+   * @preconditions The remote answers every tools/call with the stale-session 404, while its handshake still succeeds
+   * @expectedResult The call fails with RC5003 after one reconnect, the remote saw the call and its one resend, and no third attempt
    */
   test("a second 404 fails", async () => {
     const { remote, service } = await start();
-    remote.forgetEverySession();
+    remote.staleOnEveryCall();
     await expect(
       dispatchMcpCall(service, "remote", "echo", {}),
     ).rejects.toMatchObject({ rc: "RC5003" });
-    expect(remote.counts.initialize).toBe(2);
+    expect(remote.counts).toMatchObject({ initialize: 2, stale: 2 });
   });
 
   /**
-   * @case A transport failure is reported, not resent, and evicts the connection
+   * @case An HTTP error status is reported, not resent, and keeps the connection
    * @preconditions The remote answers the next tools/call with HTTP 500
-   * @expectedResult The call fails with RC5003 and the tool ran no second time; the next call reconnects
+   * @expectedResult The call fails with RC5003, the remote ran no second attempt, and the next call reuses the session (no new initialize)
    */
-  test("a transport failure evicts without a resend", async () => {
+  test("an HTTP error status keeps the connection without a resend", async () => {
     const { remote, service } = await start();
     remote.failNextCall();
     await expect(
       dispatchMcpCall(service, "remote", "echo", {}),
     ).rejects.toMatchObject({ rc: "RC5003" });
-    expect(remote.counts).toEqual({ initialize: 1, call: 1 });
+    expect(remote.counts).toMatchObject({ initialize: 1, call: 1 });
+    expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");
+    expect(remote.counts).toMatchObject({ initialize: 1, call: 2 });
+  });
+
+  /**
+   * @case A failure with no answer is reported, not resent, and evicts the connection
+   * @preconditions The next tools/call fails before the remote answers, as a refused socket does
+   * @expectedResult The call fails with RC5003 and nothing reached the tool; the next call reconnects
+   */
+  test("a failure without an answer evicts without a resend", async () => {
+    const { remote, service } = await start();
+    remote.throwNextCall();
+    await expect(
+      dispatchMcpCall(service, "remote", "echo", {}),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+    expect(remote.counts).toMatchObject({ initialize: 1, call: 0 });
+    expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");
+    expect(remote.counts.initialize).toBe(2);
+  });
+
+  /**
+   * @case Evicting a connection does not fail the calls already in flight on it
+   * @preconditions A slow call is in flight when a concurrent call on the same connection fails without an answer
+   * @expectedResult The failing call fails, the slow call still answers once released, and a later call reconnects
+   */
+  test("an eviction lets the calls in flight finish", async () => {
+    const { remote, service } = await start();
+    const slow = dispatchMcpCall(service, "remote", "slow", {});
+    // Let the slow call reach the remote before the failure evicts.
+    while (remote.counts.call === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    remote.throwNextCall();
+    await expect(
+      dispatchMcpCall(service, "remote", "echo", {}),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+    remote.releaseSlow();
+    expect(await slow).toBe("slow done");
     expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");
     expect(remote.counts.initialize).toBe(2);
   });
@@ -138,14 +177,15 @@ describe("HTTP MCP clients reuse one connection", () => {
   });
 
   /**
-   * @case A call after the plugin stopped opens no connection
+   * @case Stopping ends the session and refuses later calls
    * @preconditions The context is stopped, closing the connections
-   * @expectedResult The call fails with RC5003 and the remote saw no new initialize
+   * @expectedResult The remote received the session DELETE, and a later call fails with RC5003 without a new initialize
    */
-  test("a call after stop is refused", async () => {
+  test("stop ends the session and refuses later calls", async () => {
     const { remote, service } = await start();
     await t!.stop();
     t = undefined;
+    expect(remote.counts.terminated).toBe(1);
     await expect(
       dispatchMcpCall(service, "remote", "echo", {}),
     ).rejects.toMatchObject({ rc: "RC5003" });

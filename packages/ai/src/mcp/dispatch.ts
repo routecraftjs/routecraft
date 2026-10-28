@@ -233,8 +233,9 @@ function resolveHttpConfig(
 /**
  * Open a one-shot MCP SDK client over Streamable HTTP, dispatch the
  * tool, then close. Used by `McpEnricherAdapter` for inline-URL routes,
- * which have no registered client id to keep a connection under. Centralised here so transport setup, auth-header
- * building, and content extraction stay in one place.
+ * which have no registered client id to keep a connection under.
+ * Centralised here so transport setup, auth-header building, and content
+ * extraction stay in one place.
  *
  * @internal
  */

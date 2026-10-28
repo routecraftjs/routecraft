@@ -52,7 +52,15 @@ The result the client hands the route is the remote's `structuredContent` when i
 
 When using the `serverId` path (recommended), auth configured on the client in `mcpPlugin({ clients })` flows to the tool call automatically. Inline `auth` on `McpClientOptions` is available as an escape hatch for the raw `url` path or to override registered config, but prefer centralizing credentials in the plugin config.
 
-**A registered client keeps one connection.** A call through `serverId`, a proxy route's hop and an agent's `MCP(server:tool)` reference all use the client's connection, the same one its tool listing uses, so a call does not pay for a handshake and a stateful remote sees one session per client. Auth headers are still resolved on every request, so the connection never keeps an expired token. If the transport fails, for example a refused socket, an HTTP error status or a timeout, the connection is closed and the call is reported, not sent again, because it may have reached the remote. A JSON-RPC error is the remote answering, so the connection stays open. There is one exception: when the remote answers `404` to a request carrying its `Mcp-Session-Id`, it has dropped the session and never processed the request. In that case the connection is replaced and the call is sent once more, and a second `404` fails the call. An inline `url` call has no client id to keep a connection under, so it opens one per call.
+**A registered client keeps one connection.** A call through `serverId`, a proxy route's hop and an agent's `MCP(server:tool)` reference all use the client's connection, the same one its tool listing uses. A call does not pay for a handshake, and a stateful remote sees one session per client. Auth headers are still resolved on every request, so the connection never keeps an expired token.
+
+- **A failed call is reported, never sent again,** because it may have reached the remote.
+- **An answer keeps the connection.** A JSON-RPC error or an HTTP error status is the remote speaking over a session that still holds.
+- **A failure with no answer replaces the connection.** That is a refused socket, a dropped stream or a timeout. The next call reconnects, and calls already in flight on the old connection still finish before it closes.
+- **A stale session is the one exception to "never sent again".** A remote that answers `404` to a request carrying its `Mcp-Session-Id` has dropped the session and never processed the request. The connection is replaced and the call sent once more, and a second `404` fails it.
+- **Closing a connection ends its session on the remote** with the `DELETE` the protocol provides.
+- **Results are validated.** Because the call shares the client the listing ran on, a result is checked against the `outputSchema` that listing advertised, as on a stdio client. A tool that declares one and returns no matching `structuredContent` fails the call.
+- **An inline `url` call** has no client id to keep a connection under, so it opens one per call and does not validate against a schema.
 
 **Options (McpServerOptions -- source, protocol extras only):**
 

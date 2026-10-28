@@ -57,19 +57,31 @@ export interface McpHttpConnections {
 /**
  * The connections over a connection cache keyed by client id.
  *
- * A failure evicts the connection unless the remote answered it: a JSON-RPC
- * error is the remote speaking over a healthy connection, while anything
- * else (a refused socket, an HTTP error status, a timeout) leaves the
- * connection in doubt. The failed request is reported, never resent, because
- * it may have reached the remote. A stale session is the one exception: a
- * remote that answers 404 to a request carrying its `Mcp-Session-Id` has
- * dropped the session and never processed the request, so the connection is
- * replaced and the request sent once more. A second 404 is a failure.
+ * A failure the remote did not answer (a refused socket, a dropped stream,
+ * a timeout) evicts the connection, so the next call reconnects. An answer
+ * keeps it: a JSON-RPC error or an HTTP error status is the remote speaking
+ * over a session that still holds, and Streamable HTTP requests are
+ * independent, so one refused request says nothing about the next. Either
+ * way the failed request is reported, never resent, because it may have
+ * reached the remote.
+ *
+ * A stale session is the one exception: a remote that answers 404 to a
+ * request carrying its `Mcp-Session-Id` has dropped the session and never
+ * processed the request, so the connection is replaced and the request sent
+ * once more. A second 404 is a failure.
+ *
+ * An evicted connection leaves the cache at once and closes once the
+ * requests already on it have settled. Closing it under them would fail
+ * calls the remote may already be running, and a caller that retries such
+ * a failure would run them twice.
  *
  * @internal
  */
 export function createMcpHttpConnections(): McpHttpConnections {
   const cache = createConnectionCache<HttpConnection>();
+  // Every connection not yet closed, draining ones included, so stopping
+  // the plugin closes them all whatever is still in flight.
+  const open = new Set<() => Promise<void>>();
   let disposed = false;
 
   function connect(
@@ -88,19 +100,43 @@ export function createMcpHttpConnections(): McpHttpConnections {
         new URL(config.url),
         config.auth,
       );
-      // Both handles are retained: closing the client does not close its
-      // transport, so a cache that kept only the client would leak a socket
-      // per entry on teardown and per eviction.
+      let inFlight = 0;
+      let retired = false;
+      let closed: Promise<void> | undefined;
+      // Ends the session on the remote before closing, so a stateful remote
+      // is not left holding one per eviction. Bounded, because an
+      // unreachable remote must not hold up the plugin's stop. Closing the
+      // client closes its transport.
+      const close = (): Promise<void> => {
+        closed ??= (async () => {
+          open.delete(close);
+          await bounded(transport.terminateSession(), TERMINATE_TIMEOUT_MS);
+          await client.close().catch(() => undefined);
+        })();
+        return closed;
+      };
+      open.add(close);
+      const tracked = async <T>(request: () => Promise<T>): Promise<T> => {
+        inFlight++;
+        try {
+          return await request();
+        } finally {
+          inFlight--;
+          if (retired && inFlight === 0) void close();
+        }
+      };
       return {
-        listTools: () => client.listTools() as Promise<{ tools: McpTool[] }>,
+        listTools: () =>
+          tracked(() => client.listTools() as Promise<{ tools: McpTool[] }>),
         callTool: (params) =>
-          client.callTool(params) as Promise<McpRawToolResult>,
+          tracked(() => client.callTool(params) as Promise<McpRawToolResult>),
         get sessionId() {
           return transport.sessionId;
         },
+        // The cache's eviction: retire, and close once drained.
         dispose: async () => {
-          await client.close().catch(() => undefined);
-          await transport.close().catch(() => undefined);
+          retired = true;
+          if (inFlight === 0) await close();
         },
       };
     });
@@ -119,11 +155,12 @@ export function createMcpHttpConnections(): McpHttpConnections {
     try {
       return await request(connection);
     } catch (error) {
-      if (await answeredByRemote(error)) throw error;
-      await cache.evict(serverId, pending);
-      if (!resent && sessionId !== undefined && isNotFound(error)) {
-        return use(serverId, config, request, true);
+      const status = httpStatusOf(error);
+      const stale = status === 404 && sessionId !== undefined;
+      if (stale || (status === undefined && !(await isJsonRpcError(error)))) {
+        await cache.evict(serverId, pending);
       }
+      if (stale && !resent) return use(serverId, config, request, true);
       throw error;
     }
   }
@@ -142,22 +179,36 @@ export function createMcpHttpConnections(): McpHttpConnections {
     async disposeAll(onError) {
       disposed = true;
       await cache.disposeAll(onError);
+      await Promise.all([...open].map((close) => close()));
     },
   };
 }
 
+/** How long closing a connection waits for the remote to end its session. */
+const TERMINATE_TIMEOUT_MS = 2_000;
+
+/** Settle when `work` settles or `ms` passes, whichever is first, never rejecting. */
+async function bounded(work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    work.catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
 /** Whether the remote answered the request with a JSON-RPC error. */
-async function answeredByRemote(error: unknown): Promise<boolean> {
+async function isJsonRpcError(error: unknown): Promise<boolean> {
   // The SDK is already loaded: a connection exists only once it was.
   const { ProtocolError } = await loadMcpClientSdk("mcp (http client)");
   return error instanceof ProtocolError;
 }
 
-/** Whether the transport failed on an HTTP 404. */
-function isNotFound(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { status?: unknown }).status === 404
-  );
+/** The HTTP status the remote answered with, when the failure is one. */
+function httpStatusOf(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : undefined;
 }

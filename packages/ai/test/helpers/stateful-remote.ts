@@ -5,27 +5,52 @@ import {
 
 /**
  * A stateful remote MCP server reached through a stubbed `fetch`, with no
- * socket: each `initialize` opens a session, a request carrying an unknown
- * `Mcp-Session-Id` gets the 404 the spec prescribes, and {@link dropSessions}
- * forgets every session the way a restarted remote does. {@link failNextCall}
- * answers the next `tools/call` with a 500, and {@link forgetEverySession}
- * makes every session unknown from then on.
+ * socket. Each `initialize` opens a session, and a request carrying an
+ * unknown `Mcp-Session-Id` gets the 404 the spec prescribes. It serves
+ * `echo`, and `slow`, which answers once {@link releaseSlow} is called.
+ *
+ * Faults, each for the next `tools/call` unless said otherwise:
+ * - {@link dropSessions} forgets every session, as a restarted remote does;
+ * - {@link failNextCall} answers with HTTP 500;
+ * - {@link throwNextCall} fails the request before any answer, as a refused
+ *   socket does;
+ * - {@link staleOnEveryCall} answers every `tools/call` from now on with the
+ *   stale-session 404, while the handshake still succeeds.
  */
 export function statefulRemote(url: string) {
   const sessions = new Map<string, WebStandardStreamableHTTPServerTransport>();
-  const counts = { initialize: 0, call: 0 };
+  const counts = { initialize: 0, call: 0, stale: 0, terminated: 0 };
   let failNext = false;
-  let forgetAll = false;
+  let throwNext = false;
+  let staleOnCall = false;
+  let release: () => void = () => undefined;
+  let slowGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const original = globalThis.fetch;
 
+  async function methodOf(request: Request): Promise<string | undefined> {
+    if (request.method !== "POST") return undefined;
+    const body: unknown = await request.clone().json();
+    return (body as { method?: string }).method;
+  }
+
   async function handle(request: Request): Promise<Response> {
+    const method = await methodOf(request);
     const sessionId = request.headers.get("mcp-session-id");
     if (sessionId !== null) {
-      const transport = forgetAll ? undefined : sessions.get(sessionId);
+      if (request.method === "DELETE") counts.terminated++;
+      const transport = sessions.get(sessionId);
       if (!transport) return new Response("Session not found", { status: 404 });
-      const body: unknown =
-        request.method === "POST" ? await request.clone().json() : undefined;
-      if ((body as { method?: string } | undefined)?.method === "tools/call") {
+      if (method === "tools/call") {
+        if (staleOnCall) {
+          counts.stale++;
+          return new Response("Session not found", { status: 404 });
+        }
+        if (throwNext) {
+          throwNext = false;
+          throw new TypeError("fetch failed");
+        }
         counts.call++;
         if (failNext) {
           failNext = false;
@@ -34,9 +59,7 @@ export function statefulRemote(url: string) {
       }
       return transport.handleRequest(request);
     }
-    const body: unknown =
-      request.method === "POST" ? await request.clone().json() : undefined;
-    if ((body as { method?: string } | undefined)?.method !== "initialize") {
+    if (method !== "initialize") {
       return new Response("Bad Request: no session", { status: 400 });
     }
     counts.initialize++;
@@ -50,6 +73,10 @@ export function statefulRemote(url: string) {
     server.registerTool("echo", { description: "Echo" }, async () => ({
       content: [{ type: "text", text: "pong" }],
     }));
+    server.registerTool("slow", { description: "Slow" }, async () => {
+      await slowGate;
+      return { content: [{ type: "text", text: "slow done" }] };
+    });
     await server.connect(transport);
     return transport.handleRequest(request);
   }
@@ -68,10 +95,20 @@ export function statefulRemote(url: string) {
     failNextCall(): void {
       failNext = true;
     },
-    forgetEverySession(): void {
-      forgetAll = true;
+    throwNextCall(): void {
+      throwNext = true;
+    },
+    staleOnEveryCall(): void {
+      staleOnCall = true;
+    },
+    releaseSlow(): void {
+      release();
+      slowGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
     },
     restore(): void {
+      release();
       globalThis.fetch = original;
     },
   };

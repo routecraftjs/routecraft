@@ -162,8 +162,8 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
 
     // serverId path -> registered MCP client (stdio or http). Delegates
     // to `dispatchMcpCall` so transport selection (stdio manager vs
-    // one-shot HTTP client), missing-client diagnostics, and resource
-    // cleanup all live in one place shared with the agent
+    // the client's shared HTTP connection), missing-client diagnostics,
+    // and resource cleanup all live in one place shared with the agent
     // `tools([...])` resolver.
     if (this.options.serverId) {
       if (!context) {
