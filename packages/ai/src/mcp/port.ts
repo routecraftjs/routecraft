@@ -8,6 +8,10 @@ import type {
   McpStdioToolCaller,
 } from "./types.ts";
 import { proxyRegistrationKey } from "./proxy.ts";
+import {
+  createMcpHttpConnections,
+  type McpHttpConnections,
+} from "./http-connections.ts";
 
 /** A configured MCP client, by the shape the application gave it. */
 export type McpClientConfig =
@@ -66,6 +70,11 @@ export interface McpService {
   readonly stdio: ReadonlyMap<string, McpStdioToolCaller>;
   /** The configured clients, by server id. */
   readonly clients: ReadonlyMap<string, McpClientConfig>;
+  /**
+   * The connections to the configured HTTP clients, one per client id,
+   * shared by the tool listing and every call.
+   */
+  readonly http: McpHttpConnections;
 }
 
 /** The MCP service the MCP plugin provides. */
@@ -83,6 +92,7 @@ export function createMcpService(
     readonly stdio?: ReadonlyMap<string, McpStdioToolCaller>;
     readonly clients?: ReadonlyMap<string, McpClientConfig>;
     readonly local?: Iterable<McpLocalToolEntry>;
+    readonly http?: McpHttpConnections;
   } = {},
 ): McpService {
   const local = new Map<string, McpLocalToolEntry>();
@@ -158,5 +168,6 @@ export function createMcpService(
     tools: seed.tools ?? new McpToolRegistry(),
     stdio: seed.stdio ?? new Map(),
     clients: seed.clients ?? new Map(),
+    http: seed.http ?? createMcpHttpConnections(),
   };
 }

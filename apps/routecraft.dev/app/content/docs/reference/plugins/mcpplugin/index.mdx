@@ -75,7 +75,7 @@ export const craftConfig: CraftConfig = {
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
 | `restartDelay` | `Duration` | `1000` | Initial delay before the first restart attempt |
 | `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
-| `toolRefreshInterval` | `Duration` | `60000` | Polling interval for HTTP client tool lists (0 = no polling) |
+| `toolRefreshInterval` | `Duration` | `60000` | Polling interval for HTTP client tool lists (0 = no polling). The listing and the client's calls share one connection; see [the `mcp` adapter](/docs/reference/adapters/mcp). |
 
 **Client names may not be empty, contain `__`, or end in `_`:**
 
