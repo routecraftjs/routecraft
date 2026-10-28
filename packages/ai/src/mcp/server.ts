@@ -1,4 +1,6 @@
 import type {
+  AuthorizeOptions,
+  EnforcementPositions,
   PortLookup,
   EventDetailsMap,
   EventHandler,
@@ -215,6 +217,13 @@ export interface McpServerHost {
   readonly ingress: PortLookup;
   /** Brands the identities the server verifies, for the gates to trust. */
   readonly authority: Authority;
+  /**
+   * The application's `ENFORCEMENT` provider, read when the server lists
+   * tools so each caller is shown only the tools whose route `.authorize()`
+   * admits them. Absent, or a provider without `admits`, lists every tool,
+   * as before: the server cannot guess what a replaced gate decides.
+   */
+  readonly enforcement?: () => EnforcementPositions | undefined;
 }
 
 /**
@@ -964,7 +973,7 @@ export class McpServer {
     // required field on either result is a compile error rather than a
     // protocol error at a client.
     server.setRequestHandler("tools/list", () => {
-      const tools = this.toolsFor(mount);
+      const tools = this.toolsFor(mount, { principal });
       if (mount.kind === "root") this.logExposedToolsOnce();
       return { tools: tools as unknown as ListToolsResult["tools"] };
     });
@@ -1285,9 +1294,15 @@ export class McpServer {
    *
    * @param mount The mount's segment: the server `name` for the own mount,
    * a client id for that client's mount; omit it for the root.
+   * @param caller The caller to list for, as `tools/list` does: tools whose
+   * route `.authorize()` refuses `caller.principal` are left out. Omitted,
+   * every tool the mount serves is listed, which is the operator's view.
    * @throws TypeError when no mount carries the segment.
    */
-  getAvailableTools(mount?: string): McpTool[] {
+  getAvailableTools(
+    mount?: string,
+    caller?: { readonly principal: Principal | undefined },
+  ): McpTool[] {
     const found =
       mount === undefined
         ? ROOT_MOUNT
@@ -1298,7 +1313,7 @@ export class McpServer {
     if (found === undefined) {
       throw new TypeError(`mcp: no mount named "${mount}"`);
     }
-    return this.toolsFor(found);
+    return this.toolsFor(found, caller);
   }
 
   /**
@@ -1348,10 +1363,52 @@ export class McpServer {
     return mount.kind === "root" ? root : `${root}/${mount.segment}`;
   }
 
-  private toolsFor(mount: McpMount): McpTool[] {
-    return [...this.servedOn(mount).values()].map(({ entry }) =>
-      this.entryToMcpTool(entry),
-    );
+  /**
+   * What `tools/list` shows a caller on a mount: what the mount serves,
+   * less every tool whose route `.authorize()` would refuse the caller. A
+   * proxied tool is judged by the route that serves it, the exact route
+   * over the star one. The listing is a view, never the gate: `tools/call`
+   * still runs the route's own authorizers, so a tool reached without
+   * being listed is refused as before.
+   */
+  private toolsFor(
+    mount: McpMount,
+    caller: { readonly principal: Principal | undefined } | undefined,
+  ): McpTool[] {
+    const tools: McpTool[] = [];
+    for (const { entry, proxied } of this.servedOn(mount).values()) {
+      const authorizers = proxied?.registration.authorize ?? entry.authorize;
+      if (caller !== undefined && !this.admits(authorizers, caller.principal)) {
+        continue;
+      }
+      tools.push(this.entryToMcpTool(entry));
+    }
+    return tools;
+  }
+
+  /**
+   * Whether every `.authorize()` on a route admits the caller, asked of the
+   * enforcement provider the gate itself uses. A route without
+   * `.authorize()` admits everyone, as its gate does. A check that throws
+   * (a custom predicate that fails on this principal) hides the tool:
+   * listing a tool its own gate cannot decide on would offer the caller a
+   * refusal.
+   */
+  private admits(
+    authorizers: readonly AuthorizeOptions[] | undefined,
+    principal: Principal | undefined,
+  ): boolean {
+    if (authorizers === undefined || authorizers.length === 0) return true;
+    const enforcement = this.host.enforcement?.();
+    const admits = enforcement?.admits;
+    if (admits === undefined) return true;
+    try {
+      return authorizers.every((options) =>
+        admits.call(enforcement, options, principal, this.host.authority),
+      );
+    } catch {
+      return false;
+    }
   }
 
   /**

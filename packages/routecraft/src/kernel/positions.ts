@@ -14,6 +14,8 @@ import type { ResolvedCircuitBreakerOptions } from "../operations/circuit-breake
 import type { ResolvedConcurrencyOptions } from "../operations/concurrency-wrapper.ts";
 import type { ResolvedCacheOptions } from "../operations/cache-wrapper.ts";
 import type { AuthorizeOptions } from "../authorize-options.ts";
+import type { Principal } from "../principal.ts";
+import type { Authority } from "./authority.ts";
 import { port } from "./port.ts";
 
 /**
@@ -122,6 +124,21 @@ export interface CachePositions {
 export interface EnforcementPositions {
   /** One gate per `.authorize()` call; they AND together in order. */
   authorize(options: AuthorizeOptions): Step<Adapter>;
+  /**
+   * Whether the gate `authorize(options)` builds would admit `principal`,
+   * decided without an exchange and without raising. Read by a door that
+   * shows a caller only what the caller may use, such as an MCP server's
+   * `tools/list`; the gate still runs on every call, so this is a view.
+   *
+   * Optional, so a replacement written before it existed keeps working. A
+   * provider without it leaves such a door showing everything, as before:
+   * the door cannot guess what a replaced gate decides.
+   */
+  admits?(
+    options: AuthorizeOptions,
+    principal: Principal | undefined,
+    authority: Authority,
+  ): boolean;
 }
 
 /** The resilience positions: throttle, circuitBreaker, retry, timeout, concurrency. */

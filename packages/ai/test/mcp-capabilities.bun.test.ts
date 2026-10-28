@@ -208,9 +208,9 @@ describe("capabilities exposed as MCP tools", () => {
   /**
    * @case Every exposed capability is advertised with its schema and metadata
    * @preconditions Four mcp() routes with distinct titles, descriptions and input schemas, behind RS256 JWT auth; a negotiating client lists tools with a valid token
-   * @expectedResult The modern era is negotiated and all four tools appear with their titles and input schemas, and the one declaring .output() advertises an outputSchema
+   * @expectedResult The modern era is negotiated and the three tools the caller may call appear with their titles and input schemas, the one declaring .output() advertising an outputSchema; archive_order, whose .authorize() requires a role the token lacks, is not listed
    */
-  test("advertises every capability with its schema", async () => {
+  test("advertises every capability the caller may call, with its schema", async () => {
     const url = await startSecured();
     const c = await connect(url, mintRs256());
 
@@ -221,7 +221,6 @@ describe("capabilities exposed as MCP tools", () => {
 
     expect([...byName.keys()].sort()).toEqual([
       "always_fails",
-      "archive_order",
       "quote_total",
       "search_catalogue",
     ]);

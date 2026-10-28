@@ -1,5 +1,10 @@
 import type { CraftContext, Plugin } from "@routecraft/routecraft";
-import { AUTHORITY, WEB_INGRESS, authorityOf } from "@routecraft/routecraft";
+import {
+  AUTHORITY,
+  ENFORCEMENT,
+  WEB_INGRESS,
+  authorityOf,
+} from "@routecraft/routecraft";
 import { MCP, createMcpService, type McpService } from "../../src/mcp/port.ts";
 import { McpServer } from "../../src/mcp/server.ts";
 import type { McpPluginOptions } from "../../src/mcp/types.ts";
@@ -45,6 +50,7 @@ export function mcpServerFor(
       service: ctx.lookup(MCP) ?? createMcpService(),
       ingress: ctx,
       authority: authorityOf(ctx),
+      enforcement: () => ctx.lookup(ENFORCEMENT),
     },
     options,
   );
@@ -64,7 +70,7 @@ export function mcpServerPlugin(
     id: "test.mcp.server",
     provides: [MCP],
     requires: [AUTHORITY],
-    optional: [WEB_INGRESS],
+    optional: [WEB_INGRESS, ENFORCEMENT],
     async bind(c) {
       const service = createMcpService(seed);
       c.provide(MCP, service);
@@ -76,6 +82,7 @@ export function mcpServerPlugin(
           service,
           ingress: c,
           authority: c.require(AUTHORITY),
+          enforcement: () => c.lookup(ENFORCEMENT),
         },
         options,
       );
