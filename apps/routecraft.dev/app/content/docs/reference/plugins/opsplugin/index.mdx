@@ -62,6 +62,7 @@ The second part is which failures may also refuse traffic, which is decided by f
 | Circuit breaker open or half-open | `degraded` | Live, but holding calls off, and expected to close again on its own |
 | Route deliberately taken offline | `degraded` | Deliberate reduced capability, visible without paging |
 | Route disabled by its [`.enabled()`](/docs/reference/operations/enabled) predicate | `inactive` | A capability whose credentials were never supplied is a configuration state the operator chose, not an incident. Listed with its reason, excluded from aggregation |
+| Route running with nothing to serve (`standby`), such as an [MCP proxy route](/docs/reference/adapters/mcp#proxying-a-remote-server) whose remote tool the client no longer lists | `inactive` | It fails closed, and the fix is a person renaming or retiring the route, not a page. Listed with `details.reason`, excluded from aggregation, and back to `up` when the target returns |
 | Route running normally | `up` | |
 | One-shot finished, or route stopped cleanly | `inactive` | Excluded from aggregation entirely |
 | An exchange failed | no change | A refused caller, a validation error, or a business rule saying no is a healthy route behaving correctly |

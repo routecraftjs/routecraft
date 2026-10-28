@@ -78,6 +78,11 @@ interface RouteRecord {
    * (MAIL_USER, MAIL_APP_PASSWORD unset)" and knows nothing is broken.
    */
   disabledReason?: string;
+  /**
+   * Why a running route has nothing to serve. Set only while `lifecycle` is
+   * `standby`.
+   */
+  standbyReason?: string;
 }
 
 interface IndicatorRecord {
@@ -107,6 +112,9 @@ function routeStatus(record: RouteRecord): HealthStatus {
   // status at all. Degrading on it would make a dormant capability page,
   // which is precisely the alarm this feature exists to avoid.
   if (lifecycle === "disabled") return "inactive";
+  // Running and failing closed, with nothing to serve until a person
+  // renames or retires it: listed with the reason, never paged on.
+  if (lifecycle === "standby") return "inactive";
   if (lifecycle === "offline") return "degraded";
   if (lifecycle === "running") return breakers.size > 0 ? "degraded" : "up";
   return "inactive";
@@ -133,6 +141,9 @@ function routeComponent(record: RouteRecord): HealthComponent {
 
   if (record.disabledReason !== undefined) {
     details["reason"] = record.disabledReason;
+  }
+  if (record.standbyReason !== undefined) {
+    details["reason"] = record.standbyReason;
   }
   if (breakers.size > 0) {
     details["circuit"] = [...breakers.values()].includes("open")
@@ -192,6 +203,13 @@ export interface HealthLedger {
 export class HealthState implements HealthLedger {
   private readonly routes = new Map<string, RouteRecord>();
   private readonly indicators = new Map<string, IndicatorRecord>();
+  /**
+   * Routes on standby, by id, with the reason. Held apart from the route
+   * records because a source may report standby while its route is still
+   * starting, before `routeStarted` builds a fresh record: the reason is
+   * applied to whichever record the route ends up with.
+   */
+  private readonly standby = new Map<string, string>();
   private readonly now: () => number;
   private readonly onChange: (change: HealthChange) => void;
   private contextState: ContextState = "starting";
@@ -276,6 +294,11 @@ export class HealthState implements HealthLedger {
       everSucceeded: false,
       lastStatus: previous,
     };
+    const standby = this.standby.get(routeId);
+    if (standby !== undefined) {
+      record.lifecycle = "standby";
+      record.standbyReason = standby;
+    }
     this.routes.set(routeId, record);
     this.settleRoute(routeId, record);
   }
@@ -314,6 +337,34 @@ export class HealthState implements HealthLedger {
   }
 
   /**
+   * A running route has nothing to serve, or has something again. Only a
+   * running route moves into `standby`, and only a route in `standby`
+   * leaves it: a failed, disabled, offline or stopped route already says
+   * something truer about itself.
+   *
+   * @param reason - Why it has nothing to serve, or `undefined` when it has
+   *   something again.
+   */
+  setRouteStandby(routeId: string, reason: string | undefined): void {
+    if (reason === undefined) this.standby.delete(routeId);
+    else this.standby.set(routeId, reason);
+    const record = this.routes.get(routeId);
+    if (!record) return;
+    if (reason !== undefined) {
+      if (record.lifecycle !== "running" && record.lifecycle !== "standby") {
+        return;
+      }
+      record.lifecycle = "standby";
+      record.standbyReason = reason;
+    } else {
+      if (record.lifecycle !== "standby") return;
+      record.lifecycle = "running";
+      delete record.standbyReason;
+    }
+    this.settleRoute(routeId, record);
+  }
+
+  /**
    * A route stopped. A one-shot that ran and succeeded is `completed`, one
    * that did nothing is `stopped`, and both are fine: a route closing is not a
    * failure. A route already judged `failed` or `offline` keeps that
@@ -332,6 +383,7 @@ export class HealthState implements HealthLedger {
     ) {
       return;
     }
+    delete record.standbyReason;
     record.lifecycle = record.everSucceeded ? "completed" : "stopped";
     this.settleRoute(routeId, record);
   }
@@ -410,7 +462,10 @@ export class HealthState implements HealthLedger {
       // An exchange draining out of a route that was just disabled settles
       // after the flip. Treating it as evidence of life would clear the
       // reason and report the route running while it drains to a stop.
-      record.lifecycle !== "disabled"
+      record.lifecycle !== "disabled" &&
+      // Its target is gone until a listing says otherwise; an exchange
+      // that completes anyway is not that listing.
+      record.lifecycle !== "standby"
     ) {
       record.lifecycle = "running";
     }

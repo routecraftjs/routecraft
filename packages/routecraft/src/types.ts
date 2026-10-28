@@ -565,6 +565,20 @@ export interface EventDetailsMap {
     enabled: boolean;
     reason?: string;
   };
+  /**
+   * A running route has nothing to serve, or has something again: its
+   * source is subscribed, but what it points at does not exist. An MCP
+   * proxy route whose remote tool the client no longer lists is the case
+   * that emits it. Emitted on a change only.
+   *
+   * `reason` is present only when `standby` is true, and is what ops
+   * reports next to the route, which reads `inactive` while it holds.
+   */
+  "route:standby:changed": {
+    routeId: string;
+    standby: boolean;
+    reason?: string;
+  };
   "route:starting": { routeId: string; route: Route };
   "route:started": { routeId: string; route: Route };
   "route:stopping": {

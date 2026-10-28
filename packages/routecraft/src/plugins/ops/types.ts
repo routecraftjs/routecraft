@@ -88,10 +88,21 @@ export type ContextState = "starting" | "started" | "stopping" | "stopped";
  *   every deliberately-dormant route an incident. Distinct from `offline`,
  *   which is a running deployment having capability taken away from it, and
  *   from `failed`, which is a route that should be running and is not.
+ * - `standby`: running, with nothing to serve: what its source points at
+ *   does not exist, such as an MCP proxy route whose remote tool the client
+ *   no longer lists. Reports `inactive` with the reason in
+ *   `details.reason`. The route fails closed, and a remote changing its
+ *   catalogue is a person's rename to make, not an incident to page on.
  * - `failed`: not running when it should be. Its source gave up producing.
  */
 export type RouteLifecycle =
-  "running" | "completed" | "stopped" | "offline" | "disabled" | "failed";
+  | "running"
+  | "completed"
+  | "stopped"
+  | "offline"
+  | "disabled"
+  | "standby"
+  | "failed";
 
 /** A circuit breaker's position, mirroring routecraft's breaker events. */
 export type CircuitState = "open" | "half-open";
