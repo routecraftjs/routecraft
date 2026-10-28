@@ -513,11 +513,20 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
   const fnRegistry = ctx.lookup(AGENTS)?.functions;
   if (fnRegistry) {
     for (const [name, entry] of fnRegistry) {
+      // A fn over a disabled route is not on offer, so it is not in the
+      // catalog either; resolving it here would throw for every builder
+      // agent in the context, a markdown agent's frontmatter included.
+      if (
+        isLazyFn(entry) &&
+        withheldRouteReason(toolHostOf(ctx), entry.targetId) !== undefined
+      ) {
+        continue;
+      }
       // Resolve before reading. A deferred entry read raw carries no
       // description or tags, and a builder filtering on either would
       // silently drop every route-backed tool while reporting nothing.
-      // Every deferred entry resolved during the plugin's start(), so
-      // this reads the memoized result; one that could not resolve
+      // Every other deferred entry resolved during the plugin's start(),
+      // so this reads the memoized result; one that could not resolve
       // failed the boot rather than reaching here.
       const declared = declaredFn(ctx, name, entry);
       const tags =
@@ -919,15 +928,27 @@ function declaredFn(
 ): RegisteredFn {
   // Resolved once at start for every registered deferred function; a
   // dispatch before that (a context never started) resolves for itself.
-  return (
-    ctx.lookup(AGENTS)?.resolvedFunction(name) ??
-    resolveFnOptions(
-      toolHostOf(ctx),
-      name,
-      entry,
-      new Map<string, RegisteredFn>(),
-    )
+  const registry = ctx.lookup(AGENTS);
+  const memoised = registry?.resolvedFunction(name);
+  if (memoised !== undefined) return memoised;
+  const resolved = resolveFnOptions(
+    toolHostOf(ctx),
+    name,
+    entry,
+    new Map<string, RegisteredFn>(),
   );
+  // One whose route was disabled at start resolves here, the first time
+  // the route is up, and is announced then as start announced the rest.
+  if (registry?.recordLateResolution(name, resolved) === true) {
+    ctx.emit("agent:tool:registered", {
+      toolName: name,
+      description: resolved.description,
+      ...(resolved.tags !== undefined &&
+        resolved.tags.length > 0 && { tags: resolved.tags }),
+      source: "registered",
+    });
+  }
+  return resolved;
 }
 
 function resolveFnEntry(

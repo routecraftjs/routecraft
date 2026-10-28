@@ -197,8 +197,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         bindIndicator(indicator, c, state);
       }
 
-      // Evaluated before anything can push, so a push from a step that runs
-      // whether or not the dependency is configured never lands first.
+      // Evaluated in bind, before any route runs, so a push from a step
+      // that runs whether or not the dependency is configured lands on a
+      // record already disabled and is ignored.
       for (const indicator of indicators) {
         const declared = indicator.definition.enabled;
         if (declared === undefined) continue;

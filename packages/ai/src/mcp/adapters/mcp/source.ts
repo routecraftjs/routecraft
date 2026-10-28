@@ -275,7 +275,8 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     const { context } = sub;
     const service = requireMcpService(context, "mcp({ proxy })");
     // A disabled client is declared, so the route is not pointing at a
-    // typo: it registers and serves nothing until the client is enabled.
+    // typo: it registers and serves nothing. A client's `enabled` is read
+    // once at bind, so enabling it takes a restart.
     if (
       !service.clients.has(ref.serverId) &&
       !service.disabledClients.has(ref.serverId)

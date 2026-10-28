@@ -163,22 +163,17 @@ export function directTool<TIn = unknown>(
     [LAZY_FN_BRAND]: true,
     kind: "direct",
     targetId: routeId,
+    checkTarget(discovery, fnId) {
+      describedOrThrow(routeId, fnId, overrides, discovery);
+    },
     resolve(host, fnId): RegisteredFn {
       const route = readDirectRoute(host, routeId, fnId);
-      const description = overrides?.description ?? route.description;
-      if (typeof description !== "string" || description.trim() === "") {
-        throw rcError("RC5003", undefined, {
-          message: `directTool: route "${routeId}" has no .description() and no override was provided (referenced as fn "${fnId}").`,
-        });
-      }
-      const input =
-        overrides?.input ??
-        (route.input?.body as StandardSchemaV1<unknown, TIn> | undefined);
-      if (!input) {
-        throw rcError("RC5003", undefined, {
-          message: `directTool: route "${routeId}" has no .input(...) schema and no override was provided (referenced as fn "${fnId}").`,
-        });
-      }
+      const { description, input } = describedOrThrow(
+        routeId,
+        fnId,
+        overrides,
+        route,
+      );
       const tags = route.tags;
       const parks = host.canDefer(routeId);
       if (overrides?.background === false && parks) {
@@ -209,6 +204,36 @@ export function directTool<TIn = unknown>(
       };
     },
   };
+}
+
+/**
+ * The description and input schema a direct tool presents: the overrides,
+ * else the route's own, refusing a route that has neither.
+ *
+ * @throws RC5003 when the route has no description or no input schema and
+ *   no override supplies one
+ */
+function describedOrThrow<TIn>(
+  routeId: string,
+  fnId: string,
+  overrides: ToolBuilderOverrides<TIn> | undefined,
+  route: { description?: string; input?: { body?: unknown } } | undefined,
+): { description: string; input: StandardSchemaV1<unknown, TIn> } {
+  const description = overrides?.description ?? route?.description;
+  if (typeof description !== "string" || description.trim() === "") {
+    throw rcError("RC5003", undefined, {
+      message: `directTool: route "${routeId}" has no .description() and no override was provided (referenced as fn "${fnId}").`,
+    });
+  }
+  const input =
+    overrides?.input ??
+    (route?.input?.body as StandardSchemaV1<unknown, TIn> | undefined);
+  if (!input) {
+    throw rcError("RC5003", undefined, {
+      message: `directTool: route "${routeId}" has no .input(...) schema and no override was provided (referenced as fn "${fnId}").`,
+    });
+  }
+  return { description, input };
 }
 
 /**

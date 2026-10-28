@@ -156,6 +156,95 @@ describe("agent tools follow route enablement", () => {
   });
 });
 
+describe("directTool fns over a disabled route", () => {
+  let t: TestContext | undefined;
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case The builder form of tools(), which a markdown agent uses, does not trip over a withheld fn
+   * @preconditions agentPlugin functions { monitors: directTool("list-monitors") } with that route disabled; a second route "send-mail" enabled; a builder selection naming only Direct(send-mail)
+   * @expectedResult The builder resolves to direct__send-mail, and its catalog does not list "monitors"
+   */
+  test("a builder selection resolves while a fn's route is disabled", async () => {
+    t = await testContext()
+      .routes([
+        switchableRoute("list-monitors", { on: false }),
+        switchableRoute("send-mail", { on: true }),
+      ])
+      .with({
+        plugins: [
+          agentPlugin({ functions: { monitors: directTool("list-monitors") } }),
+        ],
+      })
+      .build();
+    await t.startAndWaitReady();
+    let listed: string[] = [];
+    const selection = tools((catalog) => {
+      listed = catalog.fns.map((fn) => fn.name);
+      return ["Direct(send-mail)"];
+    });
+    expect(selection.resolve(t.ctx).map((tool) => tool.name)).toEqual([
+      "direct__send-mail",
+    ]);
+    expect(listed).not.toContain("monitors");
+  });
+
+  /**
+   * @case A fn over a disabled route still fails the start when its route has no description
+   * @preconditions directTool("bare") over a disabled route that declares .input() but no .description()
+   * @expectedResult context start rejects with RC5003 naming the missing description, as it would for an enabled route
+   */
+  test("a fn over a disabled route is still checked at start", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("bare")
+          .enabled(() => "BARE_TOKEN is unset", { refresh: "1h" })
+          .input(z.object({}))
+          .from(direct())
+          .to(log()),
+      ])
+      .with({
+        plugins: [agentPlugin({ functions: { bare: directTool("bare") } })],
+      })
+      .build();
+    await expect(t.ctx.start()).rejects.toThrow(/has no \.description\(\)/);
+  });
+
+  /**
+   * @case A fn whose route comes up after start resolves once and is announced then
+   * @preconditions directTool fn "monitors" over a route disabled at start; the route is enabled; the fn is referenced on two dispatches
+   * @expectedResult One agent:tool:registered event for "monitors" after the route came up, and none at start
+   */
+  test("a late-resolved fn is announced once", async () => {
+    const flag = { on: false };
+    t = await testContext()
+      .routes([switchableRoute("list-monitors", flag)])
+      .with({
+        plugins: [
+          agentPlugin({ functions: { monitors: directTool("list-monitors") } }),
+        ],
+      })
+      .build();
+    const announced: string[] = [];
+    t.ctx.on("agent:tool:registered", ({ details }) => {
+      announced.push(details.toolName);
+    });
+    await t.startAndWaitReady();
+    expect(announced).toEqual([]);
+
+    flag.on = true;
+    await t.ctx.reevaluateEnablement("list-monitors");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    tools(["monitors"]).resolve(t.ctx);
+    tools(["monitors"]).resolve(t.ctx);
+    expect(announced).toEqual(["monitors"]);
+  });
+});
+
 /** An MCP service whose clients are declared the way the plugin declares them. */
 async function contextWithClients(seed: {
   clients?: string[];

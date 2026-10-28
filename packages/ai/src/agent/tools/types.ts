@@ -92,6 +92,17 @@ export interface LazyFn {
    *   error messages so the user can find the offending config entry)
    */
   readonly resolve: (host: ToolHost, fnId: string) => RegisteredFn;
+  /**
+   * Check what can be checked of a target that cannot be resolved yet, so
+   * a misconfiguration still fails the start: a route held back by
+   * `.enabled()` has no capability to resolve against, but its definition
+   * already says whether it carries a description and an input schema.
+   * Throws `RC5003` with the message {@link resolve} would.
+   */
+  readonly checkTarget?: (
+    discovery: { description?: string; input?: { body?: unknown } } | undefined,
+    fnId: string,
+  ) => void;
 }
 
 /**
