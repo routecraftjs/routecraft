@@ -675,6 +675,9 @@ export interface McpServerOptions {
    * place of the remote's, for a route whose steps change the arguments or
    * the result (a redacted field the remote's `outputSchema` requires).
    * Handed the tool as the client lists it; returns JSON Schema objects.
+   * Called whenever the tool list is resolved, so keep it a pure function
+   * of the remote tool. One that throws leaves that tool on the remote's
+   * schemas, with a warning, and never fails the listing.
    * A key left `undefined` keeps the remote's schema; `output: null`
    * advertises no output schema, so the tool publishes no
    * `structuredContent`. Like the remote's own, a derived JSON Schema is

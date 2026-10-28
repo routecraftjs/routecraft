@@ -1247,6 +1247,29 @@ function mcpEntryToResolvedTool(
 }
 
 /**
+ * The JSON Schema a covering route's `.input()` renders to, the way the
+ * MCP server lists it: the schema's own rendering when it has one, an
+ * open object when it has none, `undefined` when the route declared no
+ * input and the remote's schema stands.
+ */
+function advertisedInputJson(schema: unknown): unknown {
+  if (schema === undefined) return undefined;
+  const standard = (schema as { "~standard"?: { jsonSchema?: unknown } })[
+    "~standard"
+  ];
+  const arm = (standard?.jsonSchema as { input?: unknown } | undefined)?.input;
+  if (typeof arm === "function") {
+    try {
+      const rendered: unknown = arm({ target: "draft-2020-12" });
+      if (rendered !== null && typeof rendered === "object") return rendered;
+    } catch {
+      // A rendering that fails falls back as one that is absent does.
+    }
+  }
+  return { type: "object", additionalProperties: true };
+}
+
+/**
  * MCP tools expect a JSON-object argument. Silently coercing a non-object
  * value to `{}` would discard the LLM's args and surface an unrelated
  * server-side error; fail loudly so the model sees a precise correction
@@ -1287,7 +1310,10 @@ function governedMcpTool(
   covering: McpProxyRegistration,
   guard: ToolGuard | undefined,
 ): ResolvedTool {
-  const governed = proxiedEntry(name, covering, entry);
+  const registry = ctx.lookup(MCP)?.tools;
+  const governed = proxiedEntry(name, covering, entry, (key, message, obj) => {
+    if (registry?.shouldReport(key) !== false) ctx.logger.warn(obj, message);
+  });
   const host = toolHostOf(ctx);
   const source: AgentToolSource = {
     kind: "mcp",
@@ -1314,10 +1340,13 @@ function governedMcpTool(
     return exchange.body;
   };
   const fields = {
-    // The covering route's advertised input: its own `.input()` or what a
-    // star route derives, else the remote's.
-    input:
-      governed.input?.body ?? standardSchemaFromJsonSchema(entry.inputSchema),
+    // What the covering route advertises, as JSON Schema the model reads
+    // and the bridge passes through: the route's own `.input()` runs where
+    // it always does, in the route, so a transforming or async schema is
+    // neither run twice nor run where it cannot be.
+    input: standardSchemaFromJsonSchema(
+      advertisedInputJson(governed.input?.body) ?? entry.inputSchema,
+    ),
     ...(entry.tags && entry.tags.length > 0 ? { tags: [...entry.tags] } : {}),
   };
   if (covering.deferrable) {

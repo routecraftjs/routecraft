@@ -194,7 +194,12 @@ describe("proxy routes advertise their own schemas", () => {
     expect(sent).toEqual([{ id: "c-1", workspace: "acme" }]);
 
     const [agentTool] = tools(["MCP(crm:get_contact)"]).resolve(t!.ctx);
-    expect(agentTool!.input).toBe(Input);
+    const rendered = (
+      agentTool!.input["~standard"] as unknown as {
+        jsonSchema: { input: () => { properties: Record<string, unknown> } };
+      }
+    ).jsonSchema.input();
+    expect(Object.keys(rendered.properties)).toEqual(["id"]);
   });
 
   /**
@@ -233,6 +238,74 @@ describe("proxy routes advertise their own schemas", () => {
     });
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toEqual({ id: "c-1", name: "Ada" });
+  });
+
+  /**
+   * @case A schemas function that throws leaves that tool on the remote's schemas and the server working
+   * @preconditions Star route whose schemas throws; a local .from(mcp()) tool beside it
+   * @expectedResult tools/list still answers, the proxied tool carries the remote's output schema, a warning names the route and tool, and the local tool still answers its call
+   */
+  test("a throwing schemas function does not break the server", async () => {
+    const srv = await serve([
+      craft()
+        .id("crm")
+        .from(
+          mcp({
+            proxy: "crm:*",
+            schemas: () => {
+              throw new Error("boom");
+            },
+          }),
+        )
+        .to(mcp("crm:*")) as AnyRouteBuilder,
+      craft()
+        .id("ping")
+        .description("Ping")
+        .from(mcp())
+        .transform(() => "pong") as AnyRouteBuilder,
+    ]);
+    const warnings: Array<Record<string, unknown>> = [];
+    const logger = t!.ctx.logger;
+    const original = logger.warn.bind(logger);
+    logger.warn = ((first: unknown, second?: unknown) => {
+      if (typeof first === "object" && first !== null) {
+        warnings.push(first as Record<string, unknown>);
+      }
+      return original(first as never, second as never);
+    }) as typeof logger.warn;
+    const listed = srv
+      .getAvailableTools()
+      .find((tool) => tool.name === "crm_get_contact")!;
+    expect((listed.outputSchema as { required: string[] }).required).toContain(
+      "bank_account",
+    );
+    const ping = await callTool(srv, "ping", {});
+    expect(ping.isError).toBeFalsy();
+    expect(warnings.some((w) => w["tool"] === "get_contact")).toBe(true);
+  });
+
+  /**
+   * @case A headers-only .input() on an exact route keeps the remote's body schema
+   * @preconditions Exact route with .input({ headers }) and no body schema
+   * @expectedResult tools/list advertises the remote's input schema (id and workspace), not an empty object
+   */
+  test("a headers-only .input() keeps the remote's schema", async () => {
+    const srv = await serve([
+      craft()
+        .id("crm-get-contact")
+        .input({ headers: z.object({}).passthrough() })
+        .from(mcp({ proxy: "crm:get_contact" }))
+        .to(mcp("crm:get_contact")) as AnyRouteBuilder,
+    ]);
+    const listed = srv
+      .getAvailableTools()
+      .find((tool) => tool.name === "crm_get_contact")!;
+    expect(
+      Object.keys(
+        (listed.inputSchema as { properties: Record<string, unknown> })
+          .properties,
+      ).sort(),
+    ).toEqual(["id", "workspace"]);
   });
 
   /**

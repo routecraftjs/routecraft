@@ -10,6 +10,7 @@ import {
   MCP_TOOL_NAME_PATTERN,
   McpHeadersKeys,
   type McpLocalToolEntry,
+  type McpDerivedSchemas,
   type McpProxiedToolInfo,
   type McpProxyRegistration,
   type McpToolRegistryEntry,
@@ -246,7 +247,7 @@ export function resolveProxiedEntries(
         continue;
       }
       resolved.set(exposedName, {
-        entry: proxiedEntry(exposedName, registration, remote),
+        entry: proxiedEntry(exposedName, registration, remote, warn),
         registration,
         remote,
       });
@@ -292,17 +293,61 @@ export function resolveClientEntries(
       continue;
     }
     resolved.set(remote.name, {
-      entry: proxiedEntry(remote.name, registration, remote),
+      entry: proxiedEntry(remote.name, registration, remote, warn),
       exposed: proxiedEntry(
         registration.name ?? `${registration.prefix}${remote.name}`,
         registration,
         remote,
+        warn,
       ),
       registration,
       remote,
     });
   }
   return resolved;
+}
+
+/**
+ * What a star route's `schemas` derives for one remote tool. A derivation
+ * that throws, or returns something that is not an object, leaves the
+ * tool on the remote's schemas with a warning, rather than failing every
+ * listing and call of the whole server: the function is the route's code,
+ * and one tool's schema must not take the others down.
+ */
+function deriveSchemas(
+  registration: McpProxyRegistration,
+  remote: McpToolRegistryEntry,
+  warn:
+    | ((
+        key: string,
+        message: string,
+        bindings: Record<string, unknown>,
+      ) => void)
+    | undefined,
+): McpDerivedSchemas | undefined {
+  if (registration.schemas === undefined) return undefined;
+  const report = (error: unknown): undefined => {
+    warn?.(
+      `proxy:schemas:${registration.routeId}:${remote.name}`,
+      "mcp({ proxy, schemas }): the schemas function failed for a remote tool; advertising the remote's schemas for it.",
+      {
+        route: registration.routeId,
+        server: registration.serverId,
+        tool: remote.name,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+    return undefined;
+  };
+  try {
+    const derived = registration.schemas(proxiedToolInfo(remote));
+    if (derived === null || typeof derived !== "object") {
+      return report(new TypeError("schemas must return an object"));
+    }
+    return derived;
+  } catch (error) {
+    return report(error);
+  }
 }
 
 /** The remote tool as a star route's schema derivation sees it. */
@@ -331,6 +376,11 @@ export function proxiedEntry(
   exposedName: string,
   registration: McpProxyRegistration,
   remote: McpToolRegistryEntry,
+  warn?: (
+    key: string,
+    message: string,
+    bindings: Record<string, unknown>,
+  ) => void,
 ): McpLocalToolEntry {
   const entry: McpLocalToolEntry = {
     endpoint: exposedName,
@@ -359,13 +409,15 @@ export function proxiedEntry(
   if (title !== undefined) entry.title = title;
   // The route's own schemas win: an exact route's `.input()` / `.output()`,
   // else what a star route derives from the remote's, else the remote's.
-  const derived = registration.schemas?.(proxiedToolInfo(remote));
-  if (registration.input !== undefined) {
+  const derived = deriveSchemas(registration, remote, warn);
+  // Only a body schema replaces the remote's: a route that declares headers
+  // alone says nothing about the tool's arguments or result.
+  if (registration.input?.body !== undefined) {
     entry.input = registration.input;
   } else if (derived?.input !== undefined) {
     entry.input = { body: standardSchemaFromJsonSchema(derived.input) };
   }
-  if (registration.output !== undefined) {
+  if (registration.output?.body !== undefined) {
     entry.output = registration.output;
   } else if (derived?.output !== undefined) {
     if (derived.output !== null) {
