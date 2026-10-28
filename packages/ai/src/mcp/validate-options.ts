@@ -195,6 +195,18 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       // `isSplittableNameHead`. Both this throw and the resolution-time
       // drop in `agent/tools/selection.ts` call it, so the two layers
       // cannot disagree about what they reject.
+      const enabled: unknown = (config as { enabled?: unknown } | undefined)
+        ?.enabled;
+      if (
+        enabled !== undefined &&
+        typeof enabled !== "boolean" &&
+        typeof enabled !== "string" &&
+        typeof enabled !== "function"
+      ) {
+        throw rcError("RC5003", undefined, {
+          message: `mcpPlugin: clients.${name}.enabled must be true, false, a reason string, or a function returning one, the shape a route's .enabled() takes.`,
+        });
+      }
       if (!isSplittableNameHead(name)) {
         // Collapse runs and trim the edges, so the name offered back is
         // one the check above actually accepts. Naively splitting on

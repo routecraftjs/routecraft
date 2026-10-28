@@ -1,5 +1,6 @@
 import {
   AUTHORITY,
+  evaluateEnablementOnce,
   type Plugin,
   type PluginContext,
   type EventName,
@@ -71,8 +72,13 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     async bind(c: PluginContext) {
       const stdio = new Map<string, StdioClientManager>();
       const clients = new Map<string, McpClientConfig>();
+      const disabledClients = new Map<string, string>();
       // Shared, so the disposer that removes a manager removes what dispatch sees.
-      const service: McpService = createMcpService({ stdio, clients });
+      const service: McpService = createMcpService({
+        stdio,
+        clients,
+        disabledClients,
+      });
       c.provide(MCP, service);
 
       // Registered ahead of every refresh timer: disposers run in reverse, so
@@ -88,6 +94,28 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       );
 
       for (const [serverId, config] of Object.entries(options.clients ?? {})) {
+        if (config.enabled !== undefined) {
+          const state = await evaluateEnablementOnce(
+            config.enabled,
+            `MCP client "${serverId}" enabled`,
+            (err) => {
+              c.logger.warn(
+                { err, serverId },
+                "MCP client enabled predicate threw; the client stays disabled",
+              );
+            },
+          );
+          if (!state.enabled) {
+            // Declared, so a reference to it is not a typo; off, so nothing
+            // is spawned, connected or listed for it.
+            disabledClients.set(serverId, state.reason);
+            c.logger.info(
+              { serverId, reason: state.reason },
+              "MCP client is disabled by its enabled declaration; not connecting",
+            );
+            continue;
+          }
+        }
         clients.set(serverId, config);
         if (isStdioConfig(config)) {
           await startStdioClient(c, stdio, serverId, config, service.tools);

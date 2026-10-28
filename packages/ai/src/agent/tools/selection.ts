@@ -12,7 +12,7 @@ import {
 } from "@routecraft/routecraft";
 import type { FnHandlerContext, FnOptions, ToolGuard } from "../../fn/types.ts";
 import { dispatchMcpCall } from "../../mcp/dispatch.ts";
-import { MCP } from "../../mcp/port.ts";
+import { MCP, type McpService } from "../../mcp/port.ts";
 import { coveringProxy, declaredProxy, proxiedEntry } from "../../mcp/proxy.ts";
 import {
   McpHeadersKeys,
@@ -34,6 +34,7 @@ import {
   isLazyFn,
   resolveFnOptions,
   toolHostOf,
+  withheldRouteReason,
   type FnEntry,
   type RegisteredFn,
 } from "./types.ts";
@@ -398,7 +399,8 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             }
             continue;
           }
-          record(out, resolveByName(ctx, item, undefined));
+          const named = resolveByName(ctx, item, undefined);
+          if (named !== undefined) record(out, named);
           continue;
         }
         if (item === null || typeof item !== "object" || !("name" in item)) {
@@ -481,6 +483,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
           });
         }
         const base = resolveByName(ctx, item.name, item.guard, item.background);
+        if (base === undefined) continue;
         // Per-binding description override. The registry entry is
         // never mutated, so other agents binding the same fn still
         // see the canonical description.
@@ -612,12 +615,17 @@ function fnRegistryHas(ctx: CraftContext, name: string): boolean {
   return fnRegistry?.has(name) ?? false;
 }
 
+/**
+ * Resolve one named reference to its tool, or to `undefined` when the
+ * reference is to a route held back by `.enabled()`: that tool is left out
+ * of this dispatch's offer (see {@link withheldByEnablement}).
+ */
 function resolveByName(
   ctx: CraftContext,
   name: string,
   guard: ToolGuard | undefined,
   background?: boolean,
-): ResolvedTool {
+): ResolvedTool | undefined {
   if (typeof name !== "string" || name.trim() === "") {
     throw rcError("RC5003", undefined, {
       message: `tools(): tool name must be a non-empty string.`,
@@ -713,7 +721,8 @@ function resolveDirect(
   routeId: string,
   guard: ToolGuard | undefined,
   background?: boolean,
-): ResolvedTool {
+): ResolvedTool | undefined {
+  if (withheldByEnablement(ctx, ref, routeId)) return undefined;
   const remote = remoteOf(ctx, routeId);
   const qualifiedBy = `${remote ?? ""}:`;
   const toolName =
@@ -836,6 +845,53 @@ function resolveRemoteRefs(
   return out;
 }
 
+/**
+ * References to a disabled route already warned about, per context: the
+ * reference mapped to the reason it was warned with. Resolution runs per
+ * dispatch, so without this a disabled tool would log on every turn; keyed
+ * by reason, so a route disabled again for a different reason, or again
+ * after it came back, is reported again.
+ */
+const reportedDisabledRefs = new WeakMap<CraftContext, Map<string, string>>();
+
+/**
+ * Whether the tool `ref` names is left out of this dispatch because its
+ * route is disabled, warning once per reference and reason when it is.
+ *
+ * Disabled is not down, and it is not a typo either. A tool offered to the
+ * model that always refuses costs a turn and teaches the model nothing, so
+ * it is left out; a reference to a route nobody registered still throws,
+ * because silently skipping it would turn every misspelled id into a tool
+ * nobody notices is missing. The reason belongs in the operator's log, not
+ * the model's context.
+ *
+ * @internal
+ */
+function withheldByEnablement(
+  ctx: CraftContext,
+  ref: string,
+  routeId: string,
+): boolean {
+  const reason = withheldRouteReason(toolHostOf(ctx), routeId);
+  let seen = reportedDisabledRefs.get(ctx);
+  if (reason === undefined) {
+    seen?.delete(ref);
+    return false;
+  }
+  if (seen === undefined) {
+    seen = new Map();
+    reportedDisabledRefs.set(ctx, seen);
+  }
+  if (seen.get(ref) !== reason) {
+    seen.set(ref, reason);
+    ctx.logger.warn(
+      { tool: ref, route: routeId, reason },
+      "Agent tool refers to a disabled route; leaving it out of the agent's tools until the route is enabled",
+    );
+  }
+  return true;
+}
+
 /** Unusable remote route names already warned about, per context. */
 const reportedRemoteNames = new WeakMap<CraftContext, Set<string>>();
 
@@ -879,8 +935,11 @@ function resolveFnEntry(
   name: string,
   entry: FnEntry,
   guard: ToolGuard | undefined,
-): ResolvedTool {
+): ResolvedTool | undefined {
   if (isLazyFn(entry)) {
+    // Ahead of the memo: a fn resolved while its route was up must still be
+    // withheld once the route is switched off.
+    if (withheldByEnablement(ctx, name, entry.targetId)) return undefined;
     const fn = declaredFn(ctx, name, entry);
     // Derived from `entry.kind`, never asserted. `isLazyFn` is a
     // brand check only, so hardcoding "direct" here would silently
@@ -1010,9 +1069,16 @@ function parseMcpRef(ref: string): { clientName: string; toolName: string } {
  * The whole-server forms expand to every tool registered under the
  * server at dispatch time.
  *
- * Throws RC5003 when the registry is absent, the server is unknown,
- * the server is registered but has no tools, or the specific tool is
- * not registered.
+ * Throws RC5003 when the registry is absent or the client id matches no
+ * configuration, both of which are authored in this repository.
+ *
+ * Resolves to nothing, with one warning per registry version, when the
+ * client is declared but off (`enabled` says why), declared but has no
+ * tools in the registry (still connecting, or its listing failed), or
+ * live but not listing the named tool. Each is a state of the remote or
+ * of configuration rather than a typo, and resolution runs per dispatch:
+ * a throw would make an optional integration, a slow connection, or a
+ * vendor renaming one tool fail every turn of every agent that lists it.
  *
  * Does NOT throw when a registered tool's composed wire name is
  * unusable: that tool is dropped with a warning, on both the wildcard
@@ -1039,15 +1105,41 @@ function resolveMcpRefs(
       message: `tools(): MCP reference "${ref}" but no MCP plugin is installed. Install mcpPlugin (defineConfig.mcp) so external clients populate the registry.`,
     });
   }
+  const service = ctx.lookup(MCP);
+  const disabled = service?.disabledClients.get(clientName);
+  if (disabled !== undefined) {
+    if (registry.shouldReport(`mcp-client-disabled:${ref}`)) {
+      ctx.logger.warn(
+        { tool: ref, client: clientName, reason: disabled },
+        "Agent tool refers to a disabled MCP client; leaving it out of the agent's tools until the client is enabled",
+      );
+    }
+    return [];
+  }
   const clientTools = registry.getToolsByServer(clientName);
   if (clientTools.length === 0) {
-    const known = listKnownMcpClients(registry);
+    // Declared but not registered yet: still connecting, or its listing
+    // failed. It returns on the next successful listing.
+    if (service?.clients.has(clientName) === true) {
+      if (registry.shouldReport(`mcp-client-unlisted:${ref}`)) {
+        ctx.logger.warn(
+          {
+            tool: ref,
+            client: clientName,
+            reason: "the client has listed no tools",
+          },
+          "Agent tool refers to an MCP client with no registered tools; leaving it out of the agent's tools until the client lists them",
+        );
+      }
+      return [];
+    }
+    const known = listKnownMcpClients(registry, service);
     throw rcError("RC5003", undefined, {
       message:
-        `tools(): MCP reference "${ref}" but client "${clientName}" has no registered tools. ` +
+        `tools(): MCP reference "${ref}" but client "${clientName}" is not configured. ` +
         (known.length > 0
           ? `Known MCP clients: ${known.map((k) => `"${k}"`).join(", ")}.`
-          : `No MCP clients are registered in this context.`),
+          : `No MCP clients are configured in this context.`),
     });
   }
   if (toolName === "*") {
@@ -1057,12 +1149,17 @@ function resolveMcpRefs(
   }
   const entry = clientTools.find((t) => t.name === toolName);
   if (!entry) {
-    const knownTools = clientTools.map((t) => t.name).sort();
-    throw rcError("RC5003", undefined, {
-      message:
-        `tools(): MCP reference "${ref}" but tool "${toolName}" is not registered under client "${clientName}". ` +
-        `Known tools on "${clientName}": ${knownTools.map((n) => `"${n}"`).join(", ")}.`,
-    });
+    // The remote names its tools, so a missing one is the remote's state
+    // (renamed or removed) as often as a typo, and the warning names what
+    // it does list so either is quick to tell apart.
+    if (registry.shouldReport(`mcp-tool-unlisted:${ref}`)) {
+      const knownTools = clientTools.map((t) => t.name).sort();
+      ctx.logger.warn(
+        { tool: ref, client: clientName, known: knownTools },
+        `Agent tool refers to a tool the MCP client does not list; leaving it out of the agent's tools. Known tools on "${clientName}": ${knownTools.map((n) => `"${n}"`).join(", ")}`,
+      );
+    }
+    return [];
   }
   const resolved = mcpEntryToResolvedTool(ctx, registry, entry, guard, raw);
   return resolved === undefined ? [] : [resolved];
@@ -1351,9 +1448,15 @@ function governedMcpTool(
   return toResolvedTool(name, fn, guard, source);
 }
 
-function listKnownMcpClients(registry: McpToolRegistry): string[] {
+/** Every client id a reference may name: configured, disabled, or listing tools. */
+function listKnownMcpClients(
+  registry: McpToolRegistry,
+  service: McpService | undefined,
+): string[] {
   const set = new Set<string>();
   for (const entry of registry.getTools()) set.add(entry.source);
+  for (const id of service?.clients.keys() ?? []) set.add(id);
+  for (const id of service?.disabledClients.keys() ?? []) set.add(id);
   return [...set].sort();
 }
 

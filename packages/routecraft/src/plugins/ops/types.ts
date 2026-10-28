@@ -12,6 +12,7 @@ import type {
   HealthStatus as KernelHealthStatus,
 } from "../../types.ts";
 import type { Duration } from "../../shared/duration.ts";
+import type { EnablementDeclaration } from "../../enablement.ts";
 import type { HttpAuth } from "../../adapters/http/types";
 import type { Deferred } from "../../kernel/continuation/deferred";
 import type {
@@ -282,8 +283,34 @@ export interface IndicatorDefinition {
    * (a caller without the scope, a validation error, a business rule saying
    * no) report the dependency down, which is the escalation this design
    * exists to prevent.
+   *
+   * The indicator follows the route's `.enabled()`: while the route is
+   * disabled it reports `inactive` with the route's reason, is excluded
+   * from the aggregate and never goes stale. Disabled is not down.
    */
   route?: string;
+  /**
+   * Whether this dependency is configured at all, with the meaning a
+   * route's `.enabled()` gives its verdict: `true` enables, a string
+   * disables and is the reason, `false` disables with a generic one. A
+   * predicate is evaluated once, as the application starts; it has no
+   * refresh cadence.
+   *
+   * For an indicator fed by hand. While disabled it reports `inactive`
+   * with the reason, is excluded from the aggregate, never goes stale, and
+   * ignores `up()` and `down()`, so the code that pushes needs no guard of
+   * its own. An indicator bound to a route follows that route instead, and
+   * needs this only to switch itself off regardless of the route.
+   *
+   * @example
+   * ```ts
+   * defineIndicator({
+   *   name: "ledger",
+   *   enabled: () => ledgerConfigured() || "LEDGER_URL is unset",
+   * });
+   * ```
+   */
+  enabled?: EnablementDeclaration;
 }
 
 /**

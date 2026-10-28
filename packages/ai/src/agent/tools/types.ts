@@ -108,6 +108,13 @@ export interface ToolHost {
   /** Whether a route with this id is registered at all. */
   hasRoute(routeId: string): boolean;
   /**
+   * Why a registered route is held back by its `.enabled()` predicate, or
+   * `undefined` for one that is enabled or not registered. A tool over a
+   * disabled route is left out of the agent's offer rather than failing
+   * the turn: disabled is a configuration state, not a typo.
+   */
+  disabledReason(routeId: string): string | undefined;
+  /**
    * Whether an exchange on this route can park, so a tool over it is
    * background by shape: the dispatch answers with an acknowledgment and
    * the result arrives from execution two. False for a route this
@@ -124,6 +131,29 @@ export interface ToolHost {
   sessions(): AgentSessionRuntime;
 }
 
+/** The reason reported for a disabled route that recorded none. */
+const DISABLED_ROUTE_REASON = "disabled by its enabled() predicate";
+
+/**
+ * Whether a `directTool` over this route is left out of the agent's tools
+ * because the route is disabled: registered, held back by `.enabled()`, and
+ * no capability answering under its id (a remote's, for one).
+ *
+ * @returns The route's disabled reason, or `undefined` when the tool is not
+ *   withheld for that reason.
+ * @internal
+ */
+export function withheldRouteReason(
+  host: ToolHost,
+  routeId: string,
+): string | undefined {
+  const reason = host.disabledReason(routeId);
+  if (reason === undefined) return undefined;
+  return host.capabilities().some((c) => c.endpoint === routeId)
+    ? undefined
+    : reason;
+}
+
 /**
  * The tool host for a running context.
  *
@@ -133,6 +163,10 @@ export function toolHostOf(ctx: CraftContext): ToolHost {
   return {
     capabilities: () => ctx.capabilities(),
     hasRoute: (routeId) => ctx.getRouteById(routeId) !== undefined,
+    disabledReason: (routeId) =>
+      ctx.getRouteById(routeId) === undefined || ctx.isRouteEnabled(routeId)
+        ? undefined
+        : (ctx.disabledRoutes().get(routeId) ?? DISABLED_ROUTE_REASON),
     canDefer: (routeId) => {
       const route = ctx.getRouteById(routeId);
       return route !== undefined && routeCanDefer(route.definition, ctx);

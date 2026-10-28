@@ -50,6 +50,13 @@ The agent tool list is derived from what the context has enabled, so a disabled 
 ctx.capabilities() // the disabled route's endpoint is absent
 ```
 
+**Disabled is not down**, and it is not a typo either. Whatever refers to a disabled route by its id follows its enablement rather than failing:
+
+- An agent's `Direct(<id>)` reference, in code or in an agent's `.md` frontmatter, and a `directTool(<id>)` registered as a fn are left out of the agent's tools with one warning naming the reference, the route and the reason, and come back once the route is enabled. A reference to an id no route declares still fails, so a misspelling is not dropped quietly. See [disabled routes](/docs/reference/plugins/agentplugin#disabled-routes-are-not-offered).
+- An indicator bound to the route with `route` reports `inactive` with the route's reason and never goes stale. See [disabled is not down](/docs/reference/plugins/opsplugin#disabled-is-not-down).
+
+A route that is exported conditionally is not disabled. It is unknown, and a reference to it fails. Gate it with `.enabled()` so the context knows it exists.
+
 <Callout type="warning" title="Not an access check">
 
 `.enabled()` is a deployment switch, not an access check. The predicate runs at boot and on the refresh cadence, never per exchange, so it does not know who is calling and cannot answer differently for two callers. It decides whether the route runs at all; once it is on, every caller that reaches the route is treated the same.

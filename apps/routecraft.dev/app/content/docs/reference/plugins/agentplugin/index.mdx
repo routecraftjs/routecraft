@@ -416,6 +416,15 @@ Flat array of items. Each item is one of:
 
 A route held back by its [`.enabled()`](/docs/reference/operations/enabled) predicate is absent from `ctx.capabilities()`, and so from the tool surface built on top of it. The model is never shown a capability it cannot use, which is what makes "the agent must not call this until I supply credentials" true by construction rather than by the model behaving well. Re-enable the route and it is offered again, with no restart.
 
+A reference that names such a route is not an error. An agent's whole tool list can therefore live in its `.md` frontmatter, optional integrations included, with no guard in code:
+
+| Reference | When it is left out, with one warning | When it throws `RC5003` |
+| --- | --- | --- |
+| `Direct(<id>)`, or a fn registered as `directTool(<id>)` | The route is registered and disabled | No route declares `<id>` |
+| `MCP(<client>)`, `MCP(<client>:<tool>)` | The client is declared with `enabled` off, has listed no tools yet (still connecting, or its listing failed), or does not list `<tool>` | No client is configured as `<client>` |
+
+The warning names the reference and the reason, and is logged once per state rather than once per turn. The tool comes back on the first dispatch after its route is enabled, or after its client lists it. A missing tool on a live client is left out rather than refused because the remote names its tools: a vendor renaming one must not fail every turn of every agent that lists it, and the warning lists the tools the client does have. A client id and a route id are written in this repository, so a misspelling of either still throws. To switch a client off, see [`enabled` on a client](/docs/reference/plugins/mcpplugin).
+
 Wire names must match `/^[A-Za-z0-9_-]{1,64}$/`, the charset every mainstream provider enforces. Route ids are deliberately not constrained that way, so `Direct(memory:get)` is rejected at resolution rather than encoded into something the model has to read. Expose such a route under a tool-safe alias instead:
 
 ```ts

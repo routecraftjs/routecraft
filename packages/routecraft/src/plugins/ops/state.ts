@@ -80,6 +80,13 @@ interface RouteRecord {
   disabledReason?: string;
 }
 
+/** Whether anything holds an indicator off. */
+function isIndicatorDisabled(record: IndicatorRecord): boolean {
+  return (
+    record.disabled.own !== undefined || record.disabled.route !== undefined
+  );
+}
+
 interface IndicatorRecord {
   maxAgeMs?: number;
   domain: FailureDomain;
@@ -88,6 +95,13 @@ interface IndicatorRecord {
   lastReportAt?: number;
   lastHealth?: Health;
   inactive: boolean;
+  /**
+   * Why the indicator is off, by who switched it off: its own `enabled`
+   * declaration, or the route it is bound to. Kept apart from `inactive`,
+   * which is a maintenance mute any report clears: a disabled indicator
+   * ignores reports until whatever disabled it lets go.
+   */
+  disabled: { own?: string; route?: string };
   /** Last status reported to `onChange`, so a transition is detected in O(1). */
   lastStatus: HealthStatus;
 }
@@ -466,8 +480,41 @@ export class HealthState implements HealthLedger {
       domain: options.domain ?? "deployment",
       ...(this.contextState === "started" ? { startedAt: this.now() } : {}),
       inactive: false,
+      disabled: {},
       lastStatus: "up",
     });
+  }
+
+  /**
+   * Switch an indicator off, or back on, on behalf of one owner of the
+   * decision: `own` for the indicator's `enabled` declaration, `route` for
+   * the route it is bound to. While either holds it off it reports
+   * `inactive` with the reason, is excluded from the aggregate, ignores
+   * pushes and never goes stale.
+   *
+   * Coming back on forgets the last report and restarts the staleness
+   * window from now: a verdict from before it was switched off says
+   * nothing about the dependency today, and measuring `maxAge` from it
+   * would report a freshly enabled indicator stale on its first read.
+   *
+   * @param reason - Why it is off, or `undefined` to switch it back on.
+   */
+  setIndicatorDisabled(
+    name: string,
+    by: "own" | "route",
+    reason: string | undefined,
+  ): void {
+    const record = this.indicators.get(name);
+    if (!record) return;
+    const wasDisabled = isIndicatorDisabled(record);
+    if (reason === undefined) delete record.disabled[by];
+    else record.disabled[by] = reason;
+    if (wasDisabled && !isIndicatorDisabled(record)) {
+      delete record.lastReportAt;
+      delete record.lastHealth;
+      if (this.contextState === "started") record.startedAt = this.now();
+    }
+    this.settleIndicator(name, record);
   }
 
   /** Record an indicator report. Any report clears a prior `inactive` marker. */
@@ -478,6 +525,9 @@ export class HealthState implements HealthLedger {
   ): void {
     const record = this.indicators.get(name);
     if (!record) return;
+    // Off is off: a push from code that runs whether or not the dependency
+    // was configured must not bring a disabled indicator back to life.
+    if (isIndicatorDisabled(record)) return;
     // A report replayed from before this ledger existed keeps its own time,
     // so a maxAge window measures from the report and not from the binding.
     record.lastReportAt = reportedAt;
@@ -616,6 +666,12 @@ export class HealthState implements HealthLedger {
    */
   private indicatorComponent(record: IndicatorRecord): HealthComponent {
     const { domain } = record;
+    // Its own declaration first: an indicator its author switched off says
+    // why in the author's words, whatever its route is doing.
+    const off = record.disabled.own ?? record.disabled.route;
+    if (off !== undefined) {
+      return { status: "inactive", domain, details: { reason: off } };
+    }
     if (record.inactive) return { status: "inactive", domain };
 
     const now = this.now();
