@@ -134,6 +134,12 @@ export interface McpProxyRegistration {
   icons?: McpIcon[];
   /** The route can park, so every exposed tool advertises the `Deferred` arm. */
   deferrable?: boolean;
+  /** An exact route's `.input()`, advertised and enforced in place of the remote's. */
+  input?: import("@routecraft/routecraft").RouteSchemas;
+  /** An exact route's `.output()`, advertised and enforced in place of the remote's. */
+  output?: import("@routecraft/routecraft").RouteSchemas;
+  /** A star route's per-tool schema derivation; see {@link McpServerOptions.schemas}. */
+  schemas?: McpProxySchemas;
   /**
    * The route's `.authorize()` options, one per call, read when the server
    * lists tools: a caller is shown the tool only when every one admits it.
@@ -706,7 +712,63 @@ export interface McpServerOptions {
    * with a star `proxy`.
    */
   name?: string;
+
+  /**
+   * Derive the schemas a star `proxy` advertises for each remote tool, in
+   * place of the remote's, for a route whose steps change the arguments or
+   * the result (a redacted field the remote's `outputSchema` requires).
+   * Handed the tool as the client lists it; returns JSON Schema objects.
+   * Called whenever the tool list is resolved, so keep it a pure function
+   * of the remote tool. One that throws leaves that tool on the remote's
+   * schemas, with a warning, and never fails the listing.
+   * A key left `undefined` keeps the remote's schema; `output: null`
+   * advertises no output schema, so the tool publishes no
+   * `structuredContent`. Like the remote's own, a derived JSON Schema is
+   * advertised as written and not validated by the server: a client that
+   * checks `structuredContent` against the advertised schema is what holds
+   * the result to it. An exact route's `.output()` is a schema the route
+   * validates itself.
+   *
+   * Only with a star `proxy`. An exact route declares its schemas with
+   * `.input()` and `.output()`, and a star route refuses both, since one
+   * schema cannot describe every tool of a client.
+   *
+   * @example
+   * ```ts
+   * mcp({
+   *   proxy: "crm:*",
+   *   schemas: (remote) => ({ output: withoutProperty(remote.outputSchema, "bank_account") }),
+   * })
+   * ```
+   */
+  schemas?: McpProxySchemas;
 }
+
+/** The remote tool a star route's {@link McpServerOptions.schemas} derives from. */
+export interface McpProxiedToolInfo {
+  /** The tool's name as the remote lists it. */
+  readonly name: string;
+  /** The remote's input JSON Schema. */
+  readonly inputSchema: Readonly<Record<string, unknown>>;
+  /** The remote's output JSON Schema, when it declares one. */
+  readonly outputSchema?: Readonly<Record<string, unknown>>;
+  /** The remote's annotations, when it declares any. */
+  readonly annotations?: McpToolAnnotations;
+}
+
+/** What a star route's schema derivation returns for one tool. */
+export interface McpDerivedSchemas {
+  /** The input JSON Schema to advertise, or `undefined` for the remote's. */
+  readonly input?: Record<string, unknown>;
+  /**
+   * The output JSON Schema to advertise, `undefined` for the remote's, or
+   * `null` for none.
+   */
+  readonly output?: Record<string, unknown> | null;
+}
+
+/** A star route's per-tool schema derivation. */
+export type McpProxySchemas = (remote: McpProxiedToolInfo) => McpDerivedSchemas;
 
 /**
  * Origins an MCP Apps view may reach beyond its own inline content, mirrored

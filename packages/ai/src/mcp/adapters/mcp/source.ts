@@ -318,6 +318,27 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     };
     if (this.options.name !== undefined) registration.name = this.options.name;
     if (ref.exclude !== undefined) registration.exclude = ref.exclude;
+    if (ref.tool === "*") {
+      // One schema cannot describe every tool of a client. Enforcing it on
+      // all of them while advertising the remote's was the mismatch #912
+      // reported, so the combination is refused for the form that works.
+      if (discovery?.input !== undefined || discovery?.output !== undefined) {
+        throw rcError("RC5003", undefined, {
+          message: `Route "${routeId}" proxies every tool of client "${ref.serverId}" and declares .input() or .output(), which would apply one schema to every tool`,
+          suggestion: `Give a tool its own exact route, .from(mcp({ proxy: "${ref.serverId}:<tool>" })), where .input() and .output() are advertised for that tool, or derive each tool's schemas with mcp({ proxy: "${ref.serverId}:*", schemas }).`,
+        });
+      }
+      if (this.options.schemas !== undefined) {
+        registration.schemas = this.options.schemas;
+      }
+    } else {
+      // The route's own schemas are its tool's, advertised and enforced in
+      // place of the remote's, as for a route that is its own tool.
+      if (discovery?.input !== undefined) registration.input = discovery.input;
+      if (discovery?.output !== undefined) {
+        registration.output = discovery.output;
+      }
+    }
     if (discovery?.description !== undefined) {
       if (discovery.description.length === 0) {
         throw rcError("RC5003", undefined, {
@@ -350,10 +371,11 @@ function assertValidProxyOptions(
     if (
       options.prefix !== undefined ||
       options.name !== undefined ||
-      options.exclude !== undefined
+      options.exclude !== undefined ||
+      options.schemas !== undefined
     ) {
       invalid(
-        "prefix, name and exclude apply to a proxy source only",
+        "prefix, name, exclude and schemas apply to a proxy source only",
         'Pass proxy: "server:*" or "server:tool" beside them, or drop them: a route that is its own tool is named by its .id().',
       );
     }
@@ -397,6 +419,20 @@ function assertValidProxyOptions(
       );
     }
     ref = { ...ref, exclude: [...options.exclude] };
+  }
+  if (options.schemas !== undefined) {
+    if (ref.tool !== "*") {
+      invalid(
+        `schemas cannot be set with the exact proxy "${options.proxy}"`,
+        "An exact route declares the schemas it advertises with .input() and .output(); schemas derives them per tool for a star proxy.",
+      );
+    }
+    if (typeof options.schemas !== "function") {
+      invalid(
+        "schemas must be a function of the remote tool",
+        "Pass schemas: (remote) => ({ input, output }), returning JSON Schema objects; leave a key undefined to keep the remote's.",
+      );
+    }
   }
   if (options.name !== undefined) {
     if (ref.tool === "*") {
