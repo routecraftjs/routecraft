@@ -236,6 +236,7 @@ const SERVER_ONLY_KEYS: Record<ServerOnlyKey, true> = {
   subject: true,
   body: true,
   header: true,
+  gmailSearch: true,
   limit: true,
   description: true,
   keywords: true,

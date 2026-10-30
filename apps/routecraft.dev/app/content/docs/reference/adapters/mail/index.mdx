@@ -211,6 +211,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `subject` | `string \| string[]` | | Filter by subject text (IMAP SUBJECT search). Array = OR |
 | `body` | `string \| string[]` | | Filter by body text (IMAP TEXT search). Array = OR |
 | `header` | `Record<string, string \| string[]>` | | Filter by arbitrary IMAP headers. Array values = OR |
+| `gmailSearch` | `string` | | Gmail search query (`X-GM-RAW`), the syntax of Gmail's search box, ANDed with the other filters. Answered from Gmail's index, so `rfc822msgid:<id>` finds one message in `[Gmail]/All Mail` at once where a `header` search scans the folder. Gmail only |
 | `includeHeaders` | `true \| string[]` | | Raw headers to include on fetched messages. `true` = all |
 | `verify` | `'off' \| 'headers' \| 'strict'` | `'headers'` | Sender analysis. `'headers'` reads `Authentication-Results`/`ARC`/`List-Id` the receiving server wrote (no network). `'strict'` additionally runs cryptographic verification via optional `mailauth` 4, 5 or 7 (DNS lookups); use 7, which needs Node 22.19 or later, since every 4.x release pins a vulnerable `undici` and every 5.x release a vulnerable `joi`. `'off'` skips analysis. |
 | `limit` | `number` | | Maximum messages per fetch |

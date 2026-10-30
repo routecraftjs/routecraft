@@ -336,6 +336,7 @@ describe("Mail Adapter", () => {
         { folder: "INBOX", subject: "invoice" },
         { folder: "INBOX", body: "urgent" },
         { folder: "INBOX", header: { "List-Id": "announce.example.com" } },
+        { folder: "INBOX", gmailSearch: "rfc822msgid:<a@b.c>" },
         { folder: "INBOX", limit: 5 },
         { folder: "INBOX", description: "incoming invoices" },
         { folder: "INBOX", keywords: ["invoices"] },
@@ -954,6 +955,54 @@ describe("Mail Adapter", () => {
           host: "imap.main.com",
           auth: { user: "main@co.com", pass: "main-pass" },
         }),
+      );
+    });
+
+    /**
+     * @case A Gmail search on a fetch through a named account
+     * @preconditions An account-configured IMAP pool and mail({ gmailSearch })
+     * @expectedResult imapflow is asked to search with gmraw carrying the
+     *   query, so the account's option merge does not drop it
+     */
+    test("passes gmailSearch through to the IMAP search as gmraw", async () => {
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {},
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.gmail.com",
+                  auth: { user: "main@co.com", pass: "main-pass" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-gmail-search")
+            .from(simple("trigger"))
+            .enrich(
+              mail({
+                folder: "[Gmail]/All Mail",
+                unseen: false,
+                markSeen: false,
+                gmailSearch: "rfc822msgid:<a@b.c>",
+              }),
+            )
+            .to(spy()),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        { gmraw: "rfc822msgid:<a@b.c>" },
+        expect.anything(),
       );
     });
 
@@ -2862,6 +2911,24 @@ describe("Mail Adapter", () => {
   });
 
   describe("buildSearchCriteriaSets", () => {
+    /**
+     * @case A Gmail search query joins the base criteria of every set
+     * @preconditions gmailSearch set beside a two-value subject filter
+     * @expectedResult Both sets carry it as imapflow's gmraw key, so each
+     *   search is ANDed with it
+     */
+    test("adds gmailSearch to every set as gmraw", () => {
+      const sets = buildSearchCriteriaSets({
+        unseen: false,
+        gmailSearch: "rfc822msgid:<a@b.c>",
+        subject: ["A", "B"],
+      } as MailServerOptions);
+      expect(sets).toEqual([
+        { gmraw: "rfc822msgid:<a@b.c>", subject: "A" },
+        { gmraw: "rfc822msgid:<a@b.c>", subject: "B" },
+      ]);
+    });
+
     /**
      * @case Returns base criteria when no search filters are set
      * @preconditions Only unseen is set (default)

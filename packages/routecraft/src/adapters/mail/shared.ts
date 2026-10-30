@@ -468,7 +468,7 @@ function toSearchArray(value: string | string[] | undefined): string[] {
 /**
  * Build one or more IMAP search criteria sets from server options.
  *
- * Scalar filters (unseen, since) are shared across all sets.
+ * Scalar filters (unseen, since, gmailSearch) are shared across all sets.
  * Array filters (from, to, subject, body) produce the cartesian product
  * so each combination is a separate IMAP search (OR within a field,
  * AND between fields). Results are deduped by UID after fetching.
@@ -480,6 +480,8 @@ export function buildSearchCriteriaSets(
   const base: Record<string, unknown> = {};
   if (options.unseen !== false) base["seen"] = false;
   if (options.since) base["since"] = options.since;
+  // imapflow compiles `gmraw` to X-GM-RAW and refuses it without X-GM-EXT-1.
+  if (options.gmailSearch) base["gmraw"] = options.gmailSearch;
 
   // Collect per-field arrays
   const fromValues = toSearchArray(options.from);

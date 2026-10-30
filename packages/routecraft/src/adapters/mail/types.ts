@@ -195,6 +195,22 @@ export interface MailServerOptions {
    * ```
    */
   header?: Record<string, string | string[]>;
+  /**
+   * Filter by a Gmail search query (Gmail's `X-GM-RAW` IMAP extension), the
+   * same syntax as Gmail's search box. ANDed with every other filter.
+   *
+   * Gmail answers it from its own index, where an IMAP `HEADER` search scans
+   * the folder: on a large folder such as `[Gmail]/All Mail` a header search
+   * for one Message-ID can run for minutes, while `rfc822msgid:` returns at
+   * once. Gmail only: a server without `X-GM-EXT-1` fails the fetch.
+   *
+   * @example
+   * ```typescript
+   * // One message by its Message-ID, anywhere in the mailbox
+   * mail({ folder: "[Gmail]/All Mail", gmailSearch: "rfc822msgid:<id@example.com>" })
+   * ```
+   */
+  gmailSearch?: string;
   /** Maximum number of messages to fetch per call */
   limit?: number;
   /** Human-readable description for route discovery */
