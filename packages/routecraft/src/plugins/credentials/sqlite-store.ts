@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import { closeSync, fchmodSync, mkdirSync, openSync } from "node:fs";
 import { dirname } from "node:path";
 import { isRoutecraftError } from "../../brand.ts";
 import { rcError } from "../../error.ts";
@@ -91,13 +91,16 @@ export class SqliteCredentialStore implements CredentialStore {
     if (path !== ":memory:") {
       mkdirSync(dirname(path), { recursive: true });
       // Created owner-only before the driver opens it, so the file never
-      // exists with the default umask's permissions.
-      if (!existsSync(path)) closeSync(openSync(path, "a", 0o600));
+      // exists with the default umask's permissions. One descriptor for the
+      // create and the chmod, so nothing can swap the path between them.
+      const fd = openSync(path, "a", 0o600);
       try {
-        chmodSync(path, 0o600);
+        fchmodSync(fd, 0o600);
       } catch {
         // A file the process can open but not chmod (another owner, a
         // read-only mount's metadata) keeps whatever mode it has.
+      } finally {
+        closeSync(fd);
       }
     }
     const db = new driver.Database(path);
