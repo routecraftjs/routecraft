@@ -1,4 +1,8 @@
-import type { Duration } from "@routecraft/routecraft";
+import type {
+  AuthorizeOptions,
+  Duration,
+  EnablementDeclaration,
+} from "@routecraft/routecraft";
 import type { Exchange, Tag } from "@routecraft/routecraft";
 import type {
   Principal,
@@ -88,6 +92,12 @@ export interface McpLocalToolEntry {
   /** MCP Apps view the host renders the tool's result in. */
   ui?: McpUiOptions;
   /**
+   * The route's `.authorize()` options, one per call, read when the server
+   * lists tools: a caller is shown the tool only when every one admits it.
+   * The route's own gate still runs on every call.
+   */
+  authorize?: readonly AuthorizeOptions[];
+  /**
    * Invocation handler. Receives the request body and the tool/request/auth
    * headers the MCP server set, runs the route on its own exchange, and
    * returns that exchange once the route has processed it.
@@ -131,6 +141,12 @@ export interface McpProxyRegistration {
   /** A star route's per-tool schema derivation; see {@link McpServerOptions.schemas}. */
   schemas?: McpProxySchemas;
   /**
+   * The route's `.authorize()` options, one per call, read when the server
+   * lists tools: a caller is shown the tool only when every one admits it.
+   * The route's own gate still runs on every call.
+   */
+  authorize?: readonly AuthorizeOptions[];
+  /**
    * Runs the route with the arguments as the body. The server adds the
    * remote tool's name, the client and the annotations to the headers it
    * passes, beside the request and auth headers every tool call carries.
@@ -162,6 +178,31 @@ export interface McpClientHttpConfig {
   auth?: McpClientAuthOptions;
   /** Whether tool calls carry the caller's trace context; see {@link McpClientOptions.traceContext}. */
   traceContext?: boolean;
+  /**
+   * Whether this client is configured, with the meaning a route's
+   * `.enabled()` gives its verdict: `true` enables, a string disables and is
+   * the reason, `false` disables with a generic one. A predicate is
+   * evaluated once, as the plugin binds.
+   *
+   * A disabled client opens no connection and lists no tools. An agent's
+   * `MCP(<client>)` or `MCP(<client>:<tool>)` reference to it is left out
+   * of the agent's tools with one warning naming the reason, rather than
+   * failing the turn, so a tool list can name an optional integration
+   * without a guard in code. A proxy route over it serves no tools, and a
+   * call to it is refused with the reason.
+   *
+   * @example
+   * ```ts
+   * clients: {
+   *   vendor: {
+   *     url: env.VENDOR_MCP_URL,
+   *     auth: { token: env.VENDOR_TOKEN },
+   *     enabled: env.VENDOR_TOKEN ? true : "VENDOR_TOKEN is unset",
+   *   },
+   * }
+   * ```
+   */
+  enabled?: EnablementDeclaration;
 }
 
 /**
@@ -181,6 +222,8 @@ export interface McpClientStdioConfig {
   cwd?: string;
   /** Whether tool calls carry the caller's trace context; see {@link McpClientOptions.traceContext}. */
   traceContext?: boolean;
+  /** Whether this client is configured; see {@link McpClientHttpConfig.enabled}. */
+  enabled?: EnablementDeclaration;
 }
 
 /**

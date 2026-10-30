@@ -30,6 +30,7 @@ import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import {
   isLazyFn,
   resolveFnOptions,
+  withheldRouteReason,
   type FnEntry,
   type ToolHost,
 } from "./tools/types.ts";
@@ -268,6 +269,12 @@ function createAgentRuntimePlugin(): Plugin {
       const tools: ToolHost = {
         capabilities: () => c.execution.capabilities(),
         hasRoute: (routeId) => c.routes.get(routeId) !== undefined,
+        disabledReason: (routeId) => {
+          const view = c.routes.get(routeId);
+          return view === undefined || view.enabled
+            ? undefined
+            : (view.disabledReason ?? "disabled by its enabled() predicate");
+        },
         canDefer: (routeId) => c.routes.canDefer(routeId),
         deliver: (endpoint, body, headers) =>
           c.execution.deliver(endpoint, body, headers),
@@ -295,7 +302,7 @@ function createAgentRuntimePlugin(): Plugin {
     start(c: PluginContext) {
       const run = runs.get(c);
       if (!run) return;
-      resolveLazyTools(run);
+      resolveLazyTools(c, run);
       emitRegistrations(c, run);
       run.boot =
         run.sessions === undefined
@@ -417,11 +424,26 @@ function registerSessionsResource(
  *
  * @throws RC5003 when a deferred entry cannot resolve
  */
-function resolveLazyTools({ registry, tools }: AgentRun): void {
+function resolveLazyTools(
+  c: PluginContext,
+  { registry, tools }: AgentRun,
+): void {
   for (const [id, entry] of registry.functions) {
-    if (isLazyFn(entry)) {
-      resolveFnOptions(tools, id, entry, registry.resolvedFunctions);
+    if (!isLazyFn(entry)) continue;
+    // A route held back by `.enabled()` is a configuration state, not a
+    // broken registration: the fn stays unresolved, an agent that names it
+    // is offered nothing for it (with a warning at that reference), and it
+    // resolves, and is announced, on the first dispatch after the route
+    // comes up. What its definition already says is checked now, so a
+    // route missing its description or input, or a synchronous tool over a
+    // route that can park, still fails the start.
+    if (withheldRouteReason(tools, entry.targetId) !== undefined) {
+      const view = c.routes.get(entry.targetId);
+      entry.checkTarget?.(tools, view?.definition.discovery, id);
+      registry.awaitingRoute.add(id);
+      continue;
     }
+    resolveFnOptions(tools, id, entry, registry.resolvedFunctions);
   }
 }
 
@@ -449,6 +471,9 @@ function emitRegistrations(
     });
   }
   for (const [id, entry] of registry.functions) {
+    // One over a disabled route was left unresolved just before this, and
+    // has no shape to announce yet.
+    if (isLazyFn(entry) && !registry.resolvedFunctions.has(id)) continue;
     // Resolved, so a route-backed tool announces the same shape a
     // hand-written one does. Every deferred entry resolved just before
     // this, so it reads the memoized result and cannot fail here.

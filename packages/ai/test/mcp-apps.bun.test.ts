@@ -165,6 +165,33 @@ describe("MCP Apps views (#857)", () => {
   });
 
   /**
+   * @case The view of a tool the caller is not listed is not listed or served
+   * @preconditions send-mail with a view and .authorize({ roles: ["admin"] }); an anonymous client
+   * @expectedResult tools/list omits send-mail, resources/list is empty, and resources/read of its URI fails, so the views do not name a tool the listing withheld
+   */
+  test("a hidden tool's view is hidden too", async () => {
+    const guarded = craft()
+      .id("send-mail")
+      .title("Send mail")
+      .description("Hold an email for review")
+      .authorize({ roles: ["admin"] })
+      .output({ body: SendMailResult })
+      .from<{ to: string; subject: string }>(mcp({ ui: { html: MAIL_CARD } }))
+      .transform((body) => ({
+        to: body.to,
+        subject: body.subject,
+      })) as AnyRouteBuilder;
+    const connected = await connect([guarded, listTasks()]);
+
+    const { tools } = await connected.listTools();
+    expect(tools.map((tool) => tool.name)).toEqual(["list-tasks"]);
+    expect((await connected.listResources()).resources).toEqual([]);
+    await expect(
+      connected.readResource({ uri: "ui://routecraft/send-mail" }),
+    ).rejects.toThrow();
+  });
+
+  /**
    * @case A server with no views still answers resource discovery
    * @preconditions Only a tool without ui
    * @expectedResult resources/list and resources/templates/list both answer empty rather than method-not-found

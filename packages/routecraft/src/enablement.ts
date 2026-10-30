@@ -118,6 +118,12 @@ export type EnablementState =
   | { readonly enabled: true }
   | { readonly enabled: false; readonly reason: string };
 
+/** Whether two states are the same verdict, with the same reason when disabled. */
+function sameState(a: EnablementState, b: EnablementState): boolean {
+  if (a.enabled || b.enabled) return a.enabled === b.enabled;
+  return a.reason === b.reason;
+}
+
 /** Reason recorded when a predicate returns a bare `false`. */
 export const DEFAULT_DISABLED_REASON =
   "the route's enabled() predicate returned false";
@@ -172,18 +178,21 @@ export function isCronCadence(refresh: RefreshCadence): boolean {
 export async function evaluateEnablement(
   enablement: RouteEnablement,
   onThrow?: (err: unknown) => void,
+  subject = "the route's enabled() predicate",
 ): Promise<EnablementState> {
+  // Equal to DEFAULT_DISABLED_REASON for a route's own predicate.
+  const fallback = `${subject} returned false`;
   try {
     const verdict = await enablement.predicate();
     if (verdict === true) return { enabled: true };
     if (verdict === false) {
-      return { enabled: false, reason: DEFAULT_DISABLED_REASON };
+      return { enabled: false, reason: fallback };
     }
     if (typeof verdict === "string") {
       const reason = verdict.trim();
       return {
         enabled: false,
-        reason: reason === "" ? DEFAULT_DISABLED_REASON : reason,
+        reason: reason === "" ? fallback : reason,
       };
     }
     // A JS caller returning a number, null or an object: treat anything that
@@ -192,7 +201,7 @@ export async function evaluateEnablement(
     // is the exact failure this feature exists to prevent.
     return {
       enabled: false,
-      reason: `the route's enabled() predicate returned ${typeof verdict}, which is not a boolean or a reason string`,
+      reason: `${subject} returned ${typeof verdict}, which is not a boolean or a reason string`,
     };
   } catch (err) {
     // This is a BOUNDARY in the sense of `.standards/error-and-logging-policy.md`:
@@ -205,9 +214,51 @@ export async function evaluateEnablement(
       err instanceof Error ? err.message : String(err ?? "unknown error");
     return {
       enabled: false,
-      reason: `the route's enabled() predicate threw: ${message}`,
+      reason: `${subject} threw: ${message}`,
     };
   }
+}
+
+/**
+ * An enablement declared once rather than on a cadence: a verdict, or a
+ * predicate evaluated a single time. What a thing that is not a route
+ * declares (an indicator, an MCP client), with the meaning a route's
+ * `.enabled()` gives it: `true` enables, a string disables and is the
+ * reason, `false` disables with a generic reason.
+ */
+export type EnablementDeclaration = EnablementVerdict | EnablementPredicate;
+
+/**
+ * Resolve an {@link EnablementDeclaration} to a state, once. Total in the
+ * way {@link evaluateEnablement} is: a predicate that throws disables with
+ * the error message as its reason and never rejects.
+ *
+ * @param declaration - The verdict or predicate.
+ * @param subject - What declared it, as the reason should name it, e.g.
+ *   `indicator "ledger" enabled`.
+ * @param onThrow - Handed the error a throwing predicate raised, to log.
+ * @returns The resolved state. Never rejects.
+ */
+export function evaluateEnablementOnce(
+  declaration: EnablementDeclaration,
+  subject: string,
+  onThrow?: (err: unknown) => void,
+): Promise<EnablementState> {
+  const predicate: EnablementPredicate =
+    typeof declaration === "function" ? declaration : () => declaration;
+  // Reporting the failure must not undo the promise above: a logger that
+  // throws would turn a handled predicate error into a bind failure.
+  const report =
+    onThrow === undefined
+      ? undefined
+      : (err: unknown): void => {
+          try {
+            onThrow(err);
+          } catch {
+            // The predicate's failure is already the state's reason.
+          }
+        };
+  return evaluateEnablement({ predicate }, report, subject);
 }
 
 /**
@@ -561,10 +612,12 @@ export class RouteEnablementCoordinator<
   #record(route: R, state: EnablementState): void {
     const previous = this.#states.get(route.definition.id);
     this.#states.set(route.definition.id, state);
-    // Only a real transition is announced. A five-minute cadence over a
-    // stable predicate would otherwise emit a heartbeat that every listener
+    // Only a real change is announced: a flip, or a disabled route whose
+    // reason changed (one missing secret supplied, another still unset), so
+    // what ops shows is the reason that holds now. A five-minute cadence over
+    // a stable predicate would otherwise emit a heartbeat that every listener
     // has to filter, and the one event that matters would be lost in it.
-    if (previous !== undefined && previous.enabled === state.enabled) return;
+    if (previous !== undefined && sameState(previous, state)) return;
     this.deps.emitChanged(route, state);
   }
 
