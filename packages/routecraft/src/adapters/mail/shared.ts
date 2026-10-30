@@ -481,7 +481,18 @@ export function buildSearchCriteriaSets(
   if (options.unseen !== false) base["seen"] = false;
   if (options.since) base["since"] = options.since;
   // imapflow compiles `gmraw` to X-GM-RAW and refuses it without X-GM-EXT-1.
-  if (options.gmailSearch) base["gmraw"] = options.gmailSearch;
+  // An empty query is refused rather than dropped: dropped, it would leave a
+  // search with no criterion, which fetches (and may mark seen) the folder.
+  if (options.gmailSearch !== undefined) {
+    if (options.gmailSearch.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message: "mail() gmailSearch is empty",
+        suggestion:
+          "Pass a Gmail search query (e.g. 'rfc822msgid:<id>') or leave gmailSearch out",
+      });
+    }
+    base["gmraw"] = options.gmailSearch;
+  }
 
   // Collect per-field arrays
   const fromValues = toSearchArray(options.from);

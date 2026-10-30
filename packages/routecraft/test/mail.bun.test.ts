@@ -2913,6 +2913,23 @@ describe("Mail Adapter", () => {
 
   describe("buildSearchCriteriaSets", () => {
     /**
+     * @case An empty or whitespace-only Gmail search query
+     * @preconditions gmailSearch set to "" and to "  " with unseen false
+     * @expectedResult Both throw RC5003, so a blank query never becomes a
+     *   search with no criterion that fetches the whole folder
+     */
+    test("refuses an empty gmailSearch", () => {
+      for (const gmailSearch of ["", "  "]) {
+        expect(() =>
+          buildSearchCriteriaSets({
+            unseen: false,
+            gmailSearch,
+          } as MailServerOptions),
+        ).toThrow(/gmailSearch is empty/);
+      }
+    });
+
+    /**
      * @case A Gmail search query joins the base criteria of every set
      * @preconditions gmailSearch set beside a two-value subject filter
      * @expectedResult Both sets carry it as imapflow's gmraw key, so each
