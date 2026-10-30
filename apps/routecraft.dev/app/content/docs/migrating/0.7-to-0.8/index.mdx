@@ -18,8 +18,9 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 8. **A route proxies a remote MCP server.** `mcpPlugin({ proxy })` and its `guard` are removed; a route with `.from(mcp({ proxy: 'server:*' }))` re-exposes a client's tools. [Section 8](#8-mcp-proxy-route).
 9. **A mail message's flags are an array.** `MailMessage.flags` is `string[]` and the `routecraft.mail.flags` header is `readonly string[]`, so a mail exchange can be deferred. [Section 9](#9-mail-flags).
 10. **The correlation id is engine-owned, and `event()` continues the causing journey.** `.header()` refuses `routecraft.correlation_id`; `.correlate()` re-stamps it. [Section 10](#10-journeys).
+11. **`agentBrowser()` is removed** from `@routecraft/os`. [Section 11](#11-agent-browser).
 
-Projects that write no plugin of their own typically need section 2 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, and section 10 if they set the correlation id themselves or group `event()` routes' work by it. [Section 11](#11-what-is-new-in-080) lists what is new, for context.
+Projects that write no plugin of their own typically need section 2 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, and section 11 if they import `agentBrowser()`. [Section 12](#12-what-is-new-in-080) lists what is new, for context.
 
 ---
 
@@ -58,7 +59,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 11](#11-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 12](#12-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -208,7 +209,13 @@ Every exchange now records the exchange that caused it (`routecraft.causation_id
 
 Outbound calls changed too: the `http()` client, the remotes channel and the MCP client now send the exchange's W3C trace context (`traceparent`, `tracestate`; in `_meta` for MCP) by default. A server that does not take part ignores the headers. An upstream that rejects unknown headers takes `traceContext: false` on the client. An application that must not send journey ids to third parties sets [`traceContext: { outbound: false }`](/docs/reference/configuration#trace-context) once and opts trusted calls back in.
 
-## 11. What is new in 0.8.0 \{#11-what-is-new-in-080}
+## 11. `agentBrowser()` is removed \{#11-agent-browser}
+
+`@routecraft/os` no longer exports `agentBrowser()` and no longer lists `agent-browser` as a peer. The adapter wrapped the JavaScript library of `agent-browser` 0.17, which that project dropped in 0.20 for a Rust binary, so it was pinned to an unmaintained release whose dependency chain carried high-severity advisories with no fixed version. `shell()` is unchanged.
+
+A route that drove a browser calls a browser MCP server's tools through [`mcp()`](/docs/reference/adapters/mcp) instead, or runs a browser CLI through [`shell()`](/docs/reference/adapters/shell) with `network: true`. Remove `agent-browser` from the project's dependencies.
+
+## 12. What is new in 0.8.0 \{#12-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too.

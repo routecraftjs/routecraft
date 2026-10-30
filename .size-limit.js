@@ -30,7 +30,6 @@ function makeNodeEsmConfig(name, path, limit, pkgJsonPath) {
     name,
     path,
     limit,
-    running: false,
     modifyEsbuildConfig(config) {
       config.platform = "node";
       config.format = "esm";

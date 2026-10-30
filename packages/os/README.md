@@ -5,7 +5,6 @@ System-native host capabilities for Routecraft: drive the host machine from rout
 ## Available now
 
 - `shell()` -- run a command, isolated by default. It never invokes a shell: the program is spawned directly with an argument vector, so an argument can never become a command. The `unshare` tier denies network egress, hides host processes, and withholds the caller's privileges; it does not contain filesystem reads, which its documentation says in as many words. The `docker` tier runs the command in a throwaway container on a Docker Engine daemon and is the one that contains the filesystem: only the image and the declared mounts are visible. The environment is granted rather than inherited.
-- `agentBrowser()` -- browser automation via [agent-browser](https://github.com/nichochar/agent-browser). Moved here from the former `@routecraft/browser` package in 0.6.0.
 
 ## Planned
 
@@ -22,11 +21,9 @@ See [`.standards/package-boundaries.md`](https://github.com/routecraftjs/routecr
 bun add @routecraft/os execa shescape
 # shell(): the docker tier additionally needs the Docker Engine client
 bun add dockerode
-# agentBrowser()
-bun add @routecraft/os agent-browser
 ```
 
-`npm install`, `pnpm add` and `yarn add` work the same way. `execa`, `shescape`, `dockerode` and `agent-browser` are optional peers, loaded lazily by the adapter that needs them; a missing one fails at runtime with `RC5017` naming the package to install.
+`npm install`, `pnpm add` and `yarn add` work the same way. `execa`, `shescape` and `dockerode` are optional peers, loaded lazily by the tier that needs them; a missing one fails at runtime with `RC5017` naming the package to install.
 
 ## `shell(command, args?, options?)`
 
@@ -82,103 +79,6 @@ interface ShellResult {
 ### Error codes
 
 `OS1001` isolation tier unavailable, `OS1002` command execution failed, `OS1003` command timed out, `OS1004` isolation cannot satisfy the request. See the [shell reference](https://routecraft.dev/docs/reference/adapters/shell) for what each tier does and does not contain.
-
-## `agentBrowser(command, options?)`
-
-Creates an `Enricher` adapter: `.enrich()` merges the result into the body, `.to()` replaces the body with it, `.tap()` discards it.
-
-```typescript
-import { craft, simple, ContextBuilder } from '@routecraft/routecraft';
-import { agentBrowser } from '@routecraft/os';
-
-const scrape = craft()
-  .id('scrape-page')
-  .from(simple({ url: 'https://example.com' }))
-  .to(agentBrowser('open', { url: (ex) => ex.body.url }))
-  .to(agentBrowser('get', { info: 'text', selector: 'h1' }));
-
-const ctx = new ContextBuilder().routes([scrape]).build();
-await ctx.start();
-```
-
-### Commands
-
-| Command | Required Options | Description |
-|---------|-----------------|-------------|
-| `open` | `url` | Navigate to a URL |
-| `click` | `selector` | Click an element |
-| `dblclick` | `selector` | Double-click an element |
-| `fill` | `selector`, `value` | Fill an input field |
-| `type` | `selector`, `value` | Type text into an element |
-| `press` | `key` | Press a keyboard key |
-| `hover` | `selector` | Hover over an element |
-| `focus` | `selector` | Focus an element |
-| `select` | `selector`, `value` | Select a dropdown option |
-| `check` | `selector` | Check a checkbox |
-| `uncheck` | `selector` | Uncheck a checkbox |
-| `scroll` | `direction` | Scroll the page (`up`, `down`, `left`, `right`) |
-| `snapshot` | -- | Get an accessibility snapshot |
-| `screenshot` | -- | Take a screenshot |
-| `eval` | `js` | Evaluate JavaScript in the page |
-| `get` | `info` | Get page data (`text`, `html`, `value`, `title`, `url`, `count`, `attr`, `box`, `styles`) |
-| `wait` | -- | Wait for a selector or timeout |
-| `close` | -- | Close the browser session |
-| `back` | -- | Navigate back |
-| `forward` | -- | Navigate forward |
-| `reload` | -- | Reload the page |
-| `tab` | -- | Manage tabs (`new`, `close`, `list`, switch by index) |
-
-### Base options
-
-Every command also accepts these shared options:
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `session` | `string \| (ex) => string` | Override the auto-derived session ID |
-| `headed` | `boolean` | Run the browser in headed mode (show window) |
-| `json` | `boolean` | Parse output into `result.parsed` |
-| `args` | `string[]` | Extra CLI flags (escape hatch) |
-
-### Resolvable options
-
-String options like `url`, `selector`, and `value` accept either a static value or a function that receives the exchange:
-
-```typescript
-// Static
-agentBrowser('open', { url: 'https://example.com' })
-
-// Dynamic from exchange body
-agentBrowser('open', { url: (ex) => ex.body.targetUrl })
-```
-
-### Session management
-
-Sessions are derived from the exchange ID by default, so each exchange gets an isolated browser. Override with the `session` option to share a browser across exchanges:
-
-```typescript
-agentBrowser('open', { url: 'https://example.com', session: 'shared' })
-```
-
-### Result shape
-
-```typescript
-interface AgentBrowserResult {
-  stdout: string;     // Text output from the command
-  parsed?: unknown;   // Parsed JSON (when json: true)
-  exitCode: number;   // 0 on success, 1 on failure
-}
-```
-
-## Migrating from `@routecraft/browser`
-
-`@routecraft/browser` was folded into `@routecraft/os` in 0.6.0. Update the import:
-
-```diff
-- import { agentBrowser } from '@routecraft/browser';
-+ import { agentBrowser } from '@routecraft/os';
-```
-
-The factory, options, and result shape are unchanged.
 
 ## License
 

@@ -15,5 +15,5 @@ export default defineConfig({
   // imports (loaded lazily by the adapter) rather than getting inlined.
   // `bun:sqlite` is a Bun built-in, marked external so esbuild leaves it
   // untouched (the dynamic import resolves at runtime under Bun only).
-  external: ["cheerio", "croner", "agent-browser", "bun:sqlite"],
+  external: ["cheerio", "croner", "bun:sqlite"],
 });

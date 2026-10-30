@@ -188,14 +188,6 @@
     "description": "Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts; works with any CardDAV server."
   },
   {
-    "name": "agentBrowser",
-    "category": "Browser",
-    "roles": [
-      "Enricher"
-    ],
-    "description": "Drive a real browser session: navigate, click, snapshot."
-  },
-  {
     "name": "shell",
     "category": "System",
     "roles": [

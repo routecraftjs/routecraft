@@ -64,7 +64,7 @@ Members, current and likely:
 
 - `shell()` - isolated subprocess execution (#181)
 - `sandbox()` - DEFERRED. Isolation ships as an option on `shell()` rather than a second factory: "run a command, isolated" is one concept, and a second factory selecting the same behaviour is a `mode:` option wearing a different hat (Option Law 1). It earns its own factory when something other than a subprocess needs isolating.
-- `agentBrowser()` - browser automation, merged from `@routecraft/browser` (section 3.2)
+- `agentBrowser()` - REMOVED in 0.8. It wrapped the JavaScript library of `agent-browser` 0.17, which the project dropped in 0.20 for a Rust binary, so the adapter was pinned to an unmaintained release whose dependency chain carried open advisories with no fix. No consumer used it. A browser capability comes back only with a named consumer, and an agent reaches a browser through an MCP server in the meantime (section 5).
 - `clipboard()`, `notify()`, `watch()`, `screen()`, `process()` - future host capabilities
 
 We keep the name `@routecraft/os` rather than "computer-use": `os` is broader and covers non-agent host capabilities (clipboard, notifications) that the AI-framed "computer use" label would not.
@@ -94,6 +94,8 @@ Migration:
 4. We are v0 with an explicitly unstable public API (`api-stability.md`), so take the clean break: no long-lived re-export shim.
 
 Accepted trade-off: a browser-driver change now bumps the whole `@routecraft/os` version, the same blast-radius trade-off accepted for vendor packages (section 4). The factory keeps the name `agentBrowser()`, which ties it to the library it wraps and leaves room for sibling browser drivers.
+
+The adapter was later removed outright in 0.8; see the member list above for why.
 
 ## 4. Vendors group by ecosystem or shared-interface domain
 
@@ -185,7 +187,7 @@ Zero third-party runtime dependencies in core is the **ambition, not a hard rule
 - **Bun-native APIs** (`Bun.redis`, `Bun.s3`, `bun:sqlite`) do not count against the budget, but core targets Node 22+ as well as Bun, so any Bun-native usage needs a Node-equivalent path (a `node:` builtin or an optional peer such as `@aws-sdk/client-s3`), proven by cross-runtime tests per [`ci-cd.md` section 2](./ci-cd.md#2-the-pr-gates).
 - **Vendor and protocol SDKs for adapters are never hard dependencies.** They are optional peers loaded through `loadOptionalPeer` with an `RC5017` install hint, per [`ci-cd.md` section 6](./ci-cd.md#6-optional-peer-dependencies-provider-sdks). Installing core must never pull a vendor SDK transitively.
 
-Ecosystem and system-native packages are not bound by the core ambition. `@routecraft/ai` depends on the Vercel AI SDK, and `@routecraft/os` depends optionally on `agent-browser` today (adding `execa`/`shescape`/`dockerode` when `shell` lands). They still follow the `@routecraft/*` peer-dependency shape in [`ci-cd.md` section 5](./ci-cd.md#5-dependency-policy-on-routecraft).
+Ecosystem and system-native packages are not bound by the core ambition. `@routecraft/ai` depends on the Vercel AI SDK, and `@routecraft/os` depends optionally on `execa`, `shescape` and `dockerode` for `shell()`. They still follow the `@routecraft/*` peer-dependency shape in [`ci-cd.md` section 5](./ci-cd.md#5-dependency-policy-on-routecraft).
 
 ## 8. The complete module map
 
@@ -197,7 +199,7 @@ Three kinds of module. The 8-to-12 bound governs only the first group.
 |---|---|---|
 | `@routecraft/routecraft` | core: framework + standards | keep; add graphql; consider absorbing the MCP client (section 6) |
 | `@routecraft/ai` | llm, agent, mcp, embeddings, providers; agent tools are composed routes, not package code (section 6) | keep |
-| `@routecraft/os` | system-native: shell (isolated), browser, ... | keep; absorbs `@routecraft/browser` |
+| `@routecraft/os` | system-native: shell (isolated), ... | keep |
 | `@routecraft/browser` | browser automation | merge into `@routecraft/os`, deprecate the name |
 | `@routecraft/google` | Google ecosystem | on first adapter (#370) |
 | `@routecraft/aws` | proprietary AWS services | deferred (S3 stays core) |

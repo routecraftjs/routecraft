@@ -139,7 +139,7 @@ Now talk to Claude: *"Send an email to john@company.com thanking him for yesterd
 - `packages/create-routecraft` – Project scaffolder (`bunx create-routecraft`)
 - `packages/eslint-plugin-routecraft` – ESLint rules for capability authoring
 - `packages/prettier-plugin-routecraft` – Prettier plugin for compact DSL formatting
-- `packages/os` – System-native adapters: isolated subprocess execution via `shell()`, browser automation via `agentBrowser()`
+- `packages/os` – System-native adapters: isolated subprocess execution via `shell()`
 - `packages/testing` – Test utilities (`testContext`, spy logger, `mockAdapter`, fixtures)
 - `skills/` – Agent Skills for authoring Routecraft (Claude Code, Cursor, Codex, Windsurf, Cline, Continue, Copilot, ...; `bunx skills add routecraftjs/routecraft`). See [skills/README.md](./skills/README.md)
 - `apps/routecraft.dev` – Documentation site (docs, examples, guides)
