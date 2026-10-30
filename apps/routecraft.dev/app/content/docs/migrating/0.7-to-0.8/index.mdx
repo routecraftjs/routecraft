@@ -213,7 +213,7 @@ Outbound calls changed too: the `http()` client, the remotes channel and the MCP
 
 `@routecraft/os` no longer exports `agentBrowser()` and no longer lists `agent-browser` as a peer. The adapter wrapped the JavaScript library of `agent-browser` 0.17, which that project dropped in 0.20 for a Rust binary, so it was pinned to an unmaintained release whose dependency chain carried high-severity advisories with no fixed version. `shell()` is unchanged.
 
-A route that drove a browser calls a browser MCP server's tools through [`mcp()`](/docs/reference/adapters/mcp) instead. The server holds the browser session between calls, which a one-shot command cannot: each `shell()` call runs in its own isolated process tree, so a browser daemon one call starts does not survive into the next. `@routecraft/os` no longer needs `agent-browser`, so drop it from the project's dependencies unless something else in the project runs it.
+A route that drove a browser calls a browser MCP server's tools instead. Register the server under `mcp.clients` (for example as `browser`) and call its tools as `mcp('browser:navigate')`, as [Call an MCP](/docs/advanced/call-an-mcp) shows; the browser session lives in that server, not in the route. `@routecraft/os` no longer needs `agent-browser`, so drop it from the project's dependencies unless something else in the project runs it.
 
 ## 12. What is new in 0.8.0 \{#12-what-is-new-in-080}
 
