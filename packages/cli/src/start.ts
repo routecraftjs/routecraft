@@ -204,11 +204,6 @@ export async function startCommand(
 }
 
 /**
- * Read the project configuration from its module: a default-exported
- * `defineProject(...)`, or a plain config as the default export or as the
- * named `craftConfig` export.
- */
-/**
  * The configuration with the plugins the `plugins/` folder declares merged
  * in, as the application runs with it. `craft connect` reads the clients to
  * log in from the same result, so a client declared by a folder plugin is
@@ -231,6 +226,11 @@ export function projectContentRoot(root: string): string {
   return pickContentRoot(root);
 }
 
+/**
+ * Read the project configuration from its module: a default-exported
+ * `defineProject(...)`, or a plain config as the default export or as the
+ * named `craftConfig` export.
+ */
 export async function loadConfig(configPath: string): Promise<CraftConfig> {
   const module = (await import(configPath)) as {
     craftConfig?: CraftConfig;

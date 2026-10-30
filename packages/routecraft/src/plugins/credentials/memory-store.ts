@@ -13,7 +13,8 @@ export class MemoryCredentialStore implements CredentialStore {
   readonly #records = new Map<string, StoredCredential>();
 
   async get(owner: string): Promise<StoredCredential | undefined> {
-    return this.#records.get(owner);
+    const record = this.#records.get(owner);
+    return record === undefined ? undefined : structuredClone(record);
   }
 
   async put(
@@ -23,7 +24,10 @@ export class MemoryCredentialStore implements CredentialStore {
   ): Promise<CredentialWrite> {
     const current = this.#records.get(owner);
     if ((current?.version ?? null) !== options.ifVersion) {
-      return { written: false, current };
+      return {
+        written: false,
+        current: current === undefined ? undefined : structuredClone(current),
+      };
     }
     const now = Date.now();
     const version = (current?.version ?? 0) + 1;

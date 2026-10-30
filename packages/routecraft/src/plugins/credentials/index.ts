@@ -131,7 +131,12 @@ class LazyCredentialStore implements CredentialStore {
   ) {}
 
   #store(): Promise<CredentialStore> {
-    this.#opening ??= this.#open();
+    // A failed open is not kept: a lock or a missing mount can clear, and
+    // the next call tries again.
+    this.#opening ??= this.#open().catch((err: unknown) => {
+      this.#opening = undefined;
+      throw err;
+    });
     return this.#opening;
   }
 
@@ -244,7 +249,7 @@ const PLUGIN_CONFIG = Symbol.for("routecraft.credentials.config");
  *   outside the application cannot open
  */
 export function credentialsConfigOf(config: CraftConfig): CredentialsConfig {
-  for (const plugin of [...(config.plugins ?? [])].reverse()) {
+  for (const plugin of withInstalls(config.plugins ?? []).reverse()) {
     const own = (plugin as unknown as Record<symbol, unknown>)[PLUGIN_CONFIG];
     if (own !== undefined) return own as CredentialsConfig;
     const ports = [...(plugin.provides ?? []), ...(plugin.replaces ?? [])];
@@ -255,6 +260,14 @@ export function credentialsConfigOf(config: CraftConfig): CredentialsConfig {
     }
   }
   return config.credentials ?? {};
+}
+
+/** Plugins in install order, each after the plugins it brings with `installs`. */
+function withInstalls(plugins: readonly Plugin[]): Plugin[] {
+  return plugins.flatMap((plugin) => [
+    ...withInstalls(plugin.installs ?? []),
+    plugin,
+  ]);
 }
 
 registerShippedPlugin(() => credentialsPlugin(), { default: true });

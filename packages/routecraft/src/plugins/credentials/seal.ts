@@ -7,11 +7,17 @@ import {
 import { rcError } from "../../error.ts";
 
 /**
- * Environment variable holding the key credentials are sealed with. Any
- * string works; one from a secret manager, at least 32 random bytes, is
- * what it is meant to be.
+ * Environment variable holding the key credentials are sealed with: random
+ * bytes from a secret manager, such as `openssl rand -base64 32`.
  */
 export const CREDENTIALS_KEY_ENV = "ROUTECRAFT_CREDENTIALS_KEY";
+
+/**
+ * The shortest key accepted. HKDF does not stretch a key, so a short or
+ * guessable one lets whoever holds the store file or a seed try keys
+ * offline; 32 characters of base64 carry 192 bits.
+ */
+export const MIN_CREDENTIALS_KEY_LENGTH = 32;
 
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
@@ -19,8 +25,9 @@ const TAG_BYTES = 16;
 /**
  * Seals and opens values under one key with AES-256-GCM.
  *
- * The key is derived with HKDF rather than used as given, so an operator
- * can supply any string and the cipher still gets 32 uniform bytes. The
+ * The key is derived with HKDF, which turns a high-entropy string of any
+ * encoding into the 32 bytes the cipher takes. It adds no work factor, so
+ * the key itself must be random, not a password. The
  * associated data binds a sealed value to where it belongs: a store record
  * to its owner, a seed to being a seed, so a ciphertext copied from one
  * place to another refuses to open.
@@ -33,9 +40,9 @@ export interface CredentialSealer {
 
 /** A sealer over `secret`. */
 export function createSealer(secret: string): CredentialSealer {
-  if (secret.length === 0) {
+  if (secret.length < MIN_CREDENTIALS_KEY_LENGTH) {
     throw rcError("RC5070", undefined, {
-      message: `${CREDENTIALS_KEY_ENV} is set but empty.`,
+      message: `${CREDENTIALS_KEY_ENV} is ${secret.length === 0 ? "set but empty" : `${secret.length} characters`}; it needs at least ${MIN_CREDENTIALS_KEY_LENGTH} random characters. Generate one with \`openssl rand -base64 32\`.`,
     });
   }
   const key = Buffer.from(

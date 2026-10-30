@@ -458,7 +458,7 @@ A call that arrived on a [mount](/docs/reference/plugins/mcpplugin#mounts) below
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:mcp:client:<id>:disabled` | A client declared with [`connect()`](/docs/advanced/call-an-mcp#servers-behind-a-login) was switched off: it held no credential at bind, or, while running, the authorization server refused its refresh or the credential was removed | `{ serverId, reason }` |
+| `plugin:mcp:client:<id>:disabled` | A client declared with [`connect()`](/docs/advanced/call-an-mcp#servers-behind-a-login) was switched off: at bind it held no credential or no credential store was installed; at bind or later its stored credential was not one this build can read; while running, the authorization server refused its refresh or the credential was removed | `{ serverId, reason }`, where `reason` is a sentence for a person, not a fixed value |
 
 A client disabled this way stays off until the application restarts.
 

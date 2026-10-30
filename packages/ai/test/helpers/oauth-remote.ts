@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { statefulRemote } from "./stateful-remote.ts";
 
 /**
@@ -6,7 +7,8 @@ import { statefulRemote } from "./stateful-remote.ts";
  *
  * The MCP server answers 401 without a bearer token it issued, and
  * advertises the authorization server through RFC 9728 metadata. The
- * authorization server issues codes for any client, exchanges them for an
+ * authorization server issues codes for any client, checks the PKCE
+ * verifier against the challenge, exchanges each code once for an
  * access token and a refresh token, and rotates the refresh token on every
  * refresh: a refresh token works once.
  */
@@ -70,7 +72,15 @@ export function oauthRemote(mcpUrl: string, issuer = "https://as.test") {
         tokenRequests.push(form);
         if (form.get("grant_type") === "authorization_code") {
           const code = codes.get(form.get("code") ?? "");
-          if (!code || form.get("redirect_uri") !== code.redirectUri) {
+          const verifier = form.get("code_verifier") ?? "";
+          const challenge = createHash("sha256")
+            .update(verifier)
+            .digest("base64url");
+          if (
+            !code ||
+            form.get("redirect_uri") !== code.redirectUri ||
+            challenge !== code.challenge
+          ) {
             return json({ error: "invalid_grant" }, 400);
           }
           codes.delete(form.get("code") ?? "");

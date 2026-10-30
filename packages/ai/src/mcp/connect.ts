@@ -98,6 +98,13 @@ export function connect(options: McpConnectOptions): McpConnectAuth {
   if (options.authorizationServer !== undefined) {
     assertUrl(options.authorizationServer, "connect({ authorizationServer })");
   }
+  for (const name of Object.keys(options.authorizationParams ?? {})) {
+    if (RESERVED_AUTHORIZATION_PARAMS.has(name)) {
+      throw rcError("RC5003", undefined, {
+        message: `connect({ authorizationParams }) cannot set "${name}": the login sets it. Use the matching connect() option where one exists.`,
+      });
+    }
+  }
   return Object.freeze({
     [CONNECT]: true as const,
     options: Object.freeze({
@@ -106,6 +113,22 @@ export function connect(options: McpConnectOptions): McpConnectAuth {
     }),
   });
 }
+
+/**
+ * Authorization request parameters the flow owns. Overriding one would
+ * break PKCE, the state check or the redirect, or bypass `scopes` and
+ * `resourceIndicator`.
+ */
+const RESERVED_AUTHORIZATION_PARAMS: ReadonlySet<string> = new Set([
+  "client_id",
+  "redirect_uri",
+  "response_type",
+  "scope",
+  "state",
+  "code_challenge",
+  "code_challenge_method",
+  "resource",
+]);
 
 /** Whether `auth` is a {@link connect} declaration. */
 export function isConnectAuth(auth: unknown): auth is McpConnectAuth {
@@ -240,6 +263,25 @@ export class StoreOAuthProvider implements OAuthClientProvider {
   /** The state the authorization request carried, for the callback to check. */
   get expectedState(): string | undefined {
     return this.#state;
+  }
+
+  /**
+   * The scope a refresh asks for: what the login asked for, so a server
+   * that wants the scope repeated on refresh gets it, plus `offline_access`
+   * when the grant holds it, so the refresh still returns a refresh token.
+   */
+  scopeForRefresh(tokens: StoredOAuthTokens): string | undefined {
+    const { scopes } = this.#config.options;
+    if (scopes === undefined || scopes.length === 0) return undefined;
+    const granted = tokens.scope?.split(/\s+/) ?? [];
+    const asked = [...scopes];
+    if (
+      granted.includes("offline_access") &&
+      !asked.includes("offline_access")
+    ) {
+      asked.push("offline_access");
+    }
+    return asked.join(" ");
   }
 
   clientInformation(): StoredOAuthClientInformation {
@@ -485,12 +527,23 @@ export function connectLogin(
   };
 }
 
+/**
+ * An absolute https URL. Plain http is accepted for a loopback host only,
+ * because the client secret and the tokens travel to this server.
+ */
 function assertUrl(value: string, field: string): void {
+  let url: URL;
   try {
-    new URL(value);
+    url = new URL(value);
   } catch {
     throw rcError("RC5003", undefined, {
       message: `${field} must be an absolute URL, got "${value}".`,
+    });
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw rcError("RC5003", undefined, {
+      message: `${field} must be an https URL, got "${value}": the client secret and the tokens are sent to it.`,
     });
   }
 }

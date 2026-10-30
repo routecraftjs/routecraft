@@ -16,7 +16,7 @@ import {
   sqliteChanges,
   SQLITE_APPLICATION_IDS,
 } from "../../shared/sqlite/database.ts";
-import type { CredentialSealer } from "./seal.ts";
+import { CREDENTIALS_KEY_ENV, type CredentialSealer } from "./seal.ts";
 import type {
   CredentialStore,
   CredentialWrite,
@@ -79,7 +79,8 @@ export class SqliteCredentialStore implements CredentialStore {
    * Open (creating when absent) the store at `path`.
    *
    * @throws RC5017 under Node without `better-sqlite3`
-   * @throws RC5070 when the file belongs to another store or cannot be migrated
+   * @throws RC5070 when the file cannot be created, opened or made
+   *   owner-only, belongs to another store, or cannot be migrated
    */
   static async open(options: {
     path: string;
@@ -88,22 +89,16 @@ export class SqliteCredentialStore implements CredentialStore {
   }): Promise<SqliteCredentialStore> {
     const driver = await resolveSqliteDriver(SQLITE_CONSUMER, options.loaders);
     const path = resolveDatabasePath(options.path);
-    if (path !== ":memory:") {
-      mkdirSync(dirname(path), { recursive: true });
-      // Created owner-only before the driver opens it, so the file never
-      // exists with the default umask's permissions. One descriptor for the
-      // create and the chmod, so nothing can swap the path between them.
-      const fd = openSync(path, "a", 0o600);
-      try {
-        fchmodSync(fd, 0o600);
-      } catch {
-        // A file the process can open but not chmod (another owner, a
-        // read-only mount's metadata) keeps whatever mode it has.
-      } finally {
-        closeSync(fd);
-      }
+    let db: SqliteDatabase;
+    try {
+      if (path !== ":memory:") prepareFile(path, options.sealer !== undefined);
+      db = new driver.Database(path);
+    } catch (cause) {
+      if (isRoutecraftError(cause)) throw cause;
+      throw rcError("RC5070", cause, {
+        message: `The credential store at ${path} could not be created or opened.`,
+      });
     }
-    const db = new driver.Database(path);
     try {
       db.exec("PRAGMA journal_mode = DELETE");
       db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
@@ -124,7 +119,9 @@ export class SqliteCredentialStore implements CredentialStore {
             });
           }
           return rcError("RC5070", failure.cause, {
-            message: "Failed to migrate the credential store schema.",
+            message: isSqliteBusy(failure.cause)
+              ? `The credential store at ${path} is locked by another process.`
+              : "Failed to migrate the credential store schema.",
           });
         },
       });
@@ -259,5 +256,32 @@ export class SqliteCredentialStore implements CredentialStore {
           : `The credential store could not ${what}.`,
       });
     }
+  }
+}
+
+/**
+ * Create the file owner-only before the driver opens it, so it never exists
+ * with the default umask's permissions. One descriptor for the create and
+ * the chmod, so nothing can swap the path between them.
+ *
+ * @throws RC5070 when the file cannot be made owner-only and its contents
+ *   are not sealed, because the refresh tokens would then be readable by
+ *   whoever the file's mode admits
+ */
+function prepareFile(path: string, sealed: boolean): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const fd = openSync(path, "a", 0o600);
+  try {
+    fchmodSync(fd, 0o600);
+  } catch (cause) {
+    // Sealed values are unreadable without the key, so a mode this process
+    // cannot change (another owner, a read-only mount's metadata) is safe.
+    if (!sealed) {
+      throw rcError("RC5070", cause, {
+        message: `The credential store at ${path} cannot be made readable by its owner only. Fix its ownership, or set ${CREDENTIALS_KEY_ENV} so its contents are sealed.`,
+      });
+    }
+  } finally {
+    closeSync(fd);
   }
 }

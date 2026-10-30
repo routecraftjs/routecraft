@@ -167,7 +167,7 @@ describe("connect(): MCP clients behind an OAuth login", () => {
   /**
    * @case An expired access token is refreshed and the rotated tokens written back
    * @preconditions mail logged in at version 1; then every access token expires
-   * @expectedResult The call succeeds after one refresh, and the store holds the new refresh token at a higher version
+   * @expectedResult The call succeeds after one refresh that repeats the configured scope, and the store holds the new refresh token at a higher version
    */
   test("refreshes and writes the rotated tokens back", async () => {
     server = oauthRemote(URL_);
@@ -179,6 +179,9 @@ describe("connect(): MCP clients behind an OAuth login", () => {
     server.remote.dropSessions();
     expect(await dispatchMcpCall(service, "mail", "echo", {})).toBe("pong");
     expect(server.counts.refreshed).toBe(1);
+    const refresh = server.tokenRequests.at(-1);
+    expect(refresh?.get("grant_type")).toBe("refresh_token");
+    expect(refresh?.get("scope")).toBe("mail.read");
     const stored = await store.get("mcp:mail");
     expect(stored?.value).toMatchObject({
       tokens: { refresh_token: "refresh-2" },
@@ -198,18 +201,21 @@ describe("connect(): MCP clients behind an OAuth login", () => {
     const first = await start(store);
     const firstContext = t;
     t = undefined;
-    const second = await start(store);
-    // The second read the credential at bind; its first token read is lazy,
-    // so make it hold version 1 by calling once.
-    expect(await dispatchMcpCall(second, "mail", "echo", {})).toBe("pong");
-    server.expireAccess();
-    server.remote.dropSessions();
-    expect(await dispatchMcpCall(first, "mail", "echo", {})).toBe("pong");
-    server.expireAccess();
-    expect(await dispatchMcpCall(second, "mail", "echo", {})).toBe("pong");
-    expect(second.disabledClients.has("mail")).toBe(false);
-    expect(server.counts).toMatchObject({ refreshed: 2, refused: 0 });
-    await firstContext!.stop();
+    try {
+      const second = await start(store);
+      // The second read the credential at bind; its first token read is
+      // lazy, so make it hold version 1 by calling once.
+      expect(await dispatchMcpCall(second, "mail", "echo", {})).toBe("pong");
+      server.expireAccess();
+      server.remote.dropSessions();
+      expect(await dispatchMcpCall(first, "mail", "echo", {})).toBe("pong");
+      server.expireAccess();
+      expect(await dispatchMcpCall(second, "mail", "echo", {})).toBe("pong");
+      expect(second.disabledClients.has("mail")).toBe(false);
+      expect(server.counts).toMatchObject({ refreshed: 2, refused: 0 });
+    } finally {
+      await firstContext?.stop();
+    }
   });
 
   /**
@@ -341,5 +347,28 @@ describe("connect(): MCP clients behind an OAuth login", () => {
     expect(() => connect({ clientId: " " })).toThrow(
       expect.objectContaining({ rc: "RC5003" }),
     );
+  });
+
+  /**
+   * @case connect() options that would weaken the login
+   * @preconditions authorizationParams naming state or redirect_uri; an http authorization server on a remote host
+   * @expectedResult Each throws RC5003; extra parameters the flow does not own, and http on loopback, are accepted
+   */
+  test("connect() refuses options that would weaken the login", () => {
+    for (const name of ["state", "redirect_uri", "code_challenge", "scope"]) {
+      expect(() =>
+        connect({ clientId: "a", authorizationParams: { [name]: "x" } }),
+      ).toThrow(expect.objectContaining({ rc: "RC5003" }));
+    }
+    expect(() =>
+      connect({ clientId: "a", authorizationServer: "http://as.example" }),
+    ).toThrow(expect.objectContaining({ rc: "RC5003" }));
+    expect(() =>
+      connect({
+        clientId: "a",
+        authorizationServer: "http://127.0.0.1:9000",
+        authorizationParams: { access_type: "offline", prompt: "consent" },
+      }),
+    ).not.toThrow();
   });
 });

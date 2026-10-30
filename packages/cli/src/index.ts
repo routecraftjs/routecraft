@@ -504,7 +504,7 @@ withEnvironment(
     .option("--no-open", "Print the login URL without opening a browser")
     .option(
       "--port <port>",
-      "Loopback port for the redirect, for a server that matches the port",
+      "Fixed loopback port for the redirect, when the provider's registered redirect URI names one",
     ),
   () => process.cwd(),
 ).action(
@@ -534,7 +534,10 @@ withEnvironment(
   program
     .command("disconnect")
     .description("Remove the stored credential of a client")
-    .argument("<client>", "Client to disconnect, by its configured name"),
+    .argument(
+      "<client>",
+      "Client to disconnect, by its configured name or the stored owner --list shows",
+    ),
   () => process.cwd(),
 ).action(async (client: string) => {
   const { disconnectCommand } = await import("./connect.js");

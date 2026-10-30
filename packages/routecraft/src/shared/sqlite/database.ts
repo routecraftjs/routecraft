@@ -35,7 +35,9 @@ export function isSqliteBusy(cause: unknown): boolean {
 }
 
 /**
- * Rows the last statement on this connection changed.
+ * Rows changed by the most recent INSERT, UPDATE or DELETE on this
+ * connection. A SELECT or DDL leaves the count as it was, so read it
+ * straight after the write.
  *
  * Read back with `changes()` rather than from what `run()` returns, which
  * bun:sqlite only reports from partway through 1.1, so a store deciding a

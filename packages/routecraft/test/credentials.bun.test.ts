@@ -178,7 +178,7 @@ describe("sqlite credential store at rest", () => {
     const path = dbPath();
     const store = await SqliteCredentialStore.open({
       path,
-      sealer: createSealer("key-one"),
+      sealer: createSealer("key-one-0123456789abcdef0123456789abcdef"),
     });
     await store.put(
       "mcp:mail",
@@ -191,7 +191,7 @@ describe("sqlite credential store at rest", () => {
     expect(readFileSync(path).includes("very-secret-refresh")).toBe(false);
     const reopened = await SqliteCredentialStore.open({
       path,
-      sealer: createSealer("key-one"),
+      sealer: createSealer("key-one-0123456789abcdef0123456789abcdef"),
     });
     expect((await reopened.get("mcp:mail"))?.value).toEqual({
       refresh_token: "very-secret-refresh",
@@ -208,7 +208,7 @@ describe("sqlite credential store at rest", () => {
     const path = dbPath();
     const store = await SqliteCredentialStore.open({
       path,
-      sealer: createSealer("key-one"),
+      sealer: createSealer("key-one-0123456789abcdef0123456789abcdef"),
     });
     await store.put("mcp:mail", { a: 1 }, { ifVersion: null });
     await store.close();
@@ -219,7 +219,7 @@ describe("sqlite credential store at rest", () => {
     await keyless.close();
     const wrong = await SqliteCredentialStore.open({
       path,
-      sealer: createSealer("key-two"),
+      sealer: createSealer("key-two-0123456789abcdef0123456789abcdef"),
     });
     await expect(wrong.get("mcp:mail")).rejects.toMatchObject({ rc: "RC5070" });
     await wrong.close();
@@ -271,7 +271,7 @@ describe("openCredentialStore", () => {
 });
 
 describe("credential seed", () => {
-  const sealer = createSealer("seed-key");
+  const sealer = createSealer("seed-key-0123456789abcdef0123456789abcdef");
 
   /**
    * @case A seed round-trips under its key
@@ -300,10 +300,49 @@ describe("credential seed", () => {
     expect(() => decodeCredentialSeed(seed, undefined)).toThrow(
       expect.objectContaining({ rc: "RC5070" }),
     );
-    expect(() => decodeCredentialSeed(seed, createSealer("other"))).toThrow(
+    expect(() =>
+      decodeCredentialSeed(
+        seed,
+        createSealer("other-0123456789abcdef0123456789abcdef"),
+      ),
+    ).toThrow(expect.objectContaining({ rc: "RC5070" }));
+    expect(() => decodeCredentialSeed("not-a-seed", sealer)).toThrow(
       expect.objectContaining({ rc: "RC5070" }),
     );
-    expect(() => decodeCredentialSeed("not-a-seed", sealer)).toThrow(
+  });
+
+  /**
+   * @case A seed that opens under its key but carries bad content
+   * @preconditions One sealed payload that is not JSON; one whose second entry has no value
+   * @expectedResult Both fail with RC5070 rather than importing part of the seed
+   */
+  test("refuses a damaged payload whole", () => {
+    const garbage = `rcseed1.${sealer.seal("{not json", "seed")}`;
+    expect(() => decodeCredentialSeed(garbage, sealer)).toThrow(
+      expect.objectContaining({ rc: "RC5070" }),
+    );
+    const partial = `rcseed1.${sealer.seal(
+      JSON.stringify({
+        v: 1,
+        entries: [
+          { owner: "mcp:a", value: 1, issuedAt: 1 },
+          { owner: "mcp:b", issuedAt: 1 },
+        ],
+      }),
+      "seed",
+    )}`;
+    expect(() => decodeCredentialSeed(partial, sealer)).toThrow(
+      expect.objectContaining({ rc: "RC5070" }),
+    );
+  });
+
+  /**
+   * @case A key too short to seal with
+   * @preconditions A 16-character key
+   * @expectedResult createSealer throws RC5070 naming the minimum
+   */
+  test("refuses a short key", () => {
+    expect(() => createSealer("0123456789abcdef")).toThrow(
       expect.objectContaining({ rc: "RC5070" }),
     );
   });
@@ -355,7 +394,7 @@ describe("credentials plugin", () => {
    * @expectedResult The store behind the CREDENTIALS port holds the seeded credential once the context is built
    */
   test("imports the seed at bind", async () => {
-    const sealer = createSealer("boot-key");
+    const sealer = createSealer("boot-key-0123456789abcdef0123456789abcdef");
     const seed = encodeCredentialSeed(
       [{ owner: "mcp:mail", value: { refresh_token: "r1" }, issuedAt: 7 }],
       sealer,
@@ -368,7 +407,8 @@ describe("credentials plugin", () => {
             store,
             env: {
               ROUTECRAFT_CREDENTIALS_SEED: seed,
-              ROUTECRAFT_CREDENTIALS_KEY: "boot-key",
+              ROUTECRAFT_CREDENTIALS_KEY:
+                "boot-key-0123456789abcdef0123456789abcdef",
             },
           }),
         ],
@@ -438,7 +478,7 @@ describe("credential store fallback and resolution", () => {
   /**
    * @case Which store configuration craft connect opens
    * @preconditions A credentials key, a credentialsPlugin() in plugins, and a foreign plugin providing the port
-   * @expectedResult The key is used alone; a credentialsPlugin()'s own config wins over it, also when spread; a foreign provider is refused with RC5070
+   * @expectedResult The key is used alone; a credentialsPlugin()'s own config wins over it, also when spread or brought by another plugin's installs; a foreign provider is refused with RC5070
    */
   test("credentialsConfigOf follows what the application uses", () => {
     expect(credentialsConfigOf({ credentials: { store: "a.db" } })).toEqual({
@@ -452,6 +492,14 @@ describe("credential store fallback and resolution", () => {
       }),
     ).toEqual({ store: "b.db" });
     expect(credentialsConfigOf({ plugins: [{ ...plugin }] })).toEqual({
+      store: "b.db",
+    });
+    const bundle = definePlugin({
+      id: "acme.bundle",
+      installs: [plugin],
+      bind() {},
+    });
+    expect(credentialsConfigOf({ plugins: [bundle] })).toEqual({
       store: "b.db",
     });
     const vault = definePlugin({
@@ -471,9 +519,9 @@ describe("credential logins", () => {
   const g = globalThis as typeof globalThis & { [REGISTRY_KEY]?: Registry };
 
   /**
-   * @case Two collectors declaring one login id
-   * @preconditions Collectors "x" and "y" each return a login named "mail"
-   * @expectedResult Collecting throws naming the id
+   * @case Two collectors declaring one login id, or one store owner
+   * @preconditions Collectors "x" and "y" each return a login named "mail"; then "y" returns another name kept under x's owner
+   * @expectedResult Collecting throws naming the id, then the owner
    */
   test("refuses a duplicate id", () => {
     const saved = new Map(g[REGISTRY_KEY] ?? []);
@@ -489,6 +537,8 @@ describe("credential logins", () => {
       expect(collectCredentialLogins({})).toHaveLength(1);
       registerCredentialLogins("y", () => [{ ...login, owner: "y:mail" }]);
       expect(() => collectCredentialLogins({})).toThrow(/"mail"/);
+      registerCredentialLogins("y", () => [{ ...login, id: "post" }]);
+      expect(() => collectCredentialLogins({})).toThrow(/"x:mail"/);
     } finally {
       g[REGISTRY_KEY] = saved;
     }

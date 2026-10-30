@@ -118,9 +118,9 @@ Then log in from the project directory, on a machine with a browser:
 craft connect mail
 ```
 
-The command opens the authorization page, waits for the redirect on `http://127.0.0.1/callback` (register that as a redirect URI; a server that follows RFC 8252 accepts any port on it, and `--port` pins one for a server that does not), and writes the credential to the credential store. The application reads it from there, refreshes the access token when the server answers 401, and writes the rotated refresh token back. Every write is a compare-and-swap on the record's version, so two instances sharing one store cannot both spend a refresh token that only works once.
+The command opens the authorization page, waits for the redirect on `http://127.0.0.1/callback` (register that as a redirect URI; a server that follows RFC 8252 accepts any port on it, and `--port` pins one for a server that does not), and writes the credential to the credential store. The application reads it from there, refreshes the access token when the server answers 401, and writes the rotated refresh token back. The write is a compare-and-swap on the record's version, so an instance holding an older credential never writes it over a newer one. Two instances that refresh at the same moment both send the same refresh token; a server that rotates refresh tokens refuses the later one, and that instance reads what the other stored and carries on.
 
-A client with no stored credential, or whose refresh the authorization server refuses, is disabled with the reason `run craft connect mail`: its tools leave every agent with a warning, a call to it is refused, and the rest of the application runs. `craft connect --list` shows what each client holds, `craft connect --all` logs in every client that holds nothing, and `craft disconnect mail` removes a credential.
+A client with no stored credential, or whose refresh the authorization server refuses, is disabled with the reason `run craft connect mail`: its tools leave every agent with a warning, a call to it is refused, and the rest of the application runs. It stays disabled until the application restarts, so restart after `craft connect` to bring it back. An authorization server that does not answer fails that one call and leaves the client enabled. `craft connect --list` shows what each client holds, `craft connect --all` logs in every client that holds nothing, and `craft disconnect mail` removes a credential.
 
 ### Getting the credential to a server
 
@@ -135,7 +135,7 @@ The command prints one line, the seed, sealed with AES-256-GCM under the key. Se
 
 The machine you exported from still holds the same refresh token. Most authorization servers rotate it on every refresh, so whichever side refreshes first leaves the other with a refused token. After exporting, run `craft disconnect <client>` there, or do not run the application on that machine.
 
-With the key set, the store also seals every credential at rest. Without it the store is a plain file readable by its owner only (mode 0600), and `--export` refuses.
+With the key set, the store also seals every credential at rest. A credential written before the key was set stays plain until it is next written, by a refresh or a login; run `craft connect <client>` to seal it now. Without the key the store is a plain file readable by its owner only (mode 0600), and `--export` refuses. The key must be random, at least 32 characters, such as `openssl rand -base64 32` prints: it is used as given, not stretched like a password.
 
 ### Options
 

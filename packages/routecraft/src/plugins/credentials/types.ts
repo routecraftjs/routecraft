@@ -37,9 +37,12 @@ export type CredentialWrite =
  * An owner names the thing a credential authenticates, such as `mcp:billing`
  * for the named MCP client `billing`. One owner holds one credential.
  *
- * Every write is a compare-and-swap, so several processes sharing a store
- * cannot both spend a refresh token that rotates: the loser's write is
- * refused, and it reads what the winner stored.
+ * `put` is a compare-and-swap, and `delete` is one when given `ifVersion`,
+ * so a process holding a stale credential cannot write it over a newer one:
+ * the loser's write is refused, and it reads what the winner stored. It does
+ * not stop two processes sending the same refresh token; a server that
+ * rotates refresh tokens refuses the later one, and that process then reads
+ * the winner's. Versions count from 1 again after a delete.
  */
 export interface CredentialStore {
   /** The credential an owner holds, or undefined. */

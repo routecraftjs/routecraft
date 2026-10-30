@@ -73,22 +73,26 @@ export function registerCredentialLogins(
 /**
  * Every login a configuration declares, in registration order.
  *
- * @throws when two packages declare one id, which `craft connect <id>`
- *   could not tell apart
+ * @throws RC5003 when two logins share an id, which `craft connect <id>`
+ *   could not tell apart, or an owner, whose credential they would share
  */
 export function collectCredentialLogins(
   config: CraftConfig,
 ): CredentialLogin[] {
   const logins: CredentialLogin[] = [];
   const ids = new Set<string>();
+  const owners = new Set<string>();
   for (const collect of registry().values()) {
     for (const login of collect(config)) {
-      if (ids.has(login.id)) {
+      if (ids.has(login.id) || owners.has(login.owner)) {
         throw rcError("RC5003", undefined, {
-          message: `Two logins are named "${login.id}"; give the clients distinct names.`,
+          message: `Two logins are named "${login.id}" or keep their credential as "${login.owner}"; give the clients distinct names.`,
+          suggestion:
+            "Rename one of the clients, so each name craft connect takes and each stored credential is its own.",
         });
       }
       ids.add(login.id);
+      owners.add(login.owner);
       logins.push(login);
     }
   }

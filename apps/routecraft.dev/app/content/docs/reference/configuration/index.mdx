@@ -326,7 +326,7 @@ An explicit config value wins over the environment.
 
 ### credentials
 
-Where the credentials for upstream servers live: the tokens a [`craft connect`](/docs/reference/cli#connect) login obtains for a client declared with [`connect()`](/docs/advanced/call-an-mcp#servers-behind-a-login), refreshed in place by the application. Optional: without it the SQLite backend at `.routecraft/credentials.db` is used, opened the first time a client reads its credential, so an application with no such client never creates the file. `craft connect` opens the store from the same configuration, so a login writes where the application reads.
+Where the credentials for upstream servers live: the tokens a [`craft connect`](/docs/reference/cli#connect) login obtains for a client declared with [`connect()`](/docs/advanced/call-an-mcp#servers-behind-a-login), refreshed in place by the application. Optional: without it the SQLite backend at `.routecraft/credentials.db` is used, opened the first time a client reads its credential, so an application with no such client and no `ROUTECRAFT_CREDENTIALS_SEED` never creates the file. `craft connect` opens the store from the same configuration, so a login writes where the application reads.
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
@@ -346,7 +346,7 @@ export const craftConfig = defineConfig({
 | Variable | Purpose |
 |----------|---------|
 | `ROUTECRAFT_CREDENTIALS_STORE` | Store location: a file path, or the literal `memory`. An explicit `store` wins. |
-| `ROUTECRAFT_CREDENTIALS_KEY` | Key every credential is sealed under at rest (AES-256-GCM, key derived with HKDF), and the key a seed is sealed under. Without it values are stored as plain JSON in the 0600 file, and `craft connect --export` refuses. A store sealed under one key cannot be read under another or without one: the read fails with [`RC5070`](/docs/reference/errors#rc-5070). |
+| `ROUTECRAFT_CREDENTIALS_KEY` | Key the SQLite backend seals each credential under as it writes it (AES-256-GCM, key derived with HKDF), and the key a seed is sealed under. At least 32 random characters, such as `openssl rand -base64 32` prints. A credential written before the key was set stays plain until its next refresh or login, and a `CredentialStore` of your own seals nothing unless it does so itself. Without the key values are stored as plain JSON in the 0600 file, and `craft connect --export` refuses. A store sealed under one key cannot be read under another or without one: the read fails with [`RC5070`](/docs/reference/errors#rc-5070). |
 | `ROUTECRAFT_CREDENTIALS_SEED` | A seed printed by `craft connect --export`, imported into the store as the application starts. An entry is written when the store holds nothing for its client, or holds a credential from an earlier login; a credential refreshed since its login keeps its login time, so booting again with the same seed never overwrites a newer refresh token. |
 
 Under Node the SQLite backend needs `better-sqlite3`, as the [deferral store](#deferral) does. Without it, an unconfigured store falls back to memory with a warning; a configured one fails.

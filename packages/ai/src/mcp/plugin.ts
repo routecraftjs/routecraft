@@ -113,7 +113,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         service.tools.removeSource(serverId);
         c.logger.warn(
           { serverId, reason },
-          "MCP client is disabled: it needs a login; not connecting",
+          "MCP client is disabled; not connecting",
         );
         c.emit(
           `plugin:mcp:client:${serverId}:disabled` as EventName,
@@ -223,8 +223,11 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
 
   /**
    * Why a client that logs in cannot connect, or `undefined` when its
-   * credential is in the store. Read once at bind: a credential that goes
-   * missing later is found by the refresh that fails.
+   * credential is in the store or the store could not be read. Read once
+   * at bind: a credential that goes missing later is found by the refresh
+   * that fails. A read that fails (a lock, a mount not up yet) leaves the
+   * client enabled, as the same failure on a request does, so a passing
+   * fault does not switch it off until a restart.
    */
   async function loginCredential(
     c: PluginContext,
@@ -243,9 +246,9 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     } catch (err) {
       c.logger.warn(
         { err, serverId },
-        "Could not read the credential of an MCP client",
+        "Could not read the credential of an MCP client at bind; keeping it enabled",
       );
-      return `its stored credential could not be read (${err instanceof Error ? err.message : String(err)})`;
+      return undefined;
     }
   }
 
@@ -324,6 +327,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       // On the client's shared connection. A failure the remote did not
       // answer evicts it, so the next refresh reconnects.
       const result = await service.http.listTools(serverId, config);
+      // Disabled while the listing was in flight.
+      if (!service.clients.has(serverId)) return;
       const tools = result.tools ?? [];
       service.tools.setToolsForSource(serverId, "http", tools);
 

@@ -52,15 +52,29 @@ export function decodeCredentialSeed(
       message: `${CREDENTIALS_SEED_ENV} is set, and ${CREDENTIALS_KEY_ENV} is not. A seed is sealed; set the key it was exported under.`,
     });
   }
-  const payload = JSON.parse(
-    sealer.open(trimmed.slice(SEED_PREFIX.length), SEED_CONTEXT),
-  ) as { v?: unknown; entries?: unknown };
-  if (payload.v !== 1 || !Array.isArray(payload.entries)) {
-    throw rcError("RC5070", undefined, {
-      message: `${CREDENTIALS_SEED_ENV} was written by a newer build, or is damaged.`,
-    });
+  const opened = sealer.open(trimmed.slice(SEED_PREFIX.length), SEED_CONTEXT);
+  let payload: { v?: unknown; entries?: unknown };
+  try {
+    payload = JSON.parse(opened) as typeof payload;
+  } catch (cause) {
+    throw damaged(cause);
   }
-  return payload.entries.filter(isSeedEntry);
+  // Every entry or none: a seed that imports partly leaves some clients
+  // without a credential while looking applied.
+  if (
+    payload?.v !== 1 ||
+    !Array.isArray(payload.entries) ||
+    !payload.entries.every(isSeedEntry)
+  ) {
+    throw damaged();
+  }
+  return payload.entries;
+}
+
+function damaged(cause?: unknown): Error {
+  return rcError("RC5070", cause, {
+    message: `${CREDENTIALS_SEED_ENV} was written by a newer build, or is damaged. Export it again with \`craft connect <client> --export\`.`,
+  });
 }
 
 /**
@@ -78,18 +92,24 @@ export async function importCredentialSeed(
   const imported: string[] = [];
   const kept: string[] = [];
   for (const entry of entries) {
-    const current = await store.get(entry.owner);
-    if (current !== undefined && current.issuedAt >= entry.issuedAt) {
-      kept.push(entry.owner);
-      continue;
+    let current = await store.get(entry.owner);
+    for (;;) {
+      if (current !== undefined && current.issuedAt >= entry.issuedAt) {
+        kept.push(entry.owner);
+        break;
+      }
+      const write = await store.put(entry.owner, entry.value, {
+        ifVersion: current?.version ?? null,
+        issuedAt: entry.issuedAt,
+      });
+      if (write.written) {
+        imported.push(entry.owner);
+        break;
+      }
+      // Another replica wrote first. A refresh keeps the older login time,
+      // so compare again against what it wrote rather than assume it won.
+      current = write.current;
     }
-    const write = await store.put(entry.owner, entry.value, {
-      ifVersion: current?.version ?? null,
-      issuedAt: entry.issuedAt,
-    });
-    // A refused write means another replica imported or refreshed first,
-    // which leaves the owner with a credential at least as new.
-    (write.written ? imported : kept).push(entry.owner);
   }
   return { imported, kept };
 }
@@ -98,6 +118,8 @@ function isSeedEntry(value: unknown): value is CredentialSeedEntry {
   if (typeof value !== "object" || value === null) return false;
   const entry = value as Record<string, unknown>;
   return (
-    typeof entry["owner"] === "string" && typeof entry["issuedAt"] === "number"
+    typeof entry["owner"] === "string" &&
+    typeof entry["issuedAt"] === "number" &&
+    "value" in entry
   );
 }

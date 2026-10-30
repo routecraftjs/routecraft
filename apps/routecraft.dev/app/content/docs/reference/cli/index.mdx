@@ -307,18 +307,18 @@ craft connect [client] [options]
 craft disconnect <client>
 ```
 
-`craft connect <client>` opens the authorization page, listens on `127.0.0.1` for the redirect to `/callback`, and writes the credential to the [credential store](/docs/reference/configuration#credentials) the project configures, replacing what the client held. The URL is also printed, for a terminal with no browser to open. The login waits five minutes for the redirect.
+`craft connect <client>` opens the authorization page, listens on `127.0.0.1` for the redirect to `/callback`, and writes the credential to the [credential store](/docs/reference/configuration#credentials) the project configures, replacing what the client held. The URL is also printed, for a terminal with no browser to open. The login waits five minutes for the redirect. With no client named, pass `--all` or `--export`; a bare `craft connect` logs nothing in. Under `--all`, one login that fails is reported and the rest still run; the command then exits `1`. A running application picks up a new login when it restarts.
 
 | Option | Description |
 | --- | --- |
 | `--all` | Log in every declared client that holds no credential |
 | `--export` | Print a seed of the credentials, sealed under `ROUTECRAFT_CREDENTIALS_KEY`, for a server to import through `ROUTECRAFT_CREDENTIALS_SEED`. Logs in first only a client that holds nothing. Refuses without the key |
-| `--list` | Show each declared client, what it is, and whether it holds a credential |
+| `--list` | Show each declared client, what it is, and whether it holds a credential, then every stored credential no declared client claims |
 | `--no-open` | Print the login URL without opening a browser |
-| `--port <port>` | Loopback port for the redirect. Any free port by default, which a server that follows RFC 8252 accepts; pin one for a server that matches the port too |
+| `--port <port>` | A fixed loopback port for the redirect, when the redirect URI registered with the provider names one. Any free port by default, which a server that follows RFC 8252 accepts |
 | `--env <path>`, `--profile <name>` | The environment to load first, as for [`start`](#start); a client id read from `process.env` comes from here |
 
-`craft disconnect <client>` removes the stored credential. A running application reads the store on every request, so its next call to that client finds nothing and disables the client.
+`craft disconnect <client>` removes the stored credential. A running application reads the store on every request, so its next call to that client finds nothing and disables the client. A credential whose client was renamed or removed from the config is removed by the owner name `--list` shows for it, such as `craft disconnect mcp:old-mail`.
 
 The seed's standard output is the seed alone, so `craft connect mail --export > seed.txt` captures it; the instructions go to standard error.
 

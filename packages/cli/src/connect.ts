@@ -70,18 +70,37 @@ export async function connectCommand(
       };
     }
 
-    const targets = selectTargets(session.logins, client, options.all);
+    const targets = selectTargets(
+      session.logins,
+      client,
+      options.all,
+      options.export,
+    );
     if (typeof targets === "string") return { code: 1, error: targets };
 
     const notes: string[] = [];
+    const failed: string[] = [];
     for (const login of targets) {
       const held = await session.store.get(login.owner);
       // A named client is logged in again on request; an export or --all
       // keeps what is held, which is the point of exporting it.
       const relogin = client !== undefined && !options.export;
       if (held !== undefined && !relogin) continue;
-      await runLogin(session.store, login, options);
-      notes.push(`Connected "${login.id}".`);
+      try {
+        await runLogin(session.store, login, options);
+        notes.push(`Connected "${login.id}".`);
+      } catch (error: unknown) {
+        // One refused login does not cost the others in the same run.
+        if (targets.length === 1) throw error;
+        failed.push(`"${login.id}" did not connect: ${messageOf(error)}`);
+      }
+    }
+    if (failed.length > 0) {
+      return {
+        code: 1,
+        ...(notes.length > 0 ? { output: notes.join("\n") } : {}),
+        error: failed.join("\n"),
+      };
     }
 
     if (options.export && sealer !== undefined) {
@@ -129,15 +148,19 @@ export async function disconnectCommand(
     return { code: 1, error: messageOf(error) };
   }
   try {
-    const login = session.logins.find((each) => each.id === client);
-    if (login === undefined) {
+    // A client removed from the config leaves its credential behind;
+    // naming the stored owner, as --list shows it, still reaches it.
+    const owner =
+      session.logins.find((each) => each.id === client)?.owner ??
+      (await session.store.list()).find((each) => each.owner === client)?.owner;
+    if (owner === undefined) {
       return { code: 1, error: unknownClient(session.logins, client) };
     }
-    const removed = await session.store.delete(login.owner);
+    const removed = await session.store.delete(owner);
     return {
       code: 0,
       output: removed
-        ? `Disconnected "${client}". A running application keeps the token it holds until it expires or restarts.`
+        ? `Disconnected "${client}". A running application finds the credential gone on its next call to the client and disables it.`
         : `"${client}" held no credential.`,
     };
   } catch (error: unknown) {
@@ -177,10 +200,10 @@ async function openSession(): Promise<Session> {
       { cause: error },
     );
   }
-  const { collectCredentialLogins, openCredentialStore } =
+  const { collectCredentialLogins, credentialsConfigOf, openCredentialStore } =
     await import("@routecraft/routecraft");
   const logins = collectCredentialLogins(config);
-  const opened = await openCredentialStore(config.credentials ?? {});
+  const opened = await openCredentialStore(credentialsConfigOf(config));
   if (opened.backend === "memory") {
     await closeIf(opened);
     throw new Error(
@@ -206,6 +229,7 @@ function selectTargets(
   logins: readonly CredentialLogin[],
   client: string | undefined,
   all: boolean | undefined,
+  exporting: boolean | undefined,
 ): CredentialLogin[] | string {
   if (logins.length === 0) {
     return "No client in craft.config.ts logs in. Declare one with auth: connect({ clientId }).";
@@ -214,6 +238,9 @@ function selectTargets(
     if (all) return "Name a client or pass --all, not both.";
     const login = logins.find((each) => each.id === client);
     return login === undefined ? unknownClient(logins, client) : [login];
+  }
+  if (!all && !exporting) {
+    return "Name a client to log in, or pass --all for every client that holds nothing.";
   }
   return [...logins];
 }
@@ -227,9 +254,6 @@ function unknownClient(
 }
 
 async function list(session: Session): Promise<CommandResult> {
-  if (session.logins.length === 0) {
-    return { code: 0, output: "No client in craft.config.ts logs in." };
-  }
   const lines: string[] = [];
   for (const login of session.logins) {
     const held = await session.store.get(login.owner);
@@ -238,6 +262,17 @@ async function list(session: Session): Promise<CommandResult> {
         ? `not connected; run \`craft connect ${login.id}\``
         : `connected, logged in ${new Date(held.issuedAt).toISOString()}, last refreshed ${new Date(held.updatedAt).toISOString()}`;
     lines.push(`${login.id}  ${login.description}  ${state}`);
+  }
+  // Credentials no declared client claims any more, so they can be removed.
+  const claimed = new Set(session.logins.map((login) => login.owner));
+  for (const held of await session.store.list()) {
+    if (claimed.has(held.owner)) continue;
+    lines.push(
+      `${held.owner}  no longer declared; remove with \`craft disconnect ${held.owner}\``,
+    );
+  }
+  if (lines.length === 0) {
+    return { code: 0, output: "No client in craft.config.ts logs in." };
   }
   return { code: 0, output: lines.join("\n") };
 }
@@ -300,12 +335,20 @@ async function listen(port: number): Promise<Listener> {
       response.writeHead(404).end();
       return;
     }
+    // Only an authorization response ends the wait: a stray request (a
+    // favicon, a reload without the query) must not be taken for one.
+    if (!url.searchParams.has("code") && !url.searchParams.has("error")) {
+      response
+        .writeHead(400, { "content-type": "text/plain; charset=utf-8" })
+        .end("Not an authorization response.\n");
+      return;
+    }
     response
       .writeHead(200, { "content-type": "text/plain; charset=utf-8" })
       .end(
         url.searchParams.has("error")
           ? "The login was refused. Return to the terminal for the reason.\n"
-          : "Logged in. You can close this tab and return to the terminal.\n",
+          : "Login received. Return to the terminal to see whether it completed.\n",
       );
     settle(url.searchParams);
   });

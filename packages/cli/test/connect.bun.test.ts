@@ -24,6 +24,9 @@ registerCredentialLogins("test-connect", () => [
     description: "https://demo.test/mcp",
     async login(store, io) {
       await io.openUrl(new URL("https://as.test/authorize"));
+      // A request without an authorization response must not end the wait.
+      const stray = await fetch(io.redirectUrl);
+      if (stray.status !== 400) throw new Error("a stray request settled the login");
       void fetch(io.redirectUrl + "?code=c-1&state=s-1");
       const back = await io.waitForCallback();
       const current = await store.get("test:demo");
@@ -125,6 +128,78 @@ describe("craft connect", () => {
   });
 
   /**
+   * @case --all logs in a client that holds nothing
+   * @preconditions demo not yet connected
+   * @expectedResult Exit 0 reporting demo connected, and the store holds its credential
+   */
+  test("--all logs in what holds nothing", async () => {
+    const result = await connectCommand(undefined, {
+      all: true,
+      open: false,
+      stderr: quiet,
+    });
+    expect(result).toMatchObject({ code: 0, output: 'Connected "demo".' });
+    expect(await stored()).toEqual({ code: "c-1" });
+  });
+
+  /**
+   * @case Naming a client that is already connected
+   * @preconditions demo connected once
+   * @expectedResult A second craft connect demo logs in again and replaces the credential
+   */
+  test("a named client is logged in again", async () => {
+    await connectCommand("demo", { open: false, stderr: quiet });
+    const again = await connectCommand("demo", { open: false, stderr: quiet });
+    expect(again).toMatchObject({ code: 0, output: 'Connected "demo".' });
+    const store = await core.SqliteCredentialStore.open({
+      path: join(root, "creds.db"),
+    });
+    try {
+      expect((await store.get("test:demo"))?.version).toBe(2);
+    } finally {
+      await store.close();
+    }
+  });
+
+  /**
+   * @case craft connect with neither a client nor --all
+   * @preconditions demo declared, not connected
+   * @expectedResult Exit 1 asking for a client or --all, and nothing is logged in
+   */
+  test("needs a client or --all", async () => {
+    const result = await connectCommand(undefined, {
+      open: false,
+      stderr: quiet,
+    });
+    expect(result.code).toBe(1);
+    expect(result.error).toContain("--all");
+    expect(await stored()).toBeUndefined();
+  });
+
+  /**
+   * @case A credential whose client is no longer declared
+   * @preconditions The store holds test:gone, which no login claims
+   * @expectedResult --list names it with the command to remove it, and craft disconnect test:gone removes it
+   */
+  test("lists and removes a credential no client claims", async () => {
+    const store = await core.SqliteCredentialStore.open({
+      path: join(root, "creds.db"),
+    });
+    try {
+      await store.put("test:gone", { code: "old" }, { ifVersion: null });
+    } finally {
+      await store.close();
+    }
+    const listed = await connectCommand(undefined, { list: true });
+    expect(listed.output).toContain(
+      "test:gone  no longer declared; remove with `craft disconnect test:gone`",
+    );
+    expect((await disconnectCommand("test:gone")).code).toBe(0);
+    const after = await connectCommand(undefined, { list: true });
+    expect(after.output).not.toContain("test:gone");
+  });
+
+  /**
    * @case --export without a key
    * @preconditions ROUTECRAFT_CREDENTIALS_KEY unset
    * @expectedResult Exit 1 naming the variable, before any login runs
@@ -146,7 +221,8 @@ describe("craft connect", () => {
    * @expectedResult demo is logged in, and the printed seed decodes under the key to its credential
    */
   test("--export prints a sealed seed", async () => {
-    process.env[core.CREDENTIALS_KEY_ENV] = "test-key";
+    process.env[core.CREDENTIALS_KEY_ENV] =
+      "test-key-0123456789abcdef0123456789abcdef";
     const result = await connectCommand("demo", {
       export: true,
       open: false,
@@ -155,7 +231,7 @@ describe("craft connect", () => {
     expect(result.code).toBe(0);
     const entries = core.decodeCredentialSeed(
       result.output!,
-      core.createSealer("test-key"),
+      core.createSealer("test-key-0123456789abcdef0123456789abcdef"),
     );
     expect(entries).toMatchObject([
       { owner: "test:demo", value: { code: "c-1" } },
