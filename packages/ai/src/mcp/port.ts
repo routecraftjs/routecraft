@@ -64,8 +64,14 @@ export interface McpService {
   readonly tools: McpToolRegistry;
   /** The managed stdio clients, by server id. */
   readonly stdio: ReadonlyMap<string, McpStdioToolCaller>;
-  /** The configured clients, by server id. */
+  /** The configured clients, by server id. A disabled client is not among them. */
   readonly clients: ReadonlyMap<string, McpClientConfig>;
+  /**
+   * Clients declared in `mcpPlugin({ clients })` and switched off by their
+   * `enabled`, by server id, mapped to the reason. Declared, so a reference
+   * to one is not a typo; off, so it is never connected or called.
+   */
+  readonly disabledClients: ReadonlyMap<string, string>;
 }
 
 /** The MCP service the MCP plugin provides. */
@@ -82,6 +88,7 @@ export function createMcpService(
     readonly tools?: McpToolRegistry;
     readonly stdio?: ReadonlyMap<string, McpStdioToolCaller>;
     readonly clients?: ReadonlyMap<string, McpClientConfig>;
+    readonly disabledClients?: ReadonlyMap<string, string>;
     readonly local?: Iterable<McpLocalToolEntry>;
   } = {},
 ): McpService {
@@ -158,5 +165,6 @@ export function createMcpService(
     tools: seed.tools ?? new McpToolRegistry(),
     stdio: seed.stdio ?? new Map(),
     clients: seed.clients ?? new Map(),
+    disabledClients: seed.disabledClients ?? new Map(),
   };
 }

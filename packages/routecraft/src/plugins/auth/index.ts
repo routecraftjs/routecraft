@@ -1,4 +1,4 @@
-import { authorize } from "../../auth/authorize.ts";
+import { authorize, authorizeAdmits } from "../../auth/authorize.ts";
 import type { Principal } from "../../principal.ts";
 import { principalOf, type Exchange } from "../../exchange.ts";
 import { step, type Body } from "../../kernel/steps.ts";
@@ -25,6 +25,7 @@ import { ValidateStep } from "../../operations/validate.ts";
  */
 export const enforcementProvider: EnforcementPositions = {
   authorize: (options) => new ValidateStep(authorize(options)),
+  admits: authorizeAdmits,
 };
 
 /** `ex.auth`: who the exchange is acting for. */

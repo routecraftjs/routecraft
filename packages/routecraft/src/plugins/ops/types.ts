@@ -12,6 +12,7 @@ import type {
   HealthStatus as KernelHealthStatus,
 } from "../../types.ts";
 import type { Duration } from "../../shared/duration.ts";
+import type { EnablementDeclaration } from "../../enablement.ts";
 import type { HttpAuth } from "../../adapters/http/types";
 import type { Deferred } from "../../kernel/continuation/deferred";
 import type {
@@ -88,10 +89,21 @@ export type ContextState = "starting" | "started" | "stopping" | "stopped";
  *   every deliberately-dormant route an incident. Distinct from `offline`,
  *   which is a running deployment having capability taken away from it, and
  *   from `failed`, which is a route that should be running and is not.
+ * - `standby`: running, with nothing to serve: what its source points at
+ *   does not exist, such as an MCP proxy route whose remote tool the client
+ *   no longer lists. Reports `inactive` with the reason in
+ *   `details.reason`. The route fails closed, and a remote changing its
+ *   catalogue is a person's rename to make, not an incident to page on.
  * - `failed`: not running when it should be. Its source gave up producing.
  */
 export type RouteLifecycle =
-  "running" | "completed" | "stopped" | "offline" | "disabled" | "failed";
+  | "running"
+  | "completed"
+  | "stopped"
+  | "offline"
+  | "disabled"
+  | "standby"
+  | "failed";
 
 /** A circuit breaker's position, mirroring routecraft's breaker events. */
 export type CircuitState = "open" | "half-open";
@@ -282,8 +294,34 @@ export interface IndicatorDefinition {
    * (a caller without the scope, a validation error, a business rule saying
    * no) report the dependency down, which is the escalation this design
    * exists to prevent.
+   *
+   * The indicator follows the route's `.enabled()`: while the route is
+   * disabled it reports `inactive` with the route's reason, is excluded
+   * from the aggregate and never goes stale. Disabled is not down.
    */
   route?: string;
+  /**
+   * Whether this dependency is configured at all, with the meaning a
+   * route's `.enabled()` gives its verdict: `true` enables, a string
+   * disables and is the reason, `false` disables with a generic one. A
+   * predicate is evaluated once, as the application starts; it has no
+   * refresh cadence.
+   *
+   * For an indicator fed by hand. While disabled it reports `inactive`
+   * with the reason, is excluded from the aggregate, never goes stale, and
+   * ignores `up()` and `down()`, so the code that pushes needs no guard of
+   * its own. An indicator bound to a route follows that route instead, and
+   * needs this only to switch itself off regardless of the route.
+   *
+   * @example
+   * ```ts
+   * defineIndicator({
+   *   name: "ledger",
+   *   enabled: () => ledgerConfigured() || "LEDGER_URL is unset",
+   * });
+   * ```
+   */
+  enabled?: EnablementDeclaration;
 }
 
 /**

@@ -105,6 +105,10 @@ Failure modes:
 
 All codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `route:exchange:failed` fires.
 
+## What a caller is shown
+
+A door that lists what a caller may call asks the same question in advance. The MCP server's `tools/list` shows each caller only the tools whose route `.authorize()` admits them; see [the listing follows `.authorize()`](/docs/reference/plugins/mcpplugin#the-listing-follows-authorize). With the shipped enforcement, the decision is the gate's own, exported as `authorizeAdmits(options, principal, authority)`, so the listing applies exactly the route's `.authorize()` decisions. A plugin that replaces `ENFORCEMENT` decides the listing through its own `admits`, and one without `admits` leaves the listing unfiltered. Being listed is never the check: the gate still runs on every call, and other steps at call time (a plugin hook around the gate, a `.validate()` that refuses) can still refuse a listed tool.
+
 ## What an HTTP caller receives
 
 When the route was reached through the [`http()` source](/docs/reference/adapters/http) or the [ops dispatch door](/docs/reference/plugins/opsplugin#dispatching), an unrecovered refusal answers the caller with a client status rather than a 500. Both doors map it the same way:

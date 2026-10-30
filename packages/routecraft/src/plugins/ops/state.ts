@@ -78,6 +78,25 @@ interface RouteRecord {
    * (MAIL_USER, MAIL_APP_PASSWORD unset)" and knows nothing is broken.
    */
   disabledReason?: string;
+  /**
+   * Why a running route has nothing to serve. Set only while `lifecycle` is
+   * `standby`.
+   */
+  standbyReason?: string;
+  /**
+   * The route is stopping. A source withdrawing what it registered says
+   * "nothing to serve" on its way out, which is not the target coming
+   * back, so a standby that clears now is forgotten without reporting the
+   * route running for the moment before it stops.
+   */
+  stopping?: boolean;
+}
+
+/** Whether anything holds an indicator off. */
+function isIndicatorDisabled(record: IndicatorRecord): boolean {
+  return (
+    record.disabled.own !== undefined || record.disabled.route !== undefined
+  );
 }
 
 interface IndicatorRecord {
@@ -88,6 +107,13 @@ interface IndicatorRecord {
   lastReportAt?: number;
   lastHealth?: Health;
   inactive: boolean;
+  /**
+   * Why the indicator is off, by who switched it off: its own `enabled`
+   * declaration, or the route it is bound to. Kept apart from `inactive`,
+   * which is a maintenance mute any report clears: a disabled indicator
+   * ignores reports until whatever disabled it lets go.
+   */
+  disabled: { own?: string; route?: string };
   /** Last status reported to `onChange`, so a transition is detected in O(1). */
   lastStatus: HealthStatus;
 }
@@ -107,6 +133,9 @@ function routeStatus(record: RouteRecord): HealthStatus {
   // status at all. Degrading on it would make a dormant capability page,
   // which is precisely the alarm this feature exists to avoid.
   if (lifecycle === "disabled") return "inactive";
+  // Running and failing closed, with nothing to serve until a person
+  // renames or retires it: listed with the reason, never paged on.
+  if (lifecycle === "standby") return "inactive";
   if (lifecycle === "offline") return "degraded";
   if (lifecycle === "running") return breakers.size > 0 ? "degraded" : "up";
   return "inactive";
@@ -133,6 +162,9 @@ function routeComponent(record: RouteRecord): HealthComponent {
 
   if (record.disabledReason !== undefined) {
     details["reason"] = record.disabledReason;
+  }
+  if (lifecycle === "standby" && record.standbyReason !== undefined) {
+    details["reason"] = record.standbyReason;
   }
   if (breakers.size > 0) {
     details["circuit"] = [...breakers.values()].includes("open")
@@ -192,6 +224,13 @@ export interface HealthLedger {
 export class HealthState implements HealthLedger {
   private readonly routes = new Map<string, RouteRecord>();
   private readonly indicators = new Map<string, IndicatorRecord>();
+  /**
+   * Routes on standby, by id, with the reason. Held apart from the route
+   * records because a source may report standby while its route is still
+   * starting, before `routeStarted` builds a fresh record: the reason is
+   * applied to whichever record the route ends up with.
+   */
+  private readonly standby = new Map<string, string>();
   private readonly now: () => number;
   private readonly onChange: (change: HealthChange) => void;
   private contextState: ContextState = "starting";
@@ -276,6 +315,11 @@ export class HealthState implements HealthLedger {
       everSucceeded: false,
       lastStatus: previous,
     };
+    const standby = this.standby.get(routeId);
+    if (standby !== undefined) {
+      record.lifecycle = "standby";
+      record.standbyReason = standby;
+    }
     this.routes.set(routeId, record);
     this.settleRoute(routeId, record);
   }
@@ -295,6 +339,8 @@ export class HealthState implements HealthLedger {
     const record = this.ensureRoute(routeId);
     record.lifecycle = "disabled";
     record.disabledReason = reason;
+    delete record.standbyReason;
+    this.standby.delete(routeId);
     record.breakers.clear();
     record.consecutiveFailures = 0;
     this.settleRoute(routeId, record);
@@ -311,6 +357,46 @@ export class HealthState implements HealthLedger {
     record.lifecycle = "stopped";
     delete record.disabledReason;
     this.settleRoute(routeId, record);
+  }
+
+  /**
+   * A running route has nothing to serve, or has something again. Only a
+   * running route moves into `standby`, and only a route in `standby`
+   * leaves it: a failed, disabled, offline or stopped route already says
+   * something truer about itself.
+   *
+   * @param reason - Why it has nothing to serve, or `undefined` when it has
+   *   something again.
+   */
+  setRouteStandby(routeId: string, reason: string | undefined): void {
+    if (reason === undefined) this.standby.delete(routeId);
+    else this.standby.set(routeId, reason);
+    const record = this.routes.get(routeId);
+    if (!record) return;
+    if (reason !== undefined) {
+      if (record.lifecycle !== "running" && record.lifecycle !== "standby") {
+        return;
+      }
+      record.lifecycle = "standby";
+      record.standbyReason = reason;
+    } else {
+      delete record.standbyReason;
+      // Stopping: `routeStopped` settles the route, from standby straight
+      // to stopped, with no false recovery in between.
+      if (record.lifecycle !== "standby" || record.stopping === true) return;
+      record.lifecycle = "running";
+    }
+    this.settleRoute(routeId, record);
+  }
+
+  /**
+   * A route began stopping. Its standby, if any, ends with it: whatever
+   * the source withdraws on the way out is not news about its target.
+   */
+  routeStopping(routeId: string): void {
+    this.standby.delete(routeId);
+    const record = this.routes.get(routeId);
+    if (record) record.stopping = true;
   }
 
   /**
@@ -332,6 +418,7 @@ export class HealthState implements HealthLedger {
     ) {
       return;
     }
+    delete record.standbyReason;
     record.lifecycle = record.everSucceeded ? "completed" : "stopped";
     this.settleRoute(routeId, record);
   }
@@ -367,6 +454,7 @@ export class HealthState implements HealthLedger {
   sourceDied(routeId: string): void {
     const record = this.ensureRoute(routeId);
     record.lifecycle = "failed";
+    delete record.standbyReason;
     this.settleRoute(routeId, record);
   }
 
@@ -410,7 +498,10 @@ export class HealthState implements HealthLedger {
       // An exchange draining out of a route that was just disabled settles
       // after the flip. Treating it as evidence of life would clear the
       // reason and report the route running while it drains to a stop.
-      record.lifecycle !== "disabled"
+      record.lifecycle !== "disabled" &&
+      // Its target is gone until a listing says otherwise; an exchange
+      // that completes anyway is not that listing.
+      record.lifecycle !== "standby"
     ) {
       record.lifecycle = "running";
     }
@@ -466,8 +557,41 @@ export class HealthState implements HealthLedger {
       domain: options.domain ?? "deployment",
       ...(this.contextState === "started" ? { startedAt: this.now() } : {}),
       inactive: false,
+      disabled: {},
       lastStatus: "up",
     });
+  }
+
+  /**
+   * Switch an indicator off, or back on, on behalf of one owner of the
+   * decision: `own` for the indicator's `enabled` declaration, `route` for
+   * the route it is bound to. While either holds it off it reports
+   * `inactive` with the reason, is excluded from the aggregate, ignores
+   * pushes and never goes stale.
+   *
+   * Coming back on forgets the last report and restarts the staleness
+   * window from now: a verdict from before it was switched off says
+   * nothing about the dependency today, and measuring `maxAge` from it
+   * would report a freshly enabled indicator stale on its first read.
+   *
+   * @param reason - Why it is off, or `undefined` to switch it back on.
+   */
+  setIndicatorDisabled(
+    name: string,
+    by: "own" | "route",
+    reason: string | undefined,
+  ): void {
+    const record = this.indicators.get(name);
+    if (!record) return;
+    const wasDisabled = isIndicatorDisabled(record);
+    if (reason === undefined) delete record.disabled[by];
+    else record.disabled[by] = reason;
+    if (wasDisabled && !isIndicatorDisabled(record)) {
+      delete record.lastReportAt;
+      delete record.lastHealth;
+      if (this.contextState === "started") record.startedAt = this.now();
+    }
+    this.settleIndicator(name, record);
   }
 
   /** Record an indicator report. Any report clears a prior `inactive` marker. */
@@ -478,6 +602,9 @@ export class HealthState implements HealthLedger {
   ): void {
     const record = this.indicators.get(name);
     if (!record) return;
+    // Off is off: a push from code that runs whether or not the dependency
+    // was configured must not bring a disabled indicator back to life.
+    if (isIndicatorDisabled(record)) return;
     // A report replayed from before this ledger existed keeps its own time,
     // so a maxAge window measures from the report and not from the binding.
     record.lastReportAt = reportedAt;
@@ -616,6 +743,12 @@ export class HealthState implements HealthLedger {
    */
   private indicatorComponent(record: IndicatorRecord): HealthComponent {
     const { domain } = record;
+    // Its own declaration first: an indicator its author switched off says
+    // why in the author's words, whatever its route is doing.
+    const off = record.disabled.own ?? record.disabled.route;
+    if (off !== undefined) {
+      return { status: "inactive", domain, details: { reason: off } };
+    }
     if (record.inactive) return { status: "inactive", domain };
 
     const now = this.now();
