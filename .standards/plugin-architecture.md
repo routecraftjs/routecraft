@@ -156,7 +156,7 @@ project that sets the key is typed by it without naming the plugin.
 
 Installed in every application, ahead of its own plugins:
 `routecraft.direct`, `routecraft.resilience`, `routecraft.cache`,
-`routecraft.principals`, `routecraft.auth`. An application plugin with the
+`routecraft.principals`, `routecraft.auth`, `routecraft.credentials`. An application plugin with the
 same id takes a default's place; a plugin that `replaces` a default's port is
 selected over it. Each shipped plugin's module registers it once when the
 package loads (`registerShippedPlugin(factory, { default })`, internal): the
@@ -359,6 +359,7 @@ a step of yours, is seen the same way.
 | `routecraft.cache`                                                       | `CACHE`                                                              |                                                   |
 | `routecraft.principals`                                                  | `AUTHORITY` (mint, brand, isAuthentic, restore, isRestored, read)    |                                                   |
 | `routecraft.auth`                                                        | `ENFORCEMENT`                                                        | steps `authenticate`, `delegate`; facet `ex.auth` |
+| `routecraft.credentials`                                                 | `CREDENTIALS` (upstream credentials by owner, compare-and-swap)      |                                                   |
 | `routecraft.deferral`                                                    | `CONTINUATIONS` (store, signer, default deadline)                    | steps `defer`, `resume`; facet `ex.deferral`      |
 | `routecraft.telemetry`                                                   | `TRACE_SPANS` (live exchange span for an outbound `traceparent`)     | observes                                          |
 | `routecraft.servers`                                                     | `WEB_INGRESS`                                                        |                                                   |

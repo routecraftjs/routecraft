@@ -109,6 +109,8 @@ clients: {
 
 A disabled client opens no connection and lists no tools. An agent reference to it (`MCP(vendor)` or `MCP(vendor:search)`) is left out of the agent's tools with one warning naming the reason, a [proxy route](#proxying-client-tools) over it starts and serves nothing, and a call to it is refused with the reason. A client id that matches no configuration is still an error, because a typo must not drop a tool quietly.
 
+A client declared with [`auth: connect({ clientId, scopes })`](/docs/advanced/call-an-mcp#servers-behind-a-login) logs in with OAuth instead of a static token. It is disabled the same way when the credential store holds no credential for it at bind (the reason is `run craft connect <client>`), when no credential store is installed, when its stored credential is not one this build can read, or when the authorization server later refuses its refresh. A disabled client stays disabled until the application restarts. A store that cannot be read at bind, or an authorization server that does not answer, fails the calls it affects and leaves the client enabled.
+
 **Logging when `transport` is `'stdio'`:**
 
 The stdio transport uses stdout as the protocol channel. Routecraft's logger defaults to stdout, so logs will corrupt the protocol stream unless you redirect them. When running an MCP server over stdio, always pass one of:

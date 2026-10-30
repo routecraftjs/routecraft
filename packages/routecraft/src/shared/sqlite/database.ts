@@ -35,6 +35,22 @@ export function isSqliteBusy(cause: unknown): boolean {
 }
 
 /**
+ * Rows changed by the most recent INSERT, UPDATE or DELETE on this
+ * connection. A SELECT or DDL leaves the count as it was, so read it
+ * straight after the write.
+ *
+ * Read back with `changes()` rather than from what `run()` returns, which
+ * bun:sqlite only reports from partway through 1.1, so a store deciding a
+ * compare-and-swap on it would read a write that landed as one that lost.
+ */
+export function sqliteChanges(db: SqliteDatabase): number {
+  const row = db.prepare("SELECT changes() AS changed").get() as {
+    changed: number;
+  };
+  return row.changed;
+}
+
+/**
  * Which store a database file belongs to, stamped into
  * `PRAGMA application_id` so a store can tell its own file from another's.
  *
@@ -54,6 +70,8 @@ export const SQLITE_APPLICATION_IDS = {
   deferral: 0x5243_4445,
   /** "RCSE", the agent session store. */
   session: 0x5243_5345,
+  /** "RCCR", the credential store. */
+  credentials: 0x5243_4352,
 } as const;
 
 /** A stamped identity, or 0 for a file no build has claimed. */

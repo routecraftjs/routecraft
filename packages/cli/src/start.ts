@@ -116,12 +116,7 @@ export async function startCommand(
     const contentRoot = pickContentRoot(root);
     logger.info(`Starting project "${root}" (content root: "${contentRoot}").`);
 
-    const pluginsDir = join(contentRoot, PLUGINS_FOLDER);
-    if (isDirectory(pluginsDir)) {
-      config = mergeProjectConfig(config, {
-        plugins: await loadPlugins(root, pluginsDir),
-      });
-    }
+    config = await withFolderPlugins(root, contentRoot, config);
 
     config = await applyDiscoverers(root, contentRoot, config);
 
@@ -209,11 +204,34 @@ export async function startCommand(
 }
 
 /**
+ * The configuration with the plugins the `plugins/` folder declares merged
+ * in, as the application runs with it. `craft connect` reads the clients to
+ * log in from the same result, so a client declared by a folder plugin is
+ * found there too.
+ */
+export async function withFolderPlugins(
+  root: string,
+  contentRoot: string,
+  config: CraftConfig,
+): Promise<CraftConfig> {
+  const pluginsDir = join(contentRoot, PLUGINS_FOLDER);
+  if (!isDirectory(pluginsDir)) return config;
+  return mergeProjectConfig(config, {
+    plugins: await loadPlugins(root, pluginsDir),
+  });
+}
+
+/** The content root of a project: where its convention folders live. */
+export function projectContentRoot(root: string): string {
+  return pickContentRoot(root);
+}
+
+/**
  * Read the project configuration from its module: a default-exported
  * `defineProject(...)`, or a plain config as the default export or as the
  * named `craftConfig` export.
  */
-async function loadConfig(configPath: string): Promise<CraftConfig> {
+export async function loadConfig(configPath: string): Promise<CraftConfig> {
   const module = (await import(configPath)) as {
     craftConfig?: CraftConfig;
     default?: unknown;
