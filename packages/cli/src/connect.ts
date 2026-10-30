@@ -25,6 +25,12 @@ export interface ConnectOptions {
   open?: boolean;
   /** Loopback port for the redirect; any free port when unset. */
   port?: string;
+  /**
+   * Where the login instructions go; standard error when unset. Tests pass
+   * their own, because touching `process.stderr` under Bun switches the
+   * shared output pipe to non-blocking for the rest of the run.
+   */
+  stderr?: (text: string) => void;
 }
 
 /** How long a login waits for the person to come back from the browser. */
@@ -247,9 +253,8 @@ async function runLogin(
     const io: CredentialLoginIO = {
       redirectUrl: listener.redirectUrl,
       openUrl: async (url) => {
-        process.stderr.write(
-          `Log in to "${login.id}" at:\n\n  ${url.href}\n\n`,
-        );
+        const write = options.stderr ?? ((text) => process.stderr.write(text));
+        write(`Log in to "${login.id}" at:\n\n  ${url.href}\n\n`);
         if (options.open !== false) openBrowser(url);
       },
       waitForCallback: () => listener.callback,

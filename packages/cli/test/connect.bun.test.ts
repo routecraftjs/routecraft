@@ -38,6 +38,9 @@ registerCredentialLogins("test-connect", () => [
 export const craftConfig = { credentials: { store: ${JSON.stringify(dbPath)} } };
 `;
 
+/** Swallows the login instructions instead of touching process.stderr. */
+const quiet = (): void => undefined;
+
 describe("craft connect", () => {
   let root: string;
   let cwd: string;
@@ -85,7 +88,7 @@ describe("craft connect", () => {
    * @expectedResult Exit 0, and the store at the configured path holds what the redirect carried
    */
   test("logs a client in and stores the credential", async () => {
-    const result = await connectCommand("demo", { open: false });
+    const result = await connectCommand("demo", { open: false, stderr: quiet });
     expect(result).toMatchObject({ code: 0, output: 'Connected "demo".' });
     expect(await stored()).toEqual({ code: "c-1" });
   });
@@ -98,7 +101,7 @@ describe("craft connect", () => {
   test("lists what each client holds", async () => {
     const before = await connectCommand(undefined, { list: true });
     expect(before.output).toContain("not connected; run `craft connect demo`");
-    await connectCommand("demo", { open: false });
+    await connectCommand("demo", { open: false, stderr: quiet });
     const after = await connectCommand(undefined, { list: true });
     expect(after.output).toContain("demo  https://demo.test/mcp  connected");
   });
@@ -109,8 +112,12 @@ describe("craft connect", () => {
    * @expectedResult Exit 0 with nothing to do
    */
   test("--all skips what is already held", async () => {
-    await connectCommand("demo", { open: false });
-    const result = await connectCommand(undefined, { all: true, open: false });
+    await connectCommand("demo", { open: false, stderr: quiet });
+    const result = await connectCommand(undefined, {
+      all: true,
+      open: false,
+      stderr: quiet,
+    });
     expect(result).toMatchObject({
       code: 0,
       output: "Every client already holds a credential.",
@@ -123,7 +130,11 @@ describe("craft connect", () => {
    * @expectedResult Exit 1 naming the variable, before any login runs
    */
   test("--export refuses without a key", async () => {
-    const result = await connectCommand("demo", { export: true, open: false });
+    const result = await connectCommand("demo", {
+      export: true,
+      open: false,
+      stderr: quiet,
+    });
     expect(result.code).toBe(1);
     expect(result.error).toContain(core.CREDENTIALS_KEY_ENV);
     expect(await stored()).toBeUndefined();
@@ -136,7 +147,11 @@ describe("craft connect", () => {
    */
   test("--export prints a sealed seed", async () => {
     process.env[core.CREDENTIALS_KEY_ENV] = "test-key";
-    const result = await connectCommand("demo", { export: true, open: false });
+    const result = await connectCommand("demo", {
+      export: true,
+      open: false,
+      stderr: quiet,
+    });
     expect(result.code).toBe(0);
     const entries = core.decodeCredentialSeed(
       result.output!,
@@ -153,7 +168,7 @@ describe("craft connect", () => {
    * @expectedResult Exit 0, the store no longer holds it, and a second disconnect says nothing was held
    */
   test("disconnect removes the credential", async () => {
-    await connectCommand("demo", { open: false });
+    await connectCommand("demo", { open: false, stderr: quiet });
     expect((await disconnectCommand("demo")).code).toBe(0);
     expect(await stored()).toBeUndefined();
     expect((await disconnectCommand("demo")).output).toContain(
@@ -174,7 +189,7 @@ describe("craft connect", () => {
         'export const craftConfig = { credentials: { store: "memory" } };',
       ),
     );
-    const result = await connectCommand("demo", { open: false });
+    const result = await connectCommand("demo", { open: false, stderr: quiet });
     expect(result.code).toBe(1);
     expect(result.error).toContain("configured as memory");
   });
@@ -185,7 +200,7 @@ describe("craft connect", () => {
    * @expectedResult Exit 1 naming the clients that do log in
    */
   test("names the known clients for an unknown one", async () => {
-    const result = await connectCommand("nope", { open: false });
+    const result = await connectCommand("nope", { open: false, stderr: quiet });
     expect(result.code).toBe(1);
     expect(result.error).toContain("Those that do: demo.");
   });
