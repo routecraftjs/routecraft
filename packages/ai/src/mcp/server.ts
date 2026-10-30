@@ -47,6 +47,7 @@ import type {
   McpIcon,
   McpLocalToolEntry,
   McpPluginOptions,
+  McpProxyRegistration,
   McpTool,
 } from "./types.ts";
 import { refuseBearer } from "../mount/bearer.ts";
@@ -334,6 +335,16 @@ export class McpServer {
 
   /** Unsubscribes from the client listing events `start` observed. */
   private readonly stopObservingClients: Array<() => void> = [];
+  /**
+   * Each exact proxy registration seen so far, mapped to why its remote
+   * tool is missing, or `undefined` while the client lists it. Keyed by
+   * the registration object, so a route that restarts and registers again
+   * is judged afresh rather than inheriting its old verdict.
+   */
+  private readonly exactProxyStates = new Map<
+    McpProxyRegistration,
+    string | undefined
+  >();
 
   /**
    * Memoized `tools/list` output schema per registry entry, keyed by the
@@ -529,6 +540,7 @@ export class McpServer {
         await this.startStdio();
         this.observeClientListings();
       }
+      this.watchExactProxies();
       // The HTTP transport does not wait for the named server to bind: a
       // request cannot reach the mount before the listener is up, so every
       // bound-address consumer runs strictly after `server:listening`, and
@@ -895,6 +907,86 @@ export class McpServer {
   }
 
   /**
+   * Keep every exact proxy route honest about its remote tool. On the first
+   * check and on every change to the clients' tools or to the proxy
+   * registrations, a registration whose tool the client does not list is
+   * reported once at warn and put on standby (`route:standby:changed`, which
+   * ops reports as `inactive` with the reason); one whose tool comes back is
+   * reported at info and taken off standby. The route fails closed either
+   * way: an unlisted tool is not served, and the star route over the same
+   * client never serves a tool an exact route covers.
+   */
+  private watchExactProxies(): void {
+    this.checkExactProxies();
+    const check = (): void => {
+      try {
+        this.checkExactProxies();
+      } catch (error) {
+        this.host.logger.error(
+          { err: error },
+          "Failed to check MCP proxy routes against their clients' tools",
+        );
+      }
+    };
+    this.stopObservingClients.push(
+      this.service.tools.onChange(check),
+      this.service.onChange(check),
+    );
+  }
+
+  private checkExactProxies(): void {
+    const live = new Set<McpProxyRegistration>();
+    for (const registration of this.service.proxies.values()) {
+      if (registration.tool === "*") continue;
+      live.add(registration);
+      const { serverId, tool, routeId } = registration;
+      const listed = this.service.tools.getToolsByServer(serverId);
+      const reason = listed.some((entry) => entry.name === tool)
+        ? undefined
+        : listed.length === 0
+          ? `client "${serverId}" has listed no tools`
+          : `client "${serverId}" does not list tool "${tool}"`;
+      const seen = this.exactProxyStates.has(registration);
+      if (seen && this.exactProxyStates.get(registration) === reason) continue;
+      this.exactProxyStates.set(registration, reason);
+      if (reason !== undefined) {
+        this.host.logger.warn(
+          {
+            route: routeId,
+            client: serverId,
+            tool,
+            known: listed.map((entry) => entry.name).sort(),
+          },
+          "MCP proxy route's remote tool is not listed by its client; the route serves nothing until it is",
+        );
+        this.host.emit("route:standby:changed", {
+          routeId,
+          standby: true,
+          reason,
+        });
+      } else if (seen) {
+        this.host.logger.info(
+          { route: routeId, client: serverId, tool },
+          "MCP proxy route's remote tool is listed again",
+        );
+        this.host.emit("route:standby:changed", { routeId, standby: false });
+      }
+    }
+    // A registration withdrawn (its route stopping) takes its standby with
+    // it, so a restart that registers again starts from running.
+    for (const [registration, reason] of this.exactProxyStates) {
+      if (live.has(registration)) continue;
+      this.exactProxyStates.delete(registration);
+      if (reason !== undefined) {
+        this.host.emit("route:standby:changed", {
+          routeId: registration.routeId,
+          standby: false,
+        });
+      }
+    }
+  }
+
+  /**
    * What `tools/list` would answer now, as one string: a changed name,
    * description, schema or annotation is a change a client must re-list for.
    */
@@ -1229,6 +1321,10 @@ export class McpServer {
     // context subscription that must not outlive it.
     this.stopListeningForServer();
     for (const stop of this.stopObservingClients.splice(0)) stop();
+    // The exact-proxy states are kept: they mirror the standby ops holds,
+    // so a server started again compares against them and announces a
+    // recovery, while a registration withdrawn meanwhile is cleared by the
+    // next check. Clearing them here would strand a route on standby.
     this.stdioServers.clear();
     if (!this.running && !this.unmountHttp && this.mcpHandlers.size === 0) {
       return;

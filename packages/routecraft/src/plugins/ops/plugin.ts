@@ -240,6 +240,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       c.observe("route:started", ({ details }) => {
         state.routeStarted(details.routeId);
       });
+      c.observe("route:stopping", ({ details }) => {
+        state.routeStopping(details.routeId);
+      });
       c.observe("route:stopped", ({ details }) => {
         state.routeStopped(details.routeId);
       });
@@ -261,6 +264,14 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         for (const name of boundIndicators.get(details.routeId) ?? []) {
           state.setIndicatorDisabled(name, "route", reason);
         }
+      });
+      // A running route whose target vanished (an MCP proxy route whose
+      // remote tool is gone) fails closed; it is listed with why, not paged.
+      c.observe("route:standby:changed", ({ details }) => {
+        state.setRouteStandby(
+          details.routeId,
+          details.standby ? details.reason : undefined,
+        );
       });
       // The only route-liveness signal. `context:error` is deliberately not
       // subscribed: it fires for every unhandled exchange error and for any
