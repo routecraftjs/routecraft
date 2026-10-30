@@ -65,6 +65,7 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { toolFailureText } from "./tool-failure.ts";
+import { openHopResult, unalteredHopResult } from "./dispatch.ts";
 import {
   loadUiHtml,
   MCP_APP_MIME_TYPE,
@@ -134,6 +135,7 @@ type McpToolCallResult = {
   content: Array<{ type: string; [key: string]: unknown }>;
   structuredContent?: unknown;
   isError?: boolean;
+  _meta?: Record<string, unknown>;
   advertisedOutputSchema?: Record<string, unknown>;
 };
 
@@ -1806,6 +1808,7 @@ export class McpServer {
     // The route that ran: the tool's own for a local tool, the proxy route
     // for a proxied one. What a refusal is classified against.
     let routeId = toolName;
+    let closeHop: (() => void) | undefined;
     try {
       // Normalize args once (the SDK may pass a parsed object or a raw JSON
       // string). MCP tool arguments are always a JSON object; a primitive,
@@ -1851,11 +1854,13 @@ export class McpServer {
       // enrichment, so branding here marks the verified identity as
       // authentic for downstream `authorize()` without freezing it too
       // early to enrich.
+      const requestId = crypto.randomUUID();
       const headers: Record<string, unknown> = {
         ...trace,
         [McpHeadersKeys.TOOL]: toolName,
-        [McpHeadersKeys.REQUEST]: crypto.randomUUID(),
+        [McpHeadersKeys.REQUEST]: requestId,
       };
+      if (found.proxied) closeHop = openHopResult(requestId);
       if (principal) {
         admitted = this.host.authority.brand(principal);
         headers[HeadersKeys.AUTH_PRINCIPAL] = admitted;
@@ -1919,12 +1924,28 @@ export class McpServer {
       // as-is, and the wire seam wraps it to match the projection the same era
       // applied to the advertisement carried back beside it.
       const advertisedOutputSchema = this.advertisedOutputSchema(entry);
-      const result: McpToolCallResult = {
-        content: [{ type: "text", text: resultText }],
-      };
+      // A proxied call whose route left the hop's result alone answers with
+      // the remote's result as published: its content blocks (images,
+      // resources, several texts) with their MIME types, its
+      // structuredContent and its _meta. Re-serialising the body would turn
+      // an image into its base64 as text and drop the rest.
+      const unaltered =
+        found.proxied === undefined
+          ? undefined
+          : unalteredHopResult(requestId, publishedBody);
+      const content =
+        unaltered?.content !== undefined
+          ? unaltered.content
+          : [{ type: "text", text: resultText }];
+      const result: McpToolCallResult = { content };
       if (advertisedOutputSchema !== undefined) {
-        result.structuredContent = publishedBody;
+        result.structuredContent =
+          unaltered?.structuredContent ?? publishedBody;
         result.advertisedOutputSchema = advertisedOutputSchema;
+      }
+      const meta = unaltered?.["_meta"];
+      if (meta !== null && typeof meta === "object" && !Array.isArray(meta)) {
+        result._meta = meta as Record<string, unknown>;
       }
       return result;
     } catch (error) {
@@ -1952,6 +1973,8 @@ export class McpServer {
       return toolErrorResult(
         toolFailureText(toolName, error, refusal, origin.routeId),
       );
+    } finally {
+      closeHop?.();
     }
   }
 }
