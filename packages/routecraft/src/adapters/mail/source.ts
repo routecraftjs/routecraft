@@ -11,6 +11,7 @@ import {
   createImapClient,
   fetchMessages,
   markMessagesSeen,
+  buildSearchCriteriaSets,
   isMailAuthError,
   throwMailConnectionError,
   splitMailMessage,
@@ -758,6 +759,10 @@ function validateSourceOptions(
         "poll on a cadence, or remove the markSeen/unseen override.",
     });
   }
+
+  // A malformed filter (an empty gmailSearch) is a config fault, so it must
+  // fail here: thrown from a poll, the reconnect path would retry it forever.
+  buildSearchCriteriaSets(options);
 
   if (typeof options.limit === "number" && !hasPoll) {
     logger?.warn(

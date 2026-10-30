@@ -2772,6 +2772,36 @@ describe("Mail Adapter", () => {
     });
 
     /**
+     * @case Throws RC5003 at subscribe when gmailSearch is empty
+     * @preconditions gmailSearch is whitespace only, with a poll interval set
+     * @expectedResult t.test() rejects with RC5003 instead of reconnecting on every poll
+     */
+    test("throws at subscribe when gmailSearch is empty", async () => {
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-guard-gmailsearch")
+            .from(mail("INBOX", { pollInterval: 5, gmailSearch: "  " }))
+            .to(spy()),
+        )
+        .build();
+
+      await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+    });
+
+    /**
      * @case Default 'fail' routes MIME parse failures through .error() and marks Seen
      * @preconditions simpleParser throws on a fetched message; route has .error() handler
      * @expectedResult .error() invoked with RC5016; markSeen called for the bad UID
