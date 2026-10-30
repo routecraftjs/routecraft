@@ -197,6 +197,12 @@ function resolveHttpConfig(
   serverId: string,
 ): McpClientHttpConfig {
   const config = service?.clients.get(serverId);
+  const disabled = service?.disabledClients.get(serverId);
+  if (!config && disabled !== undefined) {
+    throw rcError("RC5003", undefined, {
+      message: `mcp dispatch: client "${serverId}" is disabled (${disabled}), so it is not called.`,
+    });
+  }
   if (!config) {
     throw rcError("RC5003", undefined, {
       message: `mcp dispatch: server "${serverId}" is not registered. Register it via defineConfig.mcp / mcpPlugin({ clients }).`,

@@ -612,8 +612,13 @@ export { isStandardSchema } from "./shared/standard-schema.ts";
 export { parseDuration } from "./shared/duration.ts";
 export { rejectStaleOptions } from "./shared/stale-options.ts";
 export { anySignal } from "./shared/abort.ts";
-export { MANUAL_REFRESH, NEVER_FORCE } from "./enablement.ts";
+export {
+  MANUAL_REFRESH,
+  NEVER_FORCE,
+  evaluateEnablementOnce,
+} from "./enablement.ts";
 export type {
+  EnablementDeclaration,
   EnablementOptions,
   EnablementPredicate,
   EnablementState,

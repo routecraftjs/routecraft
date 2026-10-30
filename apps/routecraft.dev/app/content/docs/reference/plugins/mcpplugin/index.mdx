@@ -93,6 +93,22 @@ A single underscore inside the name is fine (`my_company_api`), and because only
 
 The rule applies whenever the client is registered, including contexts with no agent in them. `mcpPlugin()` validates its options at construction, before it can know whether an agent will later join the same context, so the constraint is namespace-wide rather than conditional on how the client is consumed.
 
+**A client can be declared and switched off:**
+
+`enabled` on a client takes what a route's [`.enabled()`](/docs/reference/operations/enabled) predicate answers: `true`, a reason string, `false`, or a function returning one of those. It is evaluated once, as the plugin binds, and has no refresh cadence.
+
+```ts skip="fragment: env is illustrative"
+clients: {
+  vendor: {
+    url: env.VENDOR_MCP_URL,
+    auth: { token: env.VENDOR_TOKEN },
+    enabled: env.VENDOR_TOKEN ? true : 'VENDOR_TOKEN is unset',
+  },
+}
+```
+
+A disabled client opens no connection and lists no tools. An agent reference to it (`MCP(vendor)` or `MCP(vendor:search)`) is left out of the agent's tools with one warning naming the reason, a [proxy route](#proxying-client-tools) over it starts and serves nothing, and a call to it is refused with the reason. A client id that matches no configuration is still an error, because a typo must not drop a tool quietly.
+
 **Logging when `transport` is `'stdio'`:**
 
 The stdio transport uses stdout as the protocol channel. Routecraft's logger defaults to stdout, so logs will corrupt the protocol stream unless you redirect them. When running an MCP server over stdio, always pass one of:

@@ -284,13 +284,22 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
   ): Promise<void> {
     const { context } = sub;
     const service = requireMcpService(context, "mcp({ proxy })");
-    if (!service.clients.has(ref.serverId)) {
-      const known = [...service.clients.keys()];
+    // A disabled client is declared, so the route is not pointing at a
+    // typo: it registers and serves nothing. A client's `enabled` is read
+    // once at bind, so enabling it takes a restart.
+    if (
+      !service.clients.has(ref.serverId) &&
+      !service.disabledClients.has(ref.serverId)
+    ) {
+      const known = [
+        ...service.clients.keys(),
+        ...service.disabledClients.keys(),
+      ];
       throw rcError("RC5003", undefined, {
         message: `Route "${routeId}" proxies client "${ref.serverId}", which is not registered`,
         suggestion:
           known.length > 0
-            ? `Register it under mcpPlugin({ clients }). Registered clients: ${known.map((k) => `"${k}"`).join(", ")}.`
+            ? `Register it under mcpPlugin({ clients }). Declared clients: ${known.map((k) => `"${k}"`).join(", ")}.`
             : "Register it under mcpPlugin({ clients }); no clients are registered in this context.",
       });
     }
