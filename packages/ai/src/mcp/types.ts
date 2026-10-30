@@ -1,4 +1,8 @@
-import type { Duration, EnablementDeclaration } from "@routecraft/routecraft";
+import type {
+  AuthorizeOptions,
+  Duration,
+  EnablementDeclaration,
+} from "@routecraft/routecraft";
 import type { Exchange, Tag } from "@routecraft/routecraft";
 import type {
   Principal,
@@ -88,6 +92,12 @@ export interface McpLocalToolEntry {
   /** MCP Apps view the host renders the tool's result in. */
   ui?: McpUiOptions;
   /**
+   * The route's `.authorize()` options, one per call, read when the server
+   * lists tools: a caller is shown the tool only when every one admits it.
+   * The route's own gate still runs on every call.
+   */
+  authorize?: readonly AuthorizeOptions[];
+  /**
    * Invocation handler. Receives the request body and the tool/request/auth
    * headers the MCP server set, runs the route on its own exchange, and
    * returns that exchange once the route has processed it.
@@ -124,6 +134,12 @@ export interface McpProxyRegistration {
   icons?: McpIcon[];
   /** The route can park, so every exposed tool advertises the `Deferred` arm. */
   deferrable?: boolean;
+  /**
+   * The route's `.authorize()` options, one per call, read when the server
+   * lists tools: a caller is shown the tool only when every one admits it.
+   * The route's own gate still runs on every call.
+   */
+  authorize?: readonly AuthorizeOptions[];
   /**
    * Runs the route with the arguments as the body. The server adds the
    * remote tool's name, the client and the annotations to the headers it

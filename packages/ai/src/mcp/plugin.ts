@@ -1,5 +1,6 @@
 import {
   AUTHORITY,
+  ENFORCEMENT,
   evaluateEnablementOnce,
   type Plugin,
   type PluginContext,
@@ -68,7 +69,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     id: "routecraft.ai.mcp",
     provides: [MCP],
     requires: [AUTHORITY],
-    optional: [WEB_INGRESS],
+    optional: [WEB_INGRESS, ENFORCEMENT],
     async bind(c: PluginContext) {
       const stdio = new Map<string, StdioClientManager>();
       const clients = new Map<string, McpClientConfig>();
@@ -153,6 +154,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
           service,
           ingress: c,
           authority: c.require(AUTHORITY),
+          enforcement: () => c.lookup(ENFORCEMENT),
         },
         options,
       );

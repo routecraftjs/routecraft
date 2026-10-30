@@ -211,16 +211,20 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
    * any route, including one declaring no defer site of its own; without it
    * every such route is under-advertised, and a client validating results
    * against the declared output rejects the acknowledgment the route
-   * legitimately answered with.
+   * legitimately answered with. Last, the route's `.authorize()` options,
+   * which the server's listing evaluates per caller.
    */
   private routeToolMetadata(
     context: CraftContext,
     routeId: string,
     discovery: RouteDiscovery,
-  ): Pick<McpLocalToolEntry, "title" | "annotations" | "icons" | "deferrable"> {
+  ): Pick<
+    McpLocalToolEntry,
+    "title" | "annotations" | "icons" | "deferrable" | "authorize"
+  > {
     const metadata: Pick<
       McpLocalToolEntry,
-      "title" | "annotations" | "icons" | "deferrable"
+      "title" | "annotations" | "icons" | "deferrable" | "authorize"
     > = {};
     if (discovery?.title !== undefined) metadata.title = discovery.title;
     const annotations = mergeAnnotations(
@@ -232,6 +236,12 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     const definition = context.getRouteById(routeId)?.definition;
     if (definition && routeCanDefer(definition, context)) {
       metadata.deferrable = true;
+    }
+    if (
+      definition?.authorize !== undefined &&
+      definition.authorize.length > 0
+    ) {
+      metadata.authorize = definition.authorize;
     }
     return metadata;
   }

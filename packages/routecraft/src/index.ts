@@ -8,6 +8,7 @@ export { jwks } from "./auth/jwks.ts";
 export type { JwksOptions } from "./auth/jwks.ts";
 export {
   authorize,
+  authorizeAdmits,
   insufficientAuthorityOf,
   type AuthorizeOptions,
   type ActorSpec,

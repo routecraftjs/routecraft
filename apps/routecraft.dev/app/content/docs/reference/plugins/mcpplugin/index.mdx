@@ -323,6 +323,30 @@ auth: oauth({
 
 A client's tools are re-exposed through this server by a route, not by a plugin option: `.from(mcp({ proxy: 'server:*' }))` for every tool of a registered client, `.from(mcp({ proxy: 'server:tool' }))` for one, with `.to(mcp('server:*'))` as the hop and the route's chain and steps as the policy. The tools the client lists appear as `<client>_<tool>` by default (`prefix` changes that, `exclude` leaves named tools out of the group, `name` on an exact route renames its one tool), follow the client's tool refresh and stdio restarts, and are served exactly as a `.from(mcp())` route's tool is: same `tools` filter, same decline and failure mapping, same events with `proxied: true` and the client and remote tool named; a name a local route already holds, or one that is not a valid tool name, is skipped with a warning under the naming rules. Over HTTP the same tools are also served under the client's own URL by their remote names; see [Mounts](#mounts). The [mcp adapter reference](/docs/reference/adapters/mcp#proxying-a-remote-server) has the options, the headers a proxied exchange carries, the naming rules and the migration from a hand-written wrapping route.
 
+### The listing follows `.authorize()` \{#the-listing-follows-authorize}
+
+`tools/list` shows each caller only the tools whose route `.authorize()` admits the caller's principal, on the root and on every mount. A proxied tool is judged by the route that serves it, so an exact route wins over the star route for its tool. A route with stacked `.authorize()` calls lists its tool only when every one admits the caller, and a caller with no principal is shown no tool whose route has one.
+
+```ts
+craft()
+  .id('vendor')
+  .authorize({ roles: ['owner'] })
+  .from(mcp({ proxy: 'vendor:*' }))
+  .to(mcp('vendor:*'))
+
+craft()
+  .id('vendor-search')
+  .authorize({ scopes: ['vendor:read'] })
+  .from(mcp({ proxy: 'vendor:search' }))
+  .to(mcp('vendor:search'))
+```
+
+An owner's `tools/list` shows every `vendor` tool except `search`, which is the exact route's and needs `vendor:read`. A member holding `vendor:read` sees `vendor_search` alone, and `search` alone on `/mcp/vendor`.
+
+`resources/list` and `resources/read` follow the same rule for [MCP Apps views](/docs/reference/adapters/mcp#mcp-apps-views): a view of a tool the caller is not listed is not listed or served either.
+
+The listing is a view, never the gate. `tools/call` runs the route's own authorizers at their chain position as before, so a tool called by name without being listed meets the same check, and is refused unless the route's own `.error()` recovers the refusal. Routes without `.authorize()` list as before, and the `tools` filter still applies on top. The check is the same decision the gate makes (`authorizeAdmits`). A plugin that replaces the `ENFORCEMENT` port lists every tool, as before, unless its provider implements `admits`, because the server cannot guess what a replaced gate decides.
+
 ## Mounts
 
 Over HTTP the server answers at `path` and at one segment below it per name it knows, so a client connects to the slice it needs instead of filtering the whole catalogue. Nothing configures this: the segments are the plugin's `name` and the keys of `clients`.
