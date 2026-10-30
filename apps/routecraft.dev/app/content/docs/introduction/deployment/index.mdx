@@ -64,7 +64,7 @@ Three things change once the project runs in a container:
 
 - **Listen on every interface.** A server binds `127.0.0.1` unless its `host` says otherwise, which nothing outside the container can reach. Set `host: '0.0.0.0'` on the servers you publish (see [servers and http](/docs/reference/configuration#servers-and-http)).
 - **Keep state on a volume.** Deferred exchanges, agent sessions and telemetry are stored under `.routecraft/`, which a redeploy replaces. Mount a named volume there (`docker run -v my-app-state:/app/.routecraft my-app`) so pending work survives; a named volume keeps the `nonroot` ownership.
-- **No host binaries.** `shell()` and `agentBrowser()` from `@routecraft/os` run programs the distroless runtime does not contain. A project that uses them needs a runtime stage that ships those programs, and is scanned as such.
+- **No host binaries.** `shell()` from `@routecraft/os` runs programs the distroless runtime does not contain. A project that uses it needs a runtime stage that ships those programs, and is scanned as such.
 
 A project on npm, pnpm or yarn gets no `Dockerfile`, because the scaffolded one installs from `bun.lock`. Install its production dependencies with its own package manager in the first stage (`npm ci --omit=dev`, `pnpm install --frozen-lockfile --prod`), and keep the distroless Bun runtime stage as it is: the runtime requirement is unchanged.
 
