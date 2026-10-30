@@ -374,6 +374,7 @@ describe("Mail Adapter", () => {
         { subject: "invoice" },
         { body: "urgent" },
         { header: { "List-Id": "announce.example.com" } },
+        { gmailSearch: "rfc822msgid:<a@b.c>" },
         { limit: 5 },
         { description: "incoming invoices" },
         { keywords: ["invoices"] },

@@ -204,10 +204,18 @@ export interface MailServerOptions {
    * for one Message-ID can run for minutes, while `rfc822msgid:` returns at
    * once. Gmail only: a server without `X-GM-EXT-1` fails the fetch.
    *
+   * The query searches the selected `folder` only, and `unseen` (true by
+   * default) still applies, so finding a read or archived message takes
+   * `[Gmail]/All Mail` and `unseen: false`.
+   *
    * @example
    * ```typescript
-   * // One message by its Message-ID, anywhere in the mailbox
-   * mail({ folder: "[Gmail]/All Mail", gmailSearch: "rfc822msgid:<id@example.com>" })
+   * // One message by its Message-ID, anywhere in the mailbox, read or not
+   * mail({
+   *   folder: "[Gmail]/All Mail",
+   *   unseen: false,
+   *   gmailSearch: "rfc822msgid:<id@example.com>",
+   * })
    * ```
    */
   gmailSearch?: string;
