@@ -10,11 +10,6 @@ import {
   WEB_INGRESS,
 } from "@routecraft/routecraft";
 import { McpServer } from "./server.ts";
-import { connectMcpHttpClient } from "./sdk.ts";
-import {
-  createConnectionCache,
-  type ConnectionCache,
-} from "./http-client-cache.ts";
 import {
   MCP,
   createMcpService,
@@ -25,7 +20,6 @@ import type {
   McpClientHttpConfig,
   McpClientStdioConfig,
   McpPluginOptions,
-  McpTool,
 } from "./types.ts";
 import { validateMcpPluginOptions } from "./validate-options.ts";
 import {
@@ -36,12 +30,6 @@ import type { McpToolRegistry } from "./tool-registry.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
 
-interface HttpClient {
-  listTools(): Promise<{ tools: McpTool[] }>;
-  /** Close the client AND its transport; closing the client alone leaks the socket. */
-  dispose(): Promise<void>;
-}
-
 function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
   return "transport" in config && config.transport === "stdio";
 }
@@ -50,7 +38,7 @@ function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
  * MCP plugin: one plugin per adapter. Exposes mcp() routes to external MCP clients.
  * bind() validates options, registers clients, and mounts the HTTP transport on its named server, so misconfiguration fails context build; the server itself starts in the start() hook, after routes are up, and a failure there fails context.start().
  * Optional clients: register named remote MCP servers so routes can use .to(mcp("name:tool")) without passing url.
- * Stdio clients are spawned as subprocesses with auto-restart; HTTP clients are used for ephemeral tool calls.
+ * Stdio clients are spawned as subprocesses with auto-restart; each HTTP client keeps one connection, shared by its tool listing and its calls.
  * All discovered external tools (stdio, HTTP) are stored in a unified McpToolRegistry for agent adapter discovery.
  * Required when any route uses .from(mcp(...)); the route will fail at start if this plugin is not applied.
  *
@@ -83,10 +71,9 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       c.provide(MCP, service);
 
       // Registered ahead of every refresh timer: disposers run in reverse, so
-      // no refresh can reopen a client once the cache has been emptied.
-      const httpClients = createConnectionCache<HttpClient>();
+      // no refresh can reopen a client once the connections are closed.
       c.onDispose(() =>
-        httpClients.disposeAll((error, serverId) => {
+        service.http.disposeAll((error, serverId) => {
           c.logger.error(
             { err: error, serverId, operation: "close" },
             "Failed to close HTTP client",
@@ -121,22 +108,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         if (isStdioConfig(config)) {
           await startStdioClient(c, stdio, serverId, config, service.tools);
         } else {
-          await listHttpClientTools(
-            c,
-            httpClients,
-            serverId,
-            config.url,
-            service.tools,
-            config.auth,
-          );
-          setupHttpToolRefresh(
-            c,
-            httpClients,
-            serverId,
-            config.url,
-            service.tools,
-            config.auth,
-          );
+          await listHttpClientTools(c, service, serverId, config);
+          setupHttpToolRefresh(c, service, serverId, config);
         }
 
         const transport = isStdioConfig(config) ? "stdio" : "http";
@@ -240,59 +213,18 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     }
   }
 
-  function getOrCreateHttpClient(
-    httpClients: ConnectionCache<HttpClient>,
-    serverId: string,
-    url: string,
-    auth?: McpClientHttpConfig["auth"],
-  ): Promise<HttpClient> {
-    return httpClients.getOrCreate(serverId, async () => {
-      const { client: rawClient, transport } = await connectMcpHttpClient(
-        new URL(url),
-        auth,
-      );
-      const typed = rawClient as unknown as {
-        close(): Promise<void>;
-        listTools(): Promise<{ tools: McpTool[] }>;
-      };
-
-      // Both handles are retained: closing the client does not close its
-      // transport, so a cache that kept only the client would leak a socket
-      // per entry on teardown and per failed refresh.
-      return {
-        listTools: () => typed.listTools(),
-        dispose: async (): Promise<void> => {
-          try {
-            await typed.close();
-          } catch {
-            // Ignore cleanup errors
-          }
-          try {
-            await transport.close();
-          } catch {
-            // Ignore cleanup errors
-          }
-        },
-      };
-    });
-  }
-
   async function listHttpClientTools(
     c: PluginContext,
-    httpClients: ConnectionCache<HttpClient>,
+    service: McpService,
     serverId: string,
-    url: string,
-    registry: McpToolRegistry,
-    auth?: McpClientHttpConfig["auth"],
+    config: McpClientHttpConfig,
   ): Promise<void> {
-    let pending: Promise<HttpClient> | undefined;
     try {
-      pending = getOrCreateHttpClient(httpClients, serverId, url, auth);
-      const client = await pending;
-
-      const result = await client.listTools();
+      // On the client's shared connection. A failure the remote did not
+      // answer evicts it, so the next refresh reconnects.
+      const result = await service.http.listTools(serverId, config);
       const tools = result.tools ?? [];
-      registry.setToolsForSource(serverId, "http", tools);
+      service.tools.setToolsForSource(serverId, "http", tools);
 
       c.emit(
         `plugin:mcp:client:${serverId}:tools:listed` as EventName,
@@ -302,16 +234,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         } as Record<string, unknown>,
       );
     } catch (error) {
-      // Connection may have gone stale; discard so the next attempt
-      // reconnects, and dispose it so an unreachable remote does not leak a
-      // client and a transport per refresh interval. `evict` drops the entry
-      // only when it is still the one THIS refresh used, because overlapping
-      // refreshes are possible (the interval can fire while a previous run is
-      // still in flight) and evicting by key alone would let a failing run
-      // dispose the healthy client a concurrent run had just cached.
-      if (pending) await httpClients.evict(serverId, pending);
       c.logger.warn(
-        { err: error, serverId, url, operation: "listTools" },
+        { err: error, serverId, url: config.url, operation: "listTools" },
         "Failed to list tools from HTTP client",
       );
     }
@@ -319,11 +243,9 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
 
   function setupHttpToolRefresh(
     c: PluginContext,
-    httpClients: ConnectionCache<HttpClient>,
+    service: McpService,
     serverId: string,
-    url: string,
-    registry: McpToolRegistry,
-    auth?: McpClientHttpConfig["auth"],
+    config: McpClientHttpConfig,
   ): void {
     const interval =
       options.toolRefreshInterval === undefined
@@ -336,7 +258,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     if (interval <= 0) return;
 
     const timer = setInterval(() => {
-      void listHttpClientTools(c, httpClients, serverId, url, registry, auth);
+      void listHttpClientTools(c, service, serverId, config);
     }, interval);
     c.onDispose(() => clearInterval(timer));
   }

@@ -11,6 +11,7 @@ import "../errors.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
 import { extractContent } from "./extract-content.ts";
 import type { McpService } from "./port.ts";
+import type { McpHttpConnections } from "./http-connections.ts";
 import {
   type McpClientAuthOptions,
   type McpClientHttpConfig,
@@ -43,11 +44,10 @@ export interface McpCallTrace {
  * - For stdio clients (the service's `stdio` manager), delegates
  *   to the long-lived `StdioClientManager.callToolRaw`.
  * - For HTTP clients (the url of the service's `clients` entry),
- *   opens a single MCP SDK client connection per call, dispatches,
- *   and closes. The agent path is per-tool-call so latency dominates
- *   over connection setup; if that becomes a problem the http
- *   client cache in `mcpPlugin` can be promoted onto the service
- *   in a follow-up.
+ *   calls on the client's connection in the service's `http`
+ *   connections, the one its tool listing uses, so while that connection
+ *   holds a call costs no handshake and a stateful remote sees one
+ *   session per client.
  *
  * Throws `RC5003` when the server is not registered, when a stdio
  * server is registered but its manager is absent (mcpPlugin
@@ -270,8 +270,15 @@ export async function dispatchMcpCallRaw(
     }
   }
 
-  const http = resolveHttpConfig(service, serverId);
-  return callRemoteToolRaw(http.url, toolName, args, http.auth, meta);
+  const { http, connections } = resolveHttpConfig(service, serverId);
+  try {
+    return await connections.callTool(serverId, http, toolName, args, meta);
+  } catch (cause) {
+    if (isRoutecraftError(cause)) throw cause;
+    throw rcError("RC5003", cause, {
+      message: `mcp dispatch: failed to call tool "${toolName}" on client "${serverId}".`,
+    });
+  }
 }
 
 /**
@@ -282,7 +289,7 @@ export async function dispatchMcpCallRaw(
 function resolveHttpConfig(
   service: McpService | undefined,
   serverId: string,
-): McpClientHttpConfig {
+): { http: McpClientHttpConfig; connections: McpHttpConnections } {
   const config = service?.clients.get(serverId);
   const disabled = service?.disabledClients.get(serverId);
   if (!config && disabled !== undefined) {
@@ -290,7 +297,7 @@ function resolveHttpConfig(
       message: `mcp dispatch: client "${serverId}" is disabled (${disabled}), so it is not called.`,
     });
   }
-  if (!config) {
+  if (!service || !config) {
     throw rcError("RC5003", undefined, {
       message: `mcp dispatch: server "${serverId}" is not registered. Register it via defineConfig.mcp / mcpPlugin({ clients }).`,
     });
@@ -314,15 +321,15 @@ function resolveHttpConfig(
       message: `mcp dispatch: server "${serverId}" has no url. Cannot dispatch over HTTP.`,
     });
   }
-  return http;
+  return { http, connections: service.http };
 }
 
 /**
  * Open a one-shot MCP SDK client over Streamable HTTP, dispatch the
- * tool, then close. Used by `dispatchMcpCall` for the HTTP path and
- * by `McpEnricherAdapter` for inline-URL routes that bypass the
- * registry. Centralised here so transport setup, auth-header
- * building, and content extraction stay in one place.
+ * tool, then close. Used by `McpEnricherAdapter` for inline-URL routes,
+ * which have no registered client id to keep a connection under.
+ * Centralised here so transport setup, auth-header building, and content
+ * extraction stay in one place.
  *
  * @internal
  */

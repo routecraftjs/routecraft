@@ -1,4 +1,12 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  mock,
+  beforeEach,
+  afterEach,
+  afterAll,
+} from "bun:test";
 import FakeTimers from "@sinonjs/fake-timers";
 import { StdioClientManager } from "../src/mcp/stdio-client-manager.ts";
 
@@ -66,6 +74,12 @@ const MockClient = mock().mockImplementation(function (
 const realSdk = await import("../src/mcp/sdk.ts");
 const { MCP_CLIENT_INFO } = realSdk;
 
+// The real loaders, captured before the mock replaces them in place, so the
+// suite can hand them back when it ends.
+const realLoaders = {
+  loadMcpClientSdk: realSdk.loadMcpClientSdk,
+  loadMcpClientStdioSdk: realSdk.loadMcpClientStdioSdk,
+};
 const realClientSdk = await realSdk.loadMcpClientSdk("mcp (test)");
 const realClientStdioSdk = await realSdk.loadMcpClientStdioSdk("mcp (test)");
 
@@ -85,6 +99,12 @@ mock.module("../src/mcp/sdk.ts", () => ({
     StdioClientTransport: MockTransport,
   }),
 }));
+
+// The mock replaces the loaders process-wide, and a suite that runs later in
+// the same process and drives the real HTTP client would get the mock Client.
+afterAll(() => {
+  mock.module("../src/mcp/sdk.ts", () => ({ ...realSdk, ...realLoaders }));
+});
 
 function createLogger() {
   return {

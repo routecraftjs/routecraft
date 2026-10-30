@@ -52,6 +52,16 @@ The result the client hands the route is the remote's `structuredContent` when i
 
 A `serverId` call (recommended) sends the auth registered on the client in `mcpPlugin({ clients })`. A registered client is one identity, so `mcp()` refuses `auth` beside a `serverId` with [`RC5003`](/docs/reference/errors#rc-5003), in the object form and in the `'server:tool'` shorthand alike. A credential the route owns goes on an inline `url` call.
 
+**A registered client keeps one connection.** A call through `serverId`, a proxy route's hop and an agent's `MCP(server:tool)` reference all use the client's connection, the same one its tool listing uses. A call does not pay for a handshake, and a stateful remote sees one session per client. Auth headers are still resolved on every request, so a token provider or a token array rotates credentials on the open connection; a static token is sent as configured until you change it.
+
+- **A failed call is reported, never sent again,** because it may have reached the remote.
+- **An answer keeps the connection.** A JSON-RPC error or an HTTP error status is the remote speaking over a session that still holds.
+- **A failure with no answer replaces the connection.** That is a refused socket, a dropped stream or a timeout. The next call reconnects, and calls already in flight on the old connection still finish before it closes.
+- **A stale session is the one exception to "never sent again".** A remote that answers `404` to a request carrying its `Mcp-Session-Id` has dropped the session and never processed the request. The connection is replaced and the call sent once more, and a second `404` fails it.
+- **Closing a connection ends its session on the remote** with the `DELETE` the protocol provides.
+- **Results are validated.** Because the call shares the client the listing ran on, a result is checked against the `outputSchema` that listing advertised, as on a stdio client. A tool that declares one and returns no matching `structuredContent` fails the call.
+- **An inline `url` call** has no client id to keep a connection under, so it opens one per call and does not validate against a schema.
+
 **Options (McpServerOptions -- source, protocol extras only):**
 
 | Option | Type | Required | Description |
