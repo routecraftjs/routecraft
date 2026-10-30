@@ -37,6 +37,8 @@ export class AgentRegistryImpl implements AgentRegistry {
   readonly toolPolicies: AgentToolPolicy[] = [];
   /** Resolved deferred functions by id, filled when the runtime starts. */
   readonly resolvedFunctions = new Map<string, RegisteredFn>();
+  /** Deferred functions left unresolved at start because their route was disabled. */
+  readonly awaitingRoute = new Set<string>();
   #defaults: AgentDefaultOptions | undefined;
   #reidentify: ReidentifyHook | undefined;
 
@@ -114,6 +116,12 @@ export class AgentRegistryImpl implements AgentRegistry {
 
   resolvedFunction(id: string): RegisteredFn | undefined {
     return this.resolvedFunctions.get(id);
+  }
+
+  recordLateResolution(id: string, fn: RegisteredFn): boolean {
+    if (!this.awaitingRoute.delete(id)) return false;
+    this.resolvedFunctions.set(id, fn);
+    return true;
   }
 }
 

@@ -429,7 +429,8 @@ export const mailHealth = defineIndicator({
 | `name` | `string` | required | Unique name. Becomes the report key and the path segment. |
 | `maxAge` | `Duration` | none | No report inside this window makes the indicator `down` (stale). Omit it for an indicator with no cadence. |
 | `domain` | `'instance' \| 'deployment'` | `'deployment'` | Whether readiness may carry this failure. |
-| `route` | `string` | none | Bind to a route's exchange outcomes. |
+| `route` | `string` | none | Bind to a route's exchange outcomes, and follow its [`.enabled()`](/docs/reference/operations/enabled). |
+| `enabled` | `boolean \| string \| () => boolean \| string \| Promise<...>` | enabled | Whether the dependency is configured, with the meaning of a route's `.enabled()` verdict. Evaluated once as the application starts. |
 
 Register it so a push has somewhere to land:
 
@@ -484,6 +485,22 @@ Three rows earn an explanation.
 **A breaker with a `fallback` does not.** The fallback resolves the rejected exchange successfully, so it emits `route:exchange:completed` and reports the indicator `up` while the route still reads `degraded`. On a business route that is correct, because it is serving. On a probe it is a lie, because the fallback answers without ever reaching the dependency. **Do not put a `fallback` on a breaker on a route you have bound an indicator to.**
 
 Source death and staleness stay independent on purpose. A dead scheduler takes the route `down` at once and lets the indicator go stale on its own clock, so "the probe stopped running" and "the dependency is unreachable" never get confused for one another.
+
+### Disabled is not down
+
+A dependency nobody configured must not page. An indicator is disabled in either of two ways:
+
+- **It follows its route.** While the route bound with `route` is held back by its `.enabled()` predicate, the indicator reports `inactive` with the route's reason. A probe for an integration that has no credential has no exchanges, and without this rule it would go stale and report `down`.
+- **It declares its own `enabled`**, for an indicator fed by hand:
+
+```ts skip="fragment: ledgerConfigured is illustrative"
+export const ledgerHealth = defineIndicator({
+  name: 'ledger',
+  enabled: () => ledgerConfigured() || 'LEDGER_URL is unset',
+})
+```
+
+A disabled indicator reports `inactive` with `details.reason`, is excluded from the aggregate, never goes stale, and ignores `up()` and `down()`, so the step that pushes needs no guard of its own. When its own declaration and its route both hold it off, the reason shown is its own. When it comes back on, its last verdict is forgotten and `maxAge` counts from the re-enable, so a returning indicator reads booting rather than stale.
 
 ### Contributed by a plugin
 

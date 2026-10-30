@@ -17,6 +17,7 @@ import {
 } from "../../trace-context.ts";
 import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { parseDuration } from "../../shared/duration.ts";
+import { evaluateEnablementOnce } from "../../enablement.ts";
 import { rcError } from "../../error";
 import { DIRECT } from "../../adapters/direct/registry.ts";
 import { requireWebIngress, WEB_INGRESS } from "../server/registry";
@@ -114,7 +115,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
     requires: [WEB_INGRESS, DIRECT],
     provides: [OPS],
 
-    bind(c: PluginContext) {
+    async bind(c: PluginContext) {
       // Everything below is resolved and validated before anything with a
       // side effect happens. The boot unwind is not guaranteed to reach this
       // plugin's teardown, so a binding or subscription installed before a
@@ -196,6 +197,27 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         bindIndicator(indicator, c, state);
       }
 
+      // Evaluated in bind, before any route runs, so a push from a step
+      // that runs whether or not the dependency is configured lands on a
+      // record already disabled and is ignored.
+      for (const indicator of indicators) {
+        const declared = indicator.definition.enabled;
+        if (declared === undefined) continue;
+        const verdict = await evaluateEnablementOnce(
+          declared,
+          `indicator "${indicator.name}" enabled`,
+          (err) => {
+            c.logger.warn(
+              { err, indicator: indicator.name },
+              "Indicator enabled predicate threw; the indicator stays disabled",
+            );
+          },
+        );
+        if (!verdict.enabled) {
+          state.setIndicatorDisabled(indicator.name, "own", verdict.reason);
+        }
+      }
+
       // Indicators bound to a route, keyed by route id, so one subscription
       // serves however many indicators name the same probe.
       const boundIndicators = new Map<string, string[]>();
@@ -229,13 +251,18 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       // "mail-inbound: disabled (MAIL_USER, MAIL_APP_PASSWORD unset)" and
       // knows immediately that nothing is broken.
       c.observe("route:enablement:changed", ({ details }) => {
-        if (details.enabled) {
+        const reason = details.enabled
+          ? undefined
+          : (details.reason ?? "disabled by its enabled() predicate");
+        if (reason === undefined) {
           state.clearRouteDisabled(details.routeId);
         } else {
-          state.setRouteDisabled(
-            details.routeId,
-            details.reason ?? "disabled by its enabled() predicate",
-          );
+          state.setRouteDisabled(details.routeId, reason);
+        }
+        // Disabled is not down: an indicator bound to a route nobody
+        // configured would otherwise go stale and page.
+        for (const name of boundIndicators.get(details.routeId) ?? []) {
+          state.setIndicatorDisabled(name, "route", reason);
         }
       });
       // A running route whose target vanished (an MCP proxy route whose
@@ -384,10 +411,13 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       // for a state the context already holds.
       for (const route of routes) {
         if (route.enabled) continue;
-        runtime.state.setRouteDisabled(
-          route.id,
-          route.disabledReason ?? "disabled by its enabled() predicate",
-        );
+        const reason =
+          route.disabledReason ?? "disabled by its enabled() predicate";
+        runtime.state.setRouteDisabled(route.id, reason);
+        for (const indicator of indicators) {
+          if (indicator.definition.route !== route.id) continue;
+          runtime.state.setIndicatorDisabled(indicator.name, "route", reason);
+        }
       }
 
       // Reaching this with the gate mode and no validator means the

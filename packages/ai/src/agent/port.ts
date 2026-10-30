@@ -69,6 +69,16 @@ export interface AgentRegistry {
    * deferred.
    */
   resolvedFunction(id: string): RegisteredFn | undefined;
+  /**
+   * Record a deferred function that could not resolve when the runtime
+   * started because its route was disabled, now that it has. Returns
+   * `true` the first time, which is when the function is announced;
+   * `false` for any other function, so a dispatch before the runtime
+   * started records nothing.
+   *
+   * @internal
+   */
+  recordLateResolution(id: string, fn: RegisteredFn): boolean;
 }
 
 /** The agent registry the agent runtime plugin provides. */
