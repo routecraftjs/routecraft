@@ -200,7 +200,7 @@ Three kinds of module. The 8-to-12 bound governs only the first group.
 | `@routecraft/routecraft` | core: framework + standards | keep; add graphql; consider absorbing the MCP client (section 6) |
 | `@routecraft/ai` | llm, agent, mcp, embeddings, providers; agent tools are composed routes, not package code (section 6) | keep |
 | `@routecraft/os` | system-native: shell (isolated), ... | keep |
-| `@routecraft/browser` | browser automation | merge into `@routecraft/os`, deprecate the name |
+| `@routecraft/browser` | browser automation | deprecated; merged into `@routecraft/os` in 0.6, then removed in 0.8 with no replacement (section 3) |
 | `@routecraft/google` | Google ecosystem | on first adapter (#370) |
 | `@routecraft/aws` | proprietary AWS services | deferred (S3 stays core) |
 | `@routecraft/azure` | Azure / Microsoft 365 | future |

@@ -12,8 +12,8 @@ const MOVED: Record<string, string> = {
   'advanced/talk-from-your-editor': 'introduction/talk-from-your-editor',
   'introduction/events': 'advanced/events',
   'introduction/tui': 'advanced/tui',
-  // Removed with agentBrowser() in 0.8; the adapter index is the nearest page.
-  'reference/adapters/agentbrowser': 'reference/adapters',
+  // Removed with agentBrowser() in 0.8; the migration guide explains why.
+  'reference/adapters/agentbrowser': 'migrating/0.7-to-0.8',
 }
 
 /** Where a moved page's request goes, and the status that sends it there. */
