@@ -177,7 +177,7 @@ export interface McpClientHttpConfig {
   url: string;
   /**
    * How requests to this server authenticate: a static token or headers
-   * sent on every request, or {@link connect} for a server behind an OAuth
+   * sent on every request, or `connect()` for a server behind an OAuth
    * login, whose credential `craft connect` obtains and the credential
    * store keeps.
    */

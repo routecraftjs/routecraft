@@ -51,6 +51,9 @@ export interface CredentialStore {
    * Write an owner's credential when the store still holds `ifVersion`:
    * `null` writes only when the owner holds nothing yet.
    *
+   * @param value - A JSON value: the SQLite store keeps it as JSON, so a
+   *   `Date`, `Map` or class instance does not come back as written
+   *
    * @param options.issuedAt - When a person obtained it; defaults to the
    *   stored value's, or now for a first write
    */

@@ -100,7 +100,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         stdio,
         clients,
         disabledClients,
-        http: createMcpHttpConnections({ authProviders }),
+        http: createMcpHttpConnections({ authProviders, disabledClients }),
       });
 
       // A client that logs in and has lost its credential is switched off

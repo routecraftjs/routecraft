@@ -242,6 +242,31 @@ describe("sqlite credential store at rest", () => {
       message: expect.stringContaining("deferral"),
     });
   });
+
+  /**
+   * @case An unsealed row whose value is not JSON
+   * @preconditions A store holding one row, its value overwritten with junk
+   * @expectedResult The read fails with RC5070 naming the owner
+   */
+  test("reports a damaged row as RC5070", async () => {
+    const path = dbPath();
+    const store = await SqliteCredentialStore.open({ path });
+    await store.put("mcp:mail", { refresh_token: "r" }, { ifVersion: null });
+    await store.close();
+    const { Database } = await import("bun:sqlite");
+    const raw = new Database(path);
+    raw.exec("UPDATE credentials SET value = '{not json'");
+    raw.close();
+    const reopened = await SqliteCredentialStore.open({ path });
+    try {
+      await expect(reopened.get("mcp:mail")).rejects.toMatchObject({
+        rc: "RC5070",
+        message: expect.stringContaining("mcp:mail"),
+      });
+    } finally {
+      await reopened.close();
+    }
+  });
 });
 
 describe("openCredentialStore", () => {
@@ -280,13 +305,23 @@ describe("credential seed", () => {
    */
   test("round-trips", () => {
     const seed = encodeCredentialSeed(
-      [{ owner: "mcp:mail", value: { refresh_token: "r1" }, issuedAt: 5 }],
+      [
+        {
+          owner: "mcp:mail",
+          value: { refresh_token: "seed-secret-refresh" },
+          issuedAt: 5,
+        },
+      ],
       sealer,
     );
     expect(seed.startsWith("rcseed1.")).toBe(true);
-    expect(seed.includes("r1")).toBe(false);
+    expect(seed.includes("seed-secret-refresh")).toBe(false);
     expect(decodeCredentialSeed(seed, sealer)).toEqual([
-      { owner: "mcp:mail", value: { refresh_token: "r1" }, issuedAt: 5 },
+      {
+        owner: "mcp:mail",
+        value: { refresh_token: "seed-secret-refresh" },
+        issuedAt: 5,
+      },
     ]);
   });
 
@@ -469,7 +504,7 @@ describe("credential store fallback and resolution", () => {
       env: {},
     });
     try {
-      await expect(store.get("mcp:a")).rejects.toThrow();
+      await expect(store.get("mcp:a")).rejects.toMatchObject({ rc: "RC5017" });
     } finally {
       await t.stop();
     }

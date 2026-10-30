@@ -87,6 +87,11 @@ export function createMcpHttpConnections(
      * client id. Read at each connect, so the plugin fills it during bind.
      */
     readonly authProviders?: ReadonlyMap<string, AuthProvider>;
+    /**
+     * Why a client was switched off, by client id, so a call that raced
+     * the switch is refused with the recorded reason.
+     */
+    readonly disabledClients?: ReadonlyMap<string, string>;
   } = {},
 ): McpHttpConnections {
   const cache = createConnectionCache<HttpConnection>();
@@ -109,9 +114,13 @@ export function createMcpHttpConnections(
     const login = isConnectAuth(config.auth);
     const authProvider = options.authProviders?.get(serverId);
     if (login && authProvider === undefined) {
+      const disabled = options.disabledClients?.get(serverId);
       return Promise.reject(
         rcError("RC5003", undefined, {
-          message: `mcp dispatch: client "${serverId}" has no stored credential; ${connectHint(serverId)}.`,
+          message:
+            disabled === undefined
+              ? `mcp dispatch: client "${serverId}" has no stored credential; ${connectHint(serverId)}.`
+              : `mcp dispatch: client "${serverId}" is disabled (${disabled}), so it is not called.`,
         }),
       );
     }

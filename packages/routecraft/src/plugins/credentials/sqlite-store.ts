@@ -238,8 +238,16 @@ export class SqliteCredentialStore implements CredentialStore {
         `credential:${row.owner}`,
       );
     }
+    let value: unknown;
+    try {
+      value = JSON.parse(json);
+    } catch (cause) {
+      throw rcError("RC5070", cause, {
+        message: `The credential of "${row.owner}" is not valid JSON; the store is damaged. Run craft disconnect and craft connect for that client.`,
+      });
+    }
     return {
-      value: JSON.parse(json) as unknown,
+      value,
       version: row.version,
       issuedAt: row.issued_at,
       updatedAt: row.updated_at,
