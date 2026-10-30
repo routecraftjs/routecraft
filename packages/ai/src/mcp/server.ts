@@ -1,4 +1,6 @@
 import type {
+  AuthorizeOptions,
+  EnforcementPositions,
   PortLookup,
   EventDetailsMap,
   EventHandler,
@@ -45,6 +47,7 @@ import type {
   McpIcon,
   McpLocalToolEntry,
   McpPluginOptions,
+  McpProxyRegistration,
   McpTool,
 } from "./types.ts";
 import { refuseBearer } from "../mount/bearer.ts";
@@ -217,6 +220,13 @@ export interface McpServerHost {
   readonly ingress: PortLookup;
   /** Brands the identities the server verifies, for the gates to trust. */
   readonly authority: Authority;
+  /**
+   * The application's `ENFORCEMENT` provider, read when the server lists
+   * tools so each caller is shown only the tools whose route `.authorize()`
+   * admits them. Absent, or a provider without `admits`, lists every tool,
+   * as before: the server cannot guess what a replaced gate decides.
+   */
+  readonly enforcement?: () => EnforcementPositions | undefined;
 }
 
 /**
@@ -327,6 +337,16 @@ export class McpServer {
 
   /** Unsubscribes from the client listing events `start` observed. */
   private readonly stopObservingClients: Array<() => void> = [];
+  /**
+   * Each exact proxy registration seen so far, mapped to why its remote
+   * tool is missing, or `undefined` while the client lists it. Keyed by
+   * the registration object, so a route that restarts and registers again
+   * is judged afresh rather than inheriting its old verdict.
+   */
+  private readonly exactProxyStates = new Map<
+    McpProxyRegistration,
+    string | undefined
+  >();
 
   /**
    * Memoized `tools/list` output schema per registry entry, keyed by the
@@ -522,6 +542,7 @@ export class McpServer {
         await this.startStdio();
         this.observeClientListings();
       }
+      this.watchExactProxies();
       // The HTTP transport does not wait for the named server to bind: a
       // request cannot reach the mount before the listener is up, so every
       // bound-address consumer runs strictly after `server:listening`, and
@@ -888,6 +909,86 @@ export class McpServer {
   }
 
   /**
+   * Keep every exact proxy route honest about its remote tool. On the first
+   * check and on every change to the clients' tools or to the proxy
+   * registrations, a registration whose tool the client does not list is
+   * reported once at warn and put on standby (`route:standby:changed`, which
+   * ops reports as `inactive` with the reason); one whose tool comes back is
+   * reported at info and taken off standby. The route fails closed either
+   * way: an unlisted tool is not served, and the star route over the same
+   * client never serves a tool an exact route covers.
+   */
+  private watchExactProxies(): void {
+    this.checkExactProxies();
+    const check = (): void => {
+      try {
+        this.checkExactProxies();
+      } catch (error) {
+        this.host.logger.error(
+          { err: error },
+          "Failed to check MCP proxy routes against their clients' tools",
+        );
+      }
+    };
+    this.stopObservingClients.push(
+      this.service.tools.onChange(check),
+      this.service.onChange(check),
+    );
+  }
+
+  private checkExactProxies(): void {
+    const live = new Set<McpProxyRegistration>();
+    for (const registration of this.service.proxies.values()) {
+      if (registration.tool === "*") continue;
+      live.add(registration);
+      const { serverId, tool, routeId } = registration;
+      const listed = this.service.tools.getToolsByServer(serverId);
+      const reason = listed.some((entry) => entry.name === tool)
+        ? undefined
+        : listed.length === 0
+          ? `client "${serverId}" has listed no tools`
+          : `client "${serverId}" does not list tool "${tool}"`;
+      const seen = this.exactProxyStates.has(registration);
+      if (seen && this.exactProxyStates.get(registration) === reason) continue;
+      this.exactProxyStates.set(registration, reason);
+      if (reason !== undefined) {
+        this.host.logger.warn(
+          {
+            route: routeId,
+            client: serverId,
+            tool,
+            known: listed.map((entry) => entry.name).sort(),
+          },
+          "MCP proxy route's remote tool is not listed by its client; the route serves nothing until it is",
+        );
+        this.host.emit("route:standby:changed", {
+          routeId,
+          standby: true,
+          reason,
+        });
+      } else if (seen) {
+        this.host.logger.info(
+          { route: routeId, client: serverId, tool },
+          "MCP proxy route's remote tool is listed again",
+        );
+        this.host.emit("route:standby:changed", { routeId, standby: false });
+      }
+    }
+    // A registration withdrawn (its route stopping) takes its standby with
+    // it, so a restart that registers again starts from running.
+    for (const [registration, reason] of this.exactProxyStates) {
+      if (live.has(registration)) continue;
+      this.exactProxyStates.delete(registration);
+      if (reason !== undefined) {
+        this.host.emit("route:standby:changed", {
+          routeId: registration.routeId,
+          standby: false,
+        });
+      }
+    }
+  }
+
+  /**
    * What `tools/list` would answer now, as one string: a changed name,
    * description, schema or annotation is a change a client must re-list for.
    */
@@ -966,7 +1067,7 @@ export class McpServer {
     // required field on either result is a compile error rather than a
     // protocol error at a client.
     server.setRequestHandler("tools/list", () => {
-      const tools = this.toolsFor(mount);
+      const tools = this.toolsFor(mount, { principal });
       if (mount.kind === "root") this.logExposedToolsOnce();
       return { tools: tools as unknown as ListToolsResult["tools"] };
     });
@@ -1000,9 +1101,15 @@ export class McpServer {
     });
 
     // A view belongs to a tool a route defines, so a client mount, which
-    // lists only proxied tools, has none to serve.
+    // lists only proxied tools, has none to serve. A view of a tool the
+    // caller is not listed is not listed either: its name, title and URI
+    // would tell the caller what the tool listing withheld.
     const viewEntries = (): McpLocalToolEntry[] =>
-      mount.kind === "client" ? [] : this.getExposedLocalEntries();
+      mount.kind === "client"
+        ? []
+        : this.getExposedLocalEntries().filter((entry) =>
+            this.admits(entry.authorize, principal),
+          );
     server.setRequestHandler("resources/list", () => ({
       resources: viewEntries()
         .filter((entry) => entry.ui !== undefined)
@@ -1028,8 +1135,8 @@ export class McpServer {
 
   /**
    * Serve one MCP Apps view for `resources/read`. Only views of tools that
-   * pass the `tools` filter resolve, so a hidden tool's view is as invisible
-   * as the tool.
+   * pass the `tools` filter, and whose route admits the caller, resolve, so
+   * a hidden tool's view is as invisible as the tool.
    *
    * A loader failure is logged with its cause and answered generically: a
    * file loader's error names an absolute path on this host, which is the
@@ -1216,6 +1323,10 @@ export class McpServer {
     // context subscription that must not outlive it.
     this.stopListeningForServer();
     for (const stop of this.stopObservingClients.splice(0)) stop();
+    // The exact-proxy states are kept: they mirror the standby ops holds,
+    // so a server started again compares against them and announces a
+    // recovery, while a registration withdrawn meanwhile is cleared by the
+    // next check. Clearing them here would strand a route on standby.
     this.stdioServers.clear();
     if (!this.running && !this.unmountHttp && this.mcpHandlers.size === 0) {
       return;
@@ -1287,9 +1398,15 @@ export class McpServer {
    *
    * @param mount The mount's segment: the server `name` for the own mount,
    * a client id for that client's mount; omit it for the root.
+   * @param caller The caller to list for, as `tools/list` does: tools whose
+   * route `.authorize()` refuses `caller.principal` are left out. Omitted,
+   * every tool the mount serves is listed, which is the operator's view.
    * @throws TypeError when no mount carries the segment.
    */
-  getAvailableTools(mount?: string): McpTool[] {
+  getAvailableTools(
+    mount?: string,
+    caller?: { readonly principal: Principal | undefined },
+  ): McpTool[] {
     const found =
       mount === undefined
         ? ROOT_MOUNT
@@ -1300,7 +1417,7 @@ export class McpServer {
     if (found === undefined) {
       throw new TypeError(`mcp: no mount named "${mount}"`);
     }
-    return this.toolsFor(found);
+    return this.toolsFor(found, caller);
   }
 
   /**
@@ -1350,10 +1467,58 @@ export class McpServer {
     return mount.kind === "root" ? root : `${root}/${mount.segment}`;
   }
 
-  private toolsFor(mount: McpMount): McpTool[] {
-    return [...this.servedOn(mount).values()].map(({ entry }) =>
-      this.entryToMcpTool(entry),
-    );
+  /**
+   * What `tools/list` shows a caller on a mount: what the mount serves,
+   * less every tool whose route `.authorize()` would refuse the caller. A
+   * proxied tool is judged by the route that serves it, the exact route
+   * over the star one. The listing is a view, never the gate: `tools/call`
+   * still runs the route's own authorizers, so a tool reached without
+   * being listed is refused as before.
+   */
+  private toolsFor(
+    mount: McpMount,
+    caller: { readonly principal: Principal | undefined } | undefined,
+  ): McpTool[] {
+    const tools: McpTool[] = [];
+    for (const { entry, proxied } of this.servedOn(mount).values()) {
+      const authorizers = proxied?.registration.authorize ?? entry.authorize;
+      if (caller !== undefined && !this.admits(authorizers, caller.principal)) {
+        continue;
+      }
+      tools.push(this.entryToMcpTool(entry));
+    }
+    return tools;
+  }
+
+  /**
+   * Whether every `.authorize()` on a route admits the caller, asked of the
+   * enforcement provider the gate itself uses. A route without
+   * `.authorize()` admits everyone, as its gate does. A check that throws
+   * (a custom predicate that fails on this principal) hides the tool:
+   * listing a tool its own gate cannot decide on would offer the caller a
+   * refusal.
+   */
+  private admits(
+    authorizers: readonly AuthorizeOptions[] | undefined,
+    principal: Principal | undefined,
+  ): boolean {
+    if (authorizers === undefined || authorizers.length === 0) return true;
+    const enforcement = this.host.enforcement?.();
+    const admits = enforcement?.admits;
+    if (admits === undefined) return true;
+    // Branded as `handleToolCall` brands it before the gate sees it, so the
+    // listing and the call judge the same identity.
+    const judged =
+      principal === undefined
+        ? undefined
+        : this.host.authority.brand(principal);
+    try {
+      return authorizers.every((options) =>
+        admits.call(enforcement, options, judged, this.host.authority),
+      );
+    } catch {
+      return false;
+    }
   }
 
   /**

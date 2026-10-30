@@ -161,6 +161,18 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
     }
   }
 
+  const enabled: unknown = definition.enabled;
+  if (
+    enabled !== undefined &&
+    typeof enabled !== "boolean" &&
+    typeof enabled !== "string" &&
+    typeof enabled !== "function"
+  ) {
+    throw rcError("RC5053", undefined, {
+      message: `defineIndicator("${definition.name}"): enabled must be true, false, a reason string, or a function returning one, the shape a route's .enabled() takes.`,
+    });
+  }
+
   const bound: Bound[] = [];
   const frozen: Readonly<IndicatorDefinition> = Object.freeze({
     ...definition,

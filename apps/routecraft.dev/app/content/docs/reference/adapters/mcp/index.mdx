@@ -203,11 +203,43 @@ const readOnlyTool = (ex: Exchange) =>
 
 - An exact route wins over a star route for the tool it names while it is live, and the star route serves the tool again when the exact route goes, whether removed or held back by `.enabled()`. `exclude` on the star route leaves named tools out of the group for good, so an exact route over one of them stands alone and nothing serves the tool when it goes. Two exact routes for one tool, or two star routes for one client, are refused at start (`RC5003`).
 - The route id names the route, never a tool. `.description()` and `.title()` replace the remote's for every tool the route exposes; leave them off to pass the remote's through. `.tag()` and `annotations` merge over the remote's annotations per key.
-- The remote's JSON Schemas pass through to `tools/list` and to an agent's catalogue; the remote validates the arguments at its door. A remote tool with an `outputSchema` publishes its result as `structuredContent`, and the server holds what the route finally returns to that advertised schema (`AI2001`), so a step below the hop that rewrites the result has to keep its shape. A `.to(mcp('github:*'))` hop forwards to the client the route proxies and refuses any other exchange (`RC5003`): a local `.from(mcp())` route's own call, or a route proxying a different client.
+- The remote's JSON Schemas pass through to `tools/list` and to an agent's catalogue unless the route says otherwise; the remote validates the arguments at its door. A remote tool with an `outputSchema` publishes its result as `structuredContent`, and a client that validates structured content holds it to the advertised schema, so a step below the hop that removes a field the remote's schema requires must advertise a schema without it. See **Advertising the route's own schemas** below. A `.to(mcp('github:*'))` hop forwards to the client the route proxies and refuses any other exchange (`RC5003`): a local `.from(mcp())` route's own call, or a route proxying a different client.
 - A route that can park (a `.defer()`, or an approval hook on a tag) advertises the `Deferred` arm on every tool it exposes, and an agent holding one of those tools holds it as a background tool, as for any parking route.
 - The caller's principal selects policy on the route (`.authorize()`, your steps) and is never forwarded. The hop authenticates with the client's registered `auth`. A remote result flagged `isError` fails the hop with [`AI2003`](/docs/reference/errors#ai-2003), and the caller receives the remote's text: they addressed the remote, so its answer is theirs. The same code from any other hop, or from a nested route, answers with the code alone.
 - `ui` is refused on a proxy source: a view belongs to a tool a route defines.
+- An exact route whose remote tool the client does not list (renamed or removed by the vendor, or not listed yet) serves nothing: the tool is not listed and a call to it is refused. It also says so. At start, and whenever it goes missing again or the reason changes, it is logged once at warn with the tools the client does list, and reported `inactive` on `/health` with lifecycle `standby` and the reason (`route:standby:changed`). It returns to `running` with an info line when a listing carries the tool again. A star route over the same client does not pick the tool up while the exact route covers it, so a renamed tool is served under its new name only by the star route, to whoever that route admits.
 - A route that leaves the hop's result alone answers an external caller with the remote's result as published: its content blocks of every type (images and resources with their `mimeType`, several text blocks as several), its `structuredContent` beside its own text when the tool advertises an output schema, and its `_meta`. The test is that the route's final body is the value set by the hop to the tool the caller addressed, unedited. Any step that replaces the body or edits it in place (a `.transform()` to a new value, a `.process()` that deletes a field) is the route shaping the answer, and the server serialises that body into one text block as for any route, with `structuredContent` when an output schema is advertised. A remote `isError` result still fails the hop with `AI2003`.
+
+**Advertising the route's own schemas.** A route whose steps change the arguments or the result advertises what its steps produce, not what the remote declares:
+
+```ts skip="fragment: ContactWithoutBankAccount and withoutProperty are illustrative"
+// exact: the route's .input() and .output() are its tool's schemas
+craft()
+  .id('crm-get-contact')
+  .input({ body: z.object({ id: z.string() }) })   // workspace is pinned below, so callers are not asked for it
+  .output({ body: ContactWithoutBankAccount })
+  .from(mcp({ proxy: 'crm:get_contact' }))
+  .transform((args) => ({ ...args, workspace: 'acme' }))
+  .to(mcp('crm:get_contact'))
+  .transform(({ bank_account, ...rest }) => rest)
+
+// star: derive each tool's schemas from the remote's JSON Schemas
+craft()
+  .id('crm')
+  .from(mcp({
+    proxy: 'crm:*',
+    schemas: (remote) => ({ output: withoutProperty(remote.outputSchema, 'bank_account') }),
+  }))
+  .to(mcp('crm:*'))
+  .transform(stripBankAccount)
+```
+
+- On an exact route, the `body` schema of `.input()` replaces the remote's input schema on `tools/list` and in an agent's catalogue, and the `body` schema of `.output()` replaces its output schema on `tools/list`. Both are enforced at their chain positions as on any route. A `.input()` or `.output()` that declares only `headers` validates the headers and leaves the remote's schema advertised. `.output()` carries the `Deferred` arm when the route can park. Leave either off to pass the remote's through.
+- On a star route, `schemas` receives each remote tool (`name`, `inputSchema`, `outputSchema`, `annotations`) and returns JSON Schema objects: a key left `undefined` keeps the remote's, and `output: null` advertises none, so the tool publishes no `structuredContent`. A derived schema is advertised as written; the server does not validate against a JSON Schema, a remote's or a derived one. `schemas` runs whenever the tool list is resolved, so keep it pure; one that throws leaves that tool on the remote's schemas with a warning.
+- An agent's `MCP(server:tool)` reference through the route is offered the same input schema `tools/list` shows, rendered as JSON Schema; the route's `.input()` still validates the call in the route.
+- `.input()` or `.output()` on a star route fails at start (`RC5003`): one schema cannot describe every tool of a client. Use an exact route for that tool, or `schemas`.
+
+A filtering step is the boundary between a caller and what the remote returned, so make it deterministic: drop array items, blank fields, or parse and rebuild text. A model rewriting the result is not redaction, because it can paraphrase a field back in, follow an instruction planted in the result, or drop what the caller was entitled to; keep a model to summarising what the caller may already see.
 
 **Agents.** An agent's `MCP(github:create_issue)` reference resolves to the route that proxies it when one exists, under the reference's own name (`mcp__github__create_issue`), so your own agent is under the same policy as an external client: the call carries the agent's principal, so the route's `.authorize()` judges it the way it judges a `Direct(<id>)` call, and a route that declines fails the call (`AI2002`) instead of echoing the arguments. Reaching the client raw needs an explicit `{ name: 'MCP(github:create_issue)', raw: true }`, which the resolver warns about once. A tool no route covers stays raw. A tool whose proxy route exists but is not live (held back by `.enabled()`) is withheld from the agent, with a warning, unless a live star route over the client covers it, which then governs it: the policy written for it is off, and off is closed, not open. A tool the star route's `exclude` names is withheld the same way, and is reached only through its own exact route or with `raw: true`.
 
@@ -231,7 +263,7 @@ craft()
   .to(mcp('github:create_issue'))
 ```
 
-What changes in the move: the input schema comes from the remote, so `.input()` goes unless you want a narrower one; the route is exposed as `github_create_issue` rather than by its id; an agent references it as `MCP(github:create_issue)` rather than `Direct(github-create-issue)`; a set of tools that shared a policy collapses into one star route; and an `mcpPlugin({ proxy })` entry, with or without a `guard`, becomes a route (a `guard` that checked the caller becomes `.authorize()` or a `.process()` that throws). The hand-written route with its own `.input()` and `.enrich(mcp('server:tool'))` remains the escape hatch for a tool whose name, schema or shape you want to change, or that composes two upstream calls.
+What changes in the move: the input schema comes from the remote, so `.input()` goes unless you want a narrower one, which the route then advertises in place of the remote's; the route is exposed as `github_create_issue` rather than by its id; an agent references it as `MCP(github:create_issue)` rather than `Direct(github-create-issue)`; a set of tools that shared a policy collapses into one star route; and an `mcpPlugin({ proxy })` entry, with or without a `guard`, becomes a route (a `guard` that checked the caller becomes `.authorize()` or a `.process()` that throws). The hand-written route with its own `.input()` and `.enrich(mcp('server:tool'))` remains the escape hatch for a tool whose name, schema or shape you want to change, or that composes two upstream calls.
 
 #### MCP Apps views
 
