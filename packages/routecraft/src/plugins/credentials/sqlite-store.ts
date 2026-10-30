@@ -13,6 +13,7 @@ import {
   isSqliteBusy,
   migrateSqlite,
   resolveDatabasePath,
+  sqliteChanges,
   SQLITE_APPLICATION_IDS,
 } from "../../shared/sqlite/database.ts";
 import type { CredentialSealer } from "./seal.ts";
@@ -154,30 +155,33 @@ export class SqliteCredentialStore implements CredentialStore {
   ): Promise<CredentialWrite> {
     const encoded = this.#encode(owner, value);
     const now = Date.now();
-    const result = this.#guard(`write the credential of "${owner}"`, () =>
-      options.ifVersion === null
-        ? this.#db
-            .prepare(
-              `INSERT INTO credentials (owner, value, version, issued_at, updated_at)
-               VALUES (?, ?, 1, ?, ?) ON CONFLICT (owner) DO NOTHING`,
-            )
-            .run(owner, encoded, options.issuedAt ?? now, now)
-        : this.#db
-            .prepare(
-              `UPDATE credentials
-                 SET value = ?, version = version + 1,
-                     issued_at = COALESCE(?, issued_at), updated_at = ?
-               WHERE owner = ? AND version = ?`,
-            )
-            .run(
-              encoded,
-              options.issuedAt ?? null,
-              now,
-              owner,
-              options.ifVersion,
-            ),
-    );
-    if (changesOf(result) === 1) {
+    const changed = this.#guard(`write the credential of "${owner}"`, () => {
+      if (options.ifVersion === null) {
+        this.#db
+          .prepare(
+            `INSERT INTO credentials (owner, value, version, issued_at, updated_at)
+             VALUES (?, ?, 1, ?, ?) ON CONFLICT (owner) DO NOTHING`,
+          )
+          .run(owner, encoded, options.issuedAt ?? now, now);
+      } else {
+        this.#db
+          .prepare(
+            `UPDATE credentials
+               SET value = ?, version = version + 1,
+                   issued_at = COALESCE(?, issued_at), updated_at = ?
+             WHERE owner = ? AND version = ?`,
+          )
+          .run(
+            encoded,
+            options.issuedAt ?? null,
+            now,
+            owner,
+            options.ifVersion,
+          );
+      }
+      return sqliteChanges(this.#db);
+    });
+    if (changed === 1) {
       return {
         written: true,
         version: options.ifVersion === null ? 1 : options.ifVersion + 1,
@@ -190,14 +194,17 @@ export class SqliteCredentialStore implements CredentialStore {
     owner: string,
     options: { readonly ifVersion?: number } = {},
   ): Promise<boolean> {
-    const result = this.#guard(`delete the credential of "${owner}"`, () =>
-      options.ifVersion === undefined
-        ? this.#db.prepare(`DELETE FROM credentials WHERE owner = ?`).run(owner)
-        : this.#db
-            .prepare(`DELETE FROM credentials WHERE owner = ? AND version = ?`)
-            .run(owner, options.ifVersion),
-    );
-    return changesOf(result) === 1;
+    const changed = this.#guard(`delete the credential of "${owner}"`, () => {
+      if (options.ifVersion === undefined) {
+        this.#db.prepare(`DELETE FROM credentials WHERE owner = ?`).run(owner);
+      } else {
+        this.#db
+          .prepare(`DELETE FROM credentials WHERE owner = ? AND version = ?`)
+          .run(owner, options.ifVersion);
+      }
+      return sqliteChanges(this.#db);
+    });
+    return changed === 1;
   }
 
   async list(): Promise<Array<StoredCredential & { readonly owner: string }>> {
@@ -250,10 +257,4 @@ export class SqliteCredentialStore implements CredentialStore {
       });
     }
   }
-}
-
-/** Rows a write changed; both drivers report it as `changes`. */
-function changesOf(result: unknown): number {
-  const changes = (result as { changes?: unknown } | null)?.changes;
-  return typeof changes === "number" ? changes : Number(changes ?? 0);
 }

@@ -6,7 +6,9 @@ import { testContext } from "@routecraft/testing";
 import {
   CREDENTIALS,
   craft,
+  credentialsConfigOf,
   credentialsPlugin,
+  definePlugin,
   direct,
   noop,
   collectCredentialLogins,
@@ -21,6 +23,7 @@ import {
   type CredentialStore,
 } from "../src/index.ts";
 import { SQLITE_APPLICATION_IDS } from "../src/shared/sqlite/database.ts";
+import { rcError } from "../src/error.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-credentials-"));
 let files = 0;
@@ -381,6 +384,84 @@ describe("credentials plugin", () => {
     } finally {
       await t.stop();
     }
+  });
+});
+
+describe("credential store fallback and resolution", () => {
+  /** Loaders that fail as Node does without better-sqlite3. */
+  const absentDriver = {
+    bun: () => Promise.reject(rcError("RC5017")),
+    node: () => Promise.reject(rcError("RC5017")),
+  };
+
+  async function bound(config: Parameters<typeof credentialsPlugin>[0]) {
+    const t = await testContext()
+      .with({ plugins: [credentialsPlugin(config)] })
+      .routes([craft().id("idle").from(direct()).to(noop())])
+      .build();
+    return { t, store: t.ctx.lookup(CREDENTIALS)! };
+  }
+
+  /**
+   * @case The default store with no SQLite driver available
+   * @preconditions No store configured; both driver loaders fail
+   * @expectedResult The store falls back to memory and still reads and writes
+   */
+  test("the unconfigured store falls back to memory", async () => {
+    const { t, store } = await bound({ loaders: absentDriver, env: {} });
+    try {
+      await store.put("mcp:a", 1, { ifVersion: null });
+      expect((await store.get("mcp:a"))?.value).toBe(1);
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case A configured store path with no SQLite driver available
+   * @preconditions credentials.store names a path; both driver loaders fail
+   * @expectedResult The first read fails rather than silently keeping credentials in memory
+   */
+  test("a configured store does not fall back", async () => {
+    const { t, store } = await bound({
+      store: dbPath(),
+      loaders: absentDriver,
+      env: {},
+    });
+    try {
+      await expect(store.get("mcp:a")).rejects.toThrow();
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case Which store configuration craft connect opens
+   * @preconditions A credentials key, a credentialsPlugin() in plugins, and a foreign plugin providing the port
+   * @expectedResult The key is used alone; a credentialsPlugin()'s own config wins over it, also when spread; a foreign provider is refused with RC5070
+   */
+  test("credentialsConfigOf follows what the application uses", () => {
+    expect(credentialsConfigOf({ credentials: { store: "a.db" } })).toEqual({
+      store: "a.db",
+    });
+    const plugin = credentialsPlugin({ store: "b.db" });
+    expect(
+      credentialsConfigOf({
+        credentials: { store: "a.db" },
+        plugins: [plugin],
+      }),
+    ).toEqual({ store: "b.db" });
+    expect(credentialsConfigOf({ plugins: [{ ...plugin }] })).toEqual({
+      store: "b.db",
+    });
+    const vault = definePlugin({
+      id: "acme.vault",
+      provides: [CREDENTIALS],
+      bind() {},
+    });
+    expect(() => credentialsConfigOf({ plugins: [vault] })).toThrow(
+      expect.objectContaining({ rc: "RC5070" }),
+    );
   });
 });
 

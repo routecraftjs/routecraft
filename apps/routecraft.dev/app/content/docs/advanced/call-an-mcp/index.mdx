@@ -131,7 +131,9 @@ export ROUTECRAFT_CREDENTIALS_KEY="$(openssl rand -base64 32)"
 craft connect mail --export
 ```
 
-The command prints one line, the seed, sealed with AES-256-GCM under the key. Set `ROUTECRAFT_CREDENTIALS_SEED` to it and `ROUTECRAFT_CREDENTIALS_KEY` to the key on the server. On boot the server imports the seed into its store when the store holds nothing for the client, or holds a credential from an earlier login. A credential the server has refreshed since keeps its login time, so restarting with the same seed never overwrites a newer refresh token. Mount the store's directory (`.routecraft/` by default, or the path in [`credentials.store`](/docs/reference/configuration#credentials)) on a volume, so a redeploy keeps the refreshed credential.
+The command prints one line, the seed, sealed with AES-256-GCM under the key. Set `ROUTECRAFT_CREDENTIALS_SEED` to it and `ROUTECRAFT_CREDENTIALS_KEY` to the key on the server. On boot the server imports the seed into its store when the store holds nothing for the client, or holds a credential from an earlier login. A credential the server has refreshed since keeps its login time, so restarting with the same seed never overwrites a newer refresh token. Mount the store's directory (`.routecraft/` by default, or the path in [`credentials.store`](/docs/reference/configuration#credentials)) on a volume, so a redeploy keeps the refreshed credential. Instances that share the store must share it on one host: SQLite locking over a network file system such as NFS is unreliable, so a store on NFS can lose a refresh.
+
+The machine you exported from still holds the same refresh token. Most authorization servers rotate it on every refresh, so whichever side refreshes first leaves the other with a refused token. After exporting, run `craft disconnect <client>` there, or do not run the application on that machine.
 
 With the key set, the store also seals every credential at rest. Without it the store is a plain file readable by its owner only (mode 0600), and `--export` refuses.
 

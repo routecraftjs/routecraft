@@ -162,6 +162,24 @@ describe("craft connect", () => {
   });
 
   /**
+   * @case A project whose credential store is memory
+   * @preconditions credentials.store set to "memory"
+   * @expectedResult Exit 1 saying a login there cannot reach the application, and no login runs
+   */
+  test("refuses a memory store", async () => {
+    writeFileSync(
+      join(root, "craft.config.ts"),
+      CONFIG(join(root, "creds.db")).replace(
+        /export const craftConfig = .*/,
+        'export const craftConfig = { credentials: { store: "memory" } };',
+      ),
+    );
+    const result = await connectCommand("demo", { open: false });
+    expect(result.code).toBe(1);
+    expect(result.error).toContain("configured as memory");
+  });
+
+  /**
    * @case An unknown client name
    * @preconditions Only demo is declared
    * @expectedResult Exit 1 naming the clients that do log in

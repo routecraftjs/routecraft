@@ -28,8 +28,9 @@ import {
   type StdioClientManagerOptions,
 } from "./stdio-client-manager.ts";
 import type { McpToolRegistry } from "./tool-registry.ts";
-import type { OAuthClientProvider } from "@modelcontextprotocol/client";
+import type { AuthProvider } from "@modelcontextprotocol/client";
 import {
+  coalescedAuthProvider,
   connectHint,
   connectOwner,
   isConnectAuth,
@@ -39,8 +40,12 @@ import { createMcpHttpConnections } from "./http-connections.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
 
-/** The options each `mcpPlugin()` was built with, for `craft connect`. */
-const pluginOptions = new WeakMap<Plugin, McpPluginOptions>();
+/**
+ * Where an `mcpPlugin()` descriptor carries its options, for `craft
+ * connect`. Enumerable and keyed by a registered symbol, so a spread
+ * descriptor or a second copy of the package still carries them.
+ */
+const PLUGIN_OPTIONS = Symbol.for("routecraft.ai.mcp.options");
 
 /**
  * The options an `mcpPlugin()` descriptor was built with, or `undefined`
@@ -52,7 +57,8 @@ export function mcpPluginOptions(
   plugin: unknown,
 ): McpPluginOptions | undefined {
   return typeof plugin === "object" && plugin !== null
-    ? pluginOptions.get(plugin as Plugin)
+    ? ((plugin as Record<symbol, unknown>)[PLUGIN_OPTIONS] as
+        McpPluginOptions | undefined)
     : undefined;
 }
 
@@ -88,7 +94,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       const stdio = new Map<string, StdioClientManager>();
       const clients = new Map<string, McpClientConfig>();
       const disabledClients = new Map<string, string>();
-      const authProviders = new Map<string, OAuthClientProvider>();
+      const authProviders = new Map<string, AuthProvider>();
       // Shared, so the disposer that removes a manager removes what dispatch sees.
       const service: McpService = createMcpService({
         stdio,
@@ -107,7 +113,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         service.tools.removeSource(serverId);
         c.logger.warn(
           { serverId, reason },
-          "MCP client is disabled: it needs a login",
+          "MCP client is disabled: it needs a login; not connecting",
         );
         c.emit(
           `plugin:mcp:client:${serverId}:disabled` as EventName,
@@ -153,21 +159,19 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         if (!isStdioConfig(config) && isConnectAuth(config.auth)) {
           const reason = await loginCredential(c, serverId);
           if (reason !== undefined) {
-            disabledClients.set(serverId, reason);
-            c.logger.warn(
-              { serverId, reason },
-              "MCP client is disabled: it needs a login; not connecting",
-            );
+            disable(serverId, reason);
             continue;
           }
           authProviders.set(
             serverId,
-            new StoreOAuthProvider({
-              serverId,
-              options: config.auth.options,
-              store: c.require(CREDENTIALS),
-              onLoginRequired: (why) => disable(serverId, why),
-            }),
+            coalescedAuthProvider(
+              new StoreOAuthProvider({
+                serverId,
+                options: config.auth.options,
+                store: c.require(CREDENTIALS),
+                onLoginRequired: (why) => disable(serverId, why),
+              }),
+            ),
           );
         }
         clients.set(serverId, config);
@@ -215,8 +219,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       await servers.get(c)?.start();
     },
   };
-  pluginOptions.set(plugin, options);
-  return plugin;
+  return Object.assign(plugin, { [PLUGIN_OPTIONS]: options });
 
   /**
    * Why a client that logs in cannot connect, or `undefined` when its

@@ -6,6 +6,9 @@ import {
   type PluginLogger,
 } from "../../kernel/plugin.ts";
 import { registerConfigApplier } from "../../config-applier.ts";
+import { isRoutecraftError } from "../../brand.ts";
+import { rcError } from "../../error.ts";
+import type { CraftConfig } from "@routecraft/routecraft";
 import type { SqliteDriverLoaders } from "../../shared/sqlite/driver.ts";
 import { MemoryCredentialStore } from "./memory-store.ts";
 import { sealerFromEnv } from "./seal.ts";
@@ -85,10 +88,7 @@ export async function openCredentialStore(
   path?: string;
 }> {
   const env = config.env ?? process.env;
-  const fromEnv = env[CREDENTIALS_STORE_ENV]?.trim();
-  const configured =
-    config.store ??
-    (fromEnv !== undefined && fromEnv !== "" ? fromEnv : undefined);
+  const configured = config.store ?? storeFromEnv(env);
   if (typeof configured === "object" && "get" in configured) {
     return { store: configured, owned: false, backend: "custom" };
   }
@@ -109,6 +109,12 @@ export async function openCredentialStore(
     ...(config.loaders ? { loaders: config.loaders } : {}),
   });
   return { store, owned: true, backend: "sqlite", path };
+}
+
+/** The store {@link CREDENTIALS_STORE_ENV} names, or `undefined` when unset or blank. */
+function storeFromEnv(env: NodeJS.ProcessEnv): string | undefined {
+  const named = env[CREDENTIALS_STORE_ENV]?.trim();
+  return named === undefined || named === "" ? undefined : named;
 }
 
 /**
@@ -132,7 +138,7 @@ class LazyCredentialStore implements CredentialStore {
   async #open(): Promise<CredentialStore> {
     const explicit =
       this.config.store !== undefined ||
-      (this.config.env ?? process.env)[CREDENTIALS_STORE_ENV] !== undefined;
+      storeFromEnv(this.config.env ?? process.env) !== undefined;
     try {
       const opened = await openCredentialStore(this.config);
       this.#owned = opened.owned;
@@ -184,7 +190,7 @@ class LazyCredentialStore implements CredentialStore {
 }
 
 function isMissingDriver(err: unknown): boolean {
-  return (err as { rc?: unknown } | null)?.rc === "RC5017";
+  return isRoutecraftError(err) && err.rc === "RC5017";
 }
 
 /**
@@ -198,7 +204,7 @@ function isMissingDriver(err: unknown): boolean {
 export function credentialsPlugin(
   config: CredentialsConfig & CredentialsTestSeams = {},
 ): Plugin {
-  return definePlugin({
+  const plugin = definePlugin({
     id: "routecraft.credentials",
     provides: [CREDENTIALS],
     async bind(c: PluginContext) {
@@ -212,6 +218,7 @@ export function credentialsPlugin(
       if (seed === undefined || seed === "") return;
       const entries = decodeCredentialSeed(seed, sealerFromEnv(env));
       const { imported, kept } = await importCredentialSeed(store, entries);
+      c.emit("plugin:credentials:seed:imported", { imported, kept });
       c.logger.info(
         { imported, kept },
         imported.length > 0
@@ -220,6 +227,34 @@ export function credentialsPlugin(
       );
     },
   });
+  // Enumerable and keyed by a registered symbol, so a spread descriptor or
+  // a second copy of the package still leads `craft connect` to the store.
+  return Object.assign(plugin, { [PLUGIN_CONFIG]: config });
+}
+
+const PLUGIN_CONFIG = Symbol.for("routecraft.credentials.config");
+
+/**
+ * The credential store configuration an application uses, as `craft
+ * connect` must open it so a login writes where the application reads: a
+ * `credentialsPlugin()` in `plugins` wins over the `credentials` key, as it
+ * does in the application.
+ *
+ * @throws RC5070 when another plugin provides the store, which a command
+ *   outside the application cannot open
+ */
+export function credentialsConfigOf(config: CraftConfig): CredentialsConfig {
+  for (const plugin of [...(config.plugins ?? [])].reverse()) {
+    const own = (plugin as unknown as Record<symbol, unknown>)[PLUGIN_CONFIG];
+    if (own !== undefined) return own as CredentialsConfig;
+    const ports = [...(plugin.provides ?? []), ...(plugin.replaces ?? [])];
+    if (ports.some((port) => port.name === CREDENTIALS.name)) {
+      throw rcError("RC5070", undefined, {
+        message: `Plugin "${plugin.id}" provides the credential store, which craft connect cannot open outside the application. Log in where that store is reachable, or seed it with ROUTECRAFT_CREDENTIALS_SEED.`,
+      });
+    }
+  }
+  return config.credentials ?? {};
 }
 
 registerShippedPlugin(() => credentialsPlugin(), { default: true });

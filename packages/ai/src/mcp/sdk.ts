@@ -16,7 +16,7 @@
 import { loadOptionalPeer } from "@routecraft/routecraft";
 import { version as packageVersion } from "../../package.json";
 import { buildAuthHeaders } from "./build-auth-headers.ts";
-import type { OAuthClientProvider } from "@modelcontextprotocol/client";
+import type { AuthProvider } from "@modelcontextprotocol/client";
 import type { McpClientAuthOptions } from "./types.ts";
 
 /** The v2 server package: `createMcpHandler`, `Server`, bearer auth, OAuth metadata. */
@@ -109,7 +109,7 @@ export const MCP_CLIENT_INFO = {
 export async function connectMcpHttpClient(
   url: URL,
   auth?: McpClientAuthOptions,
-  authProvider?: OAuthClientProvider,
+  authProvider?: AuthProvider,
 ): Promise<{
   client: InstanceType<Awaited<ReturnType<typeof loadMcpClientSdk>>["Client"]>;
   transport: InstanceType<

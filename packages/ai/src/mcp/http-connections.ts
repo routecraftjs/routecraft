@@ -3,7 +3,7 @@ import {
   createConnectionCache,
   type DisposableEntry,
 } from "./http-client-cache.ts";
-import type { OAuthClientProvider } from "@modelcontextprotocol/client";
+import type { AuthProvider } from "@modelcontextprotocol/client";
 import { connectHint, isConnectAuth } from "./connect.ts";
 import { connectMcpHttpClient, loadMcpClientSdk } from "./sdk.ts";
 import type {
@@ -86,7 +86,7 @@ export function createMcpHttpConnections(
      * The OAuth providers of the clients that log in with `connect()`, by
      * client id. Read at each connect, so the plugin fills it during bind.
      */
-    readonly authProviders?: ReadonlyMap<string, OAuthClientProvider>;
+    readonly authProviders?: ReadonlyMap<string, AuthProvider>;
   } = {},
 ): McpHttpConnections {
   const cache = createConnectionCache<HttpConnection>();

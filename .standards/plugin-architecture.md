@@ -156,7 +156,7 @@ project that sets the key is typed by it without naming the plugin.
 
 Installed in every application, ahead of its own plugins:
 `routecraft.direct`, `routecraft.resilience`, `routecraft.cache`,
-`routecraft.principals`, `routecraft.auth`. An application plugin with the
+`routecraft.principals`, `routecraft.auth`, `routecraft.credentials`. An application plugin with the
 same id takes a default's place; a plugin that `replaces` a default's port is
 selected over it. Each shipped plugin's module registers it once when the
 package loads (`registerShippedPlugin(factory, { default })`, internal): the

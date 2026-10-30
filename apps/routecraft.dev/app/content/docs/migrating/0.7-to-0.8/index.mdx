@@ -69,7 +69,7 @@ export const audit = definePlugin({
 | `ctx.whenStarted()` | `c.execution.whenStarted()` |
 | `plugin:applying` / `plugin:applied` | `plugin:binding` / `plugin:bound` |
 
-`bind` runs at the same point `apply` did: while the application is installed, before routes are registered. Plugins now bind in dependency order rather than strictly in list order: a plugin that requires a port binds after the plugin that provides it. The default plugins (`routecraft.direct`, `routecraft.resilience`, `routecraft.cache`, `routecraft.principals`, `routecraft.auth`) install ahead of the application's own, so a lifecycle event's `pluginIndex` counts them.
+`bind` runs at the same point `apply` did: while the application is installed, before routes are registered. Plugins now bind in dependency order rather than strictly in list order: a plugin that requires a port binds after the plugin that provides it. The default plugins (`routecraft.direct`, `routecraft.resilience`, `routecraft.cache`, `routecraft.principals`, `routecraft.auth`, `routecraft.credentials`) install ahead of the application's own, so a lifecycle event's `pluginIndex` counts them.
 
 Two new families of fault name the plugin responsible: `RC1101` to `RC1117` for install, resolution, ordering and compile faults, and `RC5068` when a validate hook refuses an exchange. See the [errors reference](/docs/reference/errors#rc-1101).
 

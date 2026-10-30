@@ -6,15 +6,12 @@ import type {
   CredentialStore,
   CraftConfig,
 } from "@routecraft/routecraft";
+import type { ExecResult } from "./exec.js";
 import { displayPath, findConfigFile } from "./project.js";
 import { messageOf } from "./util.js";
 
 /** What a credential command prints and exits with, as `settle` takes it. */
-export interface CommandResult {
-  code: number;
-  output?: string;
-  error?: string;
-}
+export type CommandResult = ExecResult;
 
 /** Options of `craft connect`. */
 export interface ConnectOptions {
@@ -162,10 +159,12 @@ async function openSession(): Promise<Session> {
       `No craft.config.ts found in "${root}". craft connect reads the clients to log in from it.`,
     );
   }
-  const { loadConfig } = await import("./start.js");
+  const { loadConfig, projectContentRoot, withFolderPlugins } =
+    await import("./start.js");
   let config: CraftConfig;
   try {
     config = await loadConfig(configPath);
+    config = await withFolderPlugins(root, projectContentRoot(root), config);
   } catch (error: unknown) {
     throw new Error(
       `Failed to load ${displayPath(root, configPath)}: ${messageOf(error)}`,
@@ -251,7 +250,7 @@ async function runLogin(
         process.stderr.write(
           `Log in to "${login.id}" at:\n\n  ${url.href}\n\n`,
         );
-        if (options.open !== false) openBrowser(url.href);
+        if (options.open !== false) openBrowser(url);
       },
       waitForCallback: () => listener.callback,
     };
@@ -330,14 +329,20 @@ async function listen(port: number): Promise<Listener> {
   };
 }
 
-/** Open a URL in the system browser, best effort: the URL is also printed. */
-function openBrowser(url: string): void {
+/**
+ * Open a URL in the system browser, best effort: the URL is also printed.
+ *
+ * Never through a shell: the URL comes from the authorization server's
+ * metadata, and `cmd /c start` would read its `&` as command separators.
+ */
+function openBrowser(url: URL): void {
+  if (url.protocol !== "https:" && url.protocol !== "http:") return;
   const [command, args] =
     process.platform === "darwin"
-      ? ["open", [url]]
+      ? ["open", [url.href]]
       : process.platform === "win32"
-        ? ["cmd", ["/c", "start", "", url]]
-        : ["xdg-open", [url]];
+        ? ["rundll32", ["url.dll,FileProtocolHandler", url.href]]
+        : ["xdg-open", [url.href]];
   try {
     const child = spawn(command, args, { stdio: "ignore", detached: true });
     child.on("error", () => undefined);

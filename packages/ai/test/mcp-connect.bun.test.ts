@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import {
+  collectCredentialLogins,
   craft,
   credentialsPlugin,
   direct,
@@ -249,6 +250,86 @@ describe("connect(): MCP clients behind an OAuth login", () => {
     const service = await start(new MemoryCredentialStore());
     expect(service.disabledClients.get("mail")).toContain("craft connect mail");
     expect(server.remote.counts.initialize).toBe(0);
+  });
+
+  /**
+   * @case Concurrent calls meet an expired access token together
+   * @preconditions mail logged in; five calls in flight on one connection when the access token expires; the authorization server rotates refresh tokens
+   * @expectedResult One refresh reaches the authorization server, none is refused, and every call succeeds
+   */
+  test("concurrent 401s share one refresh", async () => {
+    server = oauthRemote(URL_);
+    const store = new MemoryCredentialStore();
+    await login(store);
+    const service = await start(store);
+    server.expireAccess();
+    const answers = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        dispatchMcpCall(service, "mail", "echo", {}),
+      ),
+    );
+    expect(answers).toEqual(["pong", "pong", "pong", "pong", "pong"]);
+    expect(server.counts).toMatchObject({ refreshed: 1, refused: 0 });
+  });
+
+  /**
+   * @case The authorization server is down when a refresh is needed
+   * @preconditions mail logged in; the access token expired; the token endpoint answers 503 once
+   * @expectedResult That call fails with RC5003 saying the server did not answer; the client stays enabled with its credential, and the next call refreshes and succeeds
+   */
+  test("a token endpoint outage does not disable the client", async () => {
+    server = oauthRemote(URL_);
+    const store = new MemoryCredentialStore();
+    await login(store);
+    const service = await start(store);
+    server.expireAccess();
+    server.tokenEndpointDown();
+    await expect(
+      dispatchMcpCall(service, "mail", "echo", {}),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+    expect(service.disabledClients.has("mail")).toBe(false);
+    expect(await store.get("mcp:mail")).toBeDefined();
+    expect(await dispatchMcpCall(service, "mail", "echo", {})).toBe("pong");
+  });
+
+  /**
+   * @case A stored value that is not a credential
+   * @preconditions mcp:mail holds { foo: 1 }, as a damaged seed or a foreign build could leave
+   * @expectedResult The first call fails with RC5003 and the client is disabled with a reason saying the credential cannot be read
+   */
+  test("a malformed stored credential disables the client", async () => {
+    server = oauthRemote(URL_);
+    const store = new MemoryCredentialStore();
+    await store.put("mcp:mail", { foo: 1 }, { ifVersion: null });
+    const service = await start(store);
+    await expect(
+      dispatchMcpCall(service, "mail", "echo", {}),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+    expect(service.disabledClients.get("mail")).toContain(
+      "not one this build can read",
+    );
+  });
+
+  /**
+   * @case craft connect finds the clients declared with connect()
+   * @preconditions One under the mcp key, one in an mcpPlugin() in plugins, one in a spread mcpPlugin(), and one with a static token
+   * @expectedResult The three connect() clients are collected under their names; the static one is not
+   */
+  test("the login collector reads both config forms", () => {
+    const auth = connect({ clientId: "app-1" });
+    const ids = collectCredentialLogins({
+      mcp: {
+        clients: {
+          a: { url: URL_, auth },
+          plain: { url: URL_, auth: { token: "t" } },
+        },
+      },
+      plugins: [
+        mcpPlugin({ clients: { b: { url: URL_, auth } } }),
+        { ...mcpPlugin({ clients: { c: { url: URL_, auth } } }) },
+      ],
+    }).map((login) => `${login.id}=${login.owner}`);
+    expect(ids).toEqual(["a=mcp:a", "b=mcp:b", "c=mcp:c"]);
   });
 
   /**

@@ -1,4 +1,5 @@
 import type { CraftConfig } from "@routecraft/routecraft";
+import { rcError } from "../../error.ts";
 import type { CredentialStore } from "./types.ts";
 
 /**
@@ -83,9 +84,9 @@ export function collectCredentialLogins(
   for (const collect of registry().values()) {
     for (const login of collect(config)) {
       if (ids.has(login.id)) {
-        throw new Error(
-          `Two logins are named "${login.id}"; give the clients distinct names.`,
-        );
+        throw rcError("RC5003", undefined, {
+          message: `Two logins are named "${login.id}"; give the clients distinct names.`,
+        });
       }
       ids.add(login.id);
       logins.push(login);

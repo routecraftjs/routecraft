@@ -5,6 +5,7 @@ import {
   type CredentialStore,
 } from "@routecraft/routecraft";
 import type {
+  AuthProvider,
   OAuthClientMetadata,
   OAuthClientProvider,
   OAuthDiscoveryState,
@@ -132,6 +133,20 @@ export interface ConnectCredential {
   readonly discovery?: OAuthDiscoveryState;
 }
 
+/**
+ * The stored value as a {@link ConnectCredential}, or `undefined` when it
+ * is not one: a seed, a custom store or another build can hand back
+ * anything, and only this module knows the shape.
+ */
+function asConnectCredential(value: unknown): ConnectCredential | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const tokens = (value as { tokens?: unknown }).tokens;
+  if (typeof tokens !== "object" || tokens === null) return undefined;
+  return typeof (tokens as { access_token?: unknown }).access_token === "string"
+    ? (value as ConnectCredential)
+    : undefined;
+}
+
 /** Callbacks an {@link StoreOAuthProvider} reports through. */
 export interface StoreOAuthProviderOptions {
   readonly serverId: string;
@@ -168,6 +183,11 @@ export class StoreOAuthProvider implements OAuthClientProvider {
   readonly #owner: string;
   /** The store version the current tokens were read at. */
   #version: number | null = null;
+  /**
+   * The version the SDK's last auth run read, as opposed to a per-request
+   * token read: a refused refresh deletes only that record.
+   */
+  #refreshFrom: number | null = null;
   #discovery: OAuthDiscoveryState | undefined;
   #codeVerifier: string | undefined;
   #state: string | undefined;
@@ -175,11 +195,7 @@ export class StoreOAuthProvider implements OAuthClientProvider {
   constructor(config: StoreOAuthProviderOptions) {
     this.#config = config;
     this.#owner = connectOwner(config.serverId);
-    if (config.options.authorizationServer !== undefined) {
-      this.#discovery = {
-        authorizationServerUrl: config.options.authorizationServer,
-      };
-    }
+    this.#discovery = this.#configuredDiscovery();
     if (config.options.resourceIndicator === false) {
       // Defined only when off: the SDK treats the hook's presence as a
       // say over the parameter, and its absence as the default.
@@ -234,17 +250,23 @@ export class StoreOAuthProvider implements OAuthClientProvider {
     };
   }
 
-  async tokens(): Promise<StoredOAuthTokens | undefined> {
+  /**
+   * @param ctx - Present when the SDK reads for an auth run (a refresh),
+   *   absent on the transport's per-request read
+   */
+  async tokens(ctx?: object): Promise<StoredOAuthTokens | undefined> {
     // A login starts from nothing: offered stored tokens, the SDK would
     // refresh them instead of asking the person to log in again.
     if (this.#config.login && this.#version === null) return undefined;
     const stored = await this.#config.store.get(this.#owner);
-    if (stored === undefined) {
+    const credential = asConnectCredential(stored?.value);
+    if (stored === undefined || credential === undefined) {
       this.#version = null;
+      if (ctx !== undefined) this.#refreshFrom = null;
       return undefined;
     }
     this.#version = stored.version;
-    const credential = stored.value as ConnectCredential;
+    if (ctx !== undefined) this.#refreshFrom = stored.version;
     if (this.#discovery === undefined && credential.discovery !== undefined) {
       this.#discovery = credential.discovery;
     }
@@ -290,7 +312,22 @@ export class StoreOAuthProvider implements OAuthClientProvider {
       await this.#config.login.onAuthorizationUrl(authorizationUrl);
       return;
     }
-    const reason = `its stored credential was refused or has no refresh token; ${connectHint(this.#config.serverId)}`;
+    // Reached when the stored credential cannot be used, and also when the
+    // authorization server could not be reached or answered a server error:
+    // the SDK falls through to a new authorization either way. Only the
+    // first disables; a credential still holding a refresh token is kept
+    // for the next call to try again.
+    const stored = await this.#config.store.get(this.#owner);
+    const held = asConnectCredential(stored?.value);
+    if (held?.tokens.refresh_token !== undefined) {
+      throw rcError("RC5003", undefined, {
+        message: `MCP client "${this.#config.serverId}" could not refresh its credential: the authorization server did not answer. The next call tries again.`,
+      });
+    }
+    const reason =
+      stored !== undefined && held === undefined
+        ? `its stored credential is not one this build can read; ${connectHint(this.#config.serverId)}`
+        : `its stored credential was refused or has no refresh token; ${connectHint(this.#config.serverId)}`;
     this.#config.onLoginRequired?.(reason);
     throw rcError("RC5003", undefined, {
       message: `MCP client "${this.#config.serverId}" needs a login: ${reason}.`,
@@ -315,21 +352,17 @@ export class StoreOAuthProvider implements OAuthClientProvider {
   ): Promise<void> {
     if (scope === "verifier" || scope === "all") this.#codeVerifier = undefined;
     if (scope === "discovery" || scope === "all") {
-      this.#discovery =
-        this.#config.options.authorizationServer === undefined
-          ? undefined
-          : {
-              authorizationServerUrl: this.#config.options.authorizationServer,
-            };
+      this.#discovery = this.#configuredDiscovery();
     }
     if ((scope === "tokens" || scope === "all") && !this.#config.login) {
-      // Only the tokens this process read: when another replica refreshed
-      // meanwhile, its credential is newer than the one that was refused.
-      if (this.#version !== null) {
+      // Only the record the refused refresh read: when another replica
+      // refreshed meanwhile, its credential is newer than the one refused.
+      if (this.#refreshFrom !== null) {
         await this.#config.store.delete(this.#owner, {
-          ifVersion: this.#version,
+          ifVersion: this.#refreshFrom,
         });
       }
+      this.#refreshFrom = null;
       this.#version = null;
     }
     // "client": the client id is configuration, not something to forget.
@@ -342,6 +375,53 @@ export class StoreOAuthProvider implements OAuthClientProvider {
   discoveryState(): OAuthDiscoveryState | undefined {
     return this.#discovery;
   }
+
+  /** The discovery state configuration pins, before any discovery runs. */
+  #configuredDiscovery(): OAuthDiscoveryState | undefined {
+    const server = this.#config.options.authorizationServer;
+    return server === undefined
+      ? undefined
+      : { authorizationServerUrl: server };
+  }
+}
+
+/**
+ * The transport's view of a {@link StoreOAuthProvider}: the stored access
+ * token on every request, and one refresh at a time on a 401.
+ *
+ * The SDK starts an auth run per 401, so calls sharing a connection that
+ * meet an expired token together would each present the same refresh
+ * token. Where the authorization server rotates refresh tokens, every run
+ * after the first is refused, and one that detects reuse revokes the whole
+ * grant. Concurrent 401s therefore wait on the run already in flight.
+ *
+ * @internal
+ */
+export function coalescedAuthProvider(
+  provider: StoreOAuthProvider,
+): AuthProvider {
+  let inFlight: Promise<void> | undefined;
+  return {
+    token: async () => (await provider.tokens())?.access_token,
+    onUnauthorized(ctx) {
+      inFlight ??= (async () => {
+        const sdk = await loadMcpClientSdk("mcp (http client)");
+        const { resourceMetadataUrl, scope } = sdk.extractWWWAuthenticateParams(
+          ctx.response,
+        );
+        const result = await sdk.auth(provider, {
+          serverUrl: ctx.serverUrl,
+          fetchFn: ctx.fetchFn,
+          ...(resourceMetadataUrl !== undefined ? { resourceMetadataUrl } : {}),
+          ...(scope !== undefined ? { scope } : {}),
+        });
+        if (result !== "AUTHORIZED") throw new sdk.UnauthorizedError();
+      })().finally(() => {
+        inFlight = undefined;
+      });
+      return inFlight;
+    },
+  };
 }
 
 /**

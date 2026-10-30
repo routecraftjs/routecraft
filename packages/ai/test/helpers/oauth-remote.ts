@@ -19,6 +19,7 @@ export function oauthRemote(mcpUrl: string, issuer = "https://as.test") {
   const validRefresh = new Set<string>();
   const codes = new Map<string, { challenge: string; redirectUri: string }>();
   let issued = 0;
+  let tokenOutage = false;
   const tokenRequests: URLSearchParams[] = [];
   const counts = { authorized: 0, refreshed: 0, refused: 0 };
 
@@ -61,6 +62,10 @@ export function oauthRemote(mcpUrl: string, issuer = "https://as.test") {
         });
       }
       if (url.pathname === "/token" && request.method === "POST") {
+        if (tokenOutage) {
+          tokenOutage = false;
+          return new Response("Service Unavailable", { status: 503 });
+        }
         const form = new URLSearchParams(await request.text());
         tokenRequests.push(form);
         if (form.get("grant_type") === "authorization_code") {
@@ -130,6 +135,10 @@ export function oauthRemote(mcpUrl: string, issuer = "https://as.test") {
     /** Expire every access token, as time passing does. */
     expireAccess(): void {
       validAccess.clear();
+    },
+    /** Answer the next token request with 503, as an outage does. */
+    tokenEndpointDown(): void {
+      tokenOutage = true;
     },
     /** Revoke every refresh token, as a password change does. */
     revokeRefresh(): void {

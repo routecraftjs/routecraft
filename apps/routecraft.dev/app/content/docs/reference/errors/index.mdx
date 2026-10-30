@@ -1064,7 +1064,7 @@ Credential store failure
 The credential store, which keeps the tokens `craft connect` obtains, could not do what was asked: the file belongs to another store or to a newer build, it is locked by another process past the busy timeout, or a credential is sealed and `ROUTECRAFT_CREDENTIALS_KEY` is unset or is not the key it was sealed under. A seed in `ROUTECRAFT_CREDENTIALS_SEED` that is malformed, or was exported under another key, fails the same way as the application starts. `craft connect` raises it too when the credential changed under a login in progress.
 
 **Suggestion**  
-Read the message: it names which. Point `credentials.store` at a file of its own, set the key the store or seed was sealed under, or run the login again. A store sealed under a lost key cannot be opened: remove the file and run `craft connect` for each client. Retrying will not help.
+Read the message: it names which. Point `credentials.store` at a file of its own, set the key the store or seed was sealed under, or run the login again. A store sealed under a lost key cannot be opened: remove the file and run `craft connect` for each client. Only a lock clears on retry, once the other process finishes; every other cause needs one of those changes.
 
 ## RC9901
 Unknown error

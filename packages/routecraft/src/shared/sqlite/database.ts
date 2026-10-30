@@ -35,6 +35,20 @@ export function isSqliteBusy(cause: unknown): boolean {
 }
 
 /**
+ * Rows the last statement on this connection changed.
+ *
+ * Read back with `changes()` rather than from what `run()` returns, which
+ * bun:sqlite only reports from partway through 1.1, so a store deciding a
+ * compare-and-swap on it would read a write that landed as one that lost.
+ */
+export function sqliteChanges(db: SqliteDatabase): number {
+  const row = db.prepare("SELECT changes() AS changed").get() as {
+    changed: number;
+  };
+  return row.changed;
+}
+
+/**
  * Which store a database file belongs to, stamped into
  * `PRAGMA application_id` so a store can tell its own file from another's.
  *

@@ -886,6 +886,7 @@ export {
 } from "./plugins/credentials/types.ts";
 export {
   credentialsPlugin,
+  credentialsConfigOf,
   openCredentialStore,
   CREDENTIALS_STORE_ENV,
   type CredentialsConfig,

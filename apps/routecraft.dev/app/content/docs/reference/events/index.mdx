@@ -454,6 +454,14 @@ For a tool a route proxies from a registered client ([`mcp({ proxy })`](/docs/re
 
 A call that arrived on a [mount](/docs/reference/plugins/mcpplugin#mounts) below the root carries the mount's segment as `mount`; a call on the root omits it. On a client mount `tool` is the remote's bare name, so `mount` with `serverId` is what says which server's tool was called.
 
+### Client events
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:mcp:client:<id>:disabled` | A client declared with [`connect()`](/docs/advanced/call-an-mcp#servers-behind-a-login) was switched off: it held no credential at bind, or, while running, the authorization server refused its refresh or the credential was removed | `{ serverId, reason }` |
+
+A client disabled this way stays off until the application restarts.
+
 ### View events
 
 Fired by `resources/read` for an [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views), not by a tool call. Together they give a view failure rate.
@@ -516,6 +524,12 @@ Events emitted by the HTTP plugin (configured via `defineConfig({ http })`). The
 `plugin:http:request:completed` fires for every request by default; disable it with `http: { events: { perRequest: false } }`. Built-in endpoints (`/health`, `/ready`, `/openapi.json`) do not emit it.
 
 On a route whose [`respond`](/docs/reference/adapters/http#acknowledge-then-process) answers before the pipeline finishes, the event reports the answer rather than the work: `status` is whatever the responder returned (or `503` once shutdown has begun) and `durationMs` measures time to answer, not time to finish. The detached pipeline's own outcome arrives on `route:exchange:completed` / `route:exchange:failed` as it does for any route. A responder that awaits `finished`, or returns `undefined`, reports the finished response as usual.
+
+## Credentials plugin events
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:credentials:seed:imported` | `ROUTECRAFT_CREDENTIALS_SEED` was applied as the application bound ([details](/docs/reference/configuration#credentials)) | `{ imported, kept }`: the owners written, and the owners whose stored credential was as new or newer |
 
 ## Ops plugin events
 
