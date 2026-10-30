@@ -31,6 +31,36 @@ export class McpToolRegistry {
   /** Registry version {@link reported} was accumulated against. */
   private reportedVersion = -1;
 
+  /** Run after every change that bumps {@link version}. */
+  private readonly listeners = new Set<() => void>();
+
+  /**
+   * Run `listener` after every change to the tools: a source listing a
+   * different set, or a source removed. A re-listing that returns the same
+   * tools changes nothing and runs nothing. Returns the function that stops
+   * it.
+   */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private changed(): void {
+    this.changeVersion++;
+    // A listener that throws must not fail the listing that changed the
+    // tools, nor keep the listeners after it from running; each one logs
+    // its own failures.
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch {
+        // Owned by the listener.
+      }
+    }
+  }
+
   /**
    * Monotonically increasing version, bumped whenever a source's tools
    * actually change (a periodic re-listing that returns the same tools does
@@ -94,7 +124,7 @@ export class McpToolRegistry {
     const fingerprint = JSON.stringify([transport, tools]);
     if (this.fingerprints.get(source) !== fingerprint) {
       this.fingerprints.set(source, fingerprint);
-      this.changeVersion++;
+      this.changed();
     }
   }
 
@@ -138,7 +168,7 @@ export class McpToolRegistry {
   removeSource(source: string): void {
     if (this.tools.delete(source)) {
       this.fingerprints.delete(source);
-      this.changeVersion++;
+      this.changed();
     }
   }
 

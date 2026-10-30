@@ -369,16 +369,16 @@ describe("tools() resolver - MCP refs", () => {
       },
     ]);
     expect(() => tools(["mcp__Foo__bar"]).resolve(t!.ctx)).toThrow(
-      /client "Foo" has no registered tools.*Nuclino/s,
+      /client "Foo" is not configured.*Nuclino/s,
     );
   });
 
   /**
-   * @case Known client with unknown tool throws and lists registered tools
-   * @preconditions Registry has Nuclino:list_teams; user asks for Nuclino:nope
-   * @expectedResult Throw mentions "nope" and lists "list_teams"
+   * @case Known client with a tool it does not list is withheld, and the warning lists its tools
+   * @preconditions Registry has Nuclino:list_teams and Nuclino:search_items; user asks for Nuclino:nope
+   * @expectedResult Resolves to no tools, without throwing; the warning lists "list_teams" and "search_items". The remote names its tools, so a missing one must not fail every turn
    */
-  test("known client + unknown tool throws RC5003 listing available tools", async () => {
+  test("known client + unknown tool is withheld with the available tools", async () => {
     t = await buildCtxWithMcp([
       {
         source: "Nuclino",
@@ -386,9 +386,15 @@ describe("tools() resolver - MCP refs", () => {
         tools: [{ name: "list_teams" }, { name: "search_items" }],
       },
     ]);
-    expect(() => tools(["mcp__Nuclino__nope"]).resolve(t!.ctx)).toThrow(
-      /"nope".*list_teams.*search_items/s,
-    );
+    const warnings: string[] = [];
+    const original = t.ctx.logger.warn.bind(t.ctx.logger);
+    t.ctx.logger.warn = ((first: unknown, second?: unknown) => {
+      warnings.push(String(second));
+      return original(first as never, second as never);
+    }) as typeof t.ctx.logger.warn;
+    expect(tools(["mcp__Nuclino__nope"]).resolve(t.ctx)).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/list_teams.*search_items/s);
   });
 
   /**
