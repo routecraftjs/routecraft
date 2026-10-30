@@ -836,10 +836,9 @@ export interface McpClientOptions {
    */
   args?: McpArgsExtractor;
   /**
-   * Auth credentials for the outbound HTTP connection.
-   * When using `serverId`, auth flows automatically from `mcpPlugin({ clients })`
-   * so this field is rarely needed. Use it to override registered auth or to
-   * supply credentials when using inline `url`.
+   * Auth credentials for an inline `url` call. A `serverId` call sends the
+   * auth registered on the client in `mcpPlugin({ clients })`, and `mcp()`
+   * refuses `auth` beside `serverId` with `RC5003`.
    */
   auth?: McpClientAuthOptions;
   /**
