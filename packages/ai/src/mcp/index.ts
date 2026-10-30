@@ -5,6 +5,11 @@ export type {
   McpClientHttpConfig,
 } from "./adapters/mcp/index.ts";
 export { oauth } from "./oauth.ts";
+export {
+  connect,
+  type McpConnectAuth,
+  type McpConnectOptions,
+} from "./connect.ts";
 export type { OAuthFactoryOptions, OAuthVerifier } from "./oauth.ts";
 export type { UserinfoFn, UserinfoOption } from "./userinfo.ts";
 export type { McpCorsOptions, McpCorsOriginResolver } from "./cors.ts";

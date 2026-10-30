@@ -132,6 +132,8 @@ export interface ErrorCodeRegistry {
   RC5068: RCMeta;
   /** Cache condition failed: `cache({ when })` threw or returned a promise */
   RC5069: RCMeta;
+  /** Credential store failure: a stored credential could not be read, written or opened */
+  RC5070: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -851,6 +853,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The cache({ when }) condition threw, or returned a promise where a boolean is expected: it decides synchronously, before the key is derived. Make it return true or false from what the exchange already carries, and move any lookup it needs into a step above the cache. Retrying will not help: the same exchange fails the same way.",
     docs: `${DOCS_BASE}#rc-5069`,
+    retryable: false,
+  },
+  RC5070: {
+    category: "Adapter",
+    message: "Credential store failure",
+    suggestion:
+      "The credential store could not open, read or write a credential, or a sealed credential or seed did not open under ROUTECRAFT_CREDENTIALS_KEY. The message names which. A sealed value needs the key it was sealed under; a seed needs the key it was exported under; a file that belongs to another store needs its own path in credentials: { store }.",
+    docs: `${DOCS_BASE}#rc-5070`,
     retryable: false,
   },
   RC9901: {

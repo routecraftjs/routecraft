@@ -54,6 +54,8 @@ export const SQLITE_APPLICATION_IDS = {
   deferral: 0x5243_4445,
   /** "RCSE", the agent session store. */
   session: 0x5243_5345,
+  /** "RCCR", the credential store. */
+  credentials: 0x5243_4352,
 } as const;
 
 /** A stamped identity, or 0 for a file no build has claimed. */

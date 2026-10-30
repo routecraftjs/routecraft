@@ -1,6 +1,11 @@
-import { registerConfigApplier } from "@routecraft/routecraft";
+import {
+  registerConfigApplier,
+  registerCredentialLogins,
+  type CredentialLogin,
+} from "@routecraft/routecraft";
 import { llmPlugin } from "./llm/plugin.ts";
-import { mcpPlugin } from "./mcp/plugin.ts";
+import { mcpPlugin, mcpPluginOptions } from "./mcp/plugin.ts";
+import { connectLogin, isConnectAuth } from "./mcp/connect.ts";
 import { embeddingPlugin } from "./embedding/plugin.ts";
 import { agentPlugin } from "./agent/plugin.ts";
 import type { LlmPluginOptions } from "./llm/types.ts";
@@ -74,3 +79,21 @@ registerConfigApplier("agent", (options) => agentPlugin(options));
 registerConfigApplier("sessions", (options) => sessionsPlugin(options));
 // Last on purpose: it reads the registry `agent` filled.
 registerConfigApplier("acp", (options) => acpPlugin(options));
+
+// `craft connect` runs the logins of the clients declared with connect(),
+// whether under the `mcp` key or in an `mcpPlugin()` in `plugins`.
+registerCredentialLogins("mcp", (config) => {
+  const sources = [
+    config.mcp,
+    ...(config.plugins ?? []).map((plugin) => mcpPluginOptions(plugin)),
+  ];
+  const logins: CredentialLogin[] = [];
+  for (const options of sources) {
+    for (const [serverId, client] of Object.entries(options?.clients ?? {})) {
+      if ("url" in client && isConnectAuth(client.auth)) {
+        logins.push(connectLogin(serverId, client.url, client.auth));
+      }
+    }
+  }
+  return logins;
+});

@@ -1,5 +1,6 @@
 import {
   AUTHORITY,
+  CREDENTIALS,
   ENFORCEMENT,
   evaluateEnablementOnce,
   type Plugin,
@@ -27,8 +28,33 @@ import {
   type StdioClientManagerOptions,
 } from "./stdio-client-manager.ts";
 import type { McpToolRegistry } from "./tool-registry.ts";
+import type { OAuthClientProvider } from "@modelcontextprotocol/client";
+import {
+  connectHint,
+  connectOwner,
+  isConnectAuth,
+  StoreOAuthProvider,
+} from "./connect.ts";
+import { createMcpHttpConnections } from "./http-connections.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
+
+/** The options each `mcpPlugin()` was built with, for `craft connect`. */
+const pluginOptions = new WeakMap<Plugin, McpPluginOptions>();
+
+/**
+ * The options an `mcpPlugin()` descriptor was built with, or `undefined`
+ * for any other plugin.
+ *
+ * @internal
+ */
+export function mcpPluginOptions(
+  plugin: unknown,
+): McpPluginOptions | undefined {
+  return typeof plugin === "object" && plugin !== null
+    ? pluginOptions.get(plugin as Plugin)
+    : undefined;
+}
 
 function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
   return "transport" in config && config.transport === "stdio";
@@ -53,21 +79,41 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
 
   const servers = new WeakMap<PluginContext, McpServer>();
 
-  return {
+  const plugin: Plugin = {
     id: "routecraft.ai.mcp",
     provides: [MCP],
     requires: [AUTHORITY],
-    optional: [WEB_INGRESS, ENFORCEMENT],
+    optional: [WEB_INGRESS, ENFORCEMENT, CREDENTIALS],
     async bind(c: PluginContext) {
       const stdio = new Map<string, StdioClientManager>();
       const clients = new Map<string, McpClientConfig>();
       const disabledClients = new Map<string, string>();
+      const authProviders = new Map<string, OAuthClientProvider>();
       // Shared, so the disposer that removes a manager removes what dispatch sees.
       const service: McpService = createMcpService({
         stdio,
         clients,
         disabledClients,
+        http: createMcpHttpConnections({ authProviders }),
       });
+
+      // A client that logs in and has lost its credential is switched off
+      // where it stands, as `enabled` would have, so the rest runs on.
+      const disable = (serverId: string, reason: string): void => {
+        if (disabledClients.has(serverId)) return;
+        clients.delete(serverId);
+        authProviders.delete(serverId);
+        disabledClients.set(serverId, reason);
+        service.tools.removeSource(serverId);
+        c.logger.warn(
+          { serverId, reason },
+          "MCP client is disabled: it needs a login",
+        );
+        c.emit(
+          `plugin:mcp:client:${serverId}:disabled` as EventName,
+          { serverId, reason } as Record<string, unknown>,
+        );
+      };
       c.provide(MCP, service);
 
       // Registered ahead of every refresh timer: disposers run in reverse, so
@@ -103,6 +149,26 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
             );
             continue;
           }
+        }
+        if (!isStdioConfig(config) && isConnectAuth(config.auth)) {
+          const reason = await loginCredential(c, serverId);
+          if (reason !== undefined) {
+            disabledClients.set(serverId, reason);
+            c.logger.warn(
+              { serverId, reason },
+              "MCP client is disabled: it needs a login; not connecting",
+            );
+            continue;
+          }
+          authProviders.set(
+            serverId,
+            new StoreOAuthProvider({
+              serverId,
+              options: config.auth.options,
+              store: c.require(CREDENTIALS),
+              onLoginRequired: (why) => disable(serverId, why),
+            }),
+          );
         }
         clients.set(serverId, config);
         if (isStdioConfig(config)) {
@@ -149,6 +215,36 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       await servers.get(c)?.start();
     },
   };
+  pluginOptions.set(plugin, options);
+  return plugin;
+
+  /**
+   * Why a client that logs in cannot connect, or `undefined` when its
+   * credential is in the store. Read once at bind: a credential that goes
+   * missing later is found by the refresh that fails.
+   */
+  async function loginCredential(
+    c: PluginContext,
+    serverId: string,
+  ): Promise<string | undefined> {
+    const store = c.lookup(CREDENTIALS);
+    if (store === undefined) {
+      return "no credential store is installed";
+    }
+    try {
+      const stored = await store.get(connectOwner(serverId));
+      if (stored === undefined) {
+        return `no stored credential; ${connectHint(serverId)}`;
+      }
+      return undefined;
+    } catch (err) {
+      c.logger.warn(
+        { err, serverId },
+        "Could not read the credential of an MCP client",
+      );
+      return `its stored credential could not be read (${err instanceof Error ? err.message : String(err)})`;
+    }
+  }
 
   async function startStdioClient(
     c: PluginContext,
@@ -219,6 +315,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     serverId: string,
     config: McpClientHttpConfig,
   ): Promise<void> {
+    // Switched off since the last listing: its login was refused.
+    if (!service.clients.has(serverId)) return;
     try {
       // On the client's shared connection. A failure the remote did not
       // answer evicts it, so the next refresh reconnects.

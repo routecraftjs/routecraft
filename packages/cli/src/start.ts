@@ -213,7 +213,7 @@ export async function startCommand(
  * `defineProject(...)`, or a plain config as the default export or as the
  * named `craftConfig` export.
  */
-async function loadConfig(configPath: string): Promise<CraftConfig> {
+export async function loadConfig(configPath: string): Promise<CraftConfig> {
   const module = (await import(configPath)) as {
     craftConfig?: CraftConfig;
     default?: unknown;

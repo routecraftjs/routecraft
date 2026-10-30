@@ -97,6 +97,7 @@ A disabled route is registered and known to the context, not started, not intaki
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
 | `deferral` | `DeferralConfig` | Only when a route can reach `.defer()` or `.resume()` | -- | Where deferred exchanges are stored and how resume tokens are signed. A context with a deferrable route and no `deferral` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#deferral)) |
+| `credentials` | `CredentialsConfig` | No | `.routecraft/credentials.db` | Where the credentials `craft connect` obtains are kept and refreshed ([details](#credentials)) |
 | `shutdown` | `{ timeout?: Duration }` | No | `{ timeout: 30000 }` | How long a graceful shutdown may drain before it is forced ([details](#shutdown)) |
 | `plugins` | `Plugin[]` | No | -- | Plugins to install, bound in dependency order before routes are registered ([details](/docs/reference/plugins)) |
 | `hooks` | `HooksConfig` | No | -- | The order of plugin hooks within a slot, and hooks switched off ([details](#hooks)) |
@@ -322,6 +323,33 @@ An explicit config value wins over the environment.
 **The store backend is chosen per runtime.** Under Bun it is `bun:sqlite`, a built-in. Under Node it is `better-sqlite3` 11, 12 or 13, an optional peer: install it (`bun add better-sqlite3`) to get a durable store on Node. 13 ships binaries for Linux, macOS and Windows on x64 and arm64 and needs Node 22.14 or later; on older Node or another platform, install 12 (`bun add better-sqlite3@12`), since 13 is refused there with [`RC5017`](/docs/reference/errors#rc-5017). Without it, an unconfigured context falls back to the in-memory backend and warns that deferred exchanges will not survive a restart, while a context that named a `store` path fails to start rather than silently losing durability it asked for.
 
 **If you defer exchanges, pin your line endings and build settings across deploys.** A deferred exchange records a hash of the steps that have not run yet, so that a change to what an approval authorises invalidates it rather than resuming into different behaviour. That hash reads step identity from function source text **verbatim**, with no normalisation, because any normalisation that made two different sources hash alike would also be a way to miss a real change. The consequence is that the hash is sensitive to more than your source tree: a formatting pass, a checkout with different line endings, and a build that changes emitted text (a different minifier, new bundler settings, a TypeScript target bump) each move it for steps whose behaviour did not change. Every one of those outcomes is safe rather than silent, since affected exchanges re-enter their route's error channel and can be re-asked; none of them can resume an approval into different behaviour, which is the trade being made. For a repository whose routes defer approvals for days, commit a `.gitattributes` with `* text eol=lf` (or the equivalent pin for your platform) so checkouts agree on line endings, and keep build settings stable between releases. Running TypeScript directly (the default under Bun, with no bundler in the path) removes the build half of this entirely.
+
+### credentials
+
+Where the credentials for upstream servers live: the tokens a [`craft connect`](/docs/reference/cli#connect) login obtains for a client declared with [`connect()`](/docs/advanced/call-an-mcp#servers-behind-a-login), refreshed in place by the application. Optional: without it the SQLite backend at `.routecraft/credentials.db` is used, opened the first time a client reads its credential, so an application with no such client never creates the file. `craft connect` opens the store from the same configuration, so a login writes where the application reads.
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+
+export const craftConfig = defineConfig({
+  credentials: {
+    // A mounted volume, so a refreshed token survives a redeploy.
+    store: { path: '/data/credentials.db' },
+  },
+})
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `store` | `string \| { path: string } \| "memory" \| CredentialStore` | `.routecraft/credentials.db` | Where credentials live. A path opens the SQLite backend, created readable by its owner only (mode 0600). `"memory"` keeps them in the process, lost on restart, and `craft connect` refuses it because a login there cannot reach the application. A `CredentialStore` instance plugs in a backend of your own; every write it accepts must be a compare-and-swap on the record's version. |
+
+| Variable | Purpose |
+|----------|---------|
+| `ROUTECRAFT_CREDENTIALS_STORE` | Store location: a file path, or the literal `memory`. An explicit `store` wins. |
+| `ROUTECRAFT_CREDENTIALS_KEY` | Key every credential is sealed under at rest (AES-256-GCM, key derived with HKDF), and the key a seed is sealed under. Without it values are stored as plain JSON in the 0600 file, and `craft connect --export` refuses. A store sealed under one key cannot be read under another or without one: the read fails with [`RC5070`](/docs/reference/errors#rc-5070). |
+| `ROUTECRAFT_CREDENTIALS_SEED` | A seed printed by `craft connect --export`, imported into the store as the application starts. An entry is written when the store holds nothing for its client, or holds a credential from an earlier login; a credential refreshed since its login keeps its login time, so booting again with the same seed never overwrites a newer refresh token. |
+
+Under Node the SQLite backend needs `better-sqlite3`, as the [deferral store](#deferral) does. Without it, an unconfigured store falls back to memory with a warning; a configured one fails.
 
 ### sessions
 

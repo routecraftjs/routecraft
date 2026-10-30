@@ -16,6 +16,7 @@
 import { loadOptionalPeer } from "@routecraft/routecraft";
 import { version as packageVersion } from "../../package.json";
 import { buildAuthHeaders } from "./build-auth-headers.ts";
+import type { OAuthClientProvider } from "@modelcontextprotocol/client";
 import type { McpClientAuthOptions } from "./types.ts";
 
 /** The v2 server package: `createMcpHandler`, `Server`, bearer auth, OAuth metadata. */
@@ -108,6 +109,7 @@ export const MCP_CLIENT_INFO = {
 export async function connectMcpHttpClient(
   url: URL,
   auth?: McpClientAuthOptions,
+  authProvider?: OAuthClientProvider,
 ): Promise<{
   client: InstanceType<Awaited<ReturnType<typeof loadMcpClientSdk>>["Client"]>;
   transport: InstanceType<
@@ -125,17 +127,25 @@ export async function connectMcpHttpClient(
   // per request; a client cached across many calls (mcpPlugin's clients) would
   // otherwise pin whichever token was current when it connected and keep
   // presenting it after expiry.
-  const transport = new StreamableHTTPClientTransport(url, {
-    fetch: async (input, init) => {
-      const headers = await buildAuthHeaders(auth);
-      if (!headers) return fetch(input, init);
-      const merged = new Headers(init?.headers);
-      for (const [name, value] of Object.entries(headers)) {
-        merged.set(name, value);
-      }
-      return fetch(input, { ...init, headers: merged });
-    },
-  });
+  //
+  // An OAuth provider takes the place of the hook: the transport asks it for
+  // the access token on every request and has it refresh on a 401.
+  const transport = new StreamableHTTPClientTransport(
+    url,
+    authProvider
+      ? { authProvider }
+      : {
+          fetch: async (input, init) => {
+            const headers = await buildAuthHeaders(auth);
+            if (!headers) return fetch(input, init);
+            const merged = new Headers(init?.headers);
+            for (const [name, value] of Object.entries(headers)) {
+              merged.set(name, value);
+            }
+            return fetch(input, { ...init, headers: merged });
+          },
+        },
+  );
   const client = new Client(MCP_CLIENT_INFO, {
     capabilities: {},
     versionNegotiation: MCP_VERSION_NEGOTIATION,

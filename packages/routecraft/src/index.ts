@@ -171,6 +171,7 @@ import "./adapters/mail/config.ts";
 import "./adapters/carddav/config.ts";
 import "./telemetry/config.ts";
 import "./plugins/deferral/index.ts";
+import "./plugins/credentials/index.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { serversPlugin } from "./plugins/server/plugin.ts";
@@ -872,6 +873,49 @@ export {
   releaseClaimant,
   type SqlitePathConflict,
 } from "./shared/sqlite/claims.ts";
+
+// Credentials for upstreams: the port and its store contract for anyone
+// writing a backend, the shipped backends, the seed a server imports, and
+// the environment-variable names. @routecraft/ai's connect() and the CLI's
+// `craft connect` read and write through these.
+export {
+  CREDENTIALS,
+  type CredentialStore,
+  type CredentialWrite,
+  type StoredCredential,
+} from "./plugins/credentials/types.ts";
+export {
+  credentialsPlugin,
+  openCredentialStore,
+  CREDENTIALS_STORE_ENV,
+  type CredentialsConfig,
+  type CredentialStoreConfig,
+} from "./plugins/credentials/index.ts";
+export {
+  registerCredentialLogins,
+  collectCredentialLogins,
+  type CredentialLogin,
+  type CredentialLoginCollector,
+  type CredentialLoginIO,
+} from "./plugins/credentials/login.ts";
+export { MemoryCredentialStore } from "./plugins/credentials/memory-store.ts";
+export {
+  SqliteCredentialStore,
+  DEFAULT_CREDENTIALS_DB_PATH,
+} from "./plugins/credentials/sqlite-store.ts";
+export {
+  CREDENTIALS_KEY_ENV,
+  createSealer,
+  sealerFromEnv,
+  type CredentialSealer,
+} from "./plugins/credentials/seal.ts";
+export {
+  CREDENTIALS_SEED_ENV,
+  encodeCredentialSeed,
+  decodeCredentialSeed,
+  importCredentialSeed,
+  type CredentialSeedEntry,
+} from "./plugins/credentials/seed.ts";
 
 // The continuation protocol (hashing, serialization, park and resume) is the
 // kernel's, and the deferral plugin provides storage and token minting over
