@@ -1125,6 +1125,15 @@ export interface EventDetailsMap {
    * named server rather than owning a socket.
    */
   "plugin:ops:health:changed": HealthChange;
+  /**
+   * A credential seed from `ROUTECRAFT_CREDENTIALS_SEED` was applied at
+   * bind: the owners written, and those whose stored credential was as new
+   * or newer and so kept. Owners only, never a credential.
+   */
+  "plugin:credentials:seed:imported": {
+    imported: string[];
+    kept: string[];
+  };
   "plugin:http:request:completed": {
     method: string;
     path: string;

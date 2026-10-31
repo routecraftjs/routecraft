@@ -478,6 +478,73 @@ program
   );
 
 /**
+ * The 'connect' command logs a configured client in and stores its
+ * credential where the application reads it. Runs where a browser is; a
+ * server gets the credential from the seed `--export` prints.
+ *
+ * Example:
+ * craft connect mail
+ * craft connect --all
+ * craft connect mail --export
+ * craft connect --list
+ */
+withEnvironment(
+  program
+    .command("connect")
+    .description(
+      "Log in a client declared with connect() and store its credential",
+    )
+    .argument("[client]", "Client to log in, by its configured name")
+    .option("--all", "Log in every client that holds no credential")
+    .option(
+      "--export",
+      `Print a sealed seed of the credentials for a server (needs ROUTECRAFT_CREDENTIALS_KEY)`,
+    )
+    .option("--list", "Show each client that logs in and what it holds")
+    .option("--no-open", "Print the login URL without opening a browser")
+    .option(
+      "--port <port>",
+      "Fixed loopback port for the redirect, when the provider's registered redirect URI names one",
+    ),
+  () => process.cwd(),
+).action(
+  async (
+    client: string | undefined,
+    options: {
+      all?: boolean;
+      export?: boolean;
+      list?: boolean;
+      open?: boolean;
+      port?: string;
+    },
+  ) => {
+    const { connectCommand } = await import("./connect.js");
+    settle(await connectCommand(client, options));
+  },
+);
+
+/**
+ * The 'disconnect' command removes a client's stored credential, so the
+ * application disables the client on its next start.
+ *
+ * Example:
+ * craft disconnect mail
+ */
+withEnvironment(
+  program
+    .command("disconnect")
+    .description("Remove the stored credential of a client")
+    .argument(
+      "<client>",
+      "Client to disconnect, by its configured name or the stored owner --list shows",
+    ),
+  () => process.cwd(),
+).action(async (client: string) => {
+  const { disconnectCommand } = await import("./connect.js");
+  settle(await disconnectCommand(client));
+});
+
+/**
  * The 'acp' command is the pipe an editor runs.
  *
  * An editor starts it and speaks the Agent Client Protocol over its

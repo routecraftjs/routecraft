@@ -1057,6 +1057,15 @@ The [`cache({ when })`](/docs/reference/operations/cache#cache-condition) condit
 **Suggestion**  
 Make the condition return `true` or `false` from what the exchange already carries (its body, its headers, its principal), and move any lookup it needs into a step above the cache. Retrying will not help: the same exchange fails the same way.
 
+## RC5070
+Credential store failure
+
+**Why it happens**  
+The credential store, which keeps the tokens `craft connect` obtains, could not do what was asked: the file belongs to another store or to a newer build, it is locked by another process past the busy timeout, the file cannot be made readable by its owner only, `ROUTECRAFT_CREDENTIALS_KEY` is shorter than 32 characters, or a credential is sealed and the key is unset, is not the key it was sealed under, or the sealed value was altered. A seed in `ROUTECRAFT_CREDENTIALS_SEED` that is malformed, or was exported under another key, fails the same way as the application starts. `craft connect` raises it too when the credential changed under a login in progress.
+
+**Suggestion**  
+Read the message: it names which. Point `credentials.store` at a file of its own; run the newer Routecraft build for a store it wrote; fix the file's ownership; set the key the store or seed was sealed under; export a damaged or newer seed again with `craft connect <client> --export`; or run the login again. A store sealed under a lost key, or holding an altered value, cannot be opened: remove the file and run `craft connect` for each client. A lock is the one cause that clears without a change, once the other process finishes; the error is still not marked retryable, because the others are not.
+
 ## RC9901
 Unknown error
 

@@ -88,6 +88,68 @@ If you only need to call a single external tool and do not want to register it g
 .to(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'navigate' }))
 ```
 
+## Servers behind a login
+
+Some MCP servers take no API key: a person logs in once with OAuth, and the server accepts the tokens that login produced. Declare such a client with `connect()`, giving the client id you registered with its authorization server:
+
+```ts
+// craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
+import { connect } from '@routecraft/ai'
+
+export const craftConfig = defineConfig({
+  mcp: {
+    clients: {
+      mail: {
+        url: process.env.MAIL_MCP_URL!,
+        auth: connect({
+          clientId: process.env.MAIL_CLIENT_ID!,
+          scopes: ['mail.read'],
+        }),
+      },
+    },
+  },
+})
+```
+
+Then log in from the project directory, on a machine with a browser:
+
+```bash
+craft connect mail
+```
+
+The command opens the authorization page, waits for the redirect on `http://127.0.0.1/callback` (register that as a redirect URI; a server that follows RFC 8252 accepts any port on it, and `--port` pins one for a server that does not), and writes the credential to the credential store. The application reads it from there, refreshes the access token when the server answers 401, and writes the rotated refresh token back. The write is a compare-and-swap on the record's version, so an instance holding an older credential never writes it over a newer one. Two instances that refresh at the same moment both send the same refresh token; a server that rotates refresh tokens refuses the later one, and that instance reads what the other stored and carries on.
+
+A client with no stored credential, or whose refresh the authorization server refuses, is disabled with the reason `run craft connect mail`: its tools leave every agent with a warning, a call to it is refused, and the rest of the application runs. It stays disabled until the application restarts, so restart after `craft connect` to bring it back. An authorization server that does not answer fails that one call and leaves the client enabled. `craft connect --list` shows what each client holds, `craft connect --all` logs in every client that holds nothing, and `craft disconnect mail` removes a credential.
+
+### Getting the credential to a server
+
+A server has no browser. Log in on your own machine with a key set, export the credential, and hand the server the seed and the same key:
+
+```bash
+export ROUTECRAFT_CREDENTIALS_KEY="$(openssl rand -base64 32)"
+craft connect mail --export
+```
+
+The command prints one line, the seed, sealed with AES-256-GCM under the key. Set `ROUTECRAFT_CREDENTIALS_SEED` to it and `ROUTECRAFT_CREDENTIALS_KEY` to the key on the server. On boot the server imports the seed into its store when the store holds nothing for the client, or holds a credential from an earlier login. A credential the server has refreshed since keeps its login time, so restarting with the same seed never overwrites a newer refresh token. Mount the store's directory (`.routecraft/` by default, or the path in [`credentials.store`](/docs/reference/configuration#credentials)) on a volume, so a redeploy keeps the refreshed credential. Instances that share the store must share it on one host: SQLite locking over a network file system such as NFS is unreliable, so a store on NFS can lose a refresh.
+
+The machine you exported from still holds the same refresh token. Most authorization servers rotate it on every refresh, so whichever side refreshes first leaves the other with a refused token. After exporting, run `craft disconnect <client>` there, or do not run the application on that machine.
+
+With the key set, the store also seals every credential at rest. A credential written before the key was set stays plain until it is next written, by a refresh or a login; run `craft connect <client>` to seal it now. Without the key the store is a plain file readable by its owner only (mode 0600), and `--export` refuses. The key must be random, at least 32 characters, such as `openssl rand -base64 32` prints: it is used as given, not stretched like a password.
+
+### Options
+
+| Option | What it does |
+|---|---|
+| `clientId` | The OAuth client id registered with the authorization server. Required: dynamic client registration is not used. |
+| `clientSecret` | For an authorization server that issues a secret even to an app on the user's machine. Sent in the token request body. |
+| `scopes` | Scopes to request. Ask for the narrowest the server allows: every caller a route admits acts with this credential. |
+| `authorizationServer` | The issuer URL, for a server that does not advertise one in its protected resource metadata. |
+| `resourceIndicator` | `false` drops the RFC 8707 `resource` parameter, for an authorization server that rejects it. Default `true`. |
+| `authorizationParams` | Extra query parameters on the authorization request, for a server that issues a refresh token only when asked in its own terms, such as `{ access_type: 'offline', prompt: 'consent' }`. |
+
+`connect()` works on a client registered under `mcp.clients` or `mcpPlugin({ clients })`. An inline `mcp({ url })` has no name to keep a credential under, so it takes a static `auth` only.
+
 ## Guardrails: raw, guarded, or wrapped
 
 A raw MCP tool carries no per-call policy. When an agent calls one, the credentials registered on the client are what reach the server; the agent does not forward the caller's principal to the MCP hop (this keeps the two trust boundaries separate: see [Securing capabilities](/docs/advanced/securing-capabilities)). So a raw tool has no identity check, no caching, and no timeout of its own. You add those on the Routecraft side, and there are three tiers to choose from.

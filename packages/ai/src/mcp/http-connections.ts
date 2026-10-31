@@ -3,8 +3,11 @@ import {
   createConnectionCache,
   type DisposableEntry,
 } from "./http-client-cache.ts";
+import type { AuthProvider } from "@modelcontextprotocol/client";
+import { connectHint, isConnectAuth } from "./connect.ts";
 import { connectMcpHttpClient, loadMcpClientSdk } from "./sdk.ts";
 import type {
+  McpClientAuthOptions,
   McpClientHttpConfig,
   McpRawToolResult,
   McpTool,
@@ -77,7 +80,20 @@ export interface McpHttpConnections {
  *
  * @internal
  */
-export function createMcpHttpConnections(): McpHttpConnections {
+export function createMcpHttpConnections(
+  options: {
+    /**
+     * The OAuth providers of the clients that log in with `connect()`, by
+     * client id. Read at each connect, so the plugin fills it during bind.
+     */
+    readonly authProviders?: ReadonlyMap<string, AuthProvider>;
+    /**
+     * Why a client was switched off, by client id, so a call that raced
+     * the switch is refused with the recorded reason.
+     */
+    readonly disabledClients?: ReadonlyMap<string, string>;
+  } = {},
+): McpHttpConnections {
   const cache = createConnectionCache<HttpConnection>();
   // Every connection not yet closed, draining ones included, so stopping
   // the plugin closes them all whatever is still in flight.
@@ -95,10 +111,24 @@ export function createMcpHttpConnections(): McpHttpConnections {
         }),
       );
     }
+    const login = isConnectAuth(config.auth);
+    const authProvider = options.authProviders?.get(serverId);
+    if (login && authProvider === undefined) {
+      const disabled = options.disabledClients?.get(serverId);
+      return Promise.reject(
+        rcError("RC5003", undefined, {
+          message:
+            disabled === undefined
+              ? `mcp dispatch: client "${serverId}" has no stored credential; ${connectHint(serverId)}.`
+              : `mcp dispatch: client "${serverId}" is disabled (${disabled}), so it is not called.`,
+        }),
+      );
+    }
     return cache.getOrCreate(serverId, async () => {
       const { client, transport } = await connectMcpHttpClient(
         new URL(config.url),
-        config.auth,
+        login ? undefined : (config.auth as McpClientAuthOptions | undefined),
+        authProvider,
       );
       let inFlight = 0;
       let retired = false;

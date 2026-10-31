@@ -1,5 +1,6 @@
 import {
   AUTHORITY,
+  CREDENTIALS,
   ENFORCEMENT,
   evaluateEnablementOnce,
   type Plugin,
@@ -27,8 +28,39 @@ import {
   type StdioClientManagerOptions,
 } from "./stdio-client-manager.ts";
 import type { McpToolRegistry } from "./tool-registry.ts";
+import type { AuthProvider } from "@modelcontextprotocol/client";
+import {
+  coalescedAuthProvider,
+  connectHint,
+  connectOwner,
+  isConnectAuth,
+  StoreOAuthProvider,
+} from "./connect.ts";
+import { createMcpHttpConnections } from "./http-connections.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
+
+/**
+ * Where an `mcpPlugin()` descriptor carries its options, for `craft
+ * connect`. Enumerable and keyed by a registered symbol, so a spread
+ * descriptor or a second copy of the package still carries them.
+ */
+const PLUGIN_OPTIONS = Symbol.for("routecraft.ai.mcp.options");
+
+/**
+ * The options an `mcpPlugin()` descriptor was built with, or `undefined`
+ * for any other plugin.
+ *
+ * @internal
+ */
+export function mcpPluginOptions(
+  plugin: unknown,
+): McpPluginOptions | undefined {
+  return typeof plugin === "object" && plugin !== null
+    ? ((plugin as Record<symbol, unknown>)[PLUGIN_OPTIONS] as
+        McpPluginOptions | undefined)
+    : undefined;
+}
 
 function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
   return "transport" in config && config.transport === "stdio";
@@ -53,21 +85,41 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
 
   const servers = new WeakMap<PluginContext, McpServer>();
 
-  return {
+  const plugin: Plugin = {
     id: "routecraft.ai.mcp",
     provides: [MCP],
     requires: [AUTHORITY],
-    optional: [WEB_INGRESS, ENFORCEMENT],
+    optional: [WEB_INGRESS, ENFORCEMENT, CREDENTIALS],
     async bind(c: PluginContext) {
       const stdio = new Map<string, StdioClientManager>();
       const clients = new Map<string, McpClientConfig>();
       const disabledClients = new Map<string, string>();
+      const authProviders = new Map<string, AuthProvider>();
       // Shared, so the disposer that removes a manager removes what dispatch sees.
       const service: McpService = createMcpService({
         stdio,
         clients,
         disabledClients,
+        http: createMcpHttpConnections({ authProviders, disabledClients }),
       });
+
+      // A client that logs in and has lost its credential is switched off
+      // where it stands, as `enabled` would have, so the rest runs on.
+      const disable = (serverId: string, reason: string): void => {
+        if (disabledClients.has(serverId)) return;
+        clients.delete(serverId);
+        authProviders.delete(serverId);
+        disabledClients.set(serverId, reason);
+        service.tools.removeSource(serverId);
+        c.logger.warn(
+          { serverId, reason },
+          "MCP client is disabled; not connecting",
+        );
+        c.emit(
+          `plugin:mcp:client:${serverId}:disabled` as EventName,
+          { serverId, reason } as Record<string, unknown>,
+        );
+      };
       c.provide(MCP, service);
 
       // Registered ahead of every refresh timer: disposers run in reverse, so
@@ -103,6 +155,24 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
             );
             continue;
           }
+        }
+        if (!isStdioConfig(config) && isConnectAuth(config.auth)) {
+          const reason = await loginCredential(c, serverId);
+          if (reason !== undefined) {
+            disable(serverId, reason);
+            continue;
+          }
+          authProviders.set(
+            serverId,
+            coalescedAuthProvider(
+              new StoreOAuthProvider({
+                serverId,
+                options: config.auth.options,
+                store: c.require(CREDENTIALS),
+                onLoginRequired: (why) => disable(serverId, why),
+              }),
+            ),
+          );
         }
         clients.set(serverId, config);
         if (isStdioConfig(config)) {
@@ -149,6 +219,38 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       await servers.get(c)?.start();
     },
   };
+  return Object.assign(plugin, { [PLUGIN_OPTIONS]: options });
+
+  /**
+   * Why a client that logs in cannot connect, or `undefined` when its
+   * credential is in the store or the store could not be read. Read once
+   * at bind: a credential that goes missing later is found by the refresh
+   * that fails. A read that fails (a lock, a mount not up yet) leaves the
+   * client enabled, as the same failure on a request does, so a passing
+   * fault does not switch it off until a restart.
+   */
+  async function loginCredential(
+    c: PluginContext,
+    serverId: string,
+  ): Promise<string | undefined> {
+    const store = c.lookup(CREDENTIALS);
+    if (store === undefined) {
+      return "no credential store is installed";
+    }
+    try {
+      const stored = await store.get(connectOwner(serverId));
+      if (stored === undefined) {
+        return `no stored credential; ${connectHint(serverId)}`;
+      }
+      return undefined;
+    } catch (err) {
+      c.logger.warn(
+        { err, serverId },
+        "Could not read the credential of an MCP client at bind; keeping it enabled",
+      );
+      return undefined;
+    }
+  }
 
   async function startStdioClient(
     c: PluginContext,
@@ -219,10 +321,14 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     serverId: string,
     config: McpClientHttpConfig,
   ): Promise<void> {
+    // Switched off since the last listing: its login was refused.
+    if (!service.clients.has(serverId)) return;
     try {
       // On the client's shared connection. A failure the remote did not
       // answer evicts it, so the next refresh reconnects.
       const result = await service.http.listTools(serverId, config);
+      // Disabled while the listing was in flight.
+      if (!service.clients.has(serverId)) return;
       const tools = result.tools ?? [];
       service.tools.setToolsForSource(serverId, "http", tools);
 

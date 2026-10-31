@@ -181,6 +181,7 @@ The ports the framework ships:
 | `HTTP` | `routecraft.http@1` | `routecraft.http` |
 | `OPS` | `routecraft.ops@1` | `routecraft.ops` |
 | `REMOTES` | `routecraft.remotes@1` | `routecraft.remotes` |
+| `CREDENTIALS` | `routecraft.credentials@1` | `routecraft.credentials` (default; see [`credentials`](/docs/reference/configuration#credentials)) |
 | `CRON_DEFAULTS` | `routecraft.cron.defaults@1` | `routecraft.cron` |
 | `MAIL` | `routecraft.mail@1` | `routecraft.mail` |
 | `CARDDAV` | `routecraft.carddav@1` | `routecraft.carddav` |
@@ -207,6 +208,7 @@ Installed in every application, ahead of its own plugins:
 | `routecraft.cache` | `cachePlugin()` | `CACHE` | |
 | `routecraft.principals` | `principalsPlugin()` | `AUTHORITY` | |
 | `routecraft.auth` | `authPlugin()` | `ENFORCEMENT` | steps `authenticate`, `delegate`; facet `ex.auth` |
+| `routecraft.credentials` | `credentialsPlugin()` | `CREDENTIALS` | |
 
 An application plugin with the same id takes a default's place. A plugin that declares `replaces` for a default's port is selected over it while the default still binds. The deferral plugin (`routecraft.deferral`, installed by the `deferral` config key) adds the `defer` and `resume` steps and the `ex.deferral` facet.
 

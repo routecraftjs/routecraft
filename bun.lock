@@ -112,7 +112,7 @@
       "dependencies": {
         "@routecraft/ai": "workspace:*",
         "@routecraft/routecraft": "workspace:*",
-        "@typesafe-ai/sdk": "^0.7.0",
+        "@typesafe-ai/sdk": "^0.6.0",
         "commander": "^14.0.3",
         "zod": "^4.6.7",
       },
@@ -1117,7 +1117,7 @@
 
     "@types/unist": ["@types/unist@3.0.3", "", {}, "sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q=="],
 
-    "@typesafe-ai/sdk": ["@typesafe-ai/sdk@0.7.0", "", {}, "sha512-Yg3OZArCQMJx98ut8QVkhx3rFo9ON7pz8Hjzv8c3FGz69Sk8jYftLOlz+Wf6kq6jol/1m08aBnjRAzJr2x3GoQ=="],
+    "@typesafe-ai/sdk": ["@typesafe-ai/sdk@0.6.0", "", {}, "sha512-IddX+Q0XM+VagOUZFeP7wZjaO4SHMdvnh2zEBdrZZnXedWI3BNK1lKhMx3ayrkFWvVLbVcUHJy6AVZlY+e6Jaw=="],
 
     "@typescript-eslint/eslint-plugin": ["@typescript-eslint/eslint-plugin@8.72.1", "", { "dependencies": { "@eslint-community/regexpp": "^4.12.2", "@typescript-eslint/scope-manager": "8.72.1", "@typescript-eslint/type-utils": "8.72.1", "@typescript-eslint/utils": "8.72.1", "@typescript-eslint/visitor-keys": "8.72.1", "ignore": "^7.0.5", "natural-compare": "^1.4.0", "ts-api-utils": "^2.5.0" }, "peerDependencies": { "@typescript-eslint/parser": "^8.72.1", "eslint": "^8.57.0 || ^9.0.0 || ^10.0.0", "typescript": ">=4.8.4 <6.1.0" } }, "sha512-5CokTWXpmbylfFabsbvHC0CAw3XLaGnoa+nFJX5FR592h/LoZsENUE6p/rg5xvkKrFEXz6pYmgI29AgXc2N3BQ=="],
 

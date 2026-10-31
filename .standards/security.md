@@ -177,8 +177,11 @@ Each boundary is the *only* place that handles its class of error (does not re-t
 
 When an agent calls an MCP tool via `tools(["mcp_<client>:<tool>"])`, the
 agent runtime does NOT forward `FnHandlerContext.principal` (or the bearer it
-came from) to the MCP server. The MCP server is reached using the static
-credentials registered on `defineConfig.mcp({ clients: { name: { auth } } })`.
+came from) to the MCP server. The MCP server is reached using the credential
+registered on `defineConfig.mcp({ clients: { name: { auth } } })`: a static
+token or header, or an OAuth login declared with `connect()`, whose tokens
+`craft connect` obtains once and the `CREDENTIALS` store keeps and refreshes.
+Either way the credential belongs to the deployment, never to the caller.
 
 This is intentional. Two trust boundaries:
 

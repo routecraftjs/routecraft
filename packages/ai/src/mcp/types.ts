@@ -1,3 +1,4 @@
+import type { McpConnectAuth } from "./connect.ts";
 import type {
   AuthorizeOptions,
   Duration,
@@ -174,8 +175,13 @@ declare module "@routecraft/routecraft" {
 export interface McpClientHttpConfig {
   transport?: "streamable-http";
   url: string;
-  /** Auth credentials sent on every request to this server. */
-  auth?: McpClientAuthOptions;
+  /**
+   * How requests to this server authenticate: a static token or headers
+   * sent on every request, or `connect()` for a server behind an OAuth
+   * login, whose credential `craft connect` obtains and the credential
+   * store keeps.
+   */
+  auth?: McpClientAuthOptions | McpConnectAuth;
   /** Whether tool calls carry the caller's trace context; see {@link McpClientOptions.traceContext}. */
   traceContext?: boolean;
   /**

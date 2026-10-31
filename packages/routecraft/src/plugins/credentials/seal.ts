@@ -1,0 +1,103 @@
+import {
+  createCipheriv,
+  createDecipheriv,
+  hkdfSync,
+  randomBytes,
+} from "node:crypto";
+import { rcError } from "../../error.ts";
+
+/**
+ * Environment variable holding the key credentials are sealed with: random
+ * bytes from a secret manager, such as `openssl rand -base64 32`.
+ */
+export const CREDENTIALS_KEY_ENV = "ROUTECRAFT_CREDENTIALS_KEY";
+
+/**
+ * The shortest key accepted. HKDF does not stretch a key, so a short or
+ * guessable one lets whoever holds the store file or a seed try keys
+ * offline; 32 characters of base64 carry 192 bits.
+ */
+export const MIN_CREDENTIALS_KEY_LENGTH = 32;
+
+const IV_BYTES = 12;
+const TAG_BYTES = 16;
+
+/**
+ * Seals and opens values under one key with AES-256-GCM.
+ *
+ * The key is derived with HKDF, which turns a high-entropy string of any
+ * encoding into the 32 bytes the cipher takes. It adds no work factor, so
+ * the key itself must be random, not a password. The
+ * associated data binds a sealed value to where it belongs: a store record
+ * to its owner, a seed to being a seed, so a ciphertext copied from one
+ * place to another refuses to open.
+ */
+export interface CredentialSealer {
+  seal(plaintext: string, context: string): string;
+  /** @throws RC5070 when the value was sealed under another key or altered */
+  open(sealed: string, context: string): string;
+}
+
+/** A sealer over `secret`. */
+export function createSealer(secret: string): CredentialSealer {
+  if (secret.length < MIN_CREDENTIALS_KEY_LENGTH) {
+    throw rcError("RC5070", undefined, {
+      message: `${CREDENTIALS_KEY_ENV} is ${secret.length === 0 ? "set but empty" : `${secret.length} characters`}; it needs at least ${MIN_CREDENTIALS_KEY_LENGTH} random characters. Generate one with \`openssl rand -base64 32\`.`,
+    });
+  }
+  const key = Buffer.from(
+    hkdfSync(
+      "sha256",
+      Buffer.from(secret, "utf8"),
+      Buffer.alloc(0),
+      "routecraft-credentials-v1",
+      32,
+    ),
+  );
+  return {
+    seal(plaintext, context) {
+      const iv = randomBytes(IV_BYTES);
+      const cipher = createCipheriv("aes-256-gcm", key, iv);
+      cipher.setAAD(Buffer.from(context, "utf8"));
+      const body = Buffer.concat([
+        cipher.update(plaintext, "utf8"),
+        cipher.final(),
+      ]);
+      return Buffer.concat([iv, body, cipher.getAuthTag()]).toString(
+        "base64url",
+      );
+    },
+    open(sealed, context) {
+      const raw = Buffer.from(sealed, "base64url");
+      if (raw.length < IV_BYTES + TAG_BYTES) throw unopenable(context);
+      const iv = raw.subarray(0, IV_BYTES);
+      const tag = raw.subarray(raw.length - TAG_BYTES);
+      const body = raw.subarray(IV_BYTES, raw.length - TAG_BYTES);
+      try {
+        const decipher = createDecipheriv("aes-256-gcm", key, iv);
+        decipher.setAAD(Buffer.from(context, "utf8"));
+        decipher.setAuthTag(tag);
+        return Buffer.concat([
+          decipher.update(body),
+          decipher.final(),
+        ]).toString("utf8");
+      } catch {
+        throw unopenable(context);
+      }
+    },
+  };
+}
+
+/** The sealer the environment's key gives, or undefined without one. */
+export function sealerFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): CredentialSealer | undefined {
+  const secret = env[CREDENTIALS_KEY_ENV];
+  return secret === undefined ? undefined : createSealer(secret);
+}
+
+function unopenable(context: string): Error {
+  return rcError("RC5070", undefined, {
+    message: `A sealed credential (${context}) does not open under ${CREDENTIALS_KEY_ENV}: it was sealed under another key, or altered.`,
+  });
+}
