@@ -18,6 +18,7 @@ import {
   MAIL_PARSE_ERRORS,
   type MailFetchLogger,
   isMissingPeerError,
+  isMailConfigError,
 } from "./shared.ts";
 
 type ImapClient = InstanceType<typeof import("imapflow").ImapFlow>;
@@ -438,8 +439,8 @@ export class MailSourceAdapter implements Source<MailBody> {
         messages = await fetchMessages(client, options, folder, logger);
       } catch (error) {
         if (abortController.signal.aborted) return;
-        if (isMissingPeerError(error)) {
-          // Missing optional peer: reconnecting cannot install the package.
+        if (isMissingPeerError(error) || isMailConfigError(error)) {
+          // A missing optional peer or a config fault: reconnecting fixes neither.
           throw error;
         }
         if (isMailAuthError(error)) {
@@ -551,8 +552,8 @@ export class MailSourceAdapter implements Source<MailBody> {
         needDrain = true;
       } catch (error) {
         if (abortController.signal.aborted) return;
-        if (isMissingPeerError(error)) {
-          // Missing optional peer: reconnecting cannot install the package.
+        if (isMissingPeerError(error) || isMailConfigError(error)) {
+          // A missing optional peer or a config fault: reconnecting fixes neither.
           throw error;
         }
         if (isMailAuthError(error)) {

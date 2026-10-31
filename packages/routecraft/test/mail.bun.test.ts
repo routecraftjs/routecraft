@@ -26,6 +26,8 @@ import { simpleParser } from "mailparser";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import {
   buildSearchCriteriaSets,
+  fetchMessages,
+  isMailConfigError,
   isMissingPeerError,
 } from "../src/adapters/mail/shared.ts";
 import { ImapPool } from "../src/adapters/mail/client-manager.ts";
@@ -64,6 +66,7 @@ mock.module("imapflow", () => {
       constructor(config: Record<string, unknown>) {
         mockImapFlowConstructor(config);
         Object.assign(this, {
+          capabilities: new Map([["X-GM-EXT-1", true]]),
           connect: mockConnect,
           logout: mockLogout,
           close: mockClose,
@@ -3606,6 +3609,35 @@ function createMailExchange(uid: number, folder: string, ctx?: any) {
 function attachContext(exchange: any, ctx: any) {
   EXCHANGE_INTERNALS.set(exchange, { context: ctx });
 }
+
+describe("fetchMessages gmailSearch guard", () => {
+  /**
+   * @case A Gmail search against a server without Gmail's extension
+   * @preconditions The client advertises no X-GM-EXT-1 and gmailSearch is set
+   * @expectedResult RC5003 is thrown and nothing is fetched, so the search
+   *   never runs on the other filters alone
+   */
+  test("refuses gmailSearch when the server lacks X-GM-EXT-1", async () => {
+    mockFetch.mockClear();
+    const client = { capabilities: new Map(), fetch: mockFetch } as any;
+    await expect(
+      fetchMessages(client, { gmailSearch: "rfc822msgid:<a@b.c>" }, "INBOX"),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @case Classifying the guard's error for the source's reconnect path
+   * @preconditions An RC5003 and a retryable RC5001
+   * @expectedResult Only the RC5003 counts as a config fault, so the source
+   *   stops on it and still reconnects on a fetch failure
+   */
+  test("isMailConfigError matches RC5003 only", () => {
+    expect(isMailConfigError(rcError("RC5003", undefined, {}))).toBe(true);
+    expect(isMailConfigError(rcError("RC5001", undefined, {}))).toBe(false);
+    expect(isMailConfigError(new Error("x"))).toBe(false);
+  });
+});
 
 describe("isMissingPeerError", () => {
   /**
