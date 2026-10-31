@@ -358,6 +358,8 @@ export class MailClientManager {
     if (overrides.subject !== undefined) result.subject = overrides.subject;
     if (overrides.body !== undefined) result.body = overrides.body;
     if (overrides.header !== undefined) result.header = overrides.header;
+    if (overrides.gmailSearch !== undefined)
+      result.gmailSearch = overrides.gmailSearch;
 
     // Parse-error handling (#187).
     if (overrides.onParseError !== undefined)

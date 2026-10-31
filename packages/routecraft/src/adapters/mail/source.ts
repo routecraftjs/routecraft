@@ -11,12 +11,14 @@ import {
   createImapClient,
   fetchMessages,
   markMessagesSeen,
+  buildSearchCriteriaSets,
   isMailAuthError,
   throwMailConnectionError,
   splitMailMessage,
   MAIL_PARSE_ERRORS,
   type MailFetchLogger,
   isMissingPeerError,
+  isMailConfigError,
 } from "./shared.ts";
 
 type ImapClient = InstanceType<typeof import("imapflow").ImapFlow>;
@@ -437,8 +439,8 @@ export class MailSourceAdapter implements Source<MailBody> {
         messages = await fetchMessages(client, options, folder, logger);
       } catch (error) {
         if (abortController.signal.aborted) return;
-        if (isMissingPeerError(error)) {
-          // Missing optional peer: reconnecting cannot install the package.
+        if (isMissingPeerError(error) || isMailConfigError(error)) {
+          // A missing optional peer or a config fault: reconnecting fixes neither.
           throw error;
         }
         if (isMailAuthError(error)) {
@@ -550,8 +552,8 @@ export class MailSourceAdapter implements Source<MailBody> {
         needDrain = true;
       } catch (error) {
         if (abortController.signal.aborted) return;
-        if (isMissingPeerError(error)) {
-          // Missing optional peer: reconnecting cannot install the package.
+        if (isMissingPeerError(error) || isMailConfigError(error)) {
+          // A missing optional peer or a config fault: reconnecting fixes neither.
           throw error;
         }
         if (isMailAuthError(error)) {
@@ -758,6 +760,10 @@ function validateSourceOptions(
         "poll on a cadence, or remove the markSeen/unseen override.",
     });
   }
+
+  // A malformed filter (an empty gmailSearch) is a config fault, so it must
+  // fail here: thrown from a poll, the reconnect path would retry it forever.
+  buildSearchCriteriaSets(options);
 
   if (typeof options.limit === "number" && !hasPoll) {
     logger?.warn(

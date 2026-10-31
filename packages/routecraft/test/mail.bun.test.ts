@@ -26,6 +26,8 @@ import { simpleParser } from "mailparser";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import {
   buildSearchCriteriaSets,
+  fetchMessages,
+  isMailConfigError,
   isMissingPeerError,
 } from "../src/adapters/mail/shared.ts";
 import { ImapPool } from "../src/adapters/mail/client-manager.ts";
@@ -64,6 +66,7 @@ mock.module("imapflow", () => {
       constructor(config: Record<string, unknown>) {
         mockImapFlowConstructor(config);
         Object.assign(this, {
+          capabilities: new Map([["X-GM-EXT-1", true]]),
           connect: mockConnect,
           logout: mockLogout,
           close: mockClose,
@@ -336,6 +339,7 @@ describe("Mail Adapter", () => {
         { folder: "INBOX", subject: "invoice" },
         { folder: "INBOX", body: "urgent" },
         { folder: "INBOX", header: { "List-Id": "announce.example.com" } },
+        { folder: "INBOX", gmailSearch: "rfc822msgid:<a@b.c>" },
         { folder: "INBOX", limit: 5 },
         { folder: "INBOX", description: "incoming invoices" },
         { folder: "INBOX", keywords: ["invoices"] },
@@ -373,6 +377,7 @@ describe("Mail Adapter", () => {
         { subject: "invoice" },
         { body: "urgent" },
         { header: { "List-Id": "announce.example.com" } },
+        { gmailSearch: "rfc822msgid:<a@b.c>" },
         { limit: 5 },
         { description: "incoming invoices" },
         { keywords: ["invoices"] },
@@ -954,6 +959,54 @@ describe("Mail Adapter", () => {
           host: "imap.main.com",
           auth: { user: "main@co.com", pass: "main-pass" },
         }),
+      );
+    });
+
+    /**
+     * @case A Gmail search on a fetch through a named account
+     * @preconditions An account-configured IMAP pool and mail({ gmailSearch })
+     * @expectedResult imapflow is asked to search with gmraw carrying the
+     *   query, so the account's option merge does not drop it
+     */
+    test("passes gmailSearch through to the IMAP search as gmraw", async () => {
+      mockFetch.mockReturnValue({
+        async *[Symbol.asyncIterator]() {},
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.gmail.com",
+                  auth: { user: "main@co.com", pass: "main-pass" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-gmail-search")
+            .from(simple("trigger"))
+            .enrich(
+              mail({
+                folder: "[Gmail]/All Mail",
+                unseen: false,
+                markSeen: false,
+                gmailSearch: "rfc822msgid:<a@b.c>",
+              }),
+            )
+            .to(spy()),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        { gmraw: "rfc822msgid:<a@b.c>" },
+        expect.anything(),
       );
     });
 
@@ -2722,6 +2775,36 @@ describe("Mail Adapter", () => {
     });
 
     /**
+     * @case Throws RC5003 at subscribe when gmailSearch is empty
+     * @preconditions gmailSearch is whitespace only, with a poll interval set
+     * @expectedResult t.test() rejects with RC5003 instead of reconnecting on every poll
+     */
+    test("throws at subscribe when gmailSearch is empty", async () => {
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-guard-gmailsearch")
+            .from(mail("INBOX", { pollInterval: 5, gmailSearch: "  " }))
+            .to(spy()),
+        )
+        .build();
+
+      await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+    });
+
+    /**
      * @case Default 'fail' routes MIME parse failures through .error() and marks Seen
      * @preconditions simpleParser throws on a fetched message; route has .error() handler
      * @expectedResult .error() invoked with RC5016; markSeen called for the bad UID
@@ -2862,6 +2945,41 @@ describe("Mail Adapter", () => {
   });
 
   describe("buildSearchCriteriaSets", () => {
+    /**
+     * @case An empty or whitespace-only Gmail search query
+     * @preconditions gmailSearch set to "" and to "  " with unseen false
+     * @expectedResult Both throw RC5003, so a blank query never becomes a
+     *   search with no criterion that fetches the whole folder
+     */
+    test("refuses an empty gmailSearch", () => {
+      for (const gmailSearch of ["", "  "]) {
+        expect(() =>
+          buildSearchCriteriaSets({
+            unseen: false,
+            gmailSearch,
+          } as MailServerOptions),
+        ).toThrow(/gmailSearch is empty/);
+      }
+    });
+
+    /**
+     * @case A Gmail search query joins the base criteria of every set
+     * @preconditions gmailSearch set beside a two-value subject filter
+     * @expectedResult Both sets carry it as imapflow's gmraw key, so each
+     *   search is ANDed with it
+     */
+    test("adds gmailSearch to every set as gmraw", () => {
+      const sets = buildSearchCriteriaSets({
+        unseen: false,
+        gmailSearch: "rfc822msgid:<a@b.c>",
+        subject: ["A", "B"],
+      } as MailServerOptions);
+      expect(sets).toEqual([
+        { gmraw: "rfc822msgid:<a@b.c>", subject: "A" },
+        { gmraw: "rfc822msgid:<a@b.c>", subject: "B" },
+      ]);
+    });
+
     /**
      * @case Returns base criteria when no search filters are set
      * @preconditions Only unseen is set (default)
@@ -3491,6 +3609,35 @@ function createMailExchange(uid: number, folder: string, ctx?: any) {
 function attachContext(exchange: any, ctx: any) {
   EXCHANGE_INTERNALS.set(exchange, { context: ctx });
 }
+
+describe("fetchMessages gmailSearch guard", () => {
+  /**
+   * @case A Gmail search against a server without Gmail's extension
+   * @preconditions The client advertises no X-GM-EXT-1 and gmailSearch is set
+   * @expectedResult RC5003 is thrown and nothing is fetched, so the search
+   *   never runs on the other filters alone
+   */
+  test("refuses gmailSearch when the server lacks X-GM-EXT-1", async () => {
+    mockFetch.mockClear();
+    const client = { capabilities: new Map(), fetch: mockFetch } as any;
+    await expect(
+      fetchMessages(client, { gmailSearch: "rfc822msgid:<a@b.c>" }, "INBOX"),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @case Classifying the guard's error for the source's reconnect path
+   * @preconditions An RC5003 and a retryable RC5001
+   * @expectedResult Only the RC5003 counts as a config fault, so the source
+   *   stops on it and still reconnects on a fetch failure
+   */
+  test("isMailConfigError matches RC5003 only", () => {
+    expect(isMailConfigError(rcError("RC5003", undefined, {}))).toBe(true);
+    expect(isMailConfigError(rcError("RC5001", undefined, {}))).toBe(false);
+    expect(isMailConfigError(new Error("x"))).toBe(false);
+  });
+});
 
 describe("isMissingPeerError", () => {
   /**

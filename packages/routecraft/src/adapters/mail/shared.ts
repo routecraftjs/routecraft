@@ -423,6 +423,15 @@ export function isMissingPeerError(error: unknown): boolean {
 }
 
 /**
+ * True when the error is an RC5003 configuration fault, such as a
+ * `gmailSearch` sent to a server without Gmail's extension. Like a missing
+ * peer, reconnecting cannot fix it, so the source stops instead of retrying.
+ */
+export function isMailConfigError(error: unknown): boolean {
+  return isRoutecraftError(error) && error.rc === "RC5003";
+}
+
+/**
  * Check whether an error is an authentication failure.
  */
 export function isMailAuthError(error: unknown): boolean {
@@ -468,7 +477,7 @@ function toSearchArray(value: string | string[] | undefined): string[] {
 /**
  * Build one or more IMAP search criteria sets from server options.
  *
- * Scalar filters (unseen, since) are shared across all sets.
+ * Scalar filters (unseen, since, gmailSearch) are shared across all sets.
  * Array filters (from, to, subject, body) produce the cartesian product
  * so each combination is a separate IMAP search (OR within a field,
  * AND between fields). Results are deduped by UID after fetching.
@@ -480,6 +489,19 @@ export function buildSearchCriteriaSets(
   const base: Record<string, unknown> = {};
   if (options.unseen !== false) base["seen"] = false;
   if (options.since) base["since"] = options.since;
+  // imapflow compiles `gmraw` to X-GM-RAW and refuses it without X-GM-EXT-1.
+  // An empty query is refused rather than dropped: dropped, it would leave a
+  // search with no criterion, which fetches (and may mark seen) the folder.
+  if (options.gmailSearch !== undefined) {
+    if (options.gmailSearch.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message: "mail() gmailSearch is empty",
+        suggestion:
+          "Pass a Gmail search query (e.g. 'rfc822msgid:<id>') or leave gmailSearch out",
+      });
+    }
+    base["gmraw"] = options.gmailSearch;
+  }
 
   // Collect per-field arrays
   const fromValues = toSearchArray(options.from);
@@ -761,6 +783,21 @@ export async function fetchMessages(
     consumer: "mail adapter",
     packageName: "mailparser",
   });
+
+  // imapflow before 1.0.101 drops gmraw without X-GM-EXT-1 rather than
+  // refusing it, which would leave a search on the other filters alone and
+  // mark unrelated mail seen. Checked here so every imapflow refuses it, and
+  // outside the try so it is not wrapped as a retryable RC5001.
+  if (
+    options.gmailSearch !== undefined &&
+    !client.capabilities.has("X-GM-EXT-1")
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: "mail() gmailSearch needs a Gmail server",
+      suggestion:
+        "The server does not advertise X-GM-EXT-1; use header, subject or from filters instead",
+    });
+  }
 
   try {
     const fetchOptions = {
