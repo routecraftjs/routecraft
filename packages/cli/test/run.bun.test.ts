@@ -199,12 +199,11 @@ describe("CLI run command", () => {
         .id("work-item")
         .title("Fetch a work item")
         .input({ body: WorkItemQuery })
-        .authorize({ scopes: ["boards:read"] })
         .from(argv(), direct())
         .transform((body) => ({ found: body.id }));
     `;
 
-    /** Settings read from the temp dir only, so a developer's own file cannot grant a scope. */
+    /** Settings read from the temp dir only, so a developer's own file cannot change the format. */
     const isolated = (env: NodeJS.ProcessEnv = {}) => ({
       cwd: dir,
       home: dir,
@@ -213,7 +212,7 @@ describe("CLI run command", () => {
 
     /**
      * @case The command line reaches the route and the process can exit
-     * @preconditions An argv() route beside direct(), the operator holding its scope, --format json
+     * @preconditions An argv() route beside direct(), --format json
      * @expectedResult runCommand returns despite direct() holding the route open, with exit 0 and the route's result as JSON
      */
     test("runs the route once and returns its result", async () => {
@@ -221,7 +220,7 @@ describe("CLI run command", () => {
       const res = await runModule.runCommand(
         "work-item.ts",
         ["--id=12345", "--format", "json"],
-        isolated({ CRAFT_SCOPES: "boards:read" }),
+        isolated(),
       );
       expect(res).toEqual({
         success: true,
@@ -244,7 +243,7 @@ describe("CLI run command", () => {
     test("reads the input from stdin", async () => {
       await writeFile("work-item.ts", ROUTE);
       const res = await runModule.runCommand("work-item.ts", ["--format=raw"], {
-        ...isolated({ CRAFT_SCOPES: "boards:read" }),
+        ...isolated(),
         readStdin: () => Promise.resolve('{"id":"7"}'),
       });
       expect("reply" in res && res.reply).toEqual({
@@ -254,22 +253,31 @@ describe("CLI run command", () => {
     });
 
     /**
-     * @case A missing scope exits 4
-     * @preconditions The operator configured no scopes
-     * @expectedResult Exit 4 with a message naming the missing scope and where to grant it
+     * @case An authorizing argv() route fails when nothing supplies a principal
+     * @preconditions An argv() route with .authorize() and no plugin supplying an identity
+     * @expectedResult Exit 1 and the step never ran
      */
-    test("exits 4 when the operator lacks the route's scope", async () => {
-      await writeFile("work-item.ts", ROUTE);
+    test("exits 1 for an authorizing route with no principal", async () => {
+      await writeFile(
+        "guarded.ts",
+        `
+        import { writeFileSync } from "node:fs";
+        import { craft, argv } from "@routecraft/routecraft";
+        export default craft()
+          .id("guarded")
+          .authorize({ scopes: ["boards:read"] })
+          .from(argv())
+          .to(() => writeFileSync("ran", ""));
+      `,
+      );
       const res = await runModule.runCommand(
-        "work-item.ts",
+        "guarded.ts",
         ["--id=1"],
         isolated(),
       );
-      expect(res.success).toBe(false);
       if (!("reply" in res)) throw new Error("expected a reply");
-      expect(res.reply.code).toBe(4);
-      expect(res.reply.error).toMatch(/boards:read/);
-      expect(res.reply.error).toMatch(/CRAFT_SCOPES/);
+      expect(res.reply.code).toBe(1);
+      expect(existsSync("ran")).toBe(false);
     });
 
     /**
@@ -282,7 +290,7 @@ describe("CLI run command", () => {
       const res = await runModule.runCommand(
         "work-item.ts",
         ["--other=1"],
-        isolated({ CRAFT_SCOPES: "boards:read" }),
+        isolated(),
       );
       expect(res.success).toBe(false);
       if (!("reply" in res)) throw new Error("expected a reply");

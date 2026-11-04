@@ -3,8 +3,11 @@ import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   argv,
+  authorityOf,
   craft,
+  definePlugin,
   direct,
+  HeadersKeys,
   noop,
   RUNNER_INVOCATION,
   type CraftConfig,
@@ -20,7 +23,7 @@ import { deferring } from "./helpers/deferral.ts";
 /** A runner hand-off that records the outcome and whether stdin was read. */
 function invocation(
   args: string[],
-  options: { scopes?: string[]; stdin?: string; help?: boolean } = {},
+  options: { stdin?: string; help?: boolean } = {},
 ): {
   invocation: RunnerInvocation;
   outcomes: RunnerOutcome[];
@@ -35,7 +38,6 @@ function invocation(
       argv: args,
       help: options.help ?? false,
       reserved: ["help", "format"],
-      scopes: options.scopes ?? [],
       readStdin,
       settle: (outcome) => void outcomes.push(outcome),
     },
@@ -216,12 +218,37 @@ describe("argv() source", () => {
   });
 
   /**
-   * @case The local principal holds only the configured scopes
-   * @preconditions A route requiring boards:read; the runner configured no scopes
-   * @expectedResult A refused outcome of kind insufficient_scope naming boards:read, so .authorize() keeps its meaning under the runner
+   * @case The exchange carries no principal
+   * @preconditions An argv() route that records the principal header
+   * @expectedResult A completed outcome and no principal: a command line proves no identity
    */
-  test("refuses a route whose scope the operator does not hold", async () => {
-    const run = invocation(["--id=1"], { scopes: [] });
+  test("carries no principal", async () => {
+    const run = invocation(["--id=1"]);
+    let principal: unknown = "unset";
+    t = await testContext()
+      .store(RUNNER_INVOCATION, run.invocation)
+      .routes(
+        craft()
+          .id("work-item")
+          .from(argv())
+          .process((exchange) => {
+            principal = exchange.headers["routecraft.auth.principal"];
+            return exchange;
+          }),
+      )
+      .build();
+    await t.test();
+    expect(run.outcomes[0]?.outcome).toBe("completed");
+    expect(principal).toBeUndefined();
+  });
+
+  /**
+   * @case A route that authorizes fails when nothing supplies a principal
+   * @preconditions argv() in front of .authorize(), no plugin supplying an identity
+   * @expectedResult A failed outcome and the step never ran
+   */
+  test("fails an authorizing route", async () => {
+    const run = invocation(["--id=1"]);
     const step = mock();
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
@@ -234,29 +261,43 @@ describe("argv() source", () => {
       )
       .build();
     await t.test();
-    expect(run.outcomes).toEqual([
-      {
-        outcome: "refused",
-        refusal: {
-          kind: "insufficient_scope",
-          scopes: ["boards:read"],
-          anyOf: false,
-        },
-      },
-    ]);
+    expect(run.outcomes[0]?.outcome).toBe("failed");
     expect(step).not.toHaveBeenCalled();
   });
 
   /**
-   * @case A configured scope admits the local principal
-   * @preconditions A route requiring boards:read; the runner configured boards:read
-   * @expectedResult A completed outcome, and the route sees a local principal for the operator
+   * @case A plugin's beforeAuth hook can supply the principal
+   * @preconditions A plugin whose beforeAuth mutate hook mints a principal holding boards:read; an argv() route requiring that scope
+   * @expectedResult A completed outcome, and the route sees the plugin's principal
    */
-  test("admits the operator with the configured scope", async () => {
-    const run = invocation(["--id=1"], { scopes: ["boards:read"] });
+  test("runs an authorizing route as a plugin-supplied principal", async () => {
+    const run = invocation(["--id=1"]);
     let principal: unknown;
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.operator",
+            hooks: {
+              beforeAuth: {
+                id: "operator",
+                phase: "mutate",
+                run: (exchange) => ({
+                  headers: {
+                    [HeadersKeys.AUTH_PRINCIPAL]: authorityOf(exchange).mint({
+                      kind: "custom",
+                      scheme: "local",
+                      subject: "jaco",
+                      scopes: ["boards:read"],
+                    }),
+                  },
+                }),
+              },
+            },
+          }),
+        ],
+      })
       .routes(
         craft()
           .id("work-item")
@@ -270,12 +311,7 @@ describe("argv() source", () => {
       .build();
     await t.test();
     expect(run.outcomes[0]?.outcome).toBe("completed");
-    expect(principal).toMatchObject({
-      kind: "local",
-      scheme: "local",
-      subjectProfile: "user",
-      scopes: ["boards:read"],
-    });
+    expect(principal).toMatchObject({ subject: "jaco" });
   });
 
   /**

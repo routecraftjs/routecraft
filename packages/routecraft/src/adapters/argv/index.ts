@@ -9,9 +9,10 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  * The arguments after the file become the body with the grammar
  * `craft exec` uses (`--field=value` or `--field value`, a bare flag is
  * `true`, a repeated flag an array, nothing coerced), or JSON piped on stdin
- * becomes the body; both at once is a usage error. The exchange carries the
- * local operator's principal with the scopes the operator configured, so
- * `.input()` and `.authorize()` apply as they do on every other door. After
+ * becomes the body; both at once is a usage error. `.input()` applies as on
+ * every other door. The exchange carries no principal, because a command
+ * line proves no identity: a route with `.authorize()` fails here unless a
+ * plugin supplies a principal on the way in. After
  * the one exchange the source completes and the runner prints the result
  * and exits.
  *
@@ -29,7 +30,6 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  * craft()
  *   .id("work-item")
  *   .input({ body: WorkItemQuery })
- *   .authorize({ scopes: ["boards:read"] })
  *   .from(argv(), direct())
  *   .enrich(fetchWorkItem)
  * ```

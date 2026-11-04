@@ -220,7 +220,7 @@ A route that drove a browser calls a browser MCP server's tools instead. Registe
 
 `craft run` prints a route's result on stdout through the new [`argv()`](/docs/reference/adapters/argv) source, so its logs go to stderr unless `LOG_STREAM` or `CRAFT_LOG_STREAM` names a stream, or a log file is set. A script that captured `craft run`'s logs from stdout reads stderr, or sets `LOG_STREAM=stdout`. A stdio MCP server run with `craft run` no longer needs `--log-file` to keep its protocol stream clean.
 
-The `RUNNER_ARGV` store key is removed. No adapter read it; a runner of your own sets `RUNNER_INVOCATION` to a `RunnerInvocation` (the arguments, the operator's scopes, a stdin reader and a `settle` callback) instead, and `craft start` sets nothing, which is what keeps `argv()` inert there.
+The `RUNNER_ARGV` store key is removed. No adapter read it; a runner of your own sets `RUNNER_INVOCATION` to a `RunnerInvocation` (the arguments, a stdin reader and a `settle` callback) instead, and `craft start` sets nothing, which is what keeps `argv()` inert there.
 
 ## 13. What is new in 0.8.0 \{#13-what-is-new-in-080}
 
@@ -231,7 +231,7 @@ The `RUNNER_ARGV` store key is removed. No adapter read it; a runner of your own
 - **Error-path parks are validated.** `.error(handler, { schema })` and an error hook's `schema` declare what a resume payload must satisfy when the handler parks; the resume door validates it (`RC5049`) and refuses a resume whose schema changed (`RC5048`).
 - **Facets.** A plugin's facet is readable as `ex.<namespace>`.
 - **Journeys.** `routecraft.causation_id` on every exchange a hand-off produces (a chain root has none), `causationId` on every `route:exchange:*` event of such an exchange and in the logger's bindings, W3C trace context across the `http()`, ops and MCP doors (adopted from an authenticated caller by default, `traceContext` on each door and client), `.correlate()` for a channel that carries none, and telemetry spans parented to the exchange that caused them. See [journeys](/docs/introduction/exchange#journeys-correlation-and-causation).
-- **`argv()`.** `craft run <file> --field=value` (or JSON on stdin) reaches the route as one exchange, with the `craft exec` flag grammar and exit codes, `--help` from the `.input()` schema, and a local principal holding the scopes the settings file grants. See [argv](/docs/reference/adapters/argv).
+- **`argv()`.** `craft run <file> --field=value` (or JSON on stdin) reaches the route as one exchange, with the `craft exec` flag grammar and exit codes, and `--help` from the `.input()` schema. The exchange carries no principal. See [argv](/docs/reference/adapters/argv).
 - **MCP clients behind a login.** `auth: connect({ clientId, scopes })` on a named MCP client, `craft connect` to log in from a machine with a browser, and a credential store that refreshes and writes rotated tokens back with compare-and-swap writes. A server imports a sealed seed from `craft connect --export`. See [servers behind a login](/docs/advanced/call-an-mcp#servers-behind-a-login).
 
 The [Plugins guide](/docs/advanced/plugins) explains each part with a worked example, and the [Plugins reference](/docs/reference/plugins) lists every field.

@@ -84,11 +84,6 @@ export interface CraftSettingValues {
   agent?: string;
   /** The environment this profile selects. */
   env?: ProfileEnv;
-  /**
-   * The scopes the operator holds when `craft run` hands a route its command
-   * line through `argv()`. Only what is listed here: none means none.
-   */
-  scopes?: string[];
 }
 
 /** What the settings file may carry. Every key is optional. */
@@ -148,8 +143,6 @@ export interface ResolvedSettings {
   profile: Resolved<string> | undefined;
   /** The environment the selected profile names, when it names one. */
   env: Resolved<ProfileEnv> | undefined;
-  /** The scopes `craft run` grants the local operator, when any are configured. */
-  scopes: Resolved<string[]> | undefined;
 }
 
 /**
@@ -199,7 +192,6 @@ const ENV_TOKEN = "CRAFT_TOKEN";
 const ENV_FORMAT = "CRAFT_FORMAT";
 const ENV_AGENT = "CRAFT_AGENT";
 const ENV_PROFILE = "CRAFT_PROFILE";
-const ENV_SCOPES = "CRAFT_SCOPES";
 
 /** A settings file that exists but cannot be used. */
 export class SettingsError extends Error {}
@@ -460,10 +452,6 @@ export function resolveSettings(
     agent,
     profile,
     env: envValue,
-    scopes: pickScopes(
-      env[ENV_SCOPES],
-      fileLayers(profile, project, projectPath, global, globalPath),
-    ),
   };
 }
 
@@ -569,40 +557,6 @@ function pickEnv(
     );
   }
   return resolved as Resolved<ProfileEnv>;
-}
-
-/**
- * The operator's scopes: `CRAFT_SCOPES` (space or comma separated), else the
- * most specific file layer that lists them.
- *
- * A file value must be a list of non-blank strings. A single string is
- * refused rather than split, because `scopes: boards:read boards:write`
- * reads in YAML as one scope with a space in it, and granting that silently
- * would refuse every route while looking configured.
- */
-function pickScopes(
-  fromEnvironment: string | undefined,
-  layers: ReturnType<typeof fileLayers>,
-): Resolved<string[]> | undefined {
-  const fromEnv = supplied(fromEnvironment);
-  if (fromEnv !== undefined) {
-    return {
-      value: fromEnv.split(/[\s,]+/).filter((scope) => scope !== ""),
-      source: "environment",
-    };
-  }
-  const found = fromFiles("scopes", layers);
-  if (found === undefined) return undefined;
-  const value: unknown = found.value;
-  if (
-    !Array.isArray(value) ||
-    !value.every((scope) => typeof scope === "string" && scope.trim() !== "")
-  ) {
-    throw new SettingsError(
-      `The scopes from the ${describeSource(found)} must be a list of scope names, for example \`scopes: [boards:read]\`.`,
-    );
-  }
-  return { ...found, value: value.map((scope: string) => scope.trim()) };
 }
 
 /**

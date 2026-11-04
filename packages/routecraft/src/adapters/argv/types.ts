@@ -2,8 +2,8 @@ import type { CallerRefusal } from "../../pipeline/caller-refusal.ts";
 import type { OpsDispatchOutcome } from "../../plugins/ops/types.ts";
 
 /**
- * What a runner hands the `argv()` source: the command line, the operator's
- * scopes, and where to report the one outcome.
+ * What a runner hands the `argv()` source: the command line and where to
+ * report the one outcome.
  *
  * Set by `craft run` (or any runner) in the context store under
  * `RUNNER_INVOCATION` before `context.start()`. A context without it, such
@@ -24,12 +24,6 @@ export interface RunnerInvocation {
    * because that field could never reach it.
    */
   readonly reserved: readonly string[];
-  /**
-   * The scopes the local operator holds, from the runner's own
-   * configuration. Never implied: an operator who configured none holds none,
-   * so a route's `.authorize()` means the same under a runner as anywhere.
-   */
-  readonly scopes: readonly string[];
   /**
    * Read input piped on stdin, or `undefined` when none was piped.
    *

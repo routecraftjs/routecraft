@@ -1,13 +1,10 @@
-import { userInfo } from "node:os";
-import { HeadersKeys, isDropped, type ExchangeHeaders } from "../../exchange";
+import { isDropped } from "../../exchange";
 import type { Source, Subscription } from "../../operations/from";
 import { RUNNER_INVOCATION } from "../../context";
-import { authorityOf } from "../../kernel/authority";
 import { isDeferred } from "../../kernel/continuation/deferred";
 import { callerRefusalOf } from "../../pipeline/caller-refusal";
 import { rcCodeOf } from "../../brand";
 import { renderDirectedJsonSchema } from "../../shared/standard-schema";
-import type { Principal } from "../../principal";
 import type { RouteDefinition } from "../../route";
 import { commandLineInput } from "./command-line";
 import type { ArgvRouteHelp, RunnerInvocation, RunnerOutcome } from "./types";
@@ -43,9 +40,12 @@ export function argvRouteIds(context: {
  * ArgvSourceAdapter turns the runner's command line into one exchange.
  *
  * It is a door: it parses the arguments (or stdin) with the grammar
- * `craft exec` uses, mints the local operator principal through the
- * application's authority, emits one exchange through the full chain, and
- * reports how it ended to the runner. Rendering and the exit code are the
+ * `craft exec` uses, emits one exchange through the full chain, and reports
+ * how it ended to the runner.
+ *
+ * It puts no principal on the exchange: a command line proves no identity.
+ * A route with `.authorize()` therefore fails unless a plugin supplies a
+ * principal on the way in. Rendering and the exit code are the
  * runner's, because the runner owns the process.
  */
 export class ArgvSourceAdapter implements Source<unknown> {
@@ -109,21 +109,8 @@ export class ArgvSourceAdapter implements Source<unknown> {
     const input = commandLineInput(invocation.argv, stdin);
     if ("error" in input) return { outcome: "usage", message: input.error };
 
-    const principal = authorityOf(sub.context).mint({
-      kind: "local",
-      scheme: "local",
-      subject: localUser(),
-      subjectProfile: "user",
-      scopes: [...invocation.scopes],
-    });
-
     try {
-      const exchange = await sub.emit({
-        message: input.body,
-        headers: {
-          [HeadersKeys.AUTH_PRINCIPAL]: principal,
-        } as ExchangeHeaders,
-      });
+      const exchange = await sub.emit({ message: input.body });
       if (isDropped(exchange)) {
         return {
           outcome: "dropped",
@@ -135,22 +122,18 @@ export class ArgvSourceAdapter implements Source<unknown> {
       }
       return { outcome: "completed", body: exchange.body };
     } catch (error: unknown) {
-      return failureOutcome(error, routeId, principal);
+      return failureOutcome(error, routeId);
     }
   }
 }
 
-function failureOutcome(
-  error: unknown,
-  routeId: string,
-  principal: Principal,
-): RunnerOutcome {
+function failureOutcome(error: unknown, routeId: string): RunnerOutcome {
   if (rcCodeOf(error) === "RC5031") {
     return { outcome: "dropped", message: messageOf(error) };
   }
   const refusal = callerRefusalOf(error, {
     routeId,
-    principal,
+    principal: undefined,
     credentialCouldHelp: false,
   });
   if (refusal !== undefined) return { outcome: "refused", refusal };
@@ -166,16 +149,6 @@ function reservedCollisions(
   const properties = (schema as { properties?: unknown }).properties;
   if (properties === null || typeof properties !== "object") return [];
   return reserved.filter((name) => Object.hasOwn(properties, name));
-}
-
-/** The OS account running the process, which is who the operator is. */
-function localUser(): string {
-  try {
-    return userInfo().username || "local";
-  } catch {
-    // A container user with no passwd entry has no name to report.
-    return "local";
-  }
 }
 
 function messageOf(error: unknown): string {

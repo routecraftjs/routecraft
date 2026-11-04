@@ -129,7 +129,6 @@ export async function runCommand(
       argv: line.argv,
       help: line.help,
       reserved: RUN_FLAGS,
-      scopes: line.scopes,
       readStdin: options.readStdin ?? (() => Promise.resolve(undefined)),
       settle(outcome) {
         if (settled !== undefined) return;
@@ -164,15 +163,13 @@ export async function runCommand(
 
 /**
  * The command line as the runner reads it: `--help` and `--format` taken
- * out for the runner, everything else left for the route, and the
- * operator's scopes and default format from the settings file.
+ * out for the runner, everything else left for the route, and the default
+ * format from the settings file.
  */
 function runnerLine(
   cliArgs: readonly string[],
   options: RunOptions,
-):
-  | { argv: string[]; help: boolean; scopes: string[]; format: OutputFormat }
-  | { error: string } {
+): { argv: string[]; help: boolean; format: OutputFormat } | { error: string } {
   const argv: string[] = [];
   let help = false;
   let flagged: string | undefined;
@@ -206,7 +203,6 @@ function runnerLine(
     return {
       argv,
       help,
-      scopes: settings.scopes?.value ?? [],
       format: settings.format.value,
     };
   } catch (error: unknown) {

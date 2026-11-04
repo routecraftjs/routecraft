@@ -178,7 +178,7 @@ function typeOf(property: unknown): string {
 
 /**
  * Render a refusal of what the caller sent or who it is, phrased as the
- * thing to change: the input, or the scopes the local operator holds.
+ * thing to change where there is one.
  */
 export function renderRefusal(refusal: CallerRefusal): string {
   switch (refusal.kind) {
@@ -198,13 +198,10 @@ export function renderRefusal(refusal: CallerRefusal): string {
     }
     case "insufficient_scope": {
       const wanted = refusal.scopes.join(", ");
-      return [
-        `Refused: the route needs ${refusal.anyOf ? "one of the scopes" : "the scope(s)"} ${wanted}, which the local operator does not hold.`,
-        "Grant them with `scopes:` in .routecraft/settings.yaml (or a profile), or with CRAFT_SCOPES.",
-      ].join("\n");
+      return `Refused: the route needs ${refusal.anyOf ? "one of the scopes" : "the scope(s)"} ${wanted}, which the principal does not hold.`;
     }
     case "insufficient_permissions":
-      return "Refused: the route's .authorize() does not permit the local operator.";
+      return "Refused: the route's .authorize() does not permit the principal.";
     case "expired":
       return "Refused: the identity expired while the route ran.";
     case "unauthenticated":

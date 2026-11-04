@@ -127,7 +127,7 @@ Load one or more capabilities from a TypeScript file and start the Routecraft co
 craft run [--env <.env path>] [--profile <name>] <file> [--field=value ...] [--help] [--format <format>]
 ```
 
-A route that reads its input from the command line declares [`argv()`](/docs/reference/adapters/argv): the arguments after the file (or JSON on stdin) become one exchange with the same grammar as [`craft exec`](#exec), the result is printed on stdout, and the process exits with the `craft exec` exit codes even when `direct()` or `mcp()` beside it would hold the route open. `--help` after the file prints the route's `.input()` fields; `--format` picks `pretty`, `json` or `raw`. The local operator's principal holds the `scopes` from the [settings file](#settings-file), and nothing more.
+A route that reads its input from the command line declares [`argv()`](/docs/reference/adapters/argv): the arguments after the file (or JSON on stdin) become one exchange with the same grammar as [`craft exec`](#exec), the result is printed on stdout, and the process exits with the `craft exec` exit codes even when `direct()` or `mcp()` beside it would hold the route open. `--help` after the file prints the route's `.input()` fields; `--format` picks `pretty`, `json` or `raw`. The exchange carries no principal, so a route with `.authorize()` fails unless a plugin supplies one.
 
 ```bash
 craft run routes/work-item.ts --id=12345 --format=json
@@ -383,7 +383,7 @@ Navigation, views and keys are in the [Terminal UI guide](/docs/advanced/tui).
 
 ## Settings file
 
-`craft exec`, `craft ops` and `craft acp` read one personal settings file, `craft run` and `craft start` read it for the profile that selects their environment, and `craft run` reads it for the scopes the local operator holds. It is **your** file, not the app's: `craft.config.ts` decides what exists in an instance and what it exposes, while this decides how you like to talk to it.
+`craft exec`, `craft ops` and `craft acp` read one personal settings file, `craft run` and `craft start` read it for the profile that selects their environment, and `craft run` reads it for the default output format of an `argv()` route. It is **your** file, not the app's: `craft.config.ts` decides what exists in an instance and what it exposes, while this decides how you like to talk to it.
 
 Two locations, both YAML and both optional:
 
@@ -403,7 +403,6 @@ Every option it accepts:
 | `format` | `pretty` \| `json` \| `raw` | Default output format. Defaults to `pretty` |
 | `agent` | string | Agent [`craft acp`](#acp) talks to. The instance's default otherwise |
 | `env` | string \| map | Environment for this selection: a path to an env file, or values inline |
-| `scopes` | string[] | Scopes the local operator holds when `craft run` hands a route its command line through [`argv()`](/docs/reference/adapters/argv). None when unset |
 | `profile` | string | Which profile to select |
 | `profiles` | map | Named sets of every key above, except `profile` and `profiles` themselves |
 
@@ -414,7 +413,7 @@ token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 format: pretty
 ```
 
-Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`, `CRAFT_AGENT`, `CRAFT_PROFILE`, and `CRAFT_SCOPES`, space or comma separated), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
+Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`, `CRAFT_AGENT` and `CRAFT_PROFILE`), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
 
 ### Profiles
 

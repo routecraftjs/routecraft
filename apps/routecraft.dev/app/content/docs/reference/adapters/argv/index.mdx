@@ -25,7 +25,6 @@ export default craft()
   .id("work-item")
   .title("Fetch a work item")
   .input({ body: WorkItemQuery })
-  .authorize({ scopes: ["boards:read"] })
   .from(argv(), direct())
   .transform((query) => ({ id: query.id }));
 ```
@@ -36,7 +35,7 @@ echo '{"id":"12345"}' | craft run work-item.ts
 craft run work-item.ts --help
 ```
 
-The same route keeps `direct()` beside `argv()`, so `craft run` and `craft exec` reach it with identical behaviour.
+The same route keeps `direct()` beside `argv()`, so `craft run` and `craft exec` both reach it.
 
 ## Input
 
@@ -60,21 +59,9 @@ Craft's own options go before the file. After it, only two flags belong to the C
 
 A route whose `.input()` body declares a field named `help` or `format` is refused with a usage error, because those flags never reach it. A file with more than one `argv()` route is refused the same way before any route starts: one command line runs one route.
 
-## Principal and scopes
+## No principal
 
-`argv()` is a door, so it mints a principal for the local operator through the application's authority: `kind` and `scheme` are `local`, `subject` is the OS user and `subjectProfile` is `user`. `.authorize()` checks it like any other principal.
-
-The principal holds only the scopes the operator configured, never all of them. They come from `scopes` in [`.routecraft/settings.yaml`](/docs/reference/cli#settings-file), at the top level or in a profile, or from `CRAFT_SCOPES` (space or comma separated):
-
-```yaml
-# .routecraft/settings.yaml
-scopes: [boards:read]
-profiles:
-  admin:
-    scopes: [boards:read, boards:write]
-```
-
-With no scopes configured, a route with `.authorize({ scopes })` refuses the run with exit code 4 and names the missing scope. The scopes are the operator's to grant, not the route's: a route declaring the scopes it holds would make its own `.authorize()` prove nothing.
+A command line proves no identity, so `argv()` puts no principal on the exchange. A route without `.authorize()` runs. A route with `.authorize()` fails with `RC5012` (exit code 1) unless a plugin supplies a principal on the way in: a `mutate` hook in the `beforeAuth` slot runs before the `authorize` position and can set one through `authorityOf()`. Token verification on `argv()` itself is not offered yet.
 
 ## Output and exit codes
 
@@ -85,7 +72,7 @@ The final body goes to stdout. Logs go to stderr under `craft run`, so `craft ru
 | `0` | The route completed, or it deferred: the `Deferred` acknowledgement is printed with its deferral id and resume token |
 | `1` | The route failed, or a filter dropped the exchange |
 | `2` | A usage error: a malformed command line, flags and stdin together, a reserved field, or an `.input()` failure (the schema issues are printed) |
-| `4` | `.authorize()` refused the local operator, for example a missing scope |
+| `4` | `.authorize()` refused a principal a plugin supplied, for example a missing scope |
 
 After the one exchange the source completes and the CLI stops the context, so the process exits even when `direct()` or `mcp()` would hold the route open.
 
@@ -95,7 +82,7 @@ After the one exchange the source completes and the CLI stops the context, so th
 
 ## Runners other than the CLI
 
-The CLI hands the command line over in the context store under `RUNNER_INVOCATION` before `context.start()`, as a `RunnerInvocation`: the route's arguments with the runner's own flags taken out, whether help was asked for, the flag names the runner reserves, the operator's scopes, a lazy stdin reader, and a `settle(outcome)` callback that receives one `RunnerOutcome`. A runner of your own sets the same key to drive an `argv()` route, and can call `argvRouteIds(context)` first to find the route, or to refuse a file with none or several.
+The CLI hands the command line over in the context store under `RUNNER_INVOCATION` before `context.start()`, as a `RunnerInvocation`: the route's arguments with the runner's own flags taken out, whether help was asked for, the flag names the runner reserves, a lazy stdin reader, and a `settle(outcome)` callback that receives one `RunnerOutcome`. A runner of your own sets the same key to drive an `argv()` route, and can call `argvRouteIds(context)` first to find the route, or to refuse a file with none or several.
 
 ---
 
@@ -103,10 +90,10 @@ The CLI hands the command line over in the context store under `RUNNER_INVOCATIO
 
 <QuickLinks>
 
-<QuickLink title="CLI" icon="installation" href="/docs/reference/cli#run" description="craft run, its options, and the settings file the scopes come from." />
+<QuickLink title="CLI" icon="installation" href="/docs/reference/cli#run" description="craft run, its options, and the settings file." />
 
 <QuickLink title="direct" icon="presets" href="/docs/reference/adapters/direct" description="The in-process door craft exec dispatches through." />
 
-<QuickLink title="Authorize" icon="warning" href="/docs/reference/operations/authorize" description="How .authorize() checks the principal's scopes." />
+<QuickLink title="Authorize" icon="warning" href="/docs/reference/operations/authorize" description="How .authorize() checks a principal, and why argv() routes have none." />
 
 </QuickLinks>
