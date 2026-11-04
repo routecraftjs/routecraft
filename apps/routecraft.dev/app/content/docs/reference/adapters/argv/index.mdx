@@ -74,7 +74,7 @@ The final body goes to stdout. Logs go to stderr under `craft run`, so `craft ru
 | `0` | The route completed, or it deferred: the `Deferred` acknowledgement is printed with its deferral id and resume token. The token resumes only through a durable deferral store and a resume route that outlive the process |
 | `1` | The route failed, a filter dropped the exchange, or the route never read the command line (disabled, or it failed to start) |
 | `2` | A usage error: a malformed command line, stdin that is not JSON, a reserved field, or an `.input()` failure (the schema issues are printed) |
-| `4` | A validate hook refused the caller |
+| `4` | A plugin validate hook or the route's own `.validate()` step refused the caller, except an `invalid` refusal, which exits `2` |
 
 After the one exchange the source completes and the CLI stops the context, so the process exits even when `direct()` or `mcp()` would hold the route open.
 
