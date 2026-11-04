@@ -9,6 +9,10 @@
  * is a property worth relying on rather than an accident of the plumbing.
  */
 
+import {
+  commandLineInput,
+  type OpsDispatchOutcome,
+} from "@routecraft/routecraft";
 import { OpsClientError, type OpsClient } from "./ops-client.js";
 import { renderDispatch, renderRoutes } from "./format.js";
 import { prepare } from "./prepare.js";
@@ -18,7 +22,6 @@ import {
   type OutputFormat,
   type SettingsOverrides,
 } from "./settings.js";
-import { messageOf } from "./util.js";
 
 /**
  * Exit codes, which are the API for anything scripting this.
@@ -40,6 +43,24 @@ export const EXEC_EXIT = {
   refused: 4,
 } as const;
 
+/**
+ * The printed result and exit code of a dispatch that reached the route,
+ * shared with `craft run` so both commands exit alike for one outcome.
+ *
+ * A drop reached a terminal outcome without producing a result, so it is a
+ * non-zero exit alongside a failure while staying visibly a different thing
+ * in the output.
+ */
+export function dispatchResult(
+  outcome: OpsDispatchOutcome,
+  format: OutputFormat,
+): ExecResult {
+  const output = renderDispatch(outcome, format);
+  return outcome.outcome === "dropped"
+    ? { code: EXEC_EXIT.failed, output }
+    : { code: EXEC_EXIT.ok, output };
+}
+
 export interface ExecResult {
   code: number;
   /** Written to stdout. */
@@ -51,62 +72,6 @@ export interface ExecResult {
 export interface ExecOptions extends SettingsOverrides {
   /** Body read from a pipe, when stdin was not a terminal. */
   stdin?: string;
-}
-
-/**
- * Turn trailing `--flag=value` arguments into a request body.
- *
- * Flat and predictable on purpose: a bare flag is `true`, a repeated flag
- * becomes an array, and everything else is the string the shell passed.
- * Nothing is coerced to a number, because a route that wants one declares
- * it with `.input()` and a CLI guessing types is a source of bugs that only
- * appear for values that look numeric.
- *
- * Anything richer than that goes in on stdin as JSON.
- */
-export function bodyFromArgs(args: readonly string[]): {
-  body: Record<string, unknown>;
-  error?: string;
-} {
-  const body: Record<string, unknown> = {};
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
-    if (!arg.startsWith("--")) {
-      return {
-        body,
-        error: `Unexpected argument "${arg}". Route input is passed as --field=value pairs, or as JSON on stdin.`,
-      };
-    }
-    const withoutDashes = arg.slice(2);
-    const equals = withoutDashes.indexOf("=");
-    let key: string;
-    let value: unknown;
-    if (equals >= 0) {
-      key = withoutDashes.slice(0, equals);
-      value = withoutDashes.slice(equals + 1);
-    } else {
-      key = withoutDashes;
-      const next = args[index + 1];
-      if (next !== undefined && !next.startsWith("--")) {
-        value = next;
-        index += 1;
-      } else {
-        value = true;
-      }
-    }
-    if (key === "") {
-      return { body, error: `"${arg}" is not a valid field name.` };
-    }
-    const existing = body[key];
-    if (existing === undefined) {
-      body[key] = value;
-    } else if (Array.isArray(existing)) {
-      existing.push(value);
-    } else {
-      body[key] = [existing, value];
-    }
-  }
-  return { body };
 }
 
 /**
@@ -186,41 +151,12 @@ export async function execCommand(
 
   if (route === undefined) return introspect(client, format);
 
-  const piped = options.stdin?.trim();
-  let body: unknown;
-  if (piped !== undefined && piped.length > 0) {
-    if (args.length > 0) {
-      return {
-        code: EXEC_EXIT.usage,
-        error:
-          "Route input arrived both on stdin and as --field=value arguments. Pass one or the other, so which one wins is never a question.",
-      };
-    }
-    try {
-      body = JSON.parse(piped);
-    } catch (error: unknown) {
-      return {
-        code: EXEC_EXIT.usage,
-        error: `Input on stdin must be JSON: ${messageOf(error)}`,
-      };
-    }
-  } else {
-    const parsed = bodyFromArgs(args);
-    if (parsed.error !== undefined) {
-      return { code: EXEC_EXIT.usage, error: parsed.error };
-    }
-    body = parsed.body;
-  }
+  const input = commandLineInput(args, options.stdin);
+  if ("error" in input) return { code: EXEC_EXIT.usage, error: input.error };
+  const { body } = input;
 
   try {
-    const outcome = await client.dispatch(route, body);
-    const output = renderDispatch(outcome, format);
-    // A drop reached a terminal outcome without producing a result, so it
-    // is reported as a non-zero exit alongside a failure while staying
-    // visibly a different thing in the output.
-    return outcome.outcome === "dropped"
-      ? { code: EXEC_EXIT.failed, output }
-      : { code: EXEC_EXIT.ok, output };
+    return dispatchResult(await client.dispatch(route, body), format);
   } catch (error: unknown) {
     if (!(error instanceof OpsClientError)) throw error;
     return {

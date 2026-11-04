@@ -25,9 +25,9 @@ Global options (must appear **before** the subcommand):
 | -h, --help | Show usage help |
 | -v, --version | Print version and exit |
 | --log-level \<level\> | Any pino level (trace, debug, info, warn, error, fatal) or silent. Default: warn. Applied before the logger initializes. |
-| --log-file \<path\> | Write logs to a file instead of stdout |
+| --log-file \<path\> | Write logs to a file instead of the standard stream (stdout; stderr under `run`) |
 
-`start` and `run` also take `--log-level` and `--log-file` as their own options, and the command's own flag wins over the global one. On `run` they belong before the file, because anything after `run <file>` is pass-through: it is forwarded to the route file's CLI adapter, which is what lets a route own a flag the CLI also defines.
+`start` and `run` also take `--log-level` and `--log-file` as their own options, and the command's own flag wins over the global one. On `run` they belong before the file, because anything after `run <file>` is the route's input: the [`argv()`](/docs/reference/adapters/argv) source reads it, and only `--help` and `--format` after the file belong to the CLI.
 
 ```bash
 craft start ./my-project --log-level info
@@ -35,7 +35,7 @@ craft run --log-level info --log-file craft.log ./capabilities/orders.ts
 craft --log-level info run ./capabilities/orders.ts
 ```
 
-`LOG_LEVEL` and `LOG_FILE` also work from the env files `run` and `start` load, whether [the ones a profile selects](#the-environment-a-profile-selects) or the one `--env` names, and a flag still beats the same setting from a file. A log file that cannot be opened for appending stops the command before it runs, exiting `2` with the path and where it came from (`--log-file`, `LOG_FILE`, `CRAFT_LOG_FILE`, or a `craft.log.js` / `craft.log.cjs` file, reported as `craft.log`); a missing file and missing parent directories are created. An empty `--log-file ""` keeps logs on standard output.
+`LOG_LEVEL` and `LOG_FILE` also work from the env files `run` and `start` load, whether [the ones a profile selects](#the-environment-a-profile-selects) or the one `--env` names, and a flag still beats the same setting from a file. A log file that cannot be opened for appending stops the command before it runs, exiting `2` with the path and where it came from (`--log-file`, `LOG_FILE`, `CRAFT_LOG_FILE`, or a `craft.log.js` / `craft.log.cjs` file, reported as `craft.log`); a missing file and missing parent directories are created. An empty `--log-file ""` keeps logs on the standard stream. `run` logs to stderr, because its stdout carries the route's result; set `LOG_STREAM=stdout` (or `CRAFT_LOG_STREAM`) to send them to stdout instead.
 
 ## Project scaffolding
 
@@ -124,7 +124,15 @@ copied; the scaffolded project resolves its own dependency tree.
 Load one or more capabilities from a TypeScript file and start the Routecraft context. The process runs as long as the capabilities run: finite capabilities exit after completing; long-lived sources keep the process running until the context is stopped or a signal is received.
 
 ```bash
-craft run <file> [--env <.env path>] [--profile <name>]
+craft run [--env <.env path>] [--profile <name>] <file> [--field=value ...] [--help] [--format <format>]
+```
+
+A route that reads its input from the command line declares [`argv()`](/docs/reference/adapters/argv): the arguments after the file (or JSON on stdin) become one exchange with the same grammar as [`craft exec`](#exec), the result is printed on stdout, and the process exits with the `craft exec` exit codes even when `direct()` or `mcp()` beside it would hold the route open. `--help` after the file prints the route's `.input()` fields; `--format` picks `pretty`, `json` or `raw`. The exchange carries no principal, so a route with `.authorize()` fails unless a plugin supplies one.
+
+```bash
+craft run routes/work-item.ts --id=12345 --format=json
+echo '{"id":"12345"}' | craft run routes/work-item.ts
+craft run routes/work-item.ts --help
 ```
 
 The file must export a capability (or array of capabilities) as its default export, and optionally a `craftConfig` named export. A file whose routes are built with a project's `craft()` exports that project's config as `craftConfig` (`export const craftConfig = project.config`), or `craft run` fails to start with `RC1111`: startup compiles every route and checks that each plugin step it uses is installed before any route runs. See the [Configuration reference](/docs/reference/configuration) for the config export format.
@@ -136,6 +144,8 @@ Options:
 | `<file>` | TypeScript or JavaScript file (.ts/.mjs/.js/.cjs) to execute |
 | `--env <path>` | Load environment variables from a .env file |
 | `--profile <name>` | [Settings profile](#profiles) to select, and with it [the environment](#the-environment-a-profile-selects) |
+| `--help` (after the file) | Print the `argv()` route's input fields instead of running it |
+| `--format <format>` (after the file) | Output of an `argv()` route: `pretty` (default), `json` or `raw` |
 
 <Callout type="note" title="A file outside a project">
 
@@ -373,7 +383,7 @@ Navigation, views and keys are in the [Terminal UI guide](/docs/advanced/tui).
 
 ## Settings file
 
-`craft exec`, `craft ops` and `craft acp` read one personal settings file, and `craft run` and `craft start` read it for the profile that selects their environment. It is **your** file, not the app's: `craft.config.ts` decides what exists in an instance and what it exposes, while this decides how you like to talk to it.
+`craft exec`, `craft ops` and `craft acp` read one personal settings file, `craft run` and `craft start` read it for the profile that selects their environment, and `craft run` reads it for the default output format of an `argv()` route. It is **your** file, not the app's: `craft.config.ts` decides what exists in an instance and what it exposes, while this decides how you like to talk to it.
 
 Two locations, both YAML and both optional:
 
@@ -403,7 +413,7 @@ token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 format: pretty
 ```
 
-Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`, `CRAFT_AGENT`, `CRAFT_PROFILE`), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
+Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`, `CRAFT_AGENT` and `CRAFT_PROFILE`), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
 
 ### Profiles
 

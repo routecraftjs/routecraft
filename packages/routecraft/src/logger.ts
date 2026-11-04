@@ -121,7 +121,8 @@ export function logFileDiversion(): LogFileDiversion | undefined {
 }
 
 /**
- * Resolve destination stream. ENV wins, then config file, then stdout.
+ * Resolve destination stream. ENV wins, then config file, then the standard
+ * stream (stdout unless `LOG_STREAM` names stderr).
  * Aligns with pino's default and 12-factor. Adapters that own stdout
  * (e.g. MCP stdio) must redirect logs via --log-file or --log-level silent.
  */
@@ -175,7 +176,29 @@ function getDestination(fileConfig?: string): NodeJS.WritableStream {
       }
     }
   }
-  return pinoDest.destination(1);
+  return pinoDest.destination(standardStream());
+}
+
+/**
+ * The standard stream logs go to when no file is named: stdout, or stderr
+ * when `LOG_STREAM` / `CRAFT_LOG_STREAM` says so. A command whose stdout is
+ * its result (`craft run` with `argv()`) sets it so a log line never lands
+ * in a pipe that expects the result.
+ *
+ * Any other value goes to stderr with a warning: a typo must not put logs
+ * back into the stream the variable exists to keep clean.
+ */
+function standardStream(): 1 | 2 {
+  const raw = [process.env["LOG_STREAM"], process.env["CRAFT_LOG_STREAM"]].find(
+    (value) => value !== undefined && value.trim() !== "",
+  );
+  const stream = raw?.trim().toLowerCase();
+  if (stream === undefined || stream === "stdout") return 1;
+  if (stream === "stderr") return 2;
+  process.stderr.write(
+    `LOG_STREAM must be "stdout" or "stderr"; received "${String(raw)}". Logging to stderr.\n`,
+  );
+  return 2;
 }
 
 /** Options object accepted by pino() */
@@ -236,7 +259,7 @@ function resolveConfig(): {
       ? {
           transport: {
             target: "pino-pretty",
-            options: { colorize: true },
+            options: { colorize: true, destination: standardStream() },
           },
         }
       : {}),

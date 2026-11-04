@@ -70,6 +70,8 @@ if (process.argv.length <= 2) {
  * 1. The environment the command selects, so an env file can configure the
  *    logger like any other setting.
  * 2. The logging flags, over it: a flag is the more specific thing said.
+ *    `craft run` also sends logs to stderr unless the environment chose a
+ *    stream, because its stdout carries the route's result.
  * 3. The Bun version gate, which reads the version with core's parser and
  *    so is the first thing that loads core and builds the logger.
  * 4. The log file core was asked for, which it diverts somewhere nobody
@@ -78,6 +80,13 @@ if (process.argv.length <= 2) {
 async function prepareCommand(command: CommanderCommand): Promise<void> {
   const notes = await selectEnvironment(command);
   const flaggedLogFile = applyLogOptions(command.opts() as LogOptions);
+  if (
+    command.name() === "run" &&
+    !process.env["LOG_STREAM"]?.trim() &&
+    !process.env["CRAFT_LOG_STREAM"]?.trim()
+  ) {
+    process.env["CRAFT_LOG_STREAM"] = "stderr";
+  }
 
   const { checkBunRuntime } = await import("./runtime-gate.js");
   const gate = checkBunRuntime();
@@ -106,6 +115,31 @@ async function prepareCommand(command: CommanderCommand): Promise<void> {
 async function refuse(code: number, message: string): Promise<never> {
   await writeLine(process.stderr, message);
   process.exit(code);
+}
+
+/**
+ * Print a command's result and set its exit code without exiting, for a
+ * command that stopped its own context and lets the event loop drain.
+ */
+async function report(result: CommandResult): Promise<void> {
+  // Set first so a stream that never drains still exits with the right code
+  // rather than reporting success on the way out.
+  process.exitCode = result.code;
+  await Promise.all([
+    ...(result.output === undefined
+      ? []
+      : [writeLine(process.stdout, result.output)]),
+    ...(result.error === undefined
+      ? []
+      : [writeLine(process.stderr, result.error)]),
+  ]);
+}
+
+/** What a command prints and the code it exits with. */
+interface CommandResult {
+  code: number;
+  output?: string;
+  error?: string;
 }
 
 /** Write one line and resolve once the stream has taken it. */
@@ -142,14 +176,11 @@ function applyLogOptions(local: LogOptions): string | undefined {
  *
  * `enablePositionalOptions()` confines a global option to the space before
  * the subcommand, so `craft start --log-level info` died on "unknown
- * option" and `craft run app.ts --log-level info` was swallowed whole by the
- * pass-through and handed to the route. That is the spelling everyone
- * reaches for, and the rule bought nothing here but a lesson every user had
- * to learn once.
+ * option". That is the spelling everyone reaches for, and the rule bought
+ * nothing here but a lesson every user had to learn once.
  *
- * `run` keeps its pass-through contract: a flag written after the file still
- * belongs to the route, because that is the only way a CLI-adapter route can
- * own a flag the CLI also defines.
+ * On `run` they still belong before the file: everything after it is the
+ * route's input for `argv()`, except `--help` and `--format`.
  */
 interface LogOptions {
   logLevel?: string;
@@ -255,7 +286,7 @@ async function selectEnvironment(
  *
  * Example:
  * craft run ./my-routes.ts
- * craft run ./my-cli.ts greet --name World
+ * craft run ./work-item.ts --id=12345 --format json
  */
 withLogOptions(
   withEnvironment(
@@ -265,26 +296,34 @@ withLogOptions(
       .argument("<file>", "Path to a file containing routes")
       .argument(
         "[args...]",
-        "CLI command and flags to pass through to CLI adapter routes",
+        "Route input for an argv() route: --field=value pairs, --help, or --format <format>",
       ),
     () => process.cwd(),
   ),
 )
   .passThroughOptions()
-  .action(async (filePath, args: string[]) => {
-    const { runCommand } = await import("./run.js");
-    const result = await runCommand(filePath, args);
-    if (!result.success) {
-      settle({
-        code: result.code ?? 1,
-        ...(result.message ? { error: result.message } : {}),
+  .action(
+    async (filePath: string, args: string[], options: { profile?: string }) => {
+      const { runCommand } = await import("./run.js");
+      const result = await runCommand(filePath, args, {
+        ...(options.profile === undefined ? {} : { profile: options.profile }),
+        readStdin,
       });
-      return;
-    }
-    // Don't call process.exit(); let the event loop drain naturally.
-    // process.exit() triggers C++ static destructors that race with ONNX
-    // Runtime cleanup (onnxruntime#25038: "mutex lock failed").
-  });
+      // Don't call process.exit() after a run; let the event loop drain
+      // naturally. process.exit() triggers C++ static destructors that race
+      // with ONNX Runtime cleanup (onnxruntime#25038: "mutex lock failed").
+      if ("reply" in result) {
+        await report(result.reply);
+        return;
+      }
+      if (!result.success) {
+        settle({
+          code: result.code ?? 1,
+          ...(result.message ? { error: result.message } : {}),
+        });
+      }
+    },
+  );
 
 /**
  * The 'start' command boots a whole project from the folder convention.
@@ -373,28 +412,10 @@ withLogOptions(
  * whole; the exit itself stays deferred so pino/sonic-boom can finish
  * initialising.
  */
-function settle(result: {
-  code: number;
-  output?: string;
-  error?: string;
-}): void {
-  const writes: Array<[NodeJS.WriteStream, string]> = [];
-  if (result.output !== undefined) writes.push([process.stdout, result.output]);
-  if (result.error !== undefined) writes.push([process.stderr, result.error]);
-
-  const finish = (): void => {
+function settle(result: CommandResult): void {
+  void report(result).then(() => {
     setImmediate(() => process.exit(result.code));
-  };
-  if (writes.length === 0) {
-    finish();
-    return;
-  }
-  // Set early so a stream that never drains still exits with the right code
-  // rather than reporting success on the way out.
-  process.exitCode = result.code;
-  void Promise.all(
-    writes.map(([stream, text]) => writeLine(stream, text)),
-  ).then(finish);
+  });
 }
 
 /**

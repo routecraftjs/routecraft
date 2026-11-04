@@ -1,0 +1,101 @@
+---
+title: argv
+---
+
+<Lead>
+[← All adapters](/docs/reference/adapters)
+</Lead>
+
+```ts skip="signature: a type signature, not a statement"
+argv(): Source<unknown>
+```
+
+Turn the command line of `craft run <file>` into one exchange. The route runs its full chain, the CLI prints the result and the process exits with the same exit codes as `craft exec`.
+
+```ts
+import { argv, craft, direct } from "@routecraft/routecraft";
+import { z } from "zod";
+
+const WorkItemQuery = z.object({
+  id: z.string().describe("The work item id"),
+  expand: z.string().optional().describe("Relations to include"),
+});
+
+export default craft()
+  .id("work-item")
+  .title("Fetch a work item")
+  .input({ body: WorkItemQuery })
+  .from(argv(), direct())
+  .transform((query) => ({ id: query.id }));
+```
+
+```bash
+craft run work-item.ts --id=12345 --format=json
+echo '{"id":"12345"}' | craft run work-item.ts
+craft run work-item.ts --help
+```
+
+The same route keeps `direct()` beside `argv()`, so `craft run` and `craft exec` both reach it.
+
+## Input
+
+The arguments after the file become the body with the grammar `craft exec` uses, through the same parser:
+
+- `--field=value` and `--field value` set a field.
+- A bare `--flag` is `true`.
+- A repeated key becomes an array.
+- Nothing is coerced: every value is the string the shell passed, except a bare flag. For a number or a nested value, declare a coercing schema in `.input()` (such as `z.coerce.number()`) or pipe JSON.
+
+With no arguments, JSON piped on stdin is the body, read to its end as `craft exec` reads it; a pipe that never closes keeps the run waiting. With flags, stdin is not read at all, so the flags are the whole body. Stdin is read only by an `argv()` route that was given no flags, so a file without `argv()`, such as a stdio `mcp()` server, keeps its stdin under `craft run`. A file with `argv()` is one-shot under `craft run`: the CLI stops the context after the one exchange, so a stdio server that has to stay up belongs in a file of its own, or under `craft start`, where `argv()` is inert.
+
+## Reserved flags
+
+Craft's own options go before the file. After it, only two flags belong to the CLI:
+
+| Flag | Meaning |
+| --- | --- |
+| `--help` | Print the route's id, title, description and the fields of its `.input()` body (type, whether required, description). The context never starts, so no route in the file runs. |
+| `--format <format>` | `pretty` (default), `json` or `raw`, the same renderer as `craft exec`. The default comes from the settings file. |
+
+A route whose `.input()` body declares a field named `help` or `format` is refused with a usage error before anything starts, because those flags never reach it. The check and the `--help` fields read the schema's JSON Schema rendering; a schema library without one gets neither. A file with more than one `argv()` route is refused the same way: one command line runs one route.
+
+Flag values come from outside the route's code. Pass one to [`shell()`](/docs/reference/adapters/shell) wrapped in `untrusted()`, and keep secrets off the command line, where process listings and shell history keep them: pipe them as JSON on stdin instead.
+
+## No principal
+
+A command line proves no identity, so `argv()` puts no principal on the exchange. A route without `.authorize()` runs. A route with `.authorize()` fails with `RC5012` (exit code 1) unless a plugin supplies a principal on the way in: a `mutate` hook in the `beforeAuth` slot runs before the `authorize` position and can set one through `authorityOf()`. The door admitted no principal, so when `.authorize()` refuses the one a plugin supplied, for example for a missing scope, that is a route failure (exit code 1) and not a refusal of the caller. Token verification on `argv()` itself is not offered yet.
+
+## Output and exit codes
+
+The final body goes to stdout. Logs go to stderr under `craft run`, so `craft run work-item.ts --id=1 --format raw | jq` reads only the result.
+
+| Exit | When |
+| --- | --- |
+| `0` | The route completed, or it deferred: the `Deferred` acknowledgement is printed with its deferral id and resume token. The token resumes only through a durable deferral store and a resume route that outlive the process |
+| `1` | The route failed, a filter dropped the exchange, or the route never read the command line (disabled, or it failed to start) |
+| `2` | A usage error: a malformed command line, stdin that is not JSON, a reserved field, or an `.input()` failure (the schema issues are printed) |
+| `4` | A plugin validate hook or the route's own `.validate()` step refused the caller, except an `invalid` refusal, which exits `2` |
+
+After the one exchange the source completes and the CLI stops the context, so the process exits even when `direct()` or `mcp()` would hold the route open.
+
+## Under `craft start`
+
+`argv()` is inert: `craft start` hands no command line to the context, so the source emits nothing and the route answers only through its other sources. Declare it beside `direct()` and `mcp()` without branching.
+
+## Runners other than the CLI
+
+The CLI hands the command line over in the context store under `RUNNER_INVOCATION` before `context.start()`, as a `RunnerInvocation`: the route's arguments with the runner's own flags taken out, a lazy stdin reader, and a `settle(outcome)` callback that receives one `RunnerOutcome`. A runner of your own sets the same key to drive an `argv()` route. Before it starts the context it calls `argvRouteIds(context)` to find the route and refuse a file with several, and `describeArgvRoute(context, id)` to answer its own help flag and check its reserved flag names against the route's input fields.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="CLI" icon="installation" href="/docs/reference/cli#run" description="craft run, its options, and the settings file." />
+
+<QuickLink title="direct" icon="presets" href="/docs/reference/adapters/direct" description="The in-process door craft exec dispatches through." />
+
+<QuickLink title="Authorize" icon="warning" href="/docs/reference/operations/authorize" description="How .authorize() checks a principal, and why argv() routes have none." />
+
+</QuickLinks>

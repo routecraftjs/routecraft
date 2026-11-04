@@ -77,6 +77,16 @@ const MARKER_SOURCE = [
   "",
 ].join("\n");
 
+/** An argv() route beside direct(), which holds the route open on its own. */
+const ARGV_ROUTE = join(DIR, "argv.ts");
+const ARGV_SOURCE = [
+  'import { craft, argv, direct } from "@routecraft/routecraft";',
+  'const accept = { type: "object", properties: { name: { type: "string" } } };',
+  'const Greeting = { "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }), jsonSchema: { input: () => accept } } };',
+  'export default craft().id("greet").input({ body: Greeting }).from(argv(), direct()).transform((body) => `hello ${body.name}`);',
+  "",
+].join("\n");
+
 /** What a finished `craft` child left behind. */
 interface Outcome {
   code: number;
@@ -100,6 +110,8 @@ async function invoke(cwd: string, args: string[]): Promise<Outcome> {
   delete env["CRAFT_LOG_FILE"];
   delete env["CRAFT_PROFILE"];
   delete env["CRAFT_CLI_ENTRY"];
+  delete env["LOG_STREAM"];
+  delete env["CRAFT_LOG_STREAM"];
   try {
     const { stdout, stderr } = await run("bun", [ENTRY, ...args], {
       env,
@@ -139,6 +151,22 @@ async function craftIn(cwd: string, ...args: string[]): Promise<string> {
   return outcome.stdout;
 }
 
+/**
+ * Run `craft run` from `cwd`, expecting success, and return its stderr.
+ * `craft run` logs to stderr because its stdout carries the route's result,
+ * so this also checks stdout stayed free of log lines.
+ */
+async function runLogsIn(cwd: string, ...args: string[]): Promise<string> {
+  const outcome = await invoke(cwd, args);
+  if (outcome.code !== 0) {
+    throw new Error(
+      `craft ${args.join(" ")} exited ${outcome.code}: ${outcome.stderr}`,
+    );
+  }
+  expect(logLines(outcome.stdout)).toEqual([]);
+  return outcome.stderr;
+}
+
 /** Run `craft` from the fixture directory, expecting success. */
 async function craft(...args: string[]): Promise<string> {
   return craftIn(DIR, ...args);
@@ -170,6 +198,7 @@ beforeAll(async () => {
   );
   await writeFile(join(PROJECT, "capabilities", "probe.ts"), ROUTE_SOURCE);
   await writeFile(MARKER_ROUTE, MARKER_SOURCE);
+  await writeFile(ARGV_ROUTE, ARGV_SOURCE);
 
   await mkdir(join(PROFILED, ".routecraft"), { recursive: true });
   await writeFile(
@@ -209,13 +238,13 @@ describe("craft logging flags", () => {
   /**
    * @case The global `--log-level` flag before the command
    * @preconditions No log level in the environment; `craft --log-level info run <route>`
-   * @expectedResult The route's own info lines reach stdout
+   * @expectedResult The route's own info lines reach stderr, and none reach stdout, which `craft run` keeps for the route's result
    */
   test(
     "--log-level before the command raises the level",
     async () => {
-      const stdout = await craft("--log-level", "info", "run", ROUTE);
-      expect(routeInfoLines(stdout).length).toBeGreaterThan(0);
+      const stderr = await runLogsIn(DIR, "--log-level", "info", "run", ROUTE);
+      expect(routeInfoLines(stderr).length).toBeGreaterThan(0);
     },
     TEST_TIMEOUT_MS,
   );
@@ -223,13 +252,13 @@ describe("craft logging flags", () => {
   /**
    * @case The command's own `--log-level` flag
    * @preconditions No log level in the environment; `craft run --log-level info <route>`
-   * @expectedResult The route's own info lines reach stdout, the same as the global form
+   * @expectedResult The route's own info lines reach stderr, the same as the global form
    */
   test(
     "--log-level after the command raises the level",
     async () => {
-      const stdout = await craft("run", "--log-level", "info", ROUTE);
-      expect(routeInfoLines(stdout).length).toBeGreaterThan(0);
+      const stderr = await runLogsIn(DIR, "run", "--log-level", "info", ROUTE);
+      expect(routeInfoLines(stderr).length).toBeGreaterThan(0);
     },
     TEST_TIMEOUT_MS,
   );
@@ -292,19 +321,19 @@ describe("craft log settings from env files", () => {
   /**
    * @case A profile's env file sets the log level
    * @preconditions No log level in the process; a project whose settings define `staging` and whose `.env.staging` says `LOG_LEVEL=info`; `craft run --profile staging <route>` from that project
-   * @expectedResult The route's own info lines reach stdout, so the profile's environment was in place before core built the logger
+   * @expectedResult The route's own info lines reach stderr, so the profile's environment was in place before core built the logger
    */
   test(
     "LOG_LEVEL in the selected profile's env file raises the level",
     async () => {
-      const stdout = await craftIn(
+      const stderr = await runLogsIn(
         PROFILED,
         "run",
         "--profile",
         "staging",
         ROUTE,
       );
-      expect(routeInfoLines(stdout).length).toBeGreaterThan(0);
+      expect(routeInfoLines(stderr).length).toBeGreaterThan(0);
     },
     TEST_TIMEOUT_MS,
   );
@@ -416,14 +445,15 @@ describe("craft with a log file it cannot write", () => {
   );
 
   /**
-   * @case An empty `--log-file` asks for standard output
+   * @case An empty `--log-file` asks for the standard stream
    * @preconditions `craft --log-level info --log-file "" run <route>`
-   * @expectedResult The command runs and the route's info lines reach stdout, matching how core reads an empty `LOG_FILE`
+   * @expectedResult The command runs and the route's info lines reach stderr, the standard stream `craft run` logs to, matching how core reads an empty `LOG_FILE`
    */
   test(
-    "an empty --log-file keeps logs on stdout",
+    "an empty --log-file keeps logs on the standard stream",
     async () => {
-      const stdout = await craft(
+      const stderr = await runLogsIn(
+        DIR,
         "--log-level",
         "info",
         "--log-file",
@@ -431,7 +461,49 @@ describe("craft with a log file it cannot write", () => {
         "run",
         ROUTE,
       );
-      expect(routeInfoLines(stdout).length).toBeGreaterThan(0);
+      expect(routeInfoLines(stderr).length).toBeGreaterThan(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
+
+describe("craft run with an argv() route", () => {
+  /**
+   * @case The process exits after the one exchange, with only the result on stdout
+   * @preconditions An argv() route beside direct(), run with `--log-level info --name=world --format raw`
+   * @expectedResult Exit 0 within the child timeout, stdout exactly the result, and the info lines on stderr
+   */
+  test(
+    "prints the result and exits",
+    async () => {
+      const outcome = await invoke(DIR, [
+        "run",
+        "--log-level",
+        "info",
+        ARGV_ROUTE,
+        "--name=world",
+        "--format",
+        "raw",
+      ]);
+      expect(outcome.code).toBe(0);
+      expect(outcome.stdout).toBe("hello world\n");
+      expect(logLines(outcome.stderr).length).toBeGreaterThan(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  /**
+   * @case A usage error exits 2
+   * @preconditions A positional argument after the file
+   * @expectedResult Exit 2 with the parser's message on stderr and nothing on stdout
+   */
+  test(
+    "exits 2 on a malformed command line",
+    async () => {
+      const outcome = await invoke(DIR, ["run", ARGV_ROUTE, "world"]);
+      expect(outcome.code).toBe(2);
+      expect(outcome.stderr).toMatch(/--field=value/);
+      expect(outcome.stdout).toBe("");
     },
     TEST_TIMEOUT_MS,
   );

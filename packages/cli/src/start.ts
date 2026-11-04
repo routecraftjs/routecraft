@@ -8,14 +8,13 @@ import {
   logger,
   mergeProjectConfig,
   shutdownHandler,
-  RUNNER_ARGV,
   type CraftConfig,
   type CraftContext,
   type Plugin,
   type AnyRouteBuilder,
   type RouteDefinition,
 } from "@routecraft/routecraft";
-import { collectRoutes, type RunResult } from "./run.js";
+import { collectRoutes, type CommandOutcome } from "./run.js";
 import { messageOf } from "./util.js";
 import {
   CONFIG_STEM,
@@ -86,7 +85,7 @@ export interface StartOptions {
 export async function startCommand(
   dir: string | undefined,
   options: StartOptions = {},
-): Promise<RunResult> {
+): Promise<CommandOutcome> {
   const root = resolve(process.cwd(), dir ?? ".");
   if (!isDirectory(root)) {
     return fail(`Project directory "${root}" does not exist.`);
@@ -111,7 +110,7 @@ export async function startCommand(
   try {
     // Inside the guard: picking the content root consults the discoverer
     // registry, which throws on a dependency cycle, and every failure
-    // this command can hit belongs in its RunResult rather than as a
+    // this command can hit belongs in its CommandOutcome rather than as a
     // rejection its caller has to catch.
     const contentRoot = pickContentRoot(root);
     logger.info(`Starting project "${root}" (content root: "${contentRoot}").`);
@@ -130,9 +129,6 @@ export async function startCommand(
     }
 
     const { context } = await builder.build();
-    // `start` has no trailing-argument passthrough the way `run` does,
-    // so the key is present and empty rather than absent.
-    context.setStore(RUNNER_ARGV, []);
     shutdownHandler(context);
 
     // Both watchers subscribe before the first route runs. `start()`
@@ -487,14 +483,14 @@ function describe(value: unknown): string {
  * where a route never came up is a failed boot, whatever the surviving
  * routes went on to do.
  */
-function reportStartup(failedRoutes: readonly string[]): RunResult {
+function reportStartup(failedRoutes: readonly string[]): CommandOutcome {
   if (failedRoutes.length === 0) return { success: true };
   return fail(
     `${String(failedRoutes.length)} route(s) failed to start: ${failedRoutes.join(", ")}. See the logged errors for the cause.`,
   );
 }
 
-function fail(message: string): RunResult {
+function fail(message: string): CommandOutcome {
   logger.error(message);
   return { success: false, code: 1, message };
 }

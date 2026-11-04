@@ -20,7 +20,7 @@ If Bun is missing, the CLI fails fast with a `[routecraft]` error pointing at th
 
 | Command | What it does |
 |---------|--------------|
-| `craft run <file> [args...]` | Load one TypeScript or JavaScript file, start every route it exports, and keep the process running. Anything after the file is passed through to the route's CLI adapter |
+| `craft run <file> [args...]` | Load one TypeScript or JavaScript file and start every route it exports. Anything after the file is the route's input, read by the [`argv()`](https://routecraft.dev/docs/reference/adapters/argv) source (`--field=value`, or JSON on stdin), which runs one exchange, prints the result and exits with the `craft exec` codes; `--help` and `--format` after the file belong to the CLI. Logs go to stderr unless `LOG_STREAM` or `--log-file` says otherwise |
 | `craft start [dir]` | Boot a project from its folder convention (`craft.config.ts`, `capabilities/`, `plugins/`, `agents/`, `skills/`). `--once` shuts down after the first exchange settles and `--timeout <duration>` bounds that wait |
 | `craft exec [route] [--field=value...]` | Dispatch to a route on a running instance and print the result; omit the route for the list of dispatchable endpoints. Reads the body from stdin too. `--format pretty \| json \| raw` |
 | `craft ops health \| ready \| routes [id] \| deferrals [id] \| indicators [name]` | Read the ops surface of a running instance: health, readiness, the route listing, what is waiting on a deferral, and the health indicators |
@@ -43,7 +43,7 @@ A personal settings file, `.routecraft/settings.yaml`, holds named profiles with
 
 ```text
 --log-level <level>   Any pino level (trace, debug, info, warn, error, fatal) or silent (default: warn)
---log-file <path>     Write logs to a file instead of stdout
+--log-file <path>     Write logs to a file instead of the console
 ```
 
 Both go before the command, or after `start` and `run` as their own options (on `run`, before the file): `craft run --log-level info --log-file craft.log <file>`. `LOG_LEVEL` and `LOG_FILE` in any env file `run` or `start` loads work too, and a flag beats them. A log file that cannot be opened for appending stops the command before it runs, whether the flag, `LOG_FILE` or a `craft.log.js` / `craft.log.cjs` named it.

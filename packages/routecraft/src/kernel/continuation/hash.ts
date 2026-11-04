@@ -3,7 +3,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { getAdapterArgs } from "../../adapters/shared/factory-tag.ts";
 import type { Adapter, Step } from "../../types.ts";
 import {
-  renderJsonSchemaArm,
+  renderDirectedJsonSchema,
   standardExtensionOf,
 } from "../../shared/standard-schema.ts";
 import type { SerializedExchange, DeferralSchema } from "./types.ts";
@@ -136,7 +136,7 @@ export function continuationTailHash(
  *
  * The extension's arms may be the rendered schema OR a function that
  * produces it on demand (Zod 4 ships the lazy form), so
- * {@link renderJsonSchemaArm} resolves either. Storing the unresolved function instead would be
+ * `renderJsonSchemaArm` resolves either. Storing the unresolved function instead would be
  * quietly destructive twice over: it cannot be persisted, and it hashes to
  * the same digest for EVERY schema, which silently disables the
  * changed-schema half of the compatibility check.
@@ -157,10 +157,11 @@ export function describeSchema(schema?: StandardSchemaV1): DeferralSchema {
     return { hash: sha256(canonical({ absent: true })), absent: true };
   }
   const standard = standardExtensionOf(schema);
-  const arms = [standard?.jsonSchema?.output, standard?.jsonSchema?.input];
-  const jsonSchema =
-    renderJsonSchemaArm(arms[0], JSON_SCHEMA_TARGET) ??
-    renderJsonSchemaArm(arms[1], JSON_SCHEMA_TARGET);
+  const jsonSchema = renderDirectedJsonSchema(
+    schema,
+    "output",
+    JSON_SCHEMA_TARGET,
+  );
   // Without a rendering there is nothing schema-specific to hash, so the
   // descriptor falls back to vendor and version. That fallback is identical
   // for every schema the vendor produces, which means the changed-`expect`

@@ -536,10 +536,10 @@ A failure the route's own `.error()` did not settle reaches the `error` slot, wh
 
 Logging uses a single pino instance configured at module load. Precedence (highest wins):
 
-1. **Environment variables**: `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`, `LOG_REDACT` / `CRAFT_LOG_REDACT` (comma-separated paths to redact)
+1. **Environment variables**: `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`, `LOG_REDACT` / `CRAFT_LOG_REDACT` (comma-separated paths to redact), `LOG_STREAM` / `CRAFT_LOG_STREAM` (`stdout` or `stderr`: the standard stream used when no file is named; `craft run` sets `stderr` unless you set it)
 2. **Config file in cwd**: `craft.log.cjs` or `craft.log.js` in the current working directory
 3. **Config file in home**: `craft.log.cjs` or `craft.log.js` in `~/.routecraft/`
-4. **Defaults**: level `"warn"`, stdout, no redact
+4. **Defaults**: level `"warn"`, stdout (stderr under `craft run`), no redact
 
 The config file exports a **native pino options object** (e.g. `level`, `redact`, `formatters`, `transport`). Env vars are merged on top, so env always wins.
 

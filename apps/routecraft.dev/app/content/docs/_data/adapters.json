@@ -48,6 +48,14 @@
     "description": "Internal event bus source for cross-route signalling."
   },
   {
+    "name": "argv",
+    "category": "Core",
+    "roles": [
+      "Source"
+    ],
+    "description": "The command line of craft run as one exchange, with exec's flag grammar and exit codes."
+  },
+  {
     "name": "direct",
     "category": "Core",
     "roles": [

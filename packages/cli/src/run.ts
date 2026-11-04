@@ -6,12 +6,25 @@ import {
   isRouteDefinition,
   logger,
   shutdownHandler,
-  RUNNER_ARGV,
+  RUNNER_INVOCATION,
+  argvRouteIds,
+  describeArgvRoute,
   type AnyRouteBuilder,
+  type ArgvRouteHelp,
   type RouteDefinition,
+  type RunnerInvocation,
+  type RunnerOutcome,
 } from "@routecraft/routecraft";
 import { MODULE_EXTENSIONS } from "./project.js";
 import { messageOf } from "./util.js";
+import { dispatchResult, EXEC_EXIT, type ExecResult } from "./exec.js";
+import { renderArgvHelp, renderRefusal } from "./format.js";
+import {
+  resolveSettings,
+  SettingsError,
+  type OutputFormat,
+  type SettingsOverrides,
+} from "./settings.js";
 
 /**
  * Result of a CLI command that boots a context. `success: false`
@@ -19,22 +32,54 @@ import { messageOf } from "./util.js";
  *
  * @internal
  */
-export type RunResult =
+export type CommandOutcome =
   { success: true } | { success: false; code?: number; message: string };
+
+/**
+ * Result of `craft run`. A file with an `argv()` route answers in `reply`,
+ * rendered and with its exit code, and the caller exits with that code.
+ *
+ * @internal
+ */
+export type RunResult = CommandOutcome | { reply: ExecResult };
+
+/** The flags `craft run` reads itself after the file; never route input. */
+const RUN_FLAGS: readonly string[] = ["help", "format"];
+
+/** The reserved flag names a route's `.input()` body declares as fields. */
+function reservedCollisions(help: ArgvRouteHelp): string[] {
+  const properties = (help.input as { properties?: unknown } | undefined)
+    ?.properties;
+  if (properties === null || typeof properties !== "object") return [];
+  return RUN_FLAGS.filter((name) => Object.hasOwn(properties, name));
+}
+
+/** What `craft run` needs beyond the file and its arguments. */
+export interface RunOptions extends Pick<
+  SettingsOverrides,
+  "profile" | "cwd" | "env" | "home"
+> {
+  /** Reads piped stdin; only called when an `argv()` route needs input. */
+  readStdin?: () => Promise<string | undefined>;
+}
 
 /**
  * Load a routecraft file, build a context, and start it.
  *
- * Adapter-agnostic: the runner knows nothing about which adapters (CLI, HTTP,
- * cron, etc.) are used. It sets `RUNNER_ARGV` in the context store so that
- * adapters can read remaining CLI tokens if needed.
+ * Adapter-agnostic: the runner hands the command line to the context under
+ * `RUNNER_INVOCATION` and knows nothing about which route reads it. When a
+ * route's `argv()` source settles the invocation, the runner stops the
+ * context, because a route that also has `direct()` or `mcp()` would
+ * otherwise hold the process open, and returns the rendered answer.
  *
  * @param filePath - Path to the routecraft file to run
  * @param cliArgs - Remaining CLI arguments after the file path
+ * @param options - Settings overrides and the stdin reader
  */
 export async function runCommand(
   filePath: string,
   cliArgs: string[] = [],
+  options: RunOptions = {},
 ): Promise<RunResult> {
   const absFilePath = resolve(process.cwd(), filePath);
   const ext = extname(absFilePath);
@@ -55,34 +100,191 @@ export async function runCommand(
 
     logger.info(`Loading file: ${absFilePath}`);
 
-    // Create context builder
     const contextBuilder = new ContextBuilder();
-
-    // Apply craftConfig (routes, plugins, etc.); context applies config.log when built.
     if (craftConfig) {
       logger.info("Found craftConfig export, applying configuration");
       contextBuilder.with(craftConfig);
     }
 
-    // Handle routes from the default export
     const configured = configureRoutes(contextBuilder, module.default);
     if (!configured.success) {
       return configured;
     }
 
-    // Build and start the context. Adapters handle their own lifecycle.
-    // RUNNER_ARGV lets adapters (e.g. CLI) read remaining args without
-    // the runner needing to know which adapters are in use.
     const { context } = await contextBuilder.build();
-    context.setStore(RUNNER_ARGV, cliArgs);
     shutdownHandler(context);
-    await context.start();
 
-    return { success: true };
+    const readers = argvRouteIds(context);
+    if (readers.length === 0) {
+      await context.start();
+      return { success: true };
+    }
+    // build() already bound the plugins, so a run that never starts still stops.
+    const line = runnerLine(cliArgs, options);
+    if ("error" in line) {
+      await context.stop();
+      return { success: false, code: EXEC_EXIT.usage, message: line.error };
+    }
+    const early = beforeStart(context, readers, line);
+    if (early !== undefined) {
+      await context.stop();
+      return early;
+    }
+    const routeId = readers[0]!;
+
+    let settled: RunnerOutcome | undefined;
+    const answered = Promise.withResolvers<RunnerOutcome>();
+    const invocation: RunnerInvocation = {
+      argv: line.argv,
+      readStdin: options.readStdin ?? (() => Promise.resolve(undefined)),
+      settle(outcome) {
+        if (settled !== undefined) return;
+        settled = outcome;
+        answered.resolve(outcome);
+      },
+    };
+    context.setStore(RUNNER_INVOCATION, invocation);
+
+    // Raced rather than awaited: `context.start()` never resolves while a
+    // server ingress beside `argv()` holds the route open.
+    const started = context.start();
+    const first = await Promise.race([
+      answered.promise,
+      started.then(() => undefined),
+    ]);
+    await context.stop();
+    await started.catch(() => undefined);
+    const outcome = first ?? settled;
+    if (outcome === undefined) {
+      // A disabled route, or one that failed to start, never subscribes.
+      return {
+        reply: {
+          code: EXEC_EXIT.failed,
+          error: `Route "${routeId}" never read the command line: it is disabled or did not start. The log says why.`,
+        },
+      };
+    }
+    return { reply: renderOutcome(outcome, line.format) };
   } catch (error: unknown) {
     const message = messageOf(error);
     logger.error(`Failed to run ${absFilePath}: ${message}`);
     return { success: false, code: 1, message };
+  }
+}
+
+/**
+ * The answer `craft run` gives without starting the context: a file with
+ * several `argv()` routes, a route field named like a runner flag, or
+ * `--help`. Undefined when the route should run.
+ */
+function beforeStart(
+  context: Parameters<typeof argvRouteIds>[0],
+  readers: readonly string[],
+  line: Exclude<ReturnType<typeof runnerLine>, { error: string }>,
+): RunResult | undefined {
+  if (readers.length > 1) {
+    return {
+      success: false,
+      code: EXEC_EXIT.usage,
+      message: `Routes ${readers.map((id) => `"${id}"`).join(", ")} all read the command line with argv(). One invocation runs one route; keep argv() on one of them.`,
+    };
+  }
+  const routeId = readers[0]!;
+  const help = describeArgvRoute(context, routeId) ?? { id: routeId };
+  const collisions = reservedCollisions(help);
+  if (collisions.length > 0) {
+    return {
+      success: false,
+      code: EXEC_EXIT.usage,
+      message: `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which craft run reads itself (${collisions.map((name) => `--${name}`).join(", ")}). Rename the field.`,
+    };
+  }
+  if (line.help) {
+    return {
+      reply: { code: EXEC_EXIT.ok, output: renderArgvHelp(help, line.format) },
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The command line as the runner reads it: `--help` and `--format` taken
+ * out for the runner, everything else left for the route, and the default
+ * format from the settings file.
+ */
+function runnerLine(
+  cliArgs: readonly string[],
+  overrides: Pick<SettingsOverrides, "profile" | "cwd" | "env" | "home">,
+): { argv: string[]; help: boolean; format: OutputFormat } | { error: string } {
+  const argv: string[] = [];
+  let help = false;
+  let flagged: string | undefined;
+  for (let index = 0; index < cliArgs.length; index++) {
+    const arg = cliArgs[index]!;
+    if (arg === "--help") {
+      help = true;
+    } else if (arg.startsWith("--format=")) {
+      flagged = arg.slice("--format=".length);
+    } else if (arg === "--format") {
+      const next = cliArgs[index + 1];
+      if (next === undefined || next.startsWith("--")) {
+        return {
+          error: "--format needs a value: pretty, json, or raw.",
+        };
+      }
+      flagged = next;
+      index += 1;
+    } else {
+      argv.push(arg);
+    }
+  }
+  try {
+    const settings = resolveSettings({
+      ...overrides,
+      ...(flagged === undefined ? {} : { format: flagged }),
+    });
+    return {
+      argv,
+      help,
+      format: settings.format.value,
+    };
+  } catch (error: unknown) {
+    if (error instanceof SettingsError) return { error: error.message };
+    throw error;
+  }
+}
+
+/**
+ * The answer to print and the exit code, the same codes `craft exec` uses:
+ * a deferral is an outcome rather than a fault, a drop is not a result, and
+ * a refusal of who the caller is differs from a refusal of what it sent.
+ */
+function renderOutcome(
+  outcome: RunnerOutcome,
+  format: OutputFormat,
+): ExecResult {
+  switch (outcome.outcome) {
+    case "completed":
+    case "deferred":
+    case "dropped":
+      return dispatchResult(outcome, format);
+    case "usage":
+      return {
+        code: EXEC_EXIT.usage,
+        error: `${outcome.message}\nSee the route's input with: craft run <file> --help`,
+      };
+    case "refused": {
+      const { refusal } = outcome;
+      const invalid =
+        refusal.kind === "input" ||
+        (refusal.kind === "refused" && refusal.as === "invalid");
+      return {
+        code: invalid ? EXEC_EXIT.usage : EXEC_EXIT.refused,
+        error: renderRefusal(refusal),
+      };
+    }
+    case "failed":
+      return { code: EXEC_EXIT.failed, error: outcome.message };
   }
 }
 
@@ -145,7 +347,7 @@ export function collectRoutes(defaultExport: unknown): CollectRoutesResult {
 function configureRoutes(
   contextBuilder: InstanceType<typeof ContextBuilder>,
   defaultExport: unknown,
-): RunResult {
+): CommandOutcome {
   const collected = collectRoutes(defaultExport);
   if (!collected.ok) {
     logger.error(collected.reason);
