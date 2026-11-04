@@ -77,6 +77,65 @@ describe("CLI settings resolution", () => {
   });
 
   /**
+   * @case A profile's scopes are what craft run grants the local operator
+   * @preconditions A top-level scope list and a selected profile with its own list
+   * @expectedResult The profile's list wins inside the file, with its provenance
+   */
+  test("reads scopes from the selected profile", () => {
+    const root = scratch(
+      "scopes: [boards:read]\nprofiles:\n  admin:\n    scopes: [boards:read, boards:write]\n",
+    );
+    const settings = resolveSettings({
+      home,
+      cwd: root,
+      env: {},
+      profile: "admin",
+    });
+    expect(settings.scopes?.value).toEqual(["boards:read", "boards:write"]);
+    expect(settings.scopes?.source).toBe("project profile");
+  });
+
+  /**
+   * @case CRAFT_SCOPES wins over the file and splits on spaces and commas
+   * @preconditions A file scope list and CRAFT_SCOPES set
+   * @expectedResult The environment's scopes, split
+   */
+  test("reads scopes from CRAFT_SCOPES", () => {
+    const root = scratch("scopes: [boards:read]\n");
+    const settings = resolveSettings({
+      home,
+      cwd: root,
+      env: { CRAFT_SCOPES: "a:read, b:write c" },
+    });
+    expect(settings.scopes?.value).toEqual(["a:read", "b:write", "c"]);
+    expect(settings.scopes?.source).toBe("environment");
+  });
+
+  /**
+   * @case A scope string in the file is refused rather than split
+   * @preconditions `scopes: boards:read boards:write`, which YAML reads as one string
+   * @expectedResult A SettingsError naming the list form, not one scope with a space in it
+   */
+  test("refuses scopes that are not a list", () => {
+    const root = scratch("scopes: boards:read boards:write\n");
+    expect(() => resolveSettings({ home, cwd: root, env: {} })).toThrow(
+      SettingsError,
+    );
+  });
+
+  /**
+   * @case No scopes configured means none
+   * @preconditions No scopes anywhere
+   * @expectedResult scopes is undefined, so craft run grants an empty set
+   */
+  test("leaves scopes unset when none are configured", () => {
+    const root = scratch("");
+    expect(
+      resolveSettings({ home, cwd: root, env: {} }).scopes,
+    ).toBeUndefined();
+  });
+
+  /**
    * @case The project-local file supplies values and says so
    * @preconditions .routecraft/settings.yaml in the working directory carrying url and format
    * @expectedResult Both values taken from the file, each carrying the file's path as its provenance

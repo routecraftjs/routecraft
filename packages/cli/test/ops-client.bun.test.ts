@@ -20,6 +20,7 @@ function settings(url: string, token?: string): ResolvedSettings {
     agent: undefined,
     profile: undefined,
     env: undefined,
+    scopes: undefined,
   };
 }
 

@@ -70,6 +70,8 @@ if (process.argv.length <= 2) {
  * 1. The environment the command selects, so an env file can configure the
  *    logger like any other setting.
  * 2. The logging flags, over it: a flag is the more specific thing said.
+ *    `craft run` also sends logs to stderr unless the environment chose a
+ *    stream, because its stdout carries the route's result.
  * 3. The Bun version gate, which reads the version with core's parser and
  *    so is the first thing that loads core and builds the logger.
  * 4. The log file core was asked for, which it diverts somewhere nobody
@@ -78,6 +80,14 @@ if (process.argv.length <= 2) {
 async function prepareCommand(command: CommanderCommand): Promise<void> {
   const notes = await selectEnvironment(command);
   const flaggedLogFile = applyLogOptions(command.opts() as LogOptions);
+  // `craft run` prints the route's result on stdout, so its logs go to stderr.
+  if (
+    command.name() === "run" &&
+    process.env["LOG_STREAM"] === undefined &&
+    process.env["CRAFT_LOG_STREAM"] === undefined
+  ) {
+    process.env["CRAFT_LOG_STREAM"] = "stderr";
+  }
 
   const { checkBunRuntime } = await import("./runtime-gate.js");
   const gate = checkBunRuntime();
@@ -106,6 +116,21 @@ async function prepareCommand(command: CommanderCommand): Promise<void> {
 async function refuse(code: number, message: string): Promise<never> {
   await writeLine(process.stderr, message);
   process.exit(code);
+}
+
+/**
+ * Print a command's result and set its exit code without exiting, for a
+ * command that stopped its own context and lets the event loop drain.
+ */
+async function report(result: {
+  code: number;
+  output?: string;
+  error?: string;
+}): Promise<void> {
+  process.exitCode = result.code;
+  if (result.output !== undefined)
+    await writeLine(process.stdout, result.output);
+  if (result.error !== undefined) await writeLine(process.stderr, result.error);
 }
 
 /** Write one line and resolve once the stream has taken it. */
@@ -255,7 +280,7 @@ async function selectEnvironment(
  *
  * Example:
  * craft run ./my-routes.ts
- * craft run ./my-cli.ts greet --name World
+ * craft run ./work-item.ts --id=12345 --format json
  */
 withLogOptions(
   withEnvironment(
@@ -265,26 +290,32 @@ withLogOptions(
       .argument("<file>", "Path to a file containing routes")
       .argument(
         "[args...]",
-        "CLI command and flags to pass through to CLI adapter routes",
+        "Route input for an argv() route: --field=value pairs, --help, or --format <format>",
       ),
     () => process.cwd(),
   ),
 )
   .passThroughOptions()
-  .action(async (filePath, args: string[]) => {
-    const { runCommand } = await import("./run.js");
-    const result = await runCommand(filePath, args);
-    if (!result.success) {
-      settle({
-        code: result.code ?? 1,
-        ...(result.message ? { error: result.message } : {}),
+  .action(
+    async (filePath: string, args: string[], options: { profile?: string }) => {
+      const { runCommand } = await import("./run.js");
+      const result = await runCommand(filePath, args, {
+        ...(options.profile === undefined ? {} : { profile: options.profile }),
+        readStdin,
       });
-      return;
-    }
-    // Don't call process.exit(); let the event loop drain naturally.
-    // process.exit() triggers C++ static destructors that race with ONNX
-    // Runtime cleanup (onnxruntime#25038: "mutex lock failed").
-  });
+      if (!result.success) {
+        settle({
+          code: result.code ?? 1,
+          ...(result.message ? { error: result.message } : {}),
+        });
+        return;
+      }
+      // Don't call process.exit(); let the event loop drain naturally.
+      // process.exit() triggers C++ static destructors that race with ONNX
+      // Runtime cleanup (onnxruntime#25038: "mutex lock failed").
+      if (result.reply !== undefined) await report(result.reply);
+    },
+  );
 
 /**
  * The 'start' command boots a whole project from the folder convention.

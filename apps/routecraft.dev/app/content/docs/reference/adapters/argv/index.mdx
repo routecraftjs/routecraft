@@ -1,0 +1,112 @@
+---
+title: argv
+---
+
+<Lead>
+[← All adapters](/docs/reference/adapters)
+</Lead>
+
+```ts skip="signature: a type signature, not a statement"
+argv(): Source<unknown>
+```
+
+Turn the command line of `craft run <file>` into one exchange. The route runs its full chain, the CLI prints the result and the process exits with the same exit codes as `craft exec`.
+
+```ts
+import { argv, craft, direct } from "@routecraft/routecraft";
+import { z } from "zod";
+
+const WorkItemQuery = z.object({
+  id: z.string().describe("The work item id"),
+  expand: z.string().optional().describe("Relations to include"),
+});
+
+export default craft()
+  .id("work-item")
+  .title("Fetch a work item")
+  .input({ body: WorkItemQuery })
+  .authorize({ scopes: ["boards:read"] })
+  .from(argv(), direct())
+  .transform((query) => ({ id: query.id }));
+```
+
+```bash
+craft run work-item.ts --id=12345 --format=json
+echo '{"id":"12345"}' | craft run work-item.ts
+craft run work-item.ts --help
+```
+
+The same route keeps `direct()` beside `argv()`, so `craft run` and `craft exec` reach it with identical behaviour.
+
+## Input
+
+The arguments after the file become the body with the grammar `craft exec` uses, through the same parser:
+
+- `--field=value` and `--field value` set a field.
+- A bare `--flag` is `true`.
+- A repeated key becomes an array.
+- Nothing is coerced: every value is the string the shell passed. Declare numbers in `.input()`, or pipe JSON.
+
+With no arguments, JSON piped on stdin is the body. Flags and stdin together are refused as a usage error, so which one wins is never a question. Stdin is read only by an `argv()` route that was given no flags, so a stdio `mcp()` route under the same `craft run` keeps its stdin.
+
+## Reserved flags
+
+Craft's own options go before the file. After it, only two flags belong to the CLI:
+
+| Flag | Meaning |
+| --- | --- |
+| `--help` | Print the route's id, title, description and the fields of its `.input()` body (type, whether required, description). Nothing runs. |
+| `--format <format>` | `pretty` (default), `json` or `raw`, the same renderer as `craft exec`. The default comes from the settings file. |
+
+A route whose `.input()` body declares a field named `help` or `format` is refused with a usage error, because those flags never reach it.
+
+## Principal and scopes
+
+`argv()` is a door, so it mints a principal for the local operator through the application's authority: `kind` and `scheme` are `local`, `subject` is the OS user and `subjectProfile` is `user`. `.authorize()` checks it like any other principal.
+
+The principal holds only the scopes the operator configured, never all of them. They come from `scopes` in [`.routecraft/settings.yaml`](/docs/reference/cli#settings-file), at the top level or in a profile, or from `CRAFT_SCOPES` (space or comma separated):
+
+```yaml
+# .routecraft/settings.yaml
+scopes: [boards:read]
+profiles:
+  admin:
+    scopes: [boards:read, boards:write]
+```
+
+With no scopes configured, a route with `.authorize({ scopes })` refuses the run with exit code 4 and names the missing scope. The scopes are the operator's to grant, not the route's: a route declaring the scopes it holds would make its own `.authorize()` prove nothing.
+
+## Output and exit codes
+
+The final body goes to stdout. Logs go to stderr under `craft run`, so `craft run work-item.ts --id=1 --format raw | jq` reads only the result.
+
+| Exit | When |
+| --- | --- |
+| `0` | The route completed, or it deferred: the `Deferred` acknowledgement is printed with its deferral id and resume token |
+| `1` | The route failed, or a filter dropped the exchange |
+| `2` | A usage error: a malformed command line, flags and stdin together, a reserved field, or an `.input()` failure (the schema issues are printed) |
+| `4` | `.authorize()` refused the local operator, for example a missing scope |
+
+After the one exchange the source completes and the CLI stops the context, so the process exits even when `direct()` or `mcp()` would hold the route open.
+
+## Under `craft start`
+
+`argv()` is inert: `craft start` hands no command line to the context, so the source emits nothing and the route answers only through its other sources. Declare it beside `direct()` and `mcp()` without branching.
+
+## Runners other than the CLI
+
+The CLI hands the command line over in the context store under `RUNNER_INVOCATION` before `context.start()`, as a `RunnerInvocation`: the arguments, the operator's scopes, a lazy stdin reader, and a `settle(outcome)` callback that receives one `RunnerOutcome`. A runner of your own sets the same key to drive an `argv()` route.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="CLI" icon="installation" href="/docs/reference/cli#run" description="craft run, its options, and the settings file the scopes come from." />
+
+<QuickLink title="direct" icon="presets" href="/docs/reference/adapters/direct" description="The in-process door craft exec dispatches through." />
+
+<QuickLink title="Authorize" icon="warning" href="/docs/reference/operations/authorize" description="How .authorize() checks the principal's scopes." />
+
+</QuickLinks>

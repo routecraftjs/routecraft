@@ -174,6 +174,162 @@ describe("CLI run command", () => {
     expect(res.success).toBe(true);
   });
 
+  describe("with an argv() route", () => {
+    /** A hand-written Standard Schema: the CLI package has no schema library. */
+    const ROUTE = `
+      import { craft, argv, direct } from "@routecraft/routecraft";
+      const jsonSchema = {
+        type: "object",
+        properties: { id: { type: "string", description: "The work item id" } },
+        required: ["id"],
+      };
+      const WorkItemQuery = {
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: (value) =>
+            typeof value?.id === "string"
+              ? { value }
+              : { issues: [{ message: "Required", path: ["id"] }] },
+          jsonSchema: { input: () => jsonSchema, output: () => jsonSchema },
+        },
+      };
+      export default craft()
+        .id("work-item")
+        .title("Fetch a work item")
+        .input({ body: WorkItemQuery })
+        .authorize({ scopes: ["boards:read"] })
+        .from(argv(), direct())
+        .transform((body) => ({ found: body.id }));
+    `;
+
+    /** Settings read from the temp dir only, so a developer's own file cannot grant a scope. */
+    const isolated = (env: NodeJS.ProcessEnv = {}) => ({
+      cwd: dir,
+      home: dir,
+      env,
+    });
+
+    /**
+     * @case The command line reaches the route and the process can exit
+     * @preconditions An argv() route beside direct(), the operator holding its scope, --format json
+     * @expectedResult runCommand returns despite direct() holding the route open, with exit 0 and the route's result as JSON
+     */
+    test("runs the route once and returns its result", async () => {
+      await writeFile("work-item.ts", ROUTE);
+      const res = await runModule.runCommand(
+        "work-item.ts",
+        ["--id=12345", "--format", "json"],
+        isolated({ CRAFT_SCOPES: "boards:read" }),
+      );
+      expect(res).toEqual({
+        success: true,
+        reply: {
+          code: 0,
+          output: JSON.stringify(
+            { outcome: "completed", body: { found: "12345" } },
+            null,
+            2,
+          ),
+        },
+      });
+    });
+
+    /**
+     * @case JSON on stdin is the route's input
+     * @preconditions No flags; the stdin reader yields a JSON object
+     * @expectedResult Exit 0 with the raw result
+     */
+    test("reads the input from stdin", async () => {
+      await writeFile("work-item.ts", ROUTE);
+      const res = await runModule.runCommand("work-item.ts", ["--format=raw"], {
+        ...isolated({ CRAFT_SCOPES: "boards:read" }),
+        readStdin: () => Promise.resolve('{"id":"7"}'),
+      });
+      expect(res.success && res.reply).toEqual({
+        code: 0,
+        output: '{"found":"7"}',
+      });
+    });
+
+    /**
+     * @case A missing scope exits 4
+     * @preconditions The operator configured no scopes
+     * @expectedResult Exit 4 with a message naming the missing scope and where to grant it
+     */
+    test("exits 4 when the operator lacks the route's scope", async () => {
+      await writeFile("work-item.ts", ROUTE);
+      const res = await runModule.runCommand(
+        "work-item.ts",
+        ["--id=1"],
+        isolated(),
+      );
+      expect(res.success).toBe(true);
+      if (!res.success) return;
+      expect(res.reply?.code).toBe(4);
+      expect(res.reply?.error).toMatch(/boards:read/);
+      expect(res.reply?.error).toMatch(/CRAFT_SCOPES/);
+    });
+
+    /**
+     * @case An .input() failure exits 2 with the schema message
+     * @preconditions The required id field is missing
+     * @expectedResult Exit 2 with the failing path in the message
+     */
+    test("exits 2 when the input fails the schema", async () => {
+      await writeFile("work-item.ts", ROUTE);
+      const res = await runModule.runCommand(
+        "work-item.ts",
+        ["--other=1"],
+        isolated({ CRAFT_SCOPES: "boards:read" }),
+      );
+      expect(res.success).toBe(true);
+      if (!res.success) return;
+      expect(res.reply?.code).toBe(2);
+      expect(res.reply?.error).toMatch(/- id:/);
+    });
+
+    /**
+     * @case --help renders the input schema
+     * @preconditions --help after the file
+     * @expectedResult Exit 0 and a help text listing the id field as required with its description
+     */
+    test("prints the input fields for --help", async () => {
+      await writeFile("work-item.ts", ROUTE);
+      const res = await runModule.runCommand(
+        "work-item.ts",
+        ["--help"],
+        isolated(),
+      );
+      expect(res.success).toBe(true);
+      if (!res.success) return;
+      expect(res.reply?.code).toBe(0);
+      expect(res.reply?.output).toMatch(/Route: work-item/);
+      expect(res.reply?.output).toMatch(
+        /--id\s+string\s+yes\s+The work item id/,
+      );
+    });
+
+    /**
+     * @case --format without a value is a usage error before anything loads
+     * @preconditions --format as the last argument
+     * @expectedResult A failure with exit 2
+     */
+    test("refuses --format without a value", async () => {
+      await writeFile("work-item.ts", ROUTE);
+      const res = await runModule.runCommand(
+        "work-item.ts",
+        ["--format"],
+        isolated(),
+      );
+      expect(res).toEqual({
+        success: false,
+        code: 2,
+        message: "--format needs a value: pretty, json, or raw.",
+      });
+    });
+  });
+
   // Runtime execution of .ts files relies on Node's type stripping (22.6+ flag, 23.6+ default).
   // The re-exec logic lives in index.ts. run.ts only validates the extension.
 

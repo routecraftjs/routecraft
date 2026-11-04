@@ -63,7 +63,7 @@ export {
   CraftContext,
   type MergedOptions,
   type StoreRegistry,
-  RUNNER_ARGV,
+  RUNNER_INVOCATION,
   DEFAULT_SHUTDOWN_TIMEOUT_MS,
   type CraftConfig,
   type ShutdownConfig,
@@ -720,6 +720,13 @@ export { group } from "./adapters/group/index.ts";
 export { event } from "./adapters/sources/event/index.ts";
 export { mail } from "./adapters/mail/index.ts";
 export { carddav } from "./adapters/carddav/index.ts";
+export {
+  argv,
+  type ArgvRouteHelp,
+  type RunnerInvocation,
+  type RunnerOutcome,
+} from "./adapters/argv/index.ts";
+export { commandLineInput } from "./adapters/argv/command-line.ts";
 
 export { type LogOptions, type LogLevel } from "./adapters/log/index.ts";
 export {

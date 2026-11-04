@@ -8,7 +8,6 @@ import {
   logger,
   mergeProjectConfig,
   shutdownHandler,
-  RUNNER_ARGV,
   type CraftConfig,
   type CraftContext,
   type Plugin,
@@ -130,9 +129,6 @@ export async function startCommand(
     }
 
     const { context } = await builder.build();
-    // `start` has no trailing-argument passthrough the way `run` does,
-    // so the key is present and empty rather than absent.
-    context.setStore(RUNNER_ARGV, []);
     shutdownHandler(context);
 
     // Both watchers subscribe before the first route runs. `start()`

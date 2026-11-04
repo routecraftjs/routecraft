@@ -43,6 +43,7 @@ import { installFacet } from "./kernel/facets.ts";
 import { HeadersKeys, type Exchange } from "./exchange.ts";
 import { existingLineageOf } from "./lineage.ts";
 import type { TraceContextConfig } from "./trace-context.ts";
+import type { RunnerInvocation } from "./adapters/argv/types.ts";
 import type { Plugin, RouteView } from "./kernel/plugin.ts";
 import { readonlyView } from "./kernel/readonly.ts";
 import {
@@ -62,13 +63,17 @@ import type {
 } from "./types.ts";
 
 /**
- * Store key for runner-provided argv tokens.
+ * Store key for the command-line invocation a runner hands the `argv()`
+ * source: the arguments after the file, the operator's scopes, and where to
+ * report the outcome. See {@link RunnerInvocation}.
  *
- * Set by `craft run` (or any runner) before `context.start()` so that
- * adapters can read the remaining CLI arguments without coupling to a
- * specific runner package.
+ * Set by `craft run` (or any runner) before `context.start()`, so the source
+ * reads it without coupling to a specific runner package. Absent under
+ * `craft start`, which has no command line to hand over.
  */
-export const RUNNER_ARGV: unique symbol = Symbol.for("routecraft.runner.argv");
+export const RUNNER_INVOCATION: unique symbol = Symbol.for(
+  "routecraft.runner.invocation",
+);
 
 /**
  * Base store registry that can be extended by adapters
@@ -86,7 +91,7 @@ export const RUNNER_ARGV: unique symbol = Symbol.for("routecraft.runner.argv");
  */
 export interface StoreRegistry {
   [key: `${string}.${string}.${string}`]: unknown;
-  [RUNNER_ARGV]: string[];
+  [RUNNER_INVOCATION]: RunnerInvocation;
   [RC_ADAPTER_OVERRIDES]: AdapterOverride[];
 }
 

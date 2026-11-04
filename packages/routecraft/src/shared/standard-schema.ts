@@ -113,3 +113,31 @@ export function renderJsonSchemaArm(arm: unknown, target: string): unknown {
   }
   return undefined;
 }
+
+/**
+ * Render a schema to JSON Schema for the direction it is used in, or
+ * `undefined` when the library exposes no rendering.
+ *
+ * What a caller must SEND is the input arm, and what it receives is the
+ * output arm. The other arm is a fallback rather than an equal, because for
+ * a transforming schema the two differ and showing the wrong one would
+ * document a shape nobody may send.
+ *
+ * @internal
+ */
+export function renderDirectedJsonSchema(
+  schema: unknown,
+  direction: "input" | "output",
+  target: string,
+): unknown {
+  if (schema === undefined || schema === null) return undefined;
+  const arms = standardExtensionOf(schema)?.jsonSchema;
+  const [preferred, fallback] =
+    direction === "input"
+      ? [arms?.input, arms?.output]
+      : [arms?.output, arms?.input];
+  return (
+    renderJsonSchemaArm(preferred, target) ??
+    renderJsonSchemaArm(fallback, target)
+  );
+}
