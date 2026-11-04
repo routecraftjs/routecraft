@@ -44,10 +44,11 @@ export interface ArgvRouteHelp {
  * - `completed`: the route produced `body`.
  * - `deferred`: the route parked the exchange; `deferral` is the
  *   acknowledgement a caller resumes it with.
- * - `dropped`: a filter declined the exchange; there is no result.
+ * - `dropped`: the route dropped the exchange; there is no result.
  * - `usage`: the command line itself was wrong; nothing ran.
- * - `refused`: the route's `.input()` or `.authorize()`, or a validate hook,
- *   refused what the caller sent or who the caller is.
+ * - `refused`: the route's `.input()` or a validate hook refused what the
+ *   caller sent or who the caller is. The door admits no principal, so an
+ *   `.authorize()` refusal is `failed`, even of a plugin-supplied one.
  * - `failed`: the route ran and failed.
  *
  * The first three arms match the ops dispatch outcome, spelled out because

@@ -63,7 +63,7 @@ Flag values come from outside the route's code. Pass one to [`shell()`](/docs/re
 
 ## No principal
 
-A command line proves no identity, so `argv()` puts no principal on the exchange. A route without `.authorize()` runs. A route with `.authorize()` fails with `RC5012` (exit code 1) unless a plugin supplies a principal on the way in: a `mutate` hook in the `beforeAuth` slot runs before the `authorize` position and can set one through `authorityOf()`. Token verification on `argv()` itself is not offered yet.
+A command line proves no identity, so `argv()` puts no principal on the exchange. A route without `.authorize()` runs. A route with `.authorize()` fails with `RC5012` (exit code 1) unless a plugin supplies a principal on the way in: a `mutate` hook in the `beforeAuth` slot runs before the `authorize` position and can set one through `authorityOf()`. The door admitted no principal, so when `.authorize()` refuses the one a plugin supplied, for example for a missing scope, that is a route failure (exit code 1) and not a refusal of the caller. Token verification on `argv()` itself is not offered yet.
 
 ## Output and exit codes
 
@@ -74,7 +74,7 @@ The final body goes to stdout. Logs go to stderr under `craft run`, so `craft ru
 | `0` | The route completed, or it deferred: the `Deferred` acknowledgement is printed with its deferral id and resume token. The token resumes only through a durable deferral store and a resume route that outlive the process |
 | `1` | The route failed, a filter dropped the exchange, or the route never read the command line (disabled, or it failed to start) |
 | `2` | A usage error: a malformed command line, stdin that is not JSON, a reserved field, or an `.input()` failure (the schema issues are printed) |
-| `4` | `.authorize()` refused a principal a plugin supplied, for example a missing scope |
+| `4` | A validate hook refused the caller |
 
 After the one exchange the source completes and the CLI stops the context, so the process exits even when `direct()` or `mcp()` would hold the route open.
 

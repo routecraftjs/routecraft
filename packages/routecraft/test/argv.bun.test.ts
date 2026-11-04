@@ -329,6 +329,55 @@ describe("argv() source", () => {
   });
 
   /**
+   * @case A plugin-supplied principal that .authorize() refuses is a route failure
+   * @preconditions A beforeAuth mutate hook mints a principal without boards:read; an argv() route requiring it
+   * @expectedResult A failed outcome naming the missing scope, not a caller refusal, since the door admitted no principal
+   */
+  test("fails when the plugin-supplied principal lacks a scope", async () => {
+    const run = invocation(["--id=1"]);
+    const step = mock();
+    t = await testContext()
+      .store(RUNNER_INVOCATION, run.invocation)
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.operator",
+            hooks: {
+              beforeAuth: {
+                id: "operator",
+                phase: "mutate",
+                run: (exchange) => ({
+                  headers: {
+                    [HeadersKeys.AUTH_PRINCIPAL]: authorityOf(exchange).mint({
+                      kind: "custom",
+                      scheme: "local",
+                      subject: "jaco",
+                      scopes: [],
+                    }),
+                  },
+                }),
+              },
+            },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("work-item")
+          .authorize({ scopes: ["boards:read"] })
+          .from(argv())
+          .to(step),
+      )
+      .build();
+    await t.test();
+    const outcome = run.outcomes[0];
+    expect(outcome?.outcome).toBe("failed");
+    if (outcome?.outcome !== "failed") throw new Error("expected a failure");
+    expect(outcome.message).toContain("missing required scope(s): boards:read");
+    expect(step).not.toHaveBeenCalled();
+  });
+
+  /**
    * @case A filter that declines the exchange is a drop, not a result
    * @preconditions A route whose filter rejects every exchange
    * @expectedResult A dropped outcome, never the request echoed back as the answer
