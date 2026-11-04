@@ -17,8 +17,9 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  * and exits.
  *
  * Flags the runner reads itself after the file (`--help` and `--format` for
- * `craft run`) never reach the route, so a route declaring an input field of
- * that name is refused.
+ * `craft run`) never reach the route, so `craft run` refuses a route whose
+ * `.input()` body declares a field of that name, as far as the schema renders
+ * as JSON Schema.
  *
  * Inert when no runner handed over a command line, as under `craft start`,
  * so a route can declare it beside `direct()` and `mcp()` without branching.
@@ -38,5 +39,5 @@ export function argv(): Source<unknown> {
   return tagAdapter(new ArgvSourceAdapter(), argv, factoryArgs());
 }
 
-export { argvRouteIds } from "./source";
+export { argvRouteIds, describeArgvRoute } from "./source";
 export type { ArgvRouteHelp, RunnerInvocation, RunnerOutcome } from "./types";

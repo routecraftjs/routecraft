@@ -21,7 +21,10 @@ import type { RouteDefinitionView } from "../../kernel/plugin.ts";
 import { getAdapterLabel } from "../../types";
 import type { Adapter } from "../../types";
 import { isDeferred } from "../../kernel/continuation/deferred";
-import { renderDirectedJsonSchema } from "../../shared/standard-schema";
+import {
+  renderDirectedJsonSchema,
+  ROUTE_SCHEMA_TARGET,
+} from "../../shared/standard-schema";
 import { decodeCursor, takePage } from "./pagination";
 import { safeStringify } from "../../shared/safe-json.ts";
 import { compareCodeUnits } from "../../shared/compare";
@@ -43,17 +46,6 @@ import type {
   OpsRouteSchemas,
   OpsRouteSummary,
 } from "./types";
-
-/**
- * JSON Schema dialect asked of a schema library's producer.
- *
- * Pinned so two instances of this API describe the same route identically.
- * Unrelated to the deferral descriptor's constant of the same value:
- * that one is folded into a stored hash and must not move, this one is
- * descriptive, and sharing a single mutable constant between them would
- * couple a display choice to every deferred exchange's digest.
- */
-const JSON_SCHEMA_TARGET = "draft-2020-12";
 
 /**
  * A dispatch refused because of the id the caller named, before any route
@@ -525,12 +517,12 @@ function renderSchemas(
   const body = renderDirectedJsonSchema(
     schemas.body,
     direction,
-    JSON_SCHEMA_TARGET,
+    ROUTE_SCHEMA_TARGET,
   );
   const headers = renderDirectedJsonSchema(
     schemas.headers,
     direction,
-    JSON_SCHEMA_TARGET,
+    ROUTE_SCHEMA_TARGET,
   );
   if (body === undefined && headers === undefined) return undefined;
   return {

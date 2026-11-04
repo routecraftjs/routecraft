@@ -4,28 +4,29 @@ import { RUNNER_INVOCATION } from "../../context";
 import { isDeferred } from "../../kernel/continuation/deferred";
 import { callerRefusalOf } from "../../pipeline/caller-refusal";
 import { rcCodeOf } from "../../brand";
-import { renderDirectedJsonSchema } from "../../shared/standard-schema";
+import {
+  renderDirectedJsonSchema,
+  ROUTE_SCHEMA_TARGET,
+} from "../../shared/standard-schema";
 import type { RouteDefinition } from "../../route";
 import { commandLineInput } from "./command-line";
 import type { ArgvRouteHelp, RunnerInvocation, RunnerOutcome } from "./types";
 
-/** Pinned so `--help` and the ops route detail describe a route alike. */
-const JSON_SCHEMA_TARGET = "draft-2020-12";
-
 const ARGV_ADAPTER_ID = "routecraft.adapter.argv";
+
+type RouteLookup = { getRoutes(): readonly { definition: RouteDefinition }[] };
 
 /**
  * The ids of the routes in a context that read the command line with
  * `argv()`. Known before the context starts, so a runner can skip work for
- * a file with none, and refuse a file with more than one before anything
- * runs: one command line is one exchange for one route.
+ * a file with none. A runner refuses a file with more than one before it
+ * starts the context: one command line is one exchange for one route, and
+ * every `argv()` source reads the same invocation.
  *
  * @param context - Anything with the context's `getRoutes()`
  * @returns Route ids, in registration order
  */
-export function argvRouteIds(context: {
-  getRoutes(): readonly { definition: RouteDefinition }[];
-}): string[] {
+export function argvRouteIds(context: RouteLookup): string[] {
   return context
     .getRoutes()
     .filter((route) =>
@@ -34,6 +35,42 @@ export function argvRouteIds(context: {
       ),
     )
     .map((route) => route.definition.id);
+}
+
+/**
+ * What a runner's `--help` describes for one route: its id, title,
+ * description, and its `.input()` body as JSON Schema. Read from the route
+ * definition, so a runner answers `--help` without starting the context.
+ *
+ * `input` is absent when the route declares no body schema, or when the
+ * schema library offers no JSON Schema rendering.
+ *
+ * @param context - Anything with the context's `getRoutes()`
+ * @param routeId - The route to describe
+ * @returns The description, or `undefined` for an unknown route id
+ */
+export function describeArgvRoute(
+  context: RouteLookup,
+  routeId: string,
+): ArgvRouteHelp | undefined {
+  const route = context
+    .getRoutes()
+    .find((candidate) => candidate.definition.id === routeId);
+  if (route === undefined) return undefined;
+  const { discovery } = route.definition;
+  const input = renderDirectedJsonSchema(
+    discovery?.input?.body,
+    "input",
+    ROUTE_SCHEMA_TARGET,
+  );
+  return {
+    id: routeId,
+    ...(discovery?.title !== undefined ? { title: discovery.title } : {}),
+    ...(discovery?.description !== undefined
+      ? { description: discovery.description }
+      : {}),
+    ...(input !== undefined ? { input } : {}),
+  };
 }
 
 /**
@@ -52,8 +89,7 @@ export class ArgvSourceAdapter implements Source<unknown> {
   readonly adapterId = ARGV_ADAPTER_ID;
 
   async subscribe(sub: Subscription<unknown>): Promise<void> {
-    const invocation = sub.context.getStore(RUNNER_INVOCATION) as
-      RunnerInvocation | undefined;
+    const invocation = sub.context.getStore(RUNNER_INVOCATION);
     sub.ready();
     if (invocation === undefined) {
       sub.complete();
@@ -61,6 +97,9 @@ export class ArgvSourceAdapter implements Source<unknown> {
     }
     try {
       invocation.settle(await this.run(sub, invocation));
+    } catch (error: unknown) {
+      // Settled so the runner reports a failure rather than a silent exit 0.
+      invocation.settle({ outcome: "failed", message: messageOf(error) });
     } finally {
       sub.complete();
     }
@@ -70,40 +109,7 @@ export class ArgvSourceAdapter implements Source<unknown> {
     sub: Subscription<unknown>,
     invocation: RunnerInvocation,
   ): Promise<RunnerOutcome> {
-    const { routeId, discovery } = sub.meta;
-    const readers = argvRouteIds(sub.context);
-    if (readers.length > 1) {
-      return {
-        outcome: "usage",
-        message: `Routes ${readers.map((id) => `"${id}"`).join(", ")} all read the command line with argv(). One invocation runs one route; keep argv() on one of them.`,
-      };
-    }
-
-    const inputSchema = renderDirectedJsonSchema(
-      discovery?.input?.body,
-      "input",
-      JSON_SCHEMA_TARGET,
-    );
-    const collisions = reservedCollisions(inputSchema, invocation.reserved);
-    if (collisions.length > 0) {
-      return {
-        outcome: "usage",
-        message: `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which the runner reads itself (${collisions.map((name) => `--${name}`).join(", ")}). Rename the field.`,
-      };
-    }
-
-    if (invocation.help) {
-      const help: ArgvRouteHelp = {
-        id: routeId,
-        ...(discovery?.title !== undefined ? { title: discovery.title } : {}),
-        ...(discovery?.description !== undefined
-          ? { description: discovery.description }
-          : {}),
-        ...(inputSchema !== undefined ? { input: inputSchema } : {}),
-      };
-      return { outcome: "help", route: help };
-    }
-
+    const { routeId } = sub.meta;
     const stdin =
       invocation.argv.length === 0 ? await invocation.readStdin() : undefined;
     const input = commandLineInput(invocation.argv, stdin);
@@ -138,17 +144,6 @@ function failureOutcome(error: unknown, routeId: string): RunnerOutcome {
   });
   if (refusal !== undefined) return { outcome: "refused", refusal };
   return { outcome: "failed", message: messageOf(error) };
-}
-
-/** The reserved names an input body schema declares as properties. */
-function reservedCollisions(
-  schema: unknown,
-  reserved: readonly string[],
-): string[] {
-  if (schema === null || typeof schema !== "object") return [];
-  const properties = (schema as { properties?: unknown }).properties;
-  if (properties === null || typeof properties !== "object") return [];
-  return reserved.filter((name) => Object.hasOwn(properties, name));
 }
 
 function messageOf(error: unknown): string {

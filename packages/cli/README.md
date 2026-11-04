@@ -43,7 +43,7 @@ A personal settings file, `.routecraft/settings.yaml`, holds named profiles with
 
 ```text
 --log-level <level>   Any pino level (trace, debug, info, warn, error, fatal) or silent (default: warn)
---log-file <path>     Write logs to a file instead of stdout
+--log-file <path>     Write logs to a file instead of the console
 ```
 
 Both go before the command, or after `start` and `run` as their own options (on `run`, before the file): `craft run --log-level info --log-file craft.log <file>`. `LOG_LEVEL` and `LOG_FILE` in any env file `run` or `start` loads work too, and a flag beats them. A log file that cannot be opened for appending stops the command before it runs, whether the flag, `LOG_FILE` or a `craft.log.js` / `craft.log.cjs` named it.

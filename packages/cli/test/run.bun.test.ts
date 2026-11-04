@@ -61,7 +61,7 @@ describe("CLI run command", () => {
   test("rejects unsupported extension", async () => {
     const { runCommand } = runModule;
     const res = await runCommand("file.py");
-    expect(res.success).toBe(false);
+    expect(res).toMatchObject({ success: false });
     if ("message" in res) {
       expect(res.message).toContain("file types are supported");
     }
@@ -84,7 +84,7 @@ describe("CLI run command", () => {
       );
       const { runCommand } = runModule;
       const res = await runCommand(f);
-      expect(res.success).toBe(true);
+      expect(res).toEqual({ success: true });
     }
   });
 
@@ -97,7 +97,7 @@ describe("CLI run command", () => {
     await writeFile("no-default.js", "export const x = 1;");
     const { runCommand } = runModule;
     const res = await runCommand("no-default.js");
-    expect(res.success).toBe(false);
+    expect(res).toMatchObject({ success: false });
     if ("message" in res) {
       expect(res.message).toContain("No default export found");
     }
@@ -112,7 +112,7 @@ describe("CLI run command", () => {
     await writeFile("invalid.js", 'export default "nope";');
     const { runCommand } = runModule;
     const res = await runCommand("invalid.js");
-    expect(res.success).toBe(false);
+    expect(res).toMatchObject({ success: false });
     if ("message" in res) {
       expect(res.message).toContain("Invalid default export");
     }
@@ -134,7 +134,7 @@ describe("CLI run command", () => {
     );
     const { runCommand } = runModule;
     const res = await runCommand("with-config.js");
-    expect(res.success).toBe(true);
+    expect(res).toEqual({ success: true });
   });
 
   /**
@@ -152,7 +152,7 @@ describe("CLI run command", () => {
     );
     const { runCommand } = runModule;
     const res = await runCommand("route-builder.js");
-    expect(res.success).toBe(true);
+    expect(res).toEqual({ success: true });
   });
 
   /**
@@ -172,7 +172,7 @@ describe("CLI run command", () => {
     );
     const { runCommand } = runModule;
     const res = await runCommand("route-builder-array.js");
-    expect(res.success).toBe(true);
+    expect(res).toEqual({ success: true });
   });
 
   describe("with an argv() route", () => {
@@ -223,7 +223,6 @@ describe("CLI run command", () => {
         isolated(),
       );
       expect(res).toEqual({
-        success: true,
         reply: {
           code: 0,
           output: JSON.stringify(
@@ -292,7 +291,6 @@ describe("CLI run command", () => {
         ["--other=1"],
         isolated(),
       );
-      expect(res.success).toBe(false);
       if (!("reply" in res)) throw new Error("expected a reply");
       expect(res.reply.code).toBe(2);
       expect(res.reply.error).toMatch(/- id:/);
@@ -316,6 +314,56 @@ describe("CLI run command", () => {
       expect(res.reply.output).toMatch(
         /--id\s+string\s+yes\s+The work item id/,
       );
+    });
+
+    /**
+     * @case --help starts nothing
+     * @preconditions A file with an argv() route and a sibling route whose source writes a marker as soon as it starts
+     * @expectedResult Exit 0 with the help text, and no marker, because help is answered before the context starts
+     */
+    test("answers --help without starting the file's routes", async () => {
+      await writeFile(
+        "with-sibling.ts",
+        `
+        import { writeFileSync } from "node:fs";
+        import { craft, argv, simple } from "@routecraft/routecraft";
+        export default [
+          craft().id("cli").from(argv()).to(() => {}),
+          craft().id("sibling").from(simple("x")).to(() => writeFileSync("started", "")),
+        ];
+      `,
+      );
+      const res = await runModule.runCommand(
+        "with-sibling.ts",
+        ["--help"],
+        isolated(),
+      );
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(0);
+      expect(res.reply.output).toMatch(/Route: cli/);
+      expect(existsSync("started")).toBe(false);
+    });
+
+    /**
+     * @case A route field named like a craft run flag is refused before start
+     * @preconditions An argv() route whose .input() body declares a "format" field
+     * @expectedResult A usage failure (exit 2) naming the field
+     */
+    test("refuses an input field that collides with a craft run flag", async () => {
+      await writeFile(
+        "export.ts",
+        ROUTE.replace(
+          'properties: { id: { type: "string", description: "The work item id" } }',
+          'properties: { id: { type: "string", description: "The work item id" }, format: { type: "string" } }',
+        ),
+      );
+      const res = await runModule.runCommand(
+        "export.ts",
+        ["--id=1"],
+        isolated(),
+      );
+      expect(res).toMatchObject({ success: false, code: 2 });
+      if ("message" in res) expect(res.message).toMatch(/"format"/);
     });
 
     /**

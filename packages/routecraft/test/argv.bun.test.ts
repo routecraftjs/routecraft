@@ -3,6 +3,8 @@ import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   argv,
+  argvRouteIds,
+  describeArgvRoute,
   authorityOf,
   craft,
   definePlugin,
@@ -23,7 +25,7 @@ import { deferring } from "./helpers/deferral.ts";
 /** A runner hand-off that records the outcome and whether stdin was read. */
 function invocation(
   args: string[],
-  options: { stdin?: string; help?: boolean } = {},
+  options: { stdin?: string } = {},
 ): {
   invocation: RunnerInvocation;
   outcomes: RunnerOutcome[];
@@ -36,8 +38,6 @@ function invocation(
     readStdin,
     invocation: {
       argv: args,
-      help: options.help ?? false,
-      reserved: ["help", "format"],
       readStdin,
       settle: (outcome) => void outcomes.push(outcome),
     },
@@ -387,15 +387,13 @@ describe("argv() source", () => {
   });
 
   /**
-   * @case --help describes the route instead of running it
-   * @preconditions A titled route with an .input() schema; the runner says help was asked for
-   * @expectedResult A help outcome carrying the id, title and the rendered input schema with its field descriptions, the route never ran, and stdin was never read
+   * @case A route is described for --help without starting the context
+   * @preconditions A titled route with an .input() schema, built but never started
+   * @expectedResult The id, title and the rendered input schema with its field descriptions, and the route never ran
    */
-  test("answers --help with the input schema", async () => {
-    const run = invocation([], { help: true });
+  test("describes a route without starting it", async () => {
     const step = mock();
     t = await testContext()
-      .store(RUNNER_INVOCATION, run.invocation)
       .routes(
         craft()
           .id("work-item")
@@ -405,11 +403,7 @@ describe("argv() source", () => {
           .to(step),
       )
       .build();
-    await t.test();
-    const outcome = run.outcomes[0];
-    expect(outcome?.outcome).toBe("help");
-    if (outcome?.outcome !== "help") return;
-    expect(outcome.route).toMatchObject({
+    expect(describeArgvRoute(t.ctx, "work-item")).toMatchObject({
       id: "work-item",
       title: "Fetch a work item",
       input: {
@@ -417,59 +411,44 @@ describe("argv() source", () => {
         required: ["id"],
       },
     });
+    expect(describeArgvRoute(t.ctx, "missing")).toBeUndefined();
     expect(step).not.toHaveBeenCalled();
-    expect(run.readStdin).not.toHaveBeenCalled();
   });
 
   /**
-   * @case A route field named like a runner flag is refused
-   * @preconditions The .input() body declares a "format" field, which the runner reserves
-   * @expectedResult A usage outcome naming the field, because the runner reads --format itself so the field could never reach the route
+   * @case Every route that reads argv() is found before start
+   * @preconditions Two argv() routes and one direct() route, built but never started
+   * @expectedResult Both argv() route ids in registration order, and not the direct() one
    */
-  test("refuses an input field that collides with a runner flag", async () => {
-    const run = invocation(["--other=1"]);
+  test("lists the argv() routes", async () => {
     t = await testContext()
-      .store(RUNNER_INVOCATION, run.invocation)
-      .routes(
-        craft()
-          .id("export")
-          .input({ body: z.object({ format: z.string() }) })
-          .from(argv())
-          .to(noop()),
-      )
-      .build();
-    await t.test();
-    const outcome = run.outcomes[0];
-    expect(outcome?.outcome).toBe("usage");
-    if (outcome?.outcome !== "usage") return;
-    expect(outcome.message).toMatch(/"format"/);
-  });
-
-  /**
-   * @case Two routes reading one command line is a usage error, decided before either runs
-   * @preconditions Two argv() routes in one context, each with a step that records it ran
-   * @expectedResult Every outcome is a usage error naming both routes, and neither route's step ran
-   */
-  test("refuses a second argv() route before either runs", async () => {
-    const run = invocation(["--id=1"]);
-    const first = mock();
-    const second = mock();
-    t = await testContext()
-      .store(RUNNER_INVOCATION, run.invocation)
       .routes([
-        craft().id("first").from(argv()).to(first),
-        craft().id("second").from(argv()).to(second),
+        craft().id("first").from(argv()).to(noop()),
+        craft().id("plain").from(direct()).to(noop()),
+        craft().id("second").from(argv()).to(noop()),
       ])
       .build();
+    expect(argvRouteIds(t.ctx)).toEqual(["first", "second"]);
+  });
+
+  /**
+   * @case A source that throws before it emits still reports a failure
+   * @preconditions No arguments, and a stdin reader that rejects
+   * @expectedResult One failed outcome carrying the reader's message, so the runner never exits 0 in silence
+   */
+  test("settles a failure when reading stdin throws", async () => {
+    const run = invocation([]);
+    run.readStdin.mockImplementation(() =>
+      Promise.reject(new Error("stdin went away")),
+    );
+    t = await testContext()
+      .store(RUNNER_INVOCATION, run.invocation)
+      .routes(craft().id("echo").from(argv()).to(noop()))
+      .build();
     await t.test();
-    expect(run.outcomes.length).toBeGreaterThan(0);
-    for (const outcome of run.outcomes) {
-      expect(outcome.outcome).toBe("usage");
-      if (outcome.outcome !== "usage") continue;
-      expect(outcome.message).toMatch(/"first", "second"/);
-    }
-    expect(first).not.toHaveBeenCalled();
-    expect(second).not.toHaveBeenCalled();
+    expect(run.outcomes).toEqual([
+      { outcome: "failed", message: "stdin went away" },
+    ]);
   });
 
   /**

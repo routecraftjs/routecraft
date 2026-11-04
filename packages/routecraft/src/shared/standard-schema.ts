@@ -115,6 +115,16 @@ export function renderJsonSchemaArm(arm: unknown, target: string): unknown {
 }
 
 /**
+ * The JSON Schema draft a route's schemas are described in, by the ops
+ * route detail and by `craft run --help` alike, so both describe one route
+ * identically. Descriptive only: the deferral digest pins its own target,
+ * because that one is folded into stored hashes and must never move.
+ *
+ * @internal
+ */
+export const ROUTE_SCHEMA_TARGET = "draft-2020-12";
+
+/**
  * Render a schema to JSON Schema for the direction it is used in, or
  * `undefined` when the library exposes no rendering.
  *

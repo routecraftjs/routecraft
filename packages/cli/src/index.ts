@@ -80,7 +80,6 @@ if (process.argv.length <= 2) {
 async function prepareCommand(command: CommanderCommand): Promise<void> {
   const notes = await selectEnvironment(command);
   const flaggedLogFile = applyLogOptions(command.opts() as LogOptions);
-  // `craft run` prints the route's result on stdout, so its logs go to stderr.
   if (
     command.name() === "run" &&
     process.env["LOG_STREAM"] === undefined &&

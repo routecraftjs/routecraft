@@ -8,7 +8,9 @@ import {
   shutdownHandler,
   RUNNER_INVOCATION,
   argvRouteIds,
+  describeArgvRoute,
   type AnyRouteBuilder,
+  type ArgvRouteHelp,
   type RouteDefinition,
   type RunnerInvocation,
   type RunnerOutcome,
@@ -34,17 +36,23 @@ export type CommandOutcome =
   { success: true } | { success: false; code?: number; message: string };
 
 /**
- * Result of `craft run`. A file that answered its command line through
- * `argv()` carries that answer in `reply`, rendered and with its exit code;
- * `success` is whether that code is 0.
+ * Result of `craft run`. A file with an `argv()` route answers in `reply`,
+ * rendered and with its exit code, and the caller exits with that code.
  *
  * @internal
  */
-export type RunResult =
-  CommandOutcome | { success: boolean; reply: ExecResult };
+export type RunResult = CommandOutcome | { reply: ExecResult };
 
 /** The flags `craft run` reads itself after the file; never route input. */
 const RUN_FLAGS: readonly string[] = ["help", "format"];
+
+/** The reserved flag names a route's `.input()` body declares as fields. */
+function reservedCollisions(help: ArgvRouteHelp): string[] {
+  const properties = (help.input as { properties?: unknown } | undefined)
+    ?.properties;
+  if (properties === null || typeof properties !== "object") return [];
+  return RUN_FLAGS.filter((name) => Object.hasOwn(properties, name));
+}
 
 /** What `craft run` needs beyond the file and its arguments. */
 export interface RunOptions extends Pick<
@@ -118,17 +126,34 @@ export async function runCommand(
         message: `Routes ${readers.map((id) => `"${id}"`).join(", ")} all read the command line with argv(). One invocation runs one route; keep argv() on one of them.`,
       };
     }
+    const routeId = readers[0]!;
 
     const line = runnerLine(cliArgs, options);
     if ("error" in line) {
       return { success: false, code: EXEC_EXIT.usage, message: line.error };
     }
+    const help = describeArgvRoute(context, routeId) ?? { id: routeId };
+    const collisions = reservedCollisions(help);
+    if (collisions.length > 0) {
+      return {
+        success: false,
+        code: EXEC_EXIT.usage,
+        message: `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which craft run reads itself (${collisions.map((name) => `--${name}`).join(", ")}). Rename the field.`,
+      };
+    }
+    if (line.help) {
+      return {
+        reply: {
+          code: EXEC_EXIT.ok,
+          output: renderArgvHelp(help, line.format),
+        },
+      };
+    }
+
     let settled: RunnerOutcome | undefined;
     const answered = Promise.withResolvers<RunnerOutcome>();
     const invocation: RunnerInvocation = {
       argv: line.argv,
-      help: line.help,
-      reserved: RUN_FLAGS,
       readStdin: options.readStdin ?? (() => Promise.resolve(undefined)),
       settle(outcome) {
         if (settled !== undefined) return;
@@ -145,15 +170,19 @@ export async function runCommand(
       answered.promise,
       started.then(() => undefined),
     ]);
-    const outcome = first ?? settled;
-    if (outcome === undefined) {
-      await started;
-      return { success: true };
-    }
     await context.stop();
     await started.catch(() => undefined);
-    const reply = renderOutcome(outcome, line.format);
-    return { success: reply.code === EXEC_EXIT.ok, reply };
+    const outcome = first ?? settled;
+    if (outcome === undefined) {
+      // A disabled route, or one that failed to start, never subscribes.
+      return {
+        reply: {
+          code: EXEC_EXIT.failed,
+          error: `Route "${routeId}" never read the command line: it is disabled or did not start. The log says why.`,
+        },
+      };
+    }
+    return { reply: renderOutcome(outcome, line.format) };
   } catch (error: unknown) {
     const message = messageOf(error);
     logger.error(`Failed to run ${absFilePath}: ${message}`);
@@ -168,7 +197,7 @@ export async function runCommand(
  */
 function runnerLine(
   cliArgs: readonly string[],
-  options: RunOptions,
+  overrides: Pick<SettingsOverrides, "profile" | "cwd" | "env" | "home">,
 ): { argv: string[]; help: boolean; format: OutputFormat } | { error: string } {
   const argv: string[] = [];
   let help = false;
@@ -194,10 +223,7 @@ function runnerLine(
   }
   try {
     const settings = resolveSettings({
-      ...(options.profile === undefined ? {} : { profile: options.profile }),
-      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-      ...(options.env === undefined ? {} : { env: options.env }),
-      ...(options.home === undefined ? {} : { home: options.home }),
+      ...overrides,
       ...(flagged === undefined ? {} : { format: flagged }),
     });
     return {
@@ -225,11 +251,6 @@ function renderOutcome(
     case "deferred":
     case "dropped":
       return dispatchResult(outcome, format);
-    case "help":
-      return {
-        code: EXEC_EXIT.ok,
-        output: renderArgvHelp(outcome.route, format),
-      };
     case "usage":
       return {
         code: EXEC_EXIT.usage,

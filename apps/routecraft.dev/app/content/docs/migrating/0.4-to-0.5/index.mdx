@@ -543,7 +543,7 @@ Failures throw `RC5012` (no principal) or `RC5015` (principal failed the role / 
 
 ### Runner argv channel
 
-A new `RUNNER_ARGV` store key carried the CLI arguments left after the runner parsed its own flags, without coupling an adapter to a specific runner package. No adapter read it in 0.5 through 0.7. It has since been replaced by `RUNNER_INVOCATION`, which the [`argv()`](/docs/reference/adapters/argv) source reads: `craft run <file> --field=value` becomes one exchange with the `craft exec` flag grammar, principal and exit codes.
+A new `RUNNER_ARGV` store key carried the CLI arguments left after the runner parsed its own flags, without coupling an adapter to a specific runner package. No adapter read it in 0.5 through 0.7. It has since been replaced by `RUNNER_INVOCATION`, which the [`argv()`](/docs/reference/adapters/argv) source reads: `craft run <file> --field=value` becomes one exchange with the `craft exec` flag grammar and exit codes, and no principal.
 
 ---
 

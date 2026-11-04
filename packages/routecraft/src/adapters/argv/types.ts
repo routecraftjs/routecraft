@@ -1,5 +1,5 @@
 import type { CallerRefusal } from "../../pipeline/caller-refusal.ts";
-import type { OpsDispatchOutcome } from "../../plugins/ops/types.ts";
+import type { Deferred } from "../../kernel/continuation/deferred.ts";
 
 /**
  * What a runner hands the `argv()` source: the command line and where to
@@ -13,22 +13,15 @@ import type { OpsDispatchOutcome } from "../../plugins/ops/types.ts";
 export interface RunnerInvocation {
   /**
    * The route's input arguments after the file, with the runner's own flags
-   * already taken out.
+   * (such as `--help` and `--format` for `craft run`) already taken out.
    */
   readonly argv: readonly string[];
-  /** The runner was asked for the route's help instead of a run. */
-  readonly help: boolean;
-  /**
-   * Flag names the runner reads itself after the file (`help` and `format`
-   * for `craft run`). A route whose `.input()` body declares one is refused,
-   * because that field could never reach it.
-   */
-  readonly reserved: readonly string[];
   /**
    * Read input piped on stdin, or `undefined` when none was piped.
    *
-   * A function rather than a value so nothing reads stdin unless an `argv()`
-   * source needs it: a stdio MCP route under the same runner owns stdin.
+   * A function rather than a value so stdin is read only when the source got
+   * no arguments, the same rule `craft exec` follows. A pipe that never
+   * closes therefore waits, as it does for `craft exec`.
    */
   readStdin(): Promise<string | undefined>;
   /** Report the invocation's outcome. Called once. */
@@ -52,15 +45,18 @@ export interface ArgvRouteHelp {
  * - `deferred`: the route parked the exchange; `deferral` is the
  *   acknowledgement a caller resumes it with.
  * - `dropped`: a filter declined the exchange; there is no result.
- * - `help`: `--help` was asked for; nothing ran.
  * - `usage`: the command line itself was wrong; nothing ran.
  * - `refused`: the route's `.input()` or `.authorize()`, or a validate hook,
  *   refused what the caller sent or who the caller is.
  * - `failed`: the route ran and failed.
+ *
+ * The first three arms match the ops dispatch outcome, spelled out because
+ * a core type may not import from a plugin.
  */
 export type RunnerOutcome =
-  | OpsDispatchOutcome
-  | { outcome: "help"; route: ArgvRouteHelp }
+  | { outcome: "completed"; body: unknown }
+  | { outcome: "deferred"; deferral: Deferred }
+  | { outcome: "dropped"; message: string }
   | { outcome: "usage"; message: string }
   | { outcome: "refused"; refusal: CallerRefusal }
   | { outcome: "failed"; message: string };

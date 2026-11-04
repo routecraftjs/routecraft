@@ -723,6 +723,7 @@ export { carddav } from "./adapters/carddav/index.ts";
 export {
   argv,
   argvRouteIds,
+  describeArgvRoute,
   type ArgvRouteHelp,
   type RunnerInvocation,
   type RunnerOutcome,
