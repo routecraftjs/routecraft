@@ -7,6 +7,7 @@ import {
   logger,
   shutdownHandler,
   RUNNER_INVOCATION,
+  argvRouteIds,
   type AnyRouteBuilder,
   type RouteDefinition,
   type RunnerInvocation,
@@ -14,8 +15,8 @@ import {
 } from "@routecraft/routecraft";
 import { MODULE_EXTENSIONS } from "./project.js";
 import { messageOf } from "./util.js";
-import { EXEC_EXIT, type ExecResult } from "./exec.js";
-import { renderDispatch, renderArgvHelp, renderRefusal } from "./format.js";
+import { dispatchResult, EXEC_EXIT, type ExecResult } from "./exec.js";
+import { renderArgvHelp, renderRefusal } from "./format.js";
 import {
   resolveSettings,
   SettingsError,
@@ -25,15 +26,25 @@ import {
 
 /**
  * Result of a CLI command that boots a context. `success: false`
- * carries the message the CLI prints and the exit code it uses. A
- * successful `run` whose file answered its command line through `argv()`
- * carries that answer in `reply`, rendered and with its exit code.
+ * carries the message the CLI prints and the exit code it uses.
+ *
+ * @internal
+ */
+export type CommandOutcome =
+  { success: true } | { success: false; code?: number; message: string };
+
+/**
+ * Result of `craft run`. A file that answered its command line through
+ * `argv()` carries that answer in `reply`, rendered and with its exit code;
+ * `success` is whether that code is 0.
  *
  * @internal
  */
 export type RunResult =
-  | { success: true; reply?: ExecResult }
-  | { success: false; code?: number; message: string };
+  CommandOutcome | { success: boolean; reply: ExecResult };
+
+/** The flags `craft run` reads itself after the file; never route input. */
+const RUN_FLAGS: readonly string[] = ["help", "format"];
 
 /** What `craft run` needs beyond the file and its arguments. */
 export interface RunOptions extends Pick<
@@ -73,11 +84,6 @@ export async function runCommand(
     };
   }
 
-  const line = runnerLine(cliArgs, options);
-  if ("error" in line) {
-    return { success: false, code: EXEC_EXIT.usage, message: line.error };
-  }
-
   try {
     // Load the module (CLI already set LOG_LEVEL / LOG_FILE from argv in index.ts).
     // Logger uses env first; context will apply craftConfig.log when built (env wins if set).
@@ -97,30 +103,49 @@ export async function runCommand(
       return configured;
     }
 
+    const { context } = await contextBuilder.build();
+    shutdownHandler(context);
+
+    const readers = argvRouteIds(context);
+    if (readers.length === 0) {
+      await context.start();
+      return { success: true };
+    }
+    if (readers.length > 1) {
+      return {
+        success: false,
+        code: EXEC_EXIT.usage,
+        message: `Routes ${readers.map((id) => `"${id}"`).join(", ")} all read the command line with argv(). One invocation runs one route; keep argv() on one of them.`,
+      };
+    }
+
+    const line = runnerLine(cliArgs, options);
+    if ("error" in line) {
+      return { success: false, code: EXEC_EXIT.usage, message: line.error };
+    }
     let settled: RunnerOutcome | undefined;
-    let answer: (outcome: RunnerOutcome) => void = () => {};
-    const answered = new Promise<RunnerOutcome>((resolve) => {
-      answer = resolve;
-    });
+    const answered = Promise.withResolvers<RunnerOutcome>();
     const invocation: RunnerInvocation = {
       argv: line.argv,
+      help: line.help,
+      reserved: RUN_FLAGS,
       scopes: line.scopes,
       readStdin: options.readStdin ?? (() => Promise.resolve(undefined)),
       settle(outcome) {
         if (settled !== undefined) return;
         settled = outcome;
-        answer(outcome);
+        answered.resolve(outcome);
       },
     };
-
-    const { context } = await contextBuilder.build();
     context.setStore(RUNNER_INVOCATION, invocation);
-    shutdownHandler(context);
 
     // Raced rather than awaited: `context.start()` never resolves while a
     // server ingress beside `argv()` holds the route open.
     const started = context.start();
-    const first = await Promise.race([answered, started.then(() => undefined)]);
+    const first = await Promise.race([
+      answered.promise,
+      started.then(() => undefined),
+    ]);
     const outcome = first ?? settled;
     if (outcome === undefined) {
       await started;
@@ -128,7 +153,8 @@ export async function runCommand(
     }
     await context.stop();
     await started.catch(() => undefined);
-    return { success: true, reply: renderOutcome(outcome, line.format) };
+    const reply = renderOutcome(outcome, line.format);
+    return { success: reply.code === EXEC_EXIT.ok, reply };
   } catch (error: unknown) {
     const message = messageOf(error);
     logger.error(`Failed to run ${absFilePath}: ${message}`);
@@ -137,24 +163,24 @@ export async function runCommand(
 }
 
 /**
- * The command line as the runner reads it: `--format` taken out for the
- * runner, everything else left for the route, and the operator's scopes
- * and default format from the settings file.
- *
- * Only `--format` is taken here. `--help` stays in the arguments because the
- * `argv()` source answers it: only the source knows which route it is.
+ * The command line as the runner reads it: `--help` and `--format` taken
+ * out for the runner, everything else left for the route, and the
+ * operator's scopes and default format from the settings file.
  */
 function runnerLine(
   cliArgs: readonly string[],
   options: RunOptions,
 ):
-  | { argv: string[]; scopes: string[]; format: OutputFormat }
+  | { argv: string[]; help: boolean; scopes: string[]; format: OutputFormat }
   | { error: string } {
   const argv: string[] = [];
+  let help = false;
   let flagged: string | undefined;
   for (let index = 0; index < cliArgs.length; index++) {
     const arg = cliArgs[index]!;
-    if (arg.startsWith("--format=")) {
+    if (arg === "--help") {
+      help = true;
+    } else if (arg.startsWith("--format=")) {
       flagged = arg.slice("--format=".length);
     } else if (arg === "--format") {
       const next = cliArgs[index + 1];
@@ -179,6 +205,7 @@ function runnerLine(
     });
     return {
       argv,
+      help,
       scopes: settings.scopes?.value ?? [],
       format: settings.format.value,
     };
@@ -200,12 +227,8 @@ function renderOutcome(
   switch (outcome.outcome) {
     case "completed":
     case "deferred":
-      return { code: EXEC_EXIT.ok, output: renderDispatch(outcome, format) };
     case "dropped":
-      return {
-        code: EXEC_EXIT.failed,
-        output: renderDispatch(outcome, format),
-      };
+      return dispatchResult(outcome, format);
     case "help":
       return {
         code: EXEC_EXIT.ok,
@@ -290,7 +313,7 @@ export function collectRoutes(defaultExport: unknown): CollectRoutesResult {
 function configureRoutes(
   contextBuilder: InstanceType<typeof ContextBuilder>,
   defaultExport: unknown,
-): RunResult {
+): CommandOutcome {
   const collected = collectRoutes(defaultExport);
   if (!collected.ok) {
     logger.error(collected.reason);

@@ -15,8 +15,9 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  * the one exchange the source completes and the runner prints the result
  * and exits.
  *
- * `--help` and `--format` after the file belong to the runner, so a route
- * declaring an input field named `help` or `format` is refused.
+ * Flags the runner reads itself after the file (`--help` and `--format` for
+ * `craft run`) never reach the route, so a route declaring an input field of
+ * that name is refused.
  *
  * Inert when no runner handed over a command line, as under `craft start`,
  * so a route can declare it beside `direct()` and `mcp()` without branching.
@@ -37,4 +38,5 @@ export function argv(): Source<unknown> {
   return tagAdapter(new ArgvSourceAdapter(), argv, factoryArgs());
 }
 
+export { argvRouteIds } from "./source";
 export type { ArgvRouteHelp, RunnerInvocation, RunnerOutcome } from "./types";

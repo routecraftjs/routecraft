@@ -47,7 +47,7 @@ The arguments after the file become the body with the grammar `craft exec` uses,
 - A repeated key becomes an array.
 - Nothing is coerced: every value is the string the shell passed. Declare numbers in `.input()`, or pipe JSON.
 
-With no arguments, JSON piped on stdin is the body. Flags and stdin together are refused as a usage error, so which one wins is never a question. Stdin is read only by an `argv()` route that was given no flags, so a stdio `mcp()` route under the same `craft run` keeps its stdin.
+With no arguments, JSON piped on stdin is the body. Flags and stdin together are refused as a usage error, so which one wins is never a question. Stdin is read only by an `argv()` route that was given no flags, so a file without `argv()`, such as a stdio `mcp()` server, keeps its stdin under `craft run`. A file with `argv()` is one-shot under `craft run`: the CLI stops the context after the one exchange, so a stdio server that has to stay up belongs in a file of its own, or under `craft start`, where `argv()` is inert.
 
 ## Reserved flags
 
@@ -58,7 +58,7 @@ Craft's own options go before the file. After it, only two flags belong to the C
 | `--help` | Print the route's id, title, description and the fields of its `.input()` body (type, whether required, description). Nothing runs. |
 | `--format <format>` | `pretty` (default), `json` or `raw`, the same renderer as `craft exec`. The default comes from the settings file. |
 
-A route whose `.input()` body declares a field named `help` or `format` is refused with a usage error, because those flags never reach it.
+A route whose `.input()` body declares a field named `help` or `format` is refused with a usage error, because those flags never reach it. A file with more than one `argv()` route is refused the same way before any route starts: one command line runs one route.
 
 ## Principal and scopes
 
@@ -95,7 +95,7 @@ After the one exchange the source completes and the CLI stops the context, so th
 
 ## Runners other than the CLI
 
-The CLI hands the command line over in the context store under `RUNNER_INVOCATION` before `context.start()`, as a `RunnerInvocation`: the arguments, the operator's scopes, a lazy stdin reader, and a `settle(outcome)` callback that receives one `RunnerOutcome`. A runner of your own sets the same key to drive an `argv()` route.
+The CLI hands the command line over in the context store under `RUNNER_INVOCATION` before `context.start()`, as a `RunnerInvocation`: the route's arguments with the runner's own flags taken out, whether help was asked for, the flag names the runner reserves, the operator's scopes, a lazy stdin reader, and a `settle(outcome)` callback that receives one `RunnerOutcome`. A runner of your own sets the same key to drive an `argv()` route, and can call `argvRouteIds(context)` first to find the route, or to refuse a file with none or several.
 
 ---
 

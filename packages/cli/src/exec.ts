@@ -9,7 +9,10 @@
  * is a property worth relying on rather than an accident of the plumbing.
  */
 
-import { commandLineInput } from "@routecraft/routecraft";
+import {
+  commandLineInput,
+  type OpsDispatchOutcome,
+} from "@routecraft/routecraft";
 import { OpsClientError, type OpsClient } from "./ops-client.js";
 import { renderDispatch, renderRoutes } from "./format.js";
 import { prepare } from "./prepare.js";
@@ -39,6 +42,24 @@ export const EXEC_EXIT = {
   /** The door or the route's own `.authorize()` refused: missing, bad or expired credential, missing scope, an identity the route does not permit. */
   refused: 4,
 } as const;
+
+/**
+ * The printed result and exit code of a dispatch that reached the route,
+ * shared with `craft run` so both commands exit alike for one outcome.
+ *
+ * A drop reached a terminal outcome without producing a result, so it is a
+ * non-zero exit alongside a failure while staying visibly a different thing
+ * in the output.
+ */
+export function dispatchResult(
+  outcome: OpsDispatchOutcome,
+  format: OutputFormat,
+): ExecResult {
+  const output = renderDispatch(outcome, format);
+  return outcome.outcome === "dropped"
+    ? { code: EXEC_EXIT.failed, output }
+    : { code: EXEC_EXIT.ok, output };
+}
 
 export interface ExecResult {
   code: number;
@@ -135,14 +156,7 @@ export async function execCommand(
   const { body } = input;
 
   try {
-    const outcome = await client.dispatch(route, body);
-    const output = renderDispatch(outcome, format);
-    // A drop reached a terminal outcome without producing a result, so it
-    // is reported as a non-zero exit alongside a failure while staying
-    // visibly a different thing in the output.
-    return outcome.outcome === "dropped"
-      ? { code: EXEC_EXIT.failed, output }
-      : { code: EXEC_EXIT.ok, output };
+    return dispatchResult(await client.dispatch(route, body), format);
   } catch (error: unknown) {
     if (!(error instanceof OpsClientError)) throw error;
     return {

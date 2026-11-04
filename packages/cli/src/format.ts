@@ -20,6 +20,7 @@ import type {
   OpsRouteSummary,
 } from "@routecraft/routecraft";
 import type { OutputFormat } from "./settings.js";
+import { isRecord } from "./util.js";
 
 /** Serialise a whole structured answer. */
 export function asJson(value: unknown): string {
@@ -173,10 +174,6 @@ function typeOf(property: unknown): string {
     if (Array.isArray(arms)) return arms.map(typeOf).join(" | ");
   }
   return "any";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

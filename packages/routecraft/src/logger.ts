@@ -184,10 +184,19 @@ function getDestination(fileConfig?: string): NodeJS.WritableStream {
  * when `LOG_STREAM` / `CRAFT_LOG_STREAM` says so. A command whose stdout is
  * its result (`craft run` with `argv()`) sets it so a log line never lands
  * in a pipe that expects the result.
+ *
+ * Any other value goes to stderr with a warning: a typo must not put logs
+ * back into the stream the variable exists to keep clean.
  */
 function standardStream(): 1 | 2 {
-  const stream = process.env["LOG_STREAM"] ?? process.env["CRAFT_LOG_STREAM"];
-  return stream?.trim().toLowerCase() === "stderr" ? 2 : 1;
+  const raw = process.env["LOG_STREAM"] ?? process.env["CRAFT_LOG_STREAM"];
+  const stream = raw?.trim().toLowerCase();
+  if (stream === undefined || stream === "" || stream === "stdout") return 1;
+  if (stream === "stderr") return 2;
+  process.stderr.write(
+    `LOG_STREAM must be "stdout" or "stderr"; received "${String(raw)}". Logging to stderr.\n`,
+  );
+  return 2;
 }
 
 /** Options object accepted by pino() */

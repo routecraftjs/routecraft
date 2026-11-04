@@ -9,6 +9,7 @@ import {
   afterEach,
 } from "bun:test";
 import { writeFile, mkdir, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 // Silence logger output. Bun:test has no `importActual`/spread-and-override
@@ -61,7 +62,7 @@ describe("CLI run command", () => {
     const { runCommand } = runModule;
     const res = await runCommand("file.py");
     expect(res.success).toBe(false);
-    if (res.success === false) {
+    if ("message" in res) {
       expect(res.message).toContain("file types are supported");
     }
   });
@@ -97,7 +98,7 @@ describe("CLI run command", () => {
     const { runCommand } = runModule;
     const res = await runCommand("no-default.js");
     expect(res.success).toBe(false);
-    if (res.success === false) {
+    if ("message" in res) {
       expect(res.message).toContain("No default export found");
     }
   });
@@ -112,7 +113,7 @@ describe("CLI run command", () => {
     const { runCommand } = runModule;
     const res = await runCommand("invalid.js");
     expect(res.success).toBe(false);
-    if (res.success === false) {
+    if ("message" in res) {
       expect(res.message).toContain("Invalid default export");
     }
   });
@@ -246,7 +247,7 @@ describe("CLI run command", () => {
         ...isolated({ CRAFT_SCOPES: "boards:read" }),
         readStdin: () => Promise.resolve('{"id":"7"}'),
       });
-      expect(res.success && res.reply).toEqual({
+      expect("reply" in res && res.reply).toEqual({
         code: 0,
         output: '{"found":"7"}',
       });
@@ -264,11 +265,11 @@ describe("CLI run command", () => {
         ["--id=1"],
         isolated(),
       );
-      expect(res.success).toBe(true);
-      if (!res.success) return;
-      expect(res.reply?.code).toBe(4);
-      expect(res.reply?.error).toMatch(/boards:read/);
-      expect(res.reply?.error).toMatch(/CRAFT_SCOPES/);
+      expect(res.success).toBe(false);
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(4);
+      expect(res.reply.error).toMatch(/boards:read/);
+      expect(res.reply.error).toMatch(/CRAFT_SCOPES/);
     });
 
     /**
@@ -283,10 +284,10 @@ describe("CLI run command", () => {
         ["--other=1"],
         isolated({ CRAFT_SCOPES: "boards:read" }),
       );
-      expect(res.success).toBe(true);
-      if (!res.success) return;
-      expect(res.reply?.code).toBe(2);
-      expect(res.reply?.error).toMatch(/- id:/);
+      expect(res.success).toBe(false);
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(2);
+      expect(res.reply.error).toMatch(/- id:/);
     });
 
     /**
@@ -301,13 +302,56 @@ describe("CLI run command", () => {
         ["--help"],
         isolated(),
       );
-      expect(res.success).toBe(true);
-      if (!res.success) return;
-      expect(res.reply?.code).toBe(0);
-      expect(res.reply?.output).toMatch(/Route: work-item/);
-      expect(res.reply?.output).toMatch(
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(0);
+      expect(res.reply.output).toMatch(/Route: work-item/);
+      expect(res.reply.output).toMatch(
         /--id\s+string\s+yes\s+The work item id/,
       );
+    });
+
+    /**
+     * @case Two argv() routes in one file are refused before anything runs
+     * @preconditions A file exporting two routes that both read argv(), each writing a marker when it runs
+     * @expectedResult A usage failure (exit 2) naming both routes, and no marker
+     */
+    test("refuses a file with two argv() routes before starting", async () => {
+      await writeFile(
+        "two.ts",
+        `
+        import { writeFileSync } from "node:fs";
+        import { craft, argv } from "@routecraft/routecraft";
+        export default [
+          craft().id("a").from(argv()).to(() => writeFileSync("ran-a", "")),
+          craft().id("b").from(argv()).to(() => writeFileSync("ran-b", "")),
+        ];
+      `,
+      );
+      const res = await runModule.runCommand("two.ts", ["--x=1"], isolated());
+      expect(res).toMatchObject({ success: false, code: 2 });
+      if ("message" in res) expect(res.message).toMatch(/"a", "b"/);
+      expect(existsSync("ran-a") || existsSync("ran-b")).toBe(false);
+    });
+
+    /**
+     * @case A file with no argv() route does not read the settings file
+     * @preconditions An invalid CRAFT_URL, which only exec-family commands use, and a file with no argv() route
+     * @expectedResult The run succeeds, because craft run resolves settings only for an argv() route
+     */
+    test("ignores exec-only settings for a file with no argv() route", async () => {
+      await writeFile(
+        "plain.ts",
+        `
+        import { craft, simple, noop } from "@routecraft/routecraft";
+        export default craft().id("plain").from(simple("x")).to(noop());
+      `,
+      );
+      const res = await runModule.runCommand(
+        "plain.ts",
+        [],
+        isolated({ CRAFT_URL: "not a url" }),
+      );
+      expect(res).toEqual({ success: true });
     });
 
     /**

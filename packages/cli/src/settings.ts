@@ -39,7 +39,7 @@ import { join, resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { parse } from "yaml";
 
-import { messageOf } from "./util.js";
+import { isRecord, messageOf } from "./util.js";
 
 /** Where a resolved value came from, in precedence order. */
 export type SettingSource =
@@ -275,14 +275,14 @@ function readSettingsFile(path: string): CraftSettings | undefined {
   // that did threw a raw TypeError instead of naming the file.
   if (profiles === null) delete (parsed as { profiles?: unknown }).profiles;
   if (profiles !== undefined && profiles !== null) {
-    if (!isPlainObject(profiles)) {
+    if (!isRecord(profiles)) {
       throw new SettingsError(
         `The "profiles" in ${path} must be a map of profile names to their settings.`,
       );
     }
     for (const [name, entry] of Object.entries(profiles)) {
       if (entry === undefined || entry === null) continue;
-      if (!isPlainObject(entry)) {
+      if (!isRecord(entry)) {
         throw new SettingsError(
           `The profile "${name}" in ${path} must be a map of settings, not a single value.`,
         );
@@ -663,14 +663,8 @@ function fileLayers(
 }
 
 /** Whether a value is a flat map of strings, which is what an inline env is. */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function isPlainStringMap(value: unknown): value is Record<string, string> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
+  if (!isRecord(value)) return false;
   return Object.values(value).every((entry) => typeof entry === "string");
 }
 

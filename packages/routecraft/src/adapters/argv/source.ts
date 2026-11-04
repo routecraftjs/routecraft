@@ -8,26 +8,36 @@ import { callerRefusalOf } from "../../pipeline/caller-refusal";
 import { rcCodeOf } from "../../brand";
 import { renderDirectedJsonSchema } from "../../shared/standard-schema";
 import type { Principal } from "../../principal";
+import type { RouteDefinition } from "../../route";
 import { commandLineInput } from "./command-line";
 import type { ArgvRouteHelp, RunnerInvocation, RunnerOutcome } from "./types";
-
-/**
- * Field names a route may not declare in its `.input()` body, because the
- * runner reads them itself after the file: `--help` and `--format`.
- *
- * @internal
- */
-export const RESERVED_ARGV_FIELDS: readonly string[] = ["help", "format"];
 
 /** Pinned so `--help` and the ops route detail describe a route alike. */
 const JSON_SCHEMA_TARGET = "draft-2020-12";
 
+const ARGV_ADAPTER_ID = "routecraft.adapter.argv";
+
 /**
- * The route that claimed each invocation. One command line is one exchange
- * for one route: a second `argv()` route in the same file is a usage error,
- * not a second run of the same input.
+ * The ids of the routes in a context that read the command line with
+ * `argv()`. Known before the context starts, so a runner can skip work for
+ * a file with none, and refuse a file with more than one before anything
+ * runs: one command line is one exchange for one route.
+ *
+ * @param context - Anything with the context's `getRoutes()`
+ * @returns Route ids, in registration order
  */
-const claims = new WeakMap<RunnerInvocation, string>();
+export function argvRouteIds(context: {
+  getRoutes(): readonly { definition: RouteDefinition }[];
+}): string[] {
+  return context
+    .getRoutes()
+    .filter((route) =>
+      route.definition.sources.some(
+        (source) => source.adapterId === ARGV_ADAPTER_ID,
+      ),
+    )
+    .map((route) => route.definition.id);
+}
 
 /**
  * ArgvSourceAdapter turns the runner's command line into one exchange.
@@ -39,7 +49,7 @@ const claims = new WeakMap<RunnerInvocation, string>();
  * runner's, because the runner owns the process.
  */
 export class ArgvSourceAdapter implements Source<unknown> {
-  readonly adapterId = "routecraft.adapter.argv";
+  readonly adapterId = ARGV_ADAPTER_ID;
 
   async subscribe(sub: Subscription<unknown>): Promise<void> {
     const invocation = sub.context.getStore(RUNNER_INVOCATION) as
@@ -61,29 +71,28 @@ export class ArgvSourceAdapter implements Source<unknown> {
     invocation: RunnerInvocation,
   ): Promise<RunnerOutcome> {
     const { routeId, discovery } = sub.meta;
-    const claimant = claims.get(invocation);
-    if (claimant !== undefined && claimant !== routeId) {
+    const readers = argvRouteIds(sub.context);
+    if (readers.length > 1) {
       return {
         outcome: "usage",
-        message: `Routes "${claimant}" and "${routeId}" both read the command line with argv(). One invocation runs one route; keep argv() on one of them.`,
+        message: `Routes ${readers.map((id) => `"${id}"`).join(", ")} all read the command line with argv(). One invocation runs one route; keep argv() on one of them.`,
       };
     }
-    claims.set(invocation, routeId);
 
     const inputSchema = renderDirectedJsonSchema(
       discovery?.input?.body,
       "input",
       JSON_SCHEMA_TARGET,
     );
-    const collisions = reservedCollisions(inputSchema);
+    const collisions = reservedCollisions(inputSchema, invocation.reserved);
     if (collisions.length > 0) {
       return {
         outcome: "usage",
-        message: `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which the runner reserves after the file (--help, --format). Rename the field, or reach the route with craft exec.`,
+        message: `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which the runner reads itself (${collisions.map((name) => `--${name}`).join(", ")}). Rename the field.`,
       };
     }
 
-    if (invocation.argv.includes("--help")) {
+    if (invocation.help) {
       const help: ArgvRouteHelp = {
         id: routeId,
         ...(discovery?.title !== undefined ? { title: discovery.title } : {}),
@@ -149,11 +158,14 @@ function failureOutcome(
 }
 
 /** The reserved names an input body schema declares as properties. */
-function reservedCollisions(schema: unknown): string[] {
+function reservedCollisions(
+  schema: unknown,
+  reserved: readonly string[],
+): string[] {
   if (schema === null || typeof schema !== "object") return [];
   const properties = (schema as { properties?: unknown }).properties;
   if (properties === null || typeof properties !== "object") return [];
-  return RESERVED_ARGV_FIELDS.filter((name) => Object.hasOwn(properties, name));
+  return reserved.filter((name) => Object.hasOwn(properties, name));
 }
 
 /** The OS account running the process, which is who the operator is. */

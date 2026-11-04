@@ -722,6 +722,7 @@ export { mail } from "./adapters/mail/index.ts";
 export { carddav } from "./adapters/carddav/index.ts";
 export {
   argv,
+  argvRouteIds,
   type ArgvRouteHelp,
   type RunnerInvocation,
   type RunnerOutcome,

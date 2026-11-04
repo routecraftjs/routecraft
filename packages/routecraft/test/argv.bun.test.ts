@@ -20,7 +20,7 @@ import { deferring } from "./helpers/deferral.ts";
 /** A runner hand-off that records the outcome and whether stdin was read. */
 function invocation(
   args: string[],
-  options: { scopes?: string[]; stdin?: string } = {},
+  options: { scopes?: string[]; stdin?: string; help?: boolean } = {},
 ): {
   invocation: RunnerInvocation;
   outcomes: RunnerOutcome[];
@@ -33,6 +33,8 @@ function invocation(
     readStdin,
     invocation: {
       argv: args,
+      help: options.help ?? false,
+      reserved: ["help", "format"],
       scopes: options.scopes ?? [],
       readStdin,
       settle: (outcome) => void outcomes.push(outcome),
@@ -350,11 +352,11 @@ describe("argv() source", () => {
 
   /**
    * @case --help describes the route instead of running it
-   * @preconditions A titled route with an .input() schema; --help given
-   * @expectedResult A help outcome carrying the id, title and the rendered input schema with its field descriptions, and the route never ran
+   * @preconditions A titled route with an .input() schema; the runner says help was asked for
+   * @expectedResult A help outcome carrying the id, title and the rendered input schema with its field descriptions, the route never ran, and stdin was never read
    */
   test("answers --help with the input schema", async () => {
-    const run = invocation(["--help"]);
+    const run = invocation([], { help: true });
     const step = mock();
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
@@ -380,15 +382,16 @@ describe("argv() source", () => {
       },
     });
     expect(step).not.toHaveBeenCalled();
+    expect(run.readStdin).not.toHaveBeenCalled();
   });
 
   /**
    * @case A route field named like a runner flag is refused
-   * @preconditions The .input() body declares a "format" field
-   * @expectedResult A usage outcome naming the field, because --format after the file belongs to the runner
+   * @preconditions The .input() body declares a "format" field, which the runner reserves
+   * @expectedResult A usage outcome naming the field, because the runner reads --format itself so the field could never reach the route
    */
   test("refuses an input field that collides with a runner flag", async () => {
-    const run = invocation(["--format=csv"]);
+    const run = invocation(["--other=1"]);
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
       .routes(
@@ -407,24 +410,30 @@ describe("argv() source", () => {
   });
 
   /**
-   * @case Two routes reading one command line is a usage error
-   * @preconditions Two argv() routes in one context
-   * @expectedResult One of the outcomes is a usage error naming both routes
+   * @case Two routes reading one command line is a usage error, decided before either runs
+   * @preconditions Two argv() routes in one context, each with a step that records it ran
+   * @expectedResult Every outcome is a usage error naming both routes, and neither route's step ran
    */
-  test("refuses a second argv() route on the same invocation", async () => {
+  test("refuses a second argv() route before either runs", async () => {
     const run = invocation(["--id=1"]);
+    const first = mock();
+    const second = mock();
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
       .routes([
-        craft().id("first").from(argv()).to(noop()),
-        craft().id("second").from(argv()).to(noop()),
+        craft().id("first").from(argv()).to(first),
+        craft().id("second").from(argv()).to(second),
       ])
       .build();
     await t.test();
-    const usage = run.outcomes.find((outcome) => outcome.outcome === "usage");
-    expect(usage).toBeDefined();
-    if (usage?.outcome !== "usage") return;
-    expect(usage.message).toMatch(/"first" and "second"/);
+    expect(run.outcomes.length).toBeGreaterThan(0);
+    for (const outcome of run.outcomes) {
+      expect(outcome.outcome).toBe("usage");
+      if (outcome.outcome !== "usage") continue;
+      expect(outcome.message).toMatch(/"first", "second"/);
+    }
+    expect(first).not.toHaveBeenCalled();
+    expect(second).not.toHaveBeenCalled();
   });
 
   /**

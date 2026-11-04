@@ -1,5 +1,5 @@
-import type { Deferred } from "../../kernel/continuation/deferred.ts";
 import type { CallerRefusal } from "../../pipeline/caller-refusal.ts";
+import type { OpsDispatchOutcome } from "../../plugins/ops/types.ts";
 
 /**
  * What a runner hands the `argv()` source: the command line, the operator's
@@ -11,8 +11,19 @@ import type { CallerRefusal } from "../../pipeline/caller-refusal.ts";
  * stays inert there.
  */
 export interface RunnerInvocation {
-  /** The arguments after the file, exactly as the shell passed them. */
+  /**
+   * The route's input arguments after the file, with the runner's own flags
+   * already taken out.
+   */
   readonly argv: readonly string[];
+  /** The runner was asked for the route's help instead of a run. */
+  readonly help: boolean;
+  /**
+   * Flag names the runner reads itself after the file (`help` and `format`
+   * for `craft run`). A route whose `.input()` body declares one is refused,
+   * because that field could never reach it.
+   */
+  readonly reserved: readonly string[];
   /**
    * The scopes the local operator holds, from the runner's own
    * configuration. Never implied: an operator who configured none holds none,
@@ -54,9 +65,7 @@ export interface ArgvRouteHelp {
  * - `failed`: the route ran and failed.
  */
 export type RunnerOutcome =
-  | { outcome: "completed"; body: unknown }
-  | { outcome: "deferred"; deferral: Deferred }
-  | { outcome: "dropped"; message: string }
+  | OpsDispatchOutcome
   | { outcome: "help"; route: ArgvRouteHelp }
   | { outcome: "usage"; message: string }
   | { outcome: "refused"; refusal: CallerRefusal }

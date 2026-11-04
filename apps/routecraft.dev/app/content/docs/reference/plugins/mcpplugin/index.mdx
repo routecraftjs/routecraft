@@ -113,12 +113,12 @@ A client declared with [`auth: connect({ clientId, scopes })`](/docs/advanced/ca
 
 **Logging when `transport` is `'stdio'`:**
 
-The stdio transport uses stdout as the protocol channel. Routecraft's logger defaults to stdout, so logs will corrupt the protocol stream unless you redirect them. When running an MCP server over stdio, always pass one of:
+The stdio transport uses stdout as the protocol channel. Routecraft's logger defaults to stdout under `craft start` (and under `craft run` when `LOG_STREAM=stdout` is set), so there logs will corrupt the protocol stream unless you redirect them; `craft run` alone logs to stderr. When running an MCP server over stdio with `craft start`, always pass one of:
 
 - `--log-file <path>` -- write logs to a file
 - `--log-level silent` -- disable logging entirely
 
-On `run`, both belong before the file (`craft run --log-level silent ./mcp-server.ts`). Anything after `run <file>` is pass-through and reaches the route rather than the logger, which leaves the protocol stream exactly as corrupted as passing nothing.
+On `run`, both belong before the file (`craft run --log-level silent ./mcp-server.ts`). Anything after `run <file>` is the route's input, read by [`argv()`](/docs/reference/adapters/argv), so a log flag written there never reaches the logger.
 
 **HTTP server auth (`McpHttpAuthOptions`):**
 
