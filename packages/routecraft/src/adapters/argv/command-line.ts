@@ -49,9 +49,15 @@ export function bodyFromArgs(args: readonly string[]): {
     if (key === "") {
       return { body, error: `"${arg}" is not a valid field name.` };
     }
-    const existing = body[key];
+    // defineProperty, because `--__proto__` assigned would swap the prototype.
+    const existing = Object.hasOwn(body, key) ? body[key] : undefined;
     if (existing === undefined) {
-      body[key] = value;
+      Object.defineProperty(body, key, {
+        value,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     } else if (Array.isArray(existing)) {
       existing.push(value);
     } else {

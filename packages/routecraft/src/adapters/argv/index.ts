@@ -8,8 +8,8 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  *
  * The arguments after the file become the body with the grammar
  * `craft exec` uses (`--field=value` or `--field value`, a bare flag is
- * `true`, a repeated flag an array, nothing coerced), or JSON piped on stdin
- * becomes the body; both at once is a usage error. `.input()` applies as on
+ * `true`, a repeated flag an array, nothing coerced). With no arguments,
+ * JSON piped on stdin becomes the body; with arguments, stdin is not read. `.input()` applies as on
  * every other door. The exchange carries no principal, because a command
  * line proves no identity: a route with `.authorize()` fails here unless a
  * plugin supplies a principal on the way in. After

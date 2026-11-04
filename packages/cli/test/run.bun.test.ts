@@ -62,9 +62,8 @@ describe("CLI run command", () => {
     const { runCommand } = runModule;
     const res = await runCommand("file.py");
     expect(res).toMatchObject({ success: false });
-    if ("message" in res) {
-      expect(res.message).toContain("file types are supported");
-    }
+    if (!("message" in res)) throw new Error("expected a failure");
+    expect(res.message).toContain("file types are supported");
   });
 
   /**
@@ -98,9 +97,8 @@ describe("CLI run command", () => {
     const { runCommand } = runModule;
     const res = await runCommand("no-default.js");
     expect(res).toMatchObject({ success: false });
-    if ("message" in res) {
-      expect(res.message).toContain("No default export found");
-    }
+    if (!("message" in res)) throw new Error("expected a failure");
+    expect(res.message).toContain("No default export found");
   });
 
   /**
@@ -113,9 +111,8 @@ describe("CLI run command", () => {
     const { runCommand } = runModule;
     const res = await runCommand("invalid.js");
     expect(res).toMatchObject({ success: false });
-    if ("message" in res) {
-      expect(res.message).toContain("Invalid default export");
-    }
+    if (!("message" in res)) throw new Error("expected a failure");
+    expect(res.message).toContain("Invalid default export");
   });
 
   /**
@@ -363,7 +360,8 @@ describe("CLI run command", () => {
         isolated(),
       );
       expect(res).toMatchObject({ success: false, code: 2 });
-      if ("message" in res) expect(res.message).toMatch(/"format"/);
+      if (!("message" in res)) throw new Error("expected a failure");
+      expect(res.message).toMatch(/"format"/);
     });
 
     /**
@@ -385,7 +383,8 @@ describe("CLI run command", () => {
       );
       const res = await runModule.runCommand("two.ts", ["--x=1"], isolated());
       expect(res).toMatchObject({ success: false, code: 2 });
-      if ("message" in res) expect(res.message).toMatch(/"a", "b"/);
+      if (!("message" in res)) throw new Error("expected a failure");
+      expect(res.message).toMatch(/"a", "b"/);
       expect(existsSync("ran-a") || existsSync("ran-b")).toBe(false);
     });
 

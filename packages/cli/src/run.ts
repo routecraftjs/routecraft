@@ -119,36 +119,18 @@ export async function runCommand(
       await context.start();
       return { success: true };
     }
-    if (readers.length > 1) {
-      return {
-        success: false,
-        code: EXEC_EXIT.usage,
-        message: `Routes ${readers.map((id) => `"${id}"`).join(", ")} all read the command line with argv(). One invocation runs one route; keep argv() on one of them.`,
-      };
-    }
-    const routeId = readers[0]!;
-
+    // build() already bound the plugins, so a run that never starts still stops.
     const line = runnerLine(cliArgs, options);
     if ("error" in line) {
+      await context.stop();
       return { success: false, code: EXEC_EXIT.usage, message: line.error };
     }
-    const help = describeArgvRoute(context, routeId) ?? { id: routeId };
-    const collisions = reservedCollisions(help);
-    if (collisions.length > 0) {
-      return {
-        success: false,
-        code: EXEC_EXIT.usage,
-        message: `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which craft run reads itself (${collisions.map((name) => `--${name}`).join(", ")}). Rename the field.`,
-      };
+    const early = beforeStart(context, readers, line);
+    if (early !== undefined) {
+      await context.stop();
+      return early;
     }
-    if (line.help) {
-      return {
-        reply: {
-          code: EXEC_EXIT.ok,
-          output: renderArgvHelp(help, line.format),
-        },
-      };
-    }
+    const routeId = readers[0]!;
 
     let settled: RunnerOutcome | undefined;
     const answered = Promise.withResolvers<RunnerOutcome>();
@@ -188,6 +170,41 @@ export async function runCommand(
     logger.error(`Failed to run ${absFilePath}: ${message}`);
     return { success: false, code: 1, message };
   }
+}
+
+/**
+ * The answer `craft run` gives without starting the context: a file with
+ * several `argv()` routes, a route field named like a runner flag, or
+ * `--help`. Undefined when the route should run.
+ */
+function beforeStart(
+  context: Parameters<typeof argvRouteIds>[0],
+  readers: readonly string[],
+  line: Exclude<ReturnType<typeof runnerLine>, { error: string }>,
+): RunResult | undefined {
+  if (readers.length > 1) {
+    return {
+      success: false,
+      code: EXEC_EXIT.usage,
+      message: `Routes ${readers.map((id) => `"${id}"`).join(", ")} all read the command line with argv(). One invocation runs one route; keep argv() on one of them.`,
+    };
+  }
+  const routeId = readers[0]!;
+  const help = describeArgvRoute(context, routeId) ?? { id: routeId };
+  const collisions = reservedCollisions(help);
+  if (collisions.length > 0) {
+    return {
+      success: false,
+      code: EXEC_EXIT.usage,
+      message: `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which craft run reads itself (${collisions.map((name) => `--${name}`).join(", ")}). Rename the field.`,
+    };
+  }
+  if (line.help) {
+    return {
+      reply: { code: EXEC_EXIT.ok, output: renderArgvHelp(help, line.format) },
+    };
+  }
+  return undefined;
 }
 
 /**

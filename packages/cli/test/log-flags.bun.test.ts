@@ -110,6 +110,8 @@ async function invoke(cwd: string, args: string[]): Promise<Outcome> {
   delete env["CRAFT_LOG_FILE"];
   delete env["CRAFT_PROFILE"];
   delete env["CRAFT_CLI_ENTRY"];
+  delete env["LOG_STREAM"];
+  delete env["CRAFT_LOG_STREAM"];
   try {
     const { stdout, stderr } = await run("bun", [ENTRY, ...args], {
       env,

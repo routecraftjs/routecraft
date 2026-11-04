@@ -120,7 +120,7 @@ export class ArgvSourceAdapter implements Source<unknown> {
       if (isDropped(exchange)) {
         return {
           outcome: "dropped",
-          message: `Route "${routeId}" filtered the exchange out before it produced a result.`,
+          message: `Route "${routeId}" dropped the exchange before it produced a result.`,
         };
       }
       if (isDeferred(exchange.body)) {

@@ -74,6 +74,20 @@ describe("command-line input grammar", () => {
   });
 
   /**
+   * @case Field names that exist on Object.prototype are plain fields
+   * @preconditions --__proto__ and --constructor given as flags
+   * @expectedResult Both are own fields of a body whose prototype is untouched
+   */
+  test("treats prototype names as fields", () => {
+    const { body, error } = bodyFromArgs(["--__proto__=x", "--constructor=y"]);
+    expect(error).toBeUndefined();
+    expect(Object.getPrototypeOf(body)).toBe(Object.prototype);
+    expect(Object.hasOwn(body, "__proto__")).toBe(true);
+    expect(body["__proto__"]).toBe("x");
+    expect(body["constructor"]).toBe("y");
+  });
+
+  /**
    * @case A positional argument where a field was expected is refused
    * @preconditions A trailing argument that is not a --flag
    * @expectedResult An error naming both ways to pass input, rather than a body that silently dropped it

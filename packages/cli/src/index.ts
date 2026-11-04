@@ -82,8 +82,8 @@ async function prepareCommand(command: CommanderCommand): Promise<void> {
   const flaggedLogFile = applyLogOptions(command.opts() as LogOptions);
   if (
     command.name() === "run" &&
-    process.env["LOG_STREAM"] === undefined &&
-    process.env["CRAFT_LOG_STREAM"] === undefined
+    !process.env["LOG_STREAM"]?.trim() &&
+    !process.env["CRAFT_LOG_STREAM"]?.trim()
   ) {
     process.env["CRAFT_LOG_STREAM"] = "stderr";
   }

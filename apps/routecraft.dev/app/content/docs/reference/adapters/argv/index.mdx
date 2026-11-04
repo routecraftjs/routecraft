@@ -44,9 +44,9 @@ The arguments after the file become the body with the grammar `craft exec` uses,
 - `--field=value` and `--field value` set a field.
 - A bare `--flag` is `true`.
 - A repeated key becomes an array.
-- Nothing is coerced: every value is the string the shell passed. Declare numbers in `.input()`, or pipe JSON.
+- Nothing is coerced: every value is the string the shell passed, except a bare flag. For a number or a nested value, declare a coercing schema in `.input()` (such as `z.coerce.number()`) or pipe JSON.
 
-With no arguments, JSON piped on stdin is the body, read to its end as `craft exec` reads it; a pipe that never closes keeps the run waiting. Flags and stdin together are refused as a usage error, so which one wins is never a question. Stdin is read only by an `argv()` route that was given no flags, so a file without `argv()`, such as a stdio `mcp()` server, keeps its stdin under `craft run`. A file with `argv()` is one-shot under `craft run`: the CLI stops the context after the one exchange, so a stdio server that has to stay up belongs in a file of its own, or under `craft start`, where `argv()` is inert.
+With no arguments, JSON piped on stdin is the body, read to its end as `craft exec` reads it; a pipe that never closes keeps the run waiting. With flags, stdin is not read at all, so the flags are the whole body. Stdin is read only by an `argv()` route that was given no flags, so a file without `argv()`, such as a stdio `mcp()` server, keeps its stdin under `craft run`. A file with `argv()` is one-shot under `craft run`: the CLI stops the context after the one exchange, so a stdio server that has to stay up belongs in a file of its own, or under `craft start`, where `argv()` is inert.
 
 ## Reserved flags
 
@@ -73,7 +73,7 @@ The final body goes to stdout. Logs go to stderr under `craft run`, so `craft ru
 | --- | --- |
 | `0` | The route completed, or it deferred: the `Deferred` acknowledgement is printed with its deferral id and resume token. The token resumes only through a durable deferral store and a resume route that outlive the process |
 | `1` | The route failed, a filter dropped the exchange, or the route never read the command line (disabled, or it failed to start) |
-| `2` | A usage error: a malformed command line, flags and stdin together, a reserved field, or an `.input()` failure (the schema issues are printed) |
+| `2` | A usage error: a malformed command line, stdin that is not JSON, a reserved field, or an `.input()` failure (the schema issues are printed) |
 | `4` | `.authorize()` refused a principal a plugin supplied, for example a missing scope |
 
 After the one exchange the source completes and the CLI stops the context, so the process exits even when `direct()` or `mcp()` would hold the route open.

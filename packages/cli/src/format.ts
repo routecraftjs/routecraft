@@ -165,7 +165,10 @@ function typeOf(property: unknown): string {
   if ("const" in property) return JSON.stringify(property["const"]);
   const type = property["type"];
   if (typeof type === "string") {
-    if (type === "array") return `${typeOf(property["items"])}[]`;
+    if (type === "array") {
+      const item = typeOf(property["items"]);
+      return item.includes(" | ") ? `(${item})[]` : `${item}[]`;
+    }
     return type;
   }
   if (Array.isArray(type)) return type.join(" | ");

@@ -189,9 +189,11 @@ function getDestination(fileConfig?: string): NodeJS.WritableStream {
  * back into the stream the variable exists to keep clean.
  */
 function standardStream(): 1 | 2 {
-  const raw = process.env["LOG_STREAM"] ?? process.env["CRAFT_LOG_STREAM"];
+  const raw = [process.env["LOG_STREAM"], process.env["CRAFT_LOG_STREAM"]].find(
+    (value) => value !== undefined && value.trim() !== "",
+  );
   const stream = raw?.trim().toLowerCase();
-  if (stream === undefined || stream === "" || stream === "stdout") return 1;
+  if (stream === undefined || stream === "stdout") return 1;
   if (stream === "stderr") return 2;
   process.stderr.write(
     `LOG_STREAM must be "stdout" or "stderr"; received "${String(raw)}". Logging to stderr.\n`,
