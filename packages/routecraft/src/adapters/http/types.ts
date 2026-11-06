@@ -316,7 +316,8 @@ export interface HttpPluginOptions {
    * `Infinity` is refused: an inbound request comes from a stranger and is
    * buffered whole before it can be measured, so an unbounded cap here
    * means one request can exhaust the process, which is what this option
-   * exists to prevent.
+   * exists to prevent. The default for every mount; a mount's own
+   * `maxBodySize` wins.
    */
   maxBodySize?: number;
   /** Event emission toggles. */
@@ -360,6 +361,13 @@ export interface HttpMountDefinition {
   auth?: HttpAuth | false;
   /** This mount's inbound trace-context rule; see {@link HttpPluginOptions.traceContext}. */
   traceContext?: TraceContextMode;
+  /**
+   * This mount's request body cap in bytes; see
+   * {@link HttpPluginOptions.maxBodySize}, which it replaces for this mount
+   * alone. For the one surface that takes large bodies (an upload path),
+   * so raising it there leaves every other mount at the plugin's cap.
+   */
+  maxBodySize?: number;
 }
 
 /**

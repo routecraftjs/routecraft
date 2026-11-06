@@ -39,6 +39,7 @@ interface ResolvedMount {
   readonly server: string;
   readonly auth: HttpAuth | false | undefined;
   readonly traceContext: TraceContextMode;
+  readonly maxBodySize: number;
 }
 
 /**
@@ -61,7 +62,7 @@ interface ResolvedMount {
  *   - `stop(c)`: unmount the dispatchers and clear the registries.
  */
 export function httpPlugin(options: HttpPluginOptions): Plugin {
-  const { mounts: mountsResolved, maxBodySize } = validate(options);
+  const { mounts: mountsResolved } = validate(options);
 
   const perRequestEnabled = options.events?.perRequest ?? true;
 
@@ -255,7 +256,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
         const dispatcher = createDispatcher({
           registry: runtime.registry,
           walled,
-          maxBodySize,
+          maxBodySize: mount.maxBodySize,
           builtins,
           ...(authAwareBuiltins !== undefined ? { authAwareBuiltins } : {}),
           ...(gatedBuiltins !== undefined ? { gatedBuiltins } : {}),
@@ -346,7 +347,6 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
 
 function validate(options: HttpPluginOptions): {
   mounts: ResolvedMount[];
-  maxBodySize: number;
 } {
   const removed = options as HttpPluginOptions & {
     port?: unknown;
@@ -422,10 +422,13 @@ function validate(options: HttpPluginOptions): {
     }
   }
 
-  return { mounts: resolveMounts(options), maxBodySize };
+  return { mounts: resolveMounts(options, maxBodySize) };
 }
 
-function resolveMounts(options: HttpPluginOptions): ResolvedMount[] {
+function resolveMounts(
+  options: HttpPluginOptions,
+  maxBodySize: number,
+): ResolvedMount[] {
   if (options.mounts === undefined) {
     return [
       {
@@ -434,6 +437,7 @@ function resolveMounts(options: HttpPluginOptions): ResolvedMount[] {
         server: options.server ?? "default",
         auth: options.auth,
         traceContext: traceContextModeOf(options.traceContext, "httpPlugin"),
+        maxBodySize,
       },
     ];
   }
@@ -480,6 +484,13 @@ function resolveMounts(options: HttpPluginOptions): ResolvedMount[] {
           ? fallback
           : traceContextModeOf(
               definition.traceContext,
+              `httpPlugin: mount "${name}"`,
+            ),
+      maxBodySize:
+        definition.maxBodySize === undefined
+          ? maxBodySize
+          : resolveMaxBodySize(
+              definition.maxBodySize,
               `httpPlugin: mount "${name}"`,
             ),
     });

@@ -1256,6 +1256,61 @@ describe("HTTP Source Adapter", () => {
   });
 
   /**
+   * @case A mount's own maxBodySize replaces the plugin's for that mount alone
+   * @preconditions http.maxBodySize is 16; mount "uploads" sets 128; the same
+   *   64-byte body goes to a route on each mount
+   * @expectedResult The uploads route takes it with 200; the default mount
+   *   still answers 413
+   */
+  test("a mount's maxBodySize overrides the plugin cap for that mount", async () => {
+    const bound = await bootHttp({
+      routes: [
+        craft()
+          .id("small")
+          .from(http({ path: "/small", method: "POST" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+        craft()
+          .id("large")
+          .from(http({ mount: "uploads", path: "/large", method: "POST" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+      ],
+      http: {
+        port: 0,
+        maxBodySize: 16,
+        mounts: {
+          uploads: { path: "/uploads", maxBodySize: 128 },
+          default: { path: "/" },
+        },
+      },
+    });
+    t = bound.ctx;
+
+    const post = (path: string) =>
+      fetch(`http://127.0.0.1:${bound.port}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: new Uint8Array(64),
+      });
+    expect((await post("/uploads/large")).status).toBe(200);
+    expect((await post("/small")).status).toBe(413);
+  });
+
+  /**
+   * @case A mount's maxBodySize is validated like the plugin's
+   * @preconditions A mount declares maxBodySize 0, then Infinity
+   * @expectedResult httpPlugin construction fails with RC5003 naming the mount
+   */
+  test("a mount's maxBodySize refuses zero and Infinity", () => {
+    for (const maxBodySize of [0, Number.POSITIVE_INFINITY]) {
+      expect(() =>
+        httpPlugin({ mounts: { uploads: { path: "/uploads", maxBodySize } } }),
+      ).toThrow(/mount "uploads": invalid maxBodySize/);
+    }
+  });
+
+  /**
    * @case Per-request event fires with method/path/status/durationMs
    * @preconditions perRequest event toggle is on (default)
    * @expectedResult plugin:http:request:completed receives the right payload after a successful request

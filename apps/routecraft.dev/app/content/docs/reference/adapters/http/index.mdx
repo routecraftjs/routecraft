@@ -133,7 +133,7 @@ export const account = craft()
 - `multipart/form-data` -> Web `FormData` (with `File` entries for uploads).
 - anything else -> `Uint8Array`.
 
-Cap controlled by `http: { maxBodySize?: number }` (default 10 MB). Larger requests return `413 Payload Too Large`.
+Cap controlled by `http: { maxBodySize?: number }` (default 10 MB), and per mount by `mounts.<name>.maxBodySize`, which wins for that mount alone. Larger requests return `413 Payload Too Large`.
 
 ### Response convention (deterministic, override via exchange headers)
 
