@@ -101,6 +101,7 @@ mock.module("nodemailer", () => ({
 }));
 
 const mockMailComposerOptions = mock();
+const mockComposedNodes: { keepBcc?: boolean }[] = [];
 
 mock.module("nodemailer/lib/mail-composer", () => ({
   default: class MockMailComposer {
@@ -108,9 +109,11 @@ mock.module("nodemailer/lib/mail-composer", () => ({
       mockMailComposerOptions(options);
     }
     compile() {
-      return {
+      const node: { keepBcc?: boolean; build: () => Promise<Buffer> } = {
         build: mock().mockResolvedValue(Buffer.from("raw mime")),
       };
+      mockComposedNodes.push(node);
+      return node;
     }
   },
 }));
@@ -1341,6 +1344,36 @@ describe("Mail Adapter", () => {
           headers: { "X-Auto-Response-Suppress": "All" },
         }),
       );
+    });
+
+    /**
+     * @case An appended draft with Bcc recipients
+     * @preconditions Exchange body sets bcc on an append to Drafts
+     * @expectedResult The composed message keeps its Bcc header, since a
+     *   stored copy is not being delivered and its Bcc would otherwise vanish
+     */
+    test("append keeps the Bcc header on the stored message", async () => {
+      const adapter = mail({ action: "append", folder: "Drafts" });
+      const context = await buildMailContext();
+      const exchange = {
+        id: "test",
+        headers: {},
+        body: {
+          to: "recipient@test.com",
+          bcc: "hidden@test.com",
+          subject: "Draft",
+          text: "Draft body",
+        },
+        logger: console,
+      } as any;
+      attachContext(exchange, context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMailComposerOptions).toHaveBeenCalledWith(
+        expect.objectContaining({ bcc: "hidden@test.com" }),
+      );
+      expect(mockComposedNodes.at(-1)?.keepBcc).toBe(true);
     });
 
     /**

@@ -300,7 +300,11 @@ export function buildMessageOptions(
 }
 
 /**
- * Build a raw MIME message from a MailSendPayload using nodemailer's MailComposer.
+ * Build a raw MIME message from a MailSendPayload using nodemailer's
+ * MailComposer, for appending to a folder. The Bcc header is kept: an
+ * appended message is a stored copy (a draft, a Sent copy), and nodemailer
+ * strips Bcc by default because it assumes the message is being delivered,
+ * which would drop a draft's Bcc recipients without a word.
  */
 export async function buildMimeMessage(
   payload: MailSendPayload,
@@ -313,7 +317,9 @@ export async function buildMimeMessage(
     })
   ).default;
   const composer = new MailComposer(buildMessageOptions(payload, smtpDefaults));
-  return composer.compile().build();
+  const root = composer.compile();
+  root.keepBcc = true;
+  return root.build();
 }
 
 // ---------------------------------------------------------------------------
