@@ -13,7 +13,9 @@ import type { Deferred } from "../../kernel/continuation/deferred.ts";
 export interface RunnerInvocation {
   /**
    * The route this invocation runs. An `argv()` source on any other route
-   * stays inert, so a file can hold several and the runner picks one.
+   * stays inert, so a file can hold several and the runner picks one. An id
+   * no `argv()` route carries leaves every source inert and `settle` is
+   * never called, so pick it from `argvRouteIds(context)`.
    */
   readonly routeId: string;
   /**

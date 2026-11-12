@@ -22,6 +22,29 @@ import {
 } from "../src/adapters/argv/command-line.ts";
 import { deferring } from "./helpers/deferral.ts";
 
+/** A plugin whose beforeAuth mutate hook supplies a local principal holding `scopes`. */
+function operatorPlugin(scopes: string[]) {
+  return definePlugin({
+    id: "test.operator",
+    hooks: {
+      beforeAuth: {
+        id: "operator",
+        phase: "mutate",
+        run: (exchange) => ({
+          headers: {
+            [HeadersKeys.AUTH_PRINCIPAL]: authorityOf(exchange).mint({
+              kind: "custom",
+              scheme: "local",
+              subject: "jaco",
+              scopes,
+            }),
+          },
+        }),
+      },
+    },
+  });
+}
+
 /** A runner hand-off that records the outcome and whether stdin was read. */
 function invocation(
   args: string[],
@@ -291,27 +314,7 @@ describe("argv() source", () => {
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
       .with({
-        plugins: [
-          definePlugin({
-            id: "test.operator",
-            hooks: {
-              beforeAuth: {
-                id: "operator",
-                phase: "mutate",
-                run: (exchange) => ({
-                  headers: {
-                    [HeadersKeys.AUTH_PRINCIPAL]: authorityOf(exchange).mint({
-                      kind: "custom",
-                      scheme: "local",
-                      subject: "jaco",
-                      scopes: ["boards:read"],
-                    }),
-                  },
-                }),
-              },
-            },
-          }),
-        ],
+        plugins: [operatorPlugin(["boards:read"])],
       })
       .routes(
         craft()
@@ -340,27 +343,7 @@ describe("argv() source", () => {
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
       .with({
-        plugins: [
-          definePlugin({
-            id: "test.operator",
-            hooks: {
-              beforeAuth: {
-                id: "operator",
-                phase: "mutate",
-                run: (exchange) => ({
-                  headers: {
-                    [HeadersKeys.AUTH_PRINCIPAL]: authorityOf(exchange).mint({
-                      kind: "custom",
-                      scheme: "local",
-                      subject: "jaco",
-                      scopes: [],
-                    }),
-                  },
-                }),
-              },
-            },
-          }),
-        ],
+        plugins: [operatorPlugin([])],
       })
       .routes(
         craft()

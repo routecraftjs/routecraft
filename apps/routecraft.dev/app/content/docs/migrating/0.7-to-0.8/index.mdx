@@ -220,7 +220,7 @@ A route that drove a browser calls a browser MCP server's tools instead. Registe
 
 `craft run` prints a route's result on stdout through the new [`argv()`](/docs/reference/adapters/argv) source, so its logs go to stderr unless `LOG_STREAM` or `CRAFT_LOG_STREAM` names a stream, or a log file is set. A script that captured `craft run`'s logs from stdout reads stderr, or sets `LOG_STREAM=stdout`. A stdio MCP server run with `craft run` no longer needs `--log-file` to keep its protocol stream clean.
 
-The `RUNNER_ARGV` store key is removed. No adapter read it; a runner of your own sets `RUNNER_INVOCATION` to a `RunnerInvocation` (the arguments, a stdin reader and a `settle` callback) instead, and `craft start` sets nothing, which is what keeps `argv()` inert there.
+The `RUNNER_ARGV` store key is removed. No adapter read it; a runner of your own sets `RUNNER_INVOCATION` to a `RunnerInvocation` (the id of the route to run, the arguments, a stdin reader and a `settle` callback) instead, and `craft start` sets nothing, which is what keeps `argv()` inert there.
 
 ## 13. What is new in 0.8.0 \{#13-what-is-new-in-080}
 

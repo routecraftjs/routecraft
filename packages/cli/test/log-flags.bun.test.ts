@@ -98,7 +98,11 @@ interface Outcome {
  * Run `craft` from `cwd` with no logging configured anywhere but its
  * arguments and the project's own files, and report how it ended.
  */
-async function invoke(cwd: string, args: string[]): Promise<Outcome> {
+async function invoke(
+  cwd: string,
+  args: string[],
+  extraEnv: Record<string, string> = {},
+): Promise<Outcome> {
   const env: Record<string, string | undefined> = {
     ...process.env,
     // JSON lines rather than the pretty transport, so output is countable.
@@ -112,6 +116,7 @@ async function invoke(cwd: string, args: string[]): Promise<Outcome> {
   delete env["CRAFT_CLI_ENTRY"];
   delete env["LOG_STREAM"];
   delete env["CRAFT_LOG_STREAM"];
+  Object.assign(env, extraEnv);
   try {
     const { stdout, stderr } = await run("bun", [ENTRY, ...args], {
       env,
@@ -235,6 +240,24 @@ afterAll(async () => {
 });
 
 describe("craft logging flags", () => {
+  /**
+   * @case A blank `LOG_STREAM` counts as unset
+   * @preconditions `LOG_STREAM` holds only spaces; `craft --log-level info run <route>`
+   * @expectedResult The route's info lines still reach stderr and none reach stdout, so a blank value cannot put logs back into the result stream
+   */
+  test(
+    "a blank LOG_STREAM leaves craft run logging to stderr",
+    async () => {
+      const outcome = await invoke(DIR, ["--log-level", "info", "run", ROUTE], {
+        LOG_STREAM: "  ",
+      });
+      expect(outcome.code).toBe(0);
+      expect(routeInfoLines(outcome.stderr).length).toBeGreaterThan(0);
+      expect(routeInfoLines(outcome.stdout)).toEqual([]);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
   /**
    * @case The global `--log-level` flag before the command
    * @preconditions No log level in the environment; `craft --log-level info run <route>`

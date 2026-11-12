@@ -193,8 +193,9 @@ function typeOf(property: unknown): string {
   const type = property["type"];
   if (typeof type === "string") {
     if (type === "array") {
-      const item = typeOf(property["items"]);
-      return item.includes(" | ") ? `(${item})[]` : `${item}[]`;
+      const items = property["items"];
+      const item = typeOf(items);
+      return isUnion(items) ? `(${item})[]` : `${item}[]`;
     }
     return type;
   }
@@ -204,6 +205,18 @@ function typeOf(property: unknown): string {
     if (Array.isArray(arms)) return arms.map(typeOf).join(" | ");
   }
   return "any";
+}
+
+/** Whether `typeOf` renders the property as several alternatives. */
+function isUnion(property: unknown): boolean {
+  if (!isRecord(property)) return false;
+  if (Array.isArray(property["enum"])) return property["enum"].length > 1;
+  if ("const" in property || typeof property["type"] === "string") return false;
+  if (Array.isArray(property["type"])) return property["type"].length > 1;
+  return ["anyOf", "oneOf"].some((key) => {
+    const arms = property[key];
+    return Array.isArray(arms) && arms.length > 1;
+  });
 }
 
 /**

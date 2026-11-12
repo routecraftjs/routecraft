@@ -314,6 +314,36 @@ describe("CLI run command", () => {
     });
 
     /**
+     * @case --help parenthesises an array of alternatives, and only that
+     * @preconditions Fields that are an array of a union, an array of such arrays, and an array of one const containing " | "
+     * @expectedResult (string | number)[], (string | number)[][] and "a | b"[], so the brackets always bind to the whole item
+     */
+    test("renders array item types unambiguously in --help", async () => {
+      const { renderArgvHelp } = await import("../src/format");
+      const union = { anyOf: [{ type: "string" }, { type: "number" }] };
+      const help = renderArgvHelp(
+        {
+          id: "r",
+          input: {
+            type: "object",
+            properties: {
+              flat: { type: "array", items: union },
+              nested: {
+                type: "array",
+                items: { type: "array", items: union },
+              },
+              quoted: { type: "array", items: { const: "a | b" } },
+            },
+          },
+        },
+        "pretty",
+      );
+      expect(help).toMatch(/--flat\s+\(string \| number\)\[\]\s/);
+      expect(help).toMatch(/--nested\s+\(string \| number\)\[\]\[\]\s/);
+      expect(help).toMatch(/--quoted\s+"a \| b"\[\]\s/);
+    });
+
+    /**
      * @case --help starts nothing
      * @preconditions A file with an argv() route and a sibling route whose source writes a marker as soon as it starts
      * @expectedResult Exit 0 with the help text, and no marker, because help is answered before the context starts
@@ -436,6 +466,49 @@ describe("CLI run command", () => {
       expect(res.reply.output).toMatch(/a\s+First/);
       expect(res.reply.output).toMatch(/^\s+b\s*$/m);
       expect(existsSync("ran-a")).toBe(false);
+    });
+
+    /**
+     * @case The route listing follows --format
+     * @preconditions A file with two argv() routes, --help with --format json and then raw
+     * @expectedResult json is an array of the route descriptions, raw is one id per line
+     */
+    test("lists the argv() routes as json and raw", async () => {
+      await writeFile("two.ts", TWO);
+      const json = await runModule.runCommand(
+        "two.ts",
+        ["--help", "--format", "json"],
+        isolated(),
+      );
+      if (!("reply" in json)) throw new Error("expected a reply");
+      expect(JSON.parse(json.reply.output ?? "")).toMatchObject([
+        { id: "a", title: "First" },
+        { id: "b" },
+      ]);
+      const raw = await runModule.runCommand(
+        "two.ts",
+        ["--help", "--format", "raw"],
+        isolated(),
+      );
+      if (!("reply" in raw)) throw new Error("expected a reply");
+      expect(raw.reply.output).toBe("a\nb");
+    });
+
+    /**
+     * @case A usage error names the route in its help hint
+     * @preconditions A file with two argv() routes, the second named, then a stray positional
+     * @expectedResult Exit 2, and the hint is the --help command for that route
+     */
+    test("points a usage error at the named route's --help", async () => {
+      await writeFile("two.ts", TWO);
+      const res = await runModule.runCommand(
+        "two.ts",
+        ["b", "stray"],
+        isolated(),
+      );
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(2);
+      expect(res.reply.error).toMatch(/craft run <file> b --help/);
     });
 
     /**

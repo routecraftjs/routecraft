@@ -19,9 +19,9 @@ type RouteLookup = { getRoutes(): readonly { definition: RouteDefinition }[] };
 /**
  * The ids of the routes in a context that read the command line with
  * `argv()`. Known before the context starts, so a runner can skip work for
- * a file with none. A runner refuses a file with more than one before it
- * starts the context: one command line is one exchange for one route, and
- * every `argv()` source reads the same invocation.
+ * a file with none and pick the one to run when there are several: one
+ * command line is one exchange for one route, named by the invocation's
+ * `routeId`.
  *
  * @param context - Anything with the context's `getRoutes()`
  * @returns Route ids, in registration order

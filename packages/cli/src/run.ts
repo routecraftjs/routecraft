@@ -165,7 +165,7 @@ export async function runCommand(
         },
       };
     }
-    return { reply: renderOutcome(outcome, line.format) };
+    return { reply: renderOutcome(outcome, routeId, line.format) };
   } catch (error: unknown) {
     const message = messageOf(error);
     logger.error(`Failed to run ${absFilePath}: ${message}`);
@@ -182,10 +182,13 @@ export async function runCommand(
 function beforeStart(
   context: Parameters<typeof argvRouteIds>[0],
   readers: readonly string[],
-  line: Exclude<ReturnType<typeof runnerLine>, { error: string }>,
+  line: RunnerLine,
 ): { routeId: string } | { answer: RunResult } {
   const usage = (message: string): { answer: RunResult } => ({
     answer: { success: false, code: EXEC_EXIT.usage, message },
+  });
+  const printed = (output: string): { answer: RunResult } => ({
+    answer: { reply: { code: EXEC_EXIT.ok, output } },
   });
   const describe = (id: string): ArgvRouteHelp =>
     describeArgvRoute(context, id) ?? { id };
@@ -199,14 +202,7 @@ function beforeStart(
   const routeId = line.route ?? (readers.length === 1 ? readers[0] : undefined);
   if (routeId === undefined) {
     if (line.help) {
-      return {
-        answer: {
-          reply: {
-            code: EXEC_EXIT.ok,
-            output: renderArgvRoutes(readers.map(describe), line.format),
-          },
-        },
-      };
+      return printed(renderArgvRoutes(readers.map(describe), line.format));
     }
     return usage(
       `Routes ${listed} all read the command line with argv(). Name the one to run: craft run <file> <route> [--field=value ...]`,
@@ -219,16 +215,7 @@ function beforeStart(
       `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which craft run reads itself (${collisions.map((name) => `--${name}`).join(", ")}). Rename the field.`,
     );
   }
-  if (line.help) {
-    return {
-      answer: {
-        reply: {
-          code: EXEC_EXIT.ok,
-          output: renderArgvHelp(help, line.format),
-        },
-      },
-    };
-  }
+  if (line.help) return printed(renderArgvHelp(help, line.format));
   return { routeId };
 }
 
@@ -238,12 +225,17 @@ function beforeStart(
  * everything else left for the route, and the default format from the
  * settings file.
  */
+interface RunnerLine {
+  argv: string[];
+  route?: string;
+  help: boolean;
+  format: OutputFormat;
+}
+
 function runnerLine(
   cliArgs: readonly string[],
   overrides: Pick<SettingsOverrides, "profile" | "cwd" | "env" | "home">,
-):
-  | { argv: string[]; route?: string; help: boolean; format: OutputFormat }
-  | { error: string } {
+): RunnerLine | { error: string } {
   const argv: string[] = [];
   let help = false;
   let flagged: string | undefined;
@@ -291,6 +283,7 @@ function runnerLine(
  */
 function renderOutcome(
   outcome: RunnerOutcome,
+  routeId: string,
   format: OutputFormat,
 ): ExecResult {
   switch (outcome.outcome) {
@@ -301,7 +294,7 @@ function renderOutcome(
     case "usage":
       return {
         code: EXEC_EXIT.usage,
-        error: `${outcome.message}\nSee the route's input with: craft run <file> --help`,
+        error: `${outcome.message}\nSee the route's input with: craft run <file> ${routeId} --help`,
       };
     case "refused": {
       const { refusal } = outcome;
