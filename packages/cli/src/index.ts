@@ -296,7 +296,7 @@ withLogOptions(
       .argument("<file>", "Path to a file containing routes")
       .argument(
         "[args...]",
-        "Arguments for an argv() route: its id when the file has several, then --field=value pairs. --help and --format <format> are read by craft run itself",
+        "Arguments for an argv() route: its id when the file has several, then --field=value pairs, or JSON on stdin when there are none. --help and --format <format> are read by craft run itself",
       ),
     () => process.cwd(),
   ),
