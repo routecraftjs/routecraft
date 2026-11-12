@@ -120,7 +120,7 @@ export async function runCommand(
       return { success: true };
     }
     // build() already bound the plugins, so a run that never starts still stops.
-    const line = runnerLine(cliArgs, options);
+    const line = runnerLine(cliArgs, readers, options);
     if ("error" in line) {
       await context.stop();
       return { success: false, code: EXEC_EXIT.usage, message: line.error };
@@ -221,7 +221,8 @@ function beforeStart(
 
 /**
  * The command line as the runner reads it: `--help` and `--format` taken
- * out for the runner, a leading positional argument as the route to run,
+ * out for the runner, a leading argument that is a route id or not a flag
+ * as the route to run,
  * everything else left for the route, and the default format from the
  * settings file.
  */
@@ -234,6 +235,7 @@ interface RunnerLine {
 
 function runnerLine(
   cliArgs: readonly string[],
+  readers: readonly string[],
   overrides: Pick<SettingsOverrides, "profile" | "cwd" | "env" | "home">,
 ): RunnerLine | { error: string } {
   const argv: string[] = [];
@@ -263,10 +265,13 @@ function runnerLine(
       ...overrides,
       ...(flagged === undefined ? {} : { format: flagged }),
     });
-    const named = argv[0] !== undefined && !argv[0].startsWith("-");
+    const first = argv[0];
+    const named =
+      first !== undefined &&
+      (readers.includes(first) || !first.startsWith("-"));
     return {
       argv: named ? argv.slice(1) : argv,
-      ...(named ? { route: argv[0]! } : {}),
+      ...(named ? { route: first } : {}),
       help,
       format: settings.format.value,
     };

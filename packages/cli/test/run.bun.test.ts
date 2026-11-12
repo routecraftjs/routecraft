@@ -399,7 +399,10 @@ describe("CLI run command", () => {
       import { craft, argv } from "@routecraft/routecraft";
       export default [
         craft().id("a").title("First").from(argv()).to(() => writeFileSync("ran-a", "")),
-        craft().id("b").from(argv()).transform((body) => ({ b: body.x })),
+        craft().id("b").from(argv()).transform((body) => {
+          writeFileSync("ran-b", "");
+          return { b: body.x };
+        }),
       ];
     `;
 
@@ -437,6 +440,7 @@ describe("CLI run command", () => {
       expect(res.message).toMatch(/"a", "b"/);
       expect(res.message).toMatch(/craft run <file> <route>/);
       expect(existsSync("ran-a")).toBe(false);
+      expect(existsSync("ran-b")).toBe(false);
     });
 
     /**
@@ -466,6 +470,26 @@ describe("CLI run command", () => {
       expect(res.reply.output).toMatch(/a\s+First/);
       expect(res.reply.output).toMatch(/^\s+b\s*$/m);
       expect(existsSync("ran-a")).toBe(false);
+      expect(existsSync("ran-b")).toBe(false);
+    });
+
+    /**
+     * @case A route id that starts with a dash can still be named
+     * @preconditions A file with two argv() routes, one whose id is "-b", named first
+     * @expectedResult Exit 0 with that route's result, because a leading argument equal to a route id is the name
+     */
+    test("runs an argv() route whose id starts with a dash", async () => {
+      await writeFile("dashed.ts", TWO.replace('id("b")', 'id("-b")'));
+      const res = await runModule.runCommand(
+        "dashed.ts",
+        ["-b", "--x=1", "--format", "json"],
+        isolated(),
+      );
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(0);
+      expect(JSON.parse(res.reply.output ?? "")).toMatchObject({
+        body: { b: "1" },
+      });
     });
 
     /**
@@ -527,6 +551,7 @@ describe("CLI run command", () => {
       expect(res.reply.code).toBe(0);
       expect(res.reply.output).toMatch(/Route: a/);
       expect(existsSync("ran-a")).toBe(false);
+      expect(existsSync("ran-b")).toBe(false);
     });
 
     /**
