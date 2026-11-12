@@ -213,7 +213,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `header` | `Record<string, string \| string[]>` | | Filter by arbitrary IMAP headers. Array values = OR |
 | `gmailSearch` | `string` | | Gmail search query (`X-GM-RAW`), the syntax of Gmail's search box, ANDed with the other filters. Answered from Gmail's index, so `rfc822msgid:<id>` finds one message at once where a `header` search scans the folder. It searches the selected `folder` only and `unseen` still applies: pass `folder: '[Gmail]/All Mail'` and `unseen: false` to find a read or archived message. Gmail only |
 | `includeHeaders` | `true \| string[]` | | Raw headers to include on fetched messages. `true` = all |
-| `verify` | `'off' \| 'headers' \| 'strict'` | `'headers'` | Sender analysis. `'headers'` reads `Authentication-Results`/`ARC`/`List-Id` the receiving server wrote (no network). `'strict'` additionally runs cryptographic verification via optional `mailauth` 8.0.6 or later (DNS lookups); every earlier major pins a vulnerable `joi`. `'off'` skips analysis. |
+| `verify` | `'off' \| 'headers' \| 'strict'` | `'headers'` | Sender analysis. `'headers'` reads `Authentication-Results`/`ARC`/`List-Id` the receiving server wrote (no network). `'strict'` additionally runs cryptographic verification via optional `mailauth` `^8.0.6`, so 8.x from 8.0.6 onward (DNS lookups); every earlier major pins a vulnerable `joi`. `'off'` skips analysis. |
 | `limit` | `number` | | Maximum messages per fetch |
 | `pollInterval` | `Duration` | | Poll interval (default: IMAP IDLE) |
 | `account` | `string` | | Named account from context config (uses default if omitted) |
