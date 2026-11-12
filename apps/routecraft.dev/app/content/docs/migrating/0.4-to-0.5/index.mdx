@@ -75,9 +75,9 @@ Framework logs now write to stdout, matching pino's default and 12-factor conven
 craft run --log-file ./logs.txt server.js
 ```
 
-The flag belongs before the file. Anything after `run <file>` is pass-through and is handed to the route's own CLI adapter, so a `--log-file` written there never reaches the logger.
+The flag belongs before the file. Arguments after `run <file>` are the route's input for the [`argv()`](/docs/reference/adapters/argv) source, except `--help` and `--format`, which `craft run` reads itself, so a `--log-file` written there never reaches the logger.
 
-**Critical for stdio MCP servers:** routecraft logs will now corrupt the stdio MCP protocol stream unless you redirect them out of stdout. Use one of:
+**Critical for stdio MCP servers:** routecraft logs will now corrupt the stdio MCP protocol stream unless you redirect them out of stdout. Use one of the following. From 0.8, `craft run` logs to stderr by default (see [0.7 to 0.8](/docs/migrating/0.7-to-0.8)), and `LOG_STREAM=stderr` does the same under `craft start`.
 
 ```bash
 craft run --log-file ./mcp.log mcp-server.js
@@ -543,7 +543,7 @@ Failures throw `RC5012` (no principal) or `RC5015` (principal failed the role / 
 
 ### Runner argv channel
 
-A new `RUNNER_ARGV` store key lets adapters read remaining CLI arguments after the runner has parsed its own flags, without coupling to a specific runner package.
+A new `RUNNER_ARGV` store key carried the CLI arguments left after the runner parsed its own flags, without coupling an adapter to a specific runner package. No adapter read it in 0.5 through 0.7. It has since been replaced by `RUNNER_INVOCATION`, which the [`argv()`](/docs/reference/adapters/argv) source reads: `craft run <file> --field=value` becomes one exchange with the `craft exec` flag grammar and exit codes, and no principal.
 
 ---
 

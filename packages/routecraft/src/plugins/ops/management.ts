@@ -22,8 +22,8 @@ import { getAdapterLabel } from "../../types";
 import type { Adapter } from "../../types";
 import { isDeferred } from "../../kernel/continuation/deferred";
 import {
-  renderJsonSchemaArm,
-  standardExtensionOf,
+  renderDirectedJsonSchema,
+  ROUTE_SCHEMA_TARGET,
 } from "../../shared/standard-schema";
 import { decodeCursor, takePage } from "./pagination";
 import { safeStringify } from "../../shared/safe-json.ts";
@@ -46,17 +46,6 @@ import type {
   OpsRouteSchemas,
   OpsRouteSummary,
 } from "./types";
-
-/**
- * JSON Schema dialect asked of a schema library's producer.
- *
- * Pinned so two instances of this API describe the same route identically.
- * Unrelated to the deferral descriptor's constant of the same value:
- * that one is folded into a stored hash and must not move, this one is
- * descriptive, and sharing a single mutable constant between them would
- * couple a display choice to every deferred exchange's digest.
- */
-const JSON_SCHEMA_TARGET = "draft-2020-12";
 
 /**
  * A dispatch refused because of the id the caller named, before any route
@@ -519,41 +508,27 @@ function detail(
   };
 }
 
-/**
- * Render a route's declared schemas to JSON Schema, when the library
- * exposes the non-standard extension.
- *
- * The preferred arm follows the direction the schema is used in: what a
- * caller must SEND is the input schema's input arm, and what it receives
- * is the output schema's output arm. The other arm is a fallback rather
- * than an equal, because for a transforming schema the two differ and
- * showing the wrong one would document a request shape nobody may send.
- */
+/** Render a route's declared schemas to JSON Schema, where they render. */
 function renderSchemas(
   schemas: { body?: unknown; headers?: unknown } | undefined,
   direction: "input" | "output",
 ): OpsRouteSchemas | undefined {
   if (!schemas) return undefined;
-  const body = renderSchema(schemas.body, direction);
-  const headers = renderSchema(schemas.headers, direction);
+  const body = renderDirectedJsonSchema(
+    schemas.body,
+    direction,
+    ROUTE_SCHEMA_TARGET,
+  );
+  const headers = renderDirectedJsonSchema(
+    schemas.headers,
+    direction,
+    ROUTE_SCHEMA_TARGET,
+  );
   if (body === undefined && headers === undefined) return undefined;
   return {
     ...(body !== undefined ? { body } : {}),
     ...(headers !== undefined ? { headers } : {}),
   };
-}
-
-function renderSchema(schema: unknown, direction: "input" | "output"): unknown {
-  if (schema === undefined || schema === null) return undefined;
-  const standard = standardExtensionOf(schema);
-  const arms =
-    direction === "input"
-      ? [standard?.jsonSchema?.input, standard?.jsonSchema?.output]
-      : [standard?.jsonSchema?.output, standard?.jsonSchema?.input];
-  return (
-    renderJsonSchemaArm(arms[0], JSON_SCHEMA_TARGET) ??
-    renderJsonSchemaArm(arms[1], JSON_SCHEMA_TARGET)
-  );
 }
 
 function matches(route: OpsRouteSummary, filter: OpsRouteFilter): boolean {

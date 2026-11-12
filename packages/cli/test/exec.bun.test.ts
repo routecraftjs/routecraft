@@ -24,7 +24,7 @@ import {
 /** A dependency the test can push into `down`, forcing the aggregate to 503. */
 const downIndicator = defineIndicator({ name: "probe" });
 
-const { execCommand, bodyFromArgs, EXEC_EXIT } = await import("../src/exec");
+const { execCommand, EXEC_EXIT } = await import("../src/exec");
 const { routesCommand, routeCommand, healthCommand } =
   await import("../src/ops");
 
@@ -119,39 +119,6 @@ async function start(tiers: Record<string, boolean | string>): Promise<void> {
 }
 
 describe("craft exec", () => {
-  /**
-   * @case Trailing flags become a flat request body
-   * @preconditions A mix of --key=value, --key value, a bare flag and a repeated key
-   * @expectedResult Strings stay strings, a bare flag is true, and a repeat becomes an array. Nothing is coerced to a number, because a CLI guessing types produces bugs that only appear for values that happen to look numeric
-   */
-  test("builds a body from trailing flags", () => {
-    const { body, error } = bodyFromArgs([
-      "--name=world",
-      "--count",
-      "3",
-      "--loud",
-      "--tag=a",
-      "--tag=b",
-    ]);
-    expect(error).toBeUndefined();
-    expect(body).toEqual({
-      name: "world",
-      count: "3",
-      loud: true,
-      tag: ["a", "b"],
-    });
-  });
-
-  /**
-   * @case A positional argument where a field was expected is refused
-   * @preconditions A trailing argument that is not a --flag
-   * @expectedResult An error naming both ways to pass input, rather than a body that silently dropped it
-   */
-  test("refuses a stray positional argument", () => {
-    const { error } = bodyFromArgs(["world"]);
-    expect(error).toMatch(/--field=value/);
-  });
-
   /**
    * @case A dispatch on an open tier returns the route's output
    * @preconditions Dispatch tier open, no credential presented

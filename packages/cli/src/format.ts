@@ -9,6 +9,8 @@
  */
 
 import type {
+  ArgvRouteHelp,
+  CallerRefusal,
   HealthComponent,
   HealthReport,
   OpsDeferralSummary,
@@ -18,6 +20,7 @@ import type {
   OpsRouteSummary,
 } from "@routecraft/routecraft";
 import type { OutputFormat } from "./settings.js";
+import { isRecord } from "./util.js";
 
 /** Serialise a whole structured answer. */
 export function asJson(value: unknown): string {
@@ -70,6 +73,185 @@ export function renderDispatch(
     "Resume it through the route the app exposes for that; the token is single-use and the framework mints no resume door of its own.",
   );
   return lines.join("\n");
+}
+
+/**
+ * Render `craft run <file> --help` for a file with several `argv()`
+ * routes: the routes to choose from, since no single one was named.
+ */
+export function renderArgvRoutes(
+  routes: readonly ArgvRouteHelp[],
+  format: OutputFormat,
+): string {
+  if (format === "json") return asJson(routes);
+  if (format === "raw") return routes.map((route) => route.id).join("\n");
+  return [
+    "Usage: craft run <file> <route> [--field=value ...]",
+    "       craft run <file> <route> --help",
+    "",
+    "Routes:",
+    indent(
+      table(
+        ["ROUTE", ""],
+        routes.map((route) => [
+          route.id,
+          route.title ?? route.description ?? "",
+        ]),
+      ),
+    ),
+  ].join("\n");
+}
+
+/**
+ * Render `craft run <file> --help`: how to call the route, and the fields
+ * its `.input()` body accepts, each with its type, whether it is required
+ * and its description.
+ */
+export function renderArgvHelp(
+  route: ArgvRouteHelp,
+  format: OutputFormat,
+): string {
+  if (format === "json") return asJson(route);
+  if (format === "raw") return asJson(route.input ?? {});
+  const lines = [
+    "Usage: craft run <file> [route] [--field=value ...]",
+    "       echo '<json>' | craft run <file> [route]",
+    "",
+    `Route: ${route.id}`,
+  ];
+  if (route.title !== undefined) lines.push(route.title);
+  if (route.description !== undefined) lines.push("", route.description);
+  lines.push("", "Input:");
+  const fields = inputFields(route.input);
+  if (fields === undefined) {
+    lines.push(
+      route.input === undefined
+        ? "  The route declares no .input() schema; any fields are passed through."
+        : `  Not a flat object, so pass it as JSON on stdin:\n${indent(indent(asJson(route.input)))}`,
+    );
+  } else if (fields.length === 0) {
+    lines.push("  No fields.");
+  } else {
+    lines.push(
+      indent(
+        table(
+          ["FIELD", "TYPE", "REQUIRED", ""],
+          fields.map((field) => [
+            `--${field.name}`,
+            field.type,
+            field.required ? "yes" : "no",
+            field.description ?? "",
+          ]),
+        ),
+      ),
+    );
+  }
+  lines.push(
+    "",
+    "Runner options (after the file):",
+    "  --help             Print this help",
+    "  --format <format>  pretty (default), json, or raw",
+    "",
+    "Values arrive as strings; pipe JSON on stdin for numbers, booleans or nested input.",
+  );
+  return lines.join("\n");
+}
+
+interface InputField {
+  name: string;
+  type: string;
+  required: boolean;
+  description?: string;
+}
+
+/** The fields of an object JSON Schema, or `undefined` for any other shape. */
+function inputFields(schema: unknown): InputField[] | undefined {
+  if (!isRecord(schema) || !isRecord(schema["properties"])) return undefined;
+  const required = new Set(
+    Array.isArray(schema["required"]) ? schema["required"] : [],
+  );
+  return Object.entries(schema["properties"]).map(([name, property]) => {
+    const description = isRecord(property)
+      ? property["description"]
+      : undefined;
+    return {
+      name,
+      type: typeOf(property),
+      required: required.has(name),
+      ...(typeof description === "string" ? { description } : {}),
+    };
+  });
+}
+
+/** A short type label for one JSON Schema property. */
+function typeOf(property: unknown): string {
+  if (!isRecord(property)) return "any";
+  if (Array.isArray(property["enum"])) {
+    return property["enum"].map((value) => JSON.stringify(value)).join(" | ");
+  }
+  if ("const" in property) return JSON.stringify(property["const"]);
+  const type = property["type"];
+  if (typeof type === "string") {
+    if (type === "array") {
+      const items = property["items"];
+      const item = typeOf(items);
+      return isUnion(items) ? `(${item})[]` : `${item}[]`;
+    }
+    return type;
+  }
+  if (Array.isArray(type)) return type.join(" | ");
+  for (const key of ["anyOf", "oneOf"]) {
+    const arms = property[key];
+    if (Array.isArray(arms)) return arms.map(typeOf).join(" | ");
+  }
+  return "any";
+}
+
+/** Whether `typeOf` renders the property as several alternatives. */
+function isUnion(property: unknown): boolean {
+  if (!isRecord(property)) return false;
+  if (Array.isArray(property["enum"])) return property["enum"].length > 1;
+  if ("const" in property || typeof property["type"] === "string") return false;
+  if (Array.isArray(property["type"])) return property["type"].length > 1;
+  return ["anyOf", "oneOf"].some((key) => {
+    const arms = property[key];
+    return Array.isArray(arms) && arms.length > 1;
+  });
+}
+
+/**
+ * Render a refusal of what the caller sent or who it is, phrased as the
+ * thing to change where there is one.
+ */
+export function renderRefusal(refusal: CallerRefusal): string {
+  switch (refusal.kind) {
+    case "input": {
+      const lines = [
+        `The ${refusal.in} did not match the route's .input() schema:`,
+        ...refusal.issues.map(
+          (issue) =>
+            `  - ${issue.path === undefined ? "" : `${issue.path}: `}${issue.message}`,
+        ),
+      ];
+      if (refusal.omitted > 0) {
+        lines.push(`  (${String(refusal.omitted)} more)`);
+      }
+      lines.push("", "See what it accepts with: craft run <file> --help");
+      return lines.join("\n");
+    }
+    case "insufficient_scope": {
+      const wanted = refusal.scopes.join(", ");
+      return `Refused: the route needs ${refusal.anyOf ? "one of the scopes" : "the scope(s)"} ${wanted}, which the principal does not hold.`;
+    }
+    case "insufficient_permissions":
+      return "Refused: the route's .authorize() does not permit the principal.";
+    case "expired":
+      return "Refused: the identity expired while the route ran.";
+    case "unauthenticated":
+      return "Refused: the route needs an identity it was not given.";
+    case "refused":
+      return `Refused: ${refusal.reason}`;
+  }
 }
 
 /** Render the route collection. */
