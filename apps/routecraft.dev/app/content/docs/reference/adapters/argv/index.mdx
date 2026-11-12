@@ -48,16 +48,29 @@ The arguments after the file become the body with the grammar `craft exec` uses,
 
 With no arguments, JSON piped on stdin is the body, read to its end as `craft exec` reads it; a pipe that never closes keeps the run waiting. With flags, stdin is not read at all, so the flags are the whole body. Stdin is read only by an `argv()` route that was given no flags, so a file without `argv()`, such as a stdio `mcp()` server, keeps its stdin under `craft run`. A file with `argv()` is one-shot under `craft run`: the CLI stops the context after the one exchange, so a stdio server that has to stay up belongs in a file of its own, or under `craft start`, where `argv()` is inert.
 
+## Several routes in one file
+
+A file can hold several `argv()` routes. Name the one to run first, before its flags, as `craft exec` names its route:
+
+```bash
+craft run tools.ts work-item --id=12345
+echo '{"id":"12345"}' | craft run tools.ts work-item
+craft run tools.ts --help            # lists the argv() routes
+craft run tools.ts work-item --help  # that route's input fields
+```
+
+With one `argv()` route the name is optional. With several it is required: a missing name, or one no `argv()` route carries, is a usage error that lists the routes, and nothing starts. One command line still runs one route; the other `argv()` routes stay inert for that run.
+
 ## Reserved flags
 
 Craft's own options go before the file. After it, only two flags belong to the CLI:
 
 | Flag | Meaning |
 | --- | --- |
-| `--help` | Print the route's id, title, description and the fields of its `.input()` body (type, whether required, description). The context never starts, so no route in the file runs. |
+| `--help` | Print the route's id, title, description and the fields of its `.input()` body (type, whether required, description), or the list of `argv()` routes when the file has several and none is named. The context never starts, so no route in the file runs. |
 | `--format <format>` | `pretty` (default), `json` or `raw`, the same renderer as `craft exec`. The default comes from the settings file. |
 
-A route whose `.input()` body declares a field named `help` or `format` is refused with a usage error before anything starts, because those flags never reach it. The check and the `--help` fields read the schema's JSON Schema rendering; a schema library without one gets neither. A file with more than one `argv()` route is refused the same way: one command line runs one route.
+A route whose `.input()` body declares a field named `help` or `format` is refused with a usage error before anything starts, because those flags never reach it. The check and the `--help` fields read the schema's JSON Schema rendering; a schema library without one gets neither.
 
 Flag values come from outside the route's code. Pass one to [`shell()`](/docs/reference/adapters/shell) wrapped in `untrusted()`, and keep secrets off the command line, where process listings and shell history keep them: pipe them as JSON on stdin instead.
 
@@ -73,7 +86,7 @@ The final body goes to stdout. Logs go to stderr under `craft run`, so `craft ru
 | --- | --- |
 | `0` | The route completed, or it deferred: the `Deferred` acknowledgement is printed with its deferral id and resume token. The token resumes only through a durable deferral store and a resume route that outlive the process |
 | `1` | The route failed, a filter dropped the exchange, or the route never read the command line (disabled, or it failed to start) |
-| `2` | A usage error: a malformed command line, stdin that is not JSON, a reserved field, or an `.input()` failure (the schema issues are printed) |
+| `2` | A usage error: a malformed command line, a missing or unknown route name, stdin that is not JSON, a reserved field, or an `.input()` failure (the schema issues are printed) |
 | `4` | A plugin validate hook or the route's own `.validate()` step refused the caller, except an `invalid` refusal, which exits `2` |
 
 After the one exchange the source completes and the CLI stops the context, so the process exits even when `direct()` or `mcp()` would hold the route open.
@@ -84,7 +97,7 @@ After the one exchange the source completes and the CLI stops the context, so th
 
 ## Runners other than the CLI
 
-The CLI hands the command line over in the context store under `RUNNER_INVOCATION` before `context.start()`, as a `RunnerInvocation`: the route's arguments with the runner's own flags taken out, a lazy stdin reader, and a `settle(outcome)` callback that receives one `RunnerOutcome`. A runner of your own sets the same key to drive an `argv()` route. Before it starts the context it calls `argvRouteIds(context)` to find the route and refuse a file with several, and `describeArgvRoute(context, id)` to answer its own help flag and check its reserved flag names against the route's input fields.
+The CLI hands the command line over in the context store under `RUNNER_INVOCATION` before `context.start()`, as a `RunnerInvocation`: the id of the route to run, its arguments with the runner's own flags taken out, a lazy stdin reader, and a `settle(outcome)` callback that receives one `RunnerOutcome`. A runner of your own sets the same key to drive an `argv()` route. Before it starts the context it calls `argvRouteIds(context)` to find the routes and pick one, and `describeArgvRoute(context, id)` to answer its own help flag and check its reserved flag names against the route's input fields.
 
 ---
 

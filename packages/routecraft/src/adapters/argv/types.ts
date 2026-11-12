@@ -2,8 +2,8 @@ import type { CallerRefusal } from "../../pipeline/caller-refusal.ts";
 import type { Deferred } from "../../kernel/continuation/deferred.ts";
 
 /**
- * What a runner hands the `argv()` source: the command line and where to
- * report the one outcome.
+ * What a runner hands the `argv()` source: which route runs, the command
+ * line and where to report the one outcome.
  *
  * Set by `craft run` (or any runner) in the context store under
  * `RUNNER_INVOCATION` before `context.start()`. A context without it, such
@@ -11,6 +11,11 @@ import type { Deferred } from "../../kernel/continuation/deferred.ts";
  * stays inert there.
  */
 export interface RunnerInvocation {
+  /**
+   * The route this invocation runs. An `argv()` source on any other route
+   * stays inert, so a file can hold several and the runner picks one.
+   */
+  readonly routeId: string;
   /**
    * The route's input arguments after the file, with the runner's own flags
    * (such as `--help` and `--format` for `craft run`) already taken out.

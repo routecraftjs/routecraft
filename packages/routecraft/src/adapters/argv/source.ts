@@ -91,7 +91,7 @@ export class ArgvSourceAdapter implements Source<unknown> {
   async subscribe(sub: Subscription<unknown>): Promise<void> {
     const invocation = sub.context.getStore(RUNNER_INVOCATION);
     sub.ready();
-    if (invocation === undefined) {
+    if (invocation === undefined || invocation.routeId !== sub.meta.routeId) {
       sub.complete();
       return;
     }

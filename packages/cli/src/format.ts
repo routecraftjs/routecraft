@@ -76,6 +76,33 @@ export function renderDispatch(
 }
 
 /**
+ * Render `craft run <file> --help` for a file with several `argv()`
+ * routes: the routes to choose from, since no single one was named.
+ */
+export function renderArgvRoutes(
+  routes: readonly ArgvRouteHelp[],
+  format: OutputFormat,
+): string {
+  if (format === "json") return asJson(routes);
+  if (format === "raw") return routes.map((route) => route.id).join("\n");
+  return [
+    "Usage: craft run <file> <route> [--field=value ...]",
+    "       craft run <file> <route> --help",
+    "",
+    "Routes:",
+    indent(
+      table(
+        ["ROUTE", ""],
+        routes.map((route) => [
+          route.id,
+          route.title ?? route.description ?? "",
+        ]),
+      ),
+    ),
+  ].join("\n");
+}
+
+/**
  * Render `craft run <file> --help`: how to call the route, and the fields
  * its `.input()` body accepts, each with its type, whether it is required
  * and its description.
@@ -87,8 +114,8 @@ export function renderArgvHelp(
   if (format === "json") return asJson(route);
   if (format === "raw") return asJson(route.input ?? {});
   const lines = [
-    "Usage: craft run <file> [--field=value ...]",
-    "       echo '<json>' | craft run <file>",
+    "Usage: craft run <file> [route] [--field=value ...]",
+    "       echo '<json>' | craft run <file> [route]",
     "",
     `Route: ${route.id}`,
   ];

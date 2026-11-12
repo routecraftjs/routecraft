@@ -18,7 +18,7 @@ import {
 import { MODULE_EXTENSIONS } from "./project.js";
 import { messageOf } from "./util.js";
 import { dispatchResult, EXEC_EXIT, type ExecResult } from "./exec.js";
-import { renderArgvHelp, renderRefusal } from "./format.js";
+import { renderArgvHelp, renderArgvRoutes, renderRefusal } from "./format.js";
 import {
   resolveSettings,
   SettingsError,
@@ -125,16 +125,17 @@ export async function runCommand(
       await context.stop();
       return { success: false, code: EXEC_EXIT.usage, message: line.error };
     }
-    const early = beforeStart(context, readers, line);
-    if (early !== undefined) {
+    const chosen = beforeStart(context, readers, line);
+    if ("answer" in chosen) {
       await context.stop();
-      return early;
+      return chosen.answer;
     }
-    const routeId = readers[0]!;
+    const { routeId } = chosen;
 
     let settled: RunnerOutcome | undefined;
     const answered = Promise.withResolvers<RunnerOutcome>();
     const invocation: RunnerInvocation = {
+      routeId,
       argv: line.argv,
       readStdin: options.readStdin ?? (() => Promise.resolve(undefined)),
       settle(outcome) {
@@ -173,49 +174,76 @@ export async function runCommand(
 }
 
 /**
- * The answer `craft run` gives without starting the context: a file with
- * several `argv()` routes, a route field named like a runner flag, or
- * `--help`. Undefined when the route should run.
+ * Pick the `argv()` route this invocation runs, or give the answer
+ * `craft run` owes without starting the context: `--help`, a route name
+ * that is missing or unknown, or a route field named like a runner flag.
+ * With one `argv()` route the name is optional.
  */
 function beforeStart(
   context: Parameters<typeof argvRouteIds>[0],
   readers: readonly string[],
   line: Exclude<ReturnType<typeof runnerLine>, { error: string }>,
-): RunResult | undefined {
-  if (readers.length > 1) {
-    return {
-      success: false,
-      code: EXEC_EXIT.usage,
-      message: `Routes ${readers.map((id) => `"${id}"`).join(", ")} all read the command line with argv(). One invocation runs one route; keep argv() on one of them.`,
-    };
+): { routeId: string } | { answer: RunResult } {
+  const usage = (message: string): { answer: RunResult } => ({
+    answer: { success: false, code: EXEC_EXIT.usage, message },
+  });
+  const describe = (id: string): ArgvRouteHelp =>
+    describeArgvRoute(context, id) ?? { id };
+  const listed = readers.map((id) => `"${id}"`).join(", ");
+
+  if (line.route !== undefined && !readers.includes(line.route)) {
+    return usage(
+      `"${line.route}" is not a route that reads the command line with argv() (those are ${listed}). Route input is passed as --field=value pairs, or as JSON on stdin.`,
+    );
   }
-  const routeId = readers[0]!;
-  const help = describeArgvRoute(context, routeId) ?? { id: routeId };
+  const routeId = line.route ?? (readers.length === 1 ? readers[0] : undefined);
+  if (routeId === undefined) {
+    if (line.help) {
+      return {
+        answer: {
+          reply: {
+            code: EXEC_EXIT.ok,
+            output: renderArgvRoutes(readers.map(describe), line.format),
+          },
+        },
+      };
+    }
+    return usage(
+      `Routes ${listed} all read the command line with argv(). Name the one to run: craft run <file> <route> [--field=value ...]`,
+    );
+  }
+  const help = describe(routeId);
   const collisions = reservedCollisions(help);
   if (collisions.length > 0) {
-    return {
-      success: false,
-      code: EXEC_EXIT.usage,
-      message: `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which craft run reads itself (${collisions.map((name) => `--${name}`).join(", ")}). Rename the field.`,
-    };
+    return usage(
+      `Route "${routeId}" declares the input field(s) ${collisions.map((name) => `"${name}"`).join(", ")}, which craft run reads itself (${collisions.map((name) => `--${name}`).join(", ")}). Rename the field.`,
+    );
   }
   if (line.help) {
     return {
-      reply: { code: EXEC_EXIT.ok, output: renderArgvHelp(help, line.format) },
+      answer: {
+        reply: {
+          code: EXEC_EXIT.ok,
+          output: renderArgvHelp(help, line.format),
+        },
+      },
     };
   }
-  return undefined;
+  return { routeId };
 }
 
 /**
  * The command line as the runner reads it: `--help` and `--format` taken
- * out for the runner, everything else left for the route, and the default
- * format from the settings file.
+ * out for the runner, a leading positional argument as the route to run,
+ * everything else left for the route, and the default format from the
+ * settings file.
  */
 function runnerLine(
   cliArgs: readonly string[],
   overrides: Pick<SettingsOverrides, "profile" | "cwd" | "env" | "home">,
-): { argv: string[]; help: boolean; format: OutputFormat } | { error: string } {
+):
+  | { argv: string[]; route?: string; help: boolean; format: OutputFormat }
+  | { error: string } {
   const argv: string[] = [];
   let help = false;
   let flagged: string | undefined;
@@ -243,8 +271,10 @@ function runnerLine(
       ...overrides,
       ...(flagged === undefined ? {} : { format: flagged }),
     });
+    const named = argv[0] !== undefined && !argv[0].startsWith("-");
     return {
-      argv,
+      argv: named ? argv.slice(1) : argv,
+      ...(named ? { route: argv[0]! } : {}),
       help,
       format: settings.format.value,
     };

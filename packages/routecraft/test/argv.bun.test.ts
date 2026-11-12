@@ -25,7 +25,7 @@ import { deferring } from "./helpers/deferral.ts";
 /** A runner hand-off that records the outcome and whether stdin was read. */
 function invocation(
   args: string[],
-  options: { stdin?: string } = {},
+  options: { stdin?: string; routeId?: string } = {},
 ): {
   invocation: RunnerInvocation;
   outcomes: RunnerOutcome[];
@@ -37,6 +37,7 @@ function invocation(
     outcomes,
     readStdin,
     invocation: {
+      routeId: options.routeId ?? "work-item",
       argv: args,
       readStdin,
       settle: (outcome) => void outcomes.push(outcome),
@@ -178,7 +179,7 @@ describe("argv() source", () => {
    * @expectedResult The route sees the parsed object
    */
   test("reads the body from stdin when no flags are given", async () => {
-    const run = invocation([], { stdin: '{"id":"7"}' });
+    const run = invocation([], { stdin: '{"id":"7"}', routeId: "echo" });
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
       .routes(craft().id("echo").from(argv()).to(noop()))
@@ -194,7 +195,7 @@ describe("argv() source", () => {
    * @expectedResult A usage outcome from the shared parser, and the route never ran
    */
   test("reports a malformed command line as a usage error", async () => {
-    const run = invocation(["12345"]);
+    const run = invocation(["12345"], { routeId: "echo" });
     const step = mock();
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
@@ -383,7 +384,7 @@ describe("argv() source", () => {
    * @expectedResult A dropped outcome, never the request echoed back as the answer
    */
   test("reports a filtered exchange as dropped", async () => {
-    const run = invocation(["--id=1"]);
+    const run = invocation(["--id=1"], { routeId: "picky" });
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
       .routes(
@@ -404,7 +405,7 @@ describe("argv() source", () => {
    * @expectedResult A failed outcome with the thrown message
    */
   test("reports a failing route as failed", async () => {
-    const run = invocation(["--id=1"]);
+    const run = invocation(["--id=1"], { routeId: "broken" });
     t = await testContext()
       .store(RUNNER_INVOCATION, run.invocation)
       .routes(
@@ -428,7 +429,7 @@ describe("argv() source", () => {
    * @expectedResult A deferred outcome whose deferral has an id and a token
    */
   test("reports a deferral with its acknowledgement", async () => {
-    const run = invocation(["--amount=10"]);
+    const run = invocation(["--amount=10"], { routeId: "payout" });
     t = await testContext()
       .with({ ...deferring() } as CraftConfig)
       .store(RUNNER_INVOCATION, run.invocation)
@@ -495,12 +496,36 @@ describe("argv() source", () => {
   });
 
   /**
+   * @case Only the route the invocation names reads the command line
+   * @preconditions Two argv() routes, and an invocation for the second
+   * @expectedResult One completed outcome, the second route's step ran and the first's did not
+   */
+  test("runs only the route the invocation names", async () => {
+    const run = invocation(["--id=1"], { routeId: "second" });
+    const first = mock();
+    const second = mock();
+    t = await testContext()
+      .store(RUNNER_INVOCATION, run.invocation)
+      .routes([
+        craft().id("first").from(argv()).to(first),
+        craft().id("second").from(argv()).to(second),
+      ])
+      .build();
+    await t.test();
+    expect(run.outcomes.map((outcome) => outcome.outcome)).toEqual([
+      "completed",
+    ]);
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+  });
+
+  /**
    * @case A source that throws before it emits still reports a failure
    * @preconditions No arguments, and a stdin reader that rejects
    * @expectedResult One failed outcome carrying the reader's message, so the runner never exits 0 in silence
    */
   test("settles a failure when reading stdin throws", async () => {
-    const run = invocation([]);
+    const run = invocation([], { routeId: "echo" });
     run.readStdin.mockImplementation(() =>
       Promise.reject(new Error("stdin went away")),
     );

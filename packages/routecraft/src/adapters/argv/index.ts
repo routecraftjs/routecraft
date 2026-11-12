@@ -9,8 +9,8 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  * The arguments after the file become the body with the grammar
  * `craft exec` uses (`--field=value` or `--field value`, a bare flag is
  * `true`, a repeated flag an array, nothing coerced). With no arguments,
- * JSON piped on stdin becomes the body; with arguments, stdin is not read. `.input()` applies as on
- * every other door. The exchange carries no principal, because a command
+ * JSON piped on stdin becomes the body; with arguments, stdin is not read.
+ * `.input()` applies as on every other door. The exchange carries no principal, because a command
  * line proves no identity: a route with `.authorize()` fails here unless a
  * plugin supplies a principal on the way in. After
  * the one exchange the source completes and the runner prints the result
@@ -23,6 +23,8 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  *
  * Inert when no runner handed over a command line, as under `craft start`,
  * so a route can declare it beside `direct()` and `mcp()` without branching.
+ * A file can hold several `argv()` routes: the runner names the one to run
+ * (`craft run <file> <route>`) and the others stay inert.
  *
  * @returns A Source usable with `.from(argv())`
  *

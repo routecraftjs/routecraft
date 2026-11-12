@@ -296,7 +296,7 @@ withLogOptions(
       .argument("<file>", "Path to a file containing routes")
       .argument(
         "[args...]",
-        "Route input for an argv() route: --field=value pairs, --help, or --format <format>",
+        "Route input for an argv() route: its id when the file has several, --field=value pairs, --help, or --format <format>",
       ),
     () => process.cwd(),
   ),

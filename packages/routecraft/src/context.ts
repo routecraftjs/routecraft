@@ -64,8 +64,8 @@ import type {
 
 /**
  * Store key for the command-line invocation a runner hands the `argv()`
- * source: the arguments after the file, a stdin reader, and where to
- * report the outcome. See {@link RunnerInvocation}.
+ * source: the route to run, the arguments after the file, a stdin reader,
+ * and where to report the outcome. See {@link RunnerInvocation}.
  *
  * Set by `craft run` (or any runner) before `context.start()`, so the source
  * reads it without coupling to a specific runner package. Absent under

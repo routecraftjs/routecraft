@@ -364,28 +364,115 @@ describe("CLI run command", () => {
       expect(res.message).toMatch(/"format"/);
     });
 
+    const TWO = `
+      import { writeFileSync } from "node:fs";
+      import { craft, argv } from "@routecraft/routecraft";
+      export default [
+        craft().id("a").title("First").from(argv()).to(() => writeFileSync("ran-a", "")),
+        craft().id("b").from(argv()).transform((body) => ({ b: body.x })),
+      ];
+    `;
+
     /**
-     * @case Two argv() routes in one file are refused before anything runs
-     * @preconditions A file exporting two routes that both read argv(), each writing a marker when it runs
-     * @expectedResult A usage failure (exit 2) naming both routes, and no marker
+     * @case A leading route name picks which argv() route runs
+     * @preconditions A file with two argv() routes, the second named before the flags
+     * @expectedResult Exit 0 with the second route's result, and the first never ran
      */
-    test("refuses a file with two argv() routes before starting", async () => {
-      await writeFile(
+    test("runs the argv() route named first on the command line", async () => {
+      await writeFile("two.ts", TWO);
+      const res = await runModule.runCommand(
         "two.ts",
-        `
-        import { writeFileSync } from "node:fs";
-        import { craft, argv } from "@routecraft/routecraft";
-        export default [
-          craft().id("a").from(argv()).to(() => writeFileSync("ran-a", "")),
-          craft().id("b").from(argv()).to(() => writeFileSync("ran-b", "")),
-        ];
-      `,
+        ["b", "--x=1", "--format", "json"],
+        isolated(),
       );
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(0);
+      expect(JSON.parse(res.reply.output ?? "")).toEqual({
+        outcome: "completed",
+        body: { b: "1" },
+      });
+      expect(existsSync("ran-a")).toBe(false);
+    });
+
+    /**
+     * @case Several argv() routes and no route name is a usage error before anything runs
+     * @preconditions A file with two argv() routes, flags only
+     * @expectedResult A usage failure (exit 2) naming both routes and how to pick one, and no route ran
+     */
+    test("asks for a route name when several routes read argv()", async () => {
+      await writeFile("two.ts", TWO);
       const res = await runModule.runCommand("two.ts", ["--x=1"], isolated());
       expect(res).toMatchObject({ success: false, code: 2 });
       if (!("message" in res)) throw new Error("expected a failure");
       expect(res.message).toMatch(/"a", "b"/);
-      expect(existsSync("ran-a") || existsSync("ran-b")).toBe(false);
+      expect(res.message).toMatch(/craft run <file> <route>/);
+      expect(existsSync("ran-a")).toBe(false);
+    });
+
+    /**
+     * @case A route name no argv() route carries is a usage error
+     * @preconditions A file with two argv() routes and an unknown name
+     * @expectedResult A usage failure (exit 2) naming the unknown route and listing the real ones
+     */
+    test("refuses a route name that no argv() route carries", async () => {
+      await writeFile("two.ts", TWO);
+      const res = await runModule.runCommand("two.ts", ["c"], isolated());
+      expect(res).toMatchObject({ success: false, code: 2 });
+      if (!("message" in res)) throw new Error("expected a failure");
+      expect(res.message).toMatch(/"c" is not a route/);
+      expect(res.message).toMatch(/"a", "b"/);
+    });
+
+    /**
+     * @case --help with several argv() routes and no name lists them
+     * @preconditions A file with two argv() routes, --help only
+     * @expectedResult Exit 0 with both route ids, and nothing ran
+     */
+    test("lists the argv() routes for --help without a route name", async () => {
+      await writeFile("two.ts", TWO);
+      const res = await runModule.runCommand("two.ts", ["--help"], isolated());
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(0);
+      expect(res.reply.output).toMatch(/a\s+First/);
+      expect(res.reply.output).toMatch(/^\s+b\s*$/m);
+      expect(existsSync("ran-a")).toBe(false);
+    });
+
+    /**
+     * @case --help after a route name describes that route
+     * @preconditions A file with two argv() routes, the first named, then --help
+     * @expectedResult Exit 0 with that route's help, and it never ran
+     */
+    test("answers --help for the named route", async () => {
+      await writeFile("two.ts", TWO);
+      const res = await runModule.runCommand(
+        "two.ts",
+        ["a", "--help"],
+        isolated(),
+      );
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(0);
+      expect(res.reply.output).toMatch(/Route: a/);
+      expect(existsSync("ran-a")).toBe(false);
+    });
+
+    /**
+     * @case With one argv() route the name is optional but accepted
+     * @preconditions A file with one argv() route, called with its id first
+     * @expectedResult The same result as calling it without the name
+     */
+    test("accepts the route name when there is only one argv() route", async () => {
+      await writeFile("work-item.ts", ROUTE);
+      const res = await runModule.runCommand(
+        "work-item.ts",
+        ["work-item", "--id=9", "--format", "json"],
+        isolated(),
+      );
+      if (!("reply" in res)) throw new Error("expected a reply");
+      expect(res.reply.code).toBe(0);
+      expect(JSON.parse(res.reply.output ?? "")).toMatchObject({
+        body: { found: "9" },
+      });
     });
 
     /**
