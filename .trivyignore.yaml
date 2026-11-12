@@ -3,14 +3,4 @@
 # the decision is taken afresh rather than forgotten. Add an entry only with a
 # reason, an expiry of 30 days or less, and the package it applies to (so
 # the same advisory in another package still fails); see .standards/security.md.
-vulnerabilities:
-  # sharp: pulled in by @huggingface/transformers 3.x; fixed only through
-  # transformers 4.3, a major the embedding adapter has not adopted yet.
-  - id: GHSA-f88m-g3jw-g9cj
-    statement: sharp fix arrives with @huggingface/transformers 4, not yet adopted by the embedding adapter
-    purls: ["pkg:npm/sharp"]
-    expired_at: 2026-10-25
-  - id: GHSA-rgj7-g3m4-5g8c
-    statement: sharp fix arrives with @huggingface/transformers 4, not yet adopted by the embedding adapter
-    purls: ["pkg:npm/sharp"]
-    expired_at: 2026-10-25
+vulnerabilities: []
