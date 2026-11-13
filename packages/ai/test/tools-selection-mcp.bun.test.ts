@@ -137,7 +137,9 @@ describe("tools() resolver - MCP refs", () => {
         ],
       },
     ]);
-    const resolved = tools(["mcp__Nuclino__list_teams"]).resolve(t.ctx);
+    const resolved = tools([
+      { name: "mcp__Nuclino__list_teams", raw: true },
+    ]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
     expect(resolved[0]!.name).toBe("mcp__Nuclino__list_teams");
     expect(resolved[0]!.description).toBe("List teams.");
@@ -167,7 +169,9 @@ describe("tools() resolver - MCP refs", () => {
         ],
       },
     ]);
-    const resolved = tools(["mcp__Nuclino__*"]).resolve(t.ctx);
+    const resolved = tools([{ name: "mcp__Nuclino__*", raw: true }]).resolve(
+      t.ctx,
+    );
     const names = resolved.map((r) => r.name).sort();
     expect(names).toEqual([
       "mcp__Nuclino__list_teams",
@@ -178,7 +182,7 @@ describe("tools() resolver - MCP refs", () => {
 
   /**
    * @case Wildcard with a guard attaches the guard to every expanded tool
-   * @preconditions Client with two tools; { name: "mcp__X__*", guard }
+   * @preconditions Client with two tools; { name: "mcp__X__*", guard, raw: true }
    * @expectedResult Every resolved tool carries the same guard reference
    */
   test("mcp__server__* with a guard attaches the guard to every expanded tool", async () => {
@@ -190,7 +194,9 @@ describe("tools() resolver - MCP refs", () => {
       },
     ]);
     const guard = mock(async () => undefined);
-    const resolved = tools([{ name: "mcp__Nuclino__*", guard }]).resolve(t.ctx);
+    const resolved = tools([
+      { name: "mcp__Nuclino__*", guard, raw: true },
+    ]).resolve(t.ctx);
     expect(resolved).toHaveLength(2);
     for (const r of resolved) expect(r.guard).toBe(guard);
   });
@@ -211,8 +217,8 @@ describe("tools() resolver - MCP refs", () => {
     const broad = mock(async () => undefined);
     const narrow = mock(async () => undefined);
     const resolved = tools([
-      { name: "mcp__Nuclino__*", guard: broad },
-      { name: "mcp__Nuclino__a", guard: narrow },
+      { name: "mcp__Nuclino__*", guard: broad, raw: true },
+      { name: "mcp__Nuclino__a", guard: narrow, raw: true },
     ]).resolve(t.ctx);
 
     const a = resolved.find((r) => r.name === "mcp__Nuclino__a")!;
@@ -237,8 +243,8 @@ describe("tools() resolver - MCP refs", () => {
     ]);
     const guard = mock(async () => undefined);
     const resolved = tools([
-      { name: "mcp__Nuclino__a", guard },
-      "mcp__Nuclino__a",
+      { name: "mcp__Nuclino__a", guard, raw: true },
+      { name: "mcp__Nuclino__a", raw: true },
     ]).resolve(t.ctx);
 
     expect(resolved).toHaveLength(1);
@@ -259,7 +265,9 @@ describe("tools() resolver - MCP refs", () => {
         tools: [{ name: "list_teams", description: "List teams." }],
       },
     ]);
-    const resolved = tools(["MCP(Nuclino:list_teams)"]).resolve(t.ctx);
+    const resolved = tools([
+      { name: "MCP(Nuclino:list_teams)", raw: true },
+    ]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
     expect(resolved[0]!.name).toBe("mcp__Nuclino__list_teams");
     expect(resolved[0]!.description).toBe("List teams.");
@@ -285,11 +293,11 @@ describe("tools() resolver - MCP refs", () => {
         tools: [{ name: "list_teams" }, { name: "search_items" }],
       },
     ]);
-    const viaSugar = tools(["MCP(Nuclino)"])
+    const viaSugar = tools([{ name: "MCP(Nuclino)", raw: true }])
       .resolve(t.ctx)
       .map((r) => r.name)
       .sort();
-    const viaRaw = tools(["mcp__Nuclino"])
+    const viaRaw = tools([{ name: "mcp__Nuclino", raw: true }])
       .resolve(t.ctx)
       .map((r) => r.name)
       .sort();
@@ -302,7 +310,7 @@ describe("tools() resolver - MCP refs", () => {
 
   /**
    * @case MCP(server) with a guard attaches the guard to every expanded tool
-   * @preconditions Server with two tools; { name: "MCP(Nuclino)", guard }
+   * @preconditions Server with two tools; { name: "MCP(Nuclino)", guard, raw: true }
    * @expectedResult Every resolved tool carries the same guard reference
    */
   test("MCP(server) with a guard attaches the guard to every expanded tool", async () => {
@@ -314,7 +322,9 @@ describe("tools() resolver - MCP refs", () => {
       },
     ]);
     const guard = mock(async () => undefined);
-    const resolved = tools([{ name: "MCP(Nuclino)", guard }]).resolve(t.ctx);
+    const resolved = tools([
+      { name: "MCP(Nuclino)", guard, raw: true },
+    ]).resolve(t.ctx);
     expect(resolved).toHaveLength(2);
     for (const r of resolved) expect(r.guard).toBe(guard);
   });
@@ -368,9 +378,9 @@ describe("tools() resolver - MCP refs", () => {
         tools: [{ name: "list_teams" }],
       },
     ]);
-    expect(() => tools(["mcp__Foo__bar"]).resolve(t!.ctx)).toThrow(
-      /client "Foo" is not configured.*Nuclino/s,
-    );
+    expect(() =>
+      tools([{ name: "mcp__Foo__bar", raw: true }]).resolve(t!.ctx),
+    ).toThrow(/client "Foo" is not configured.*Nuclino/s);
   });
 
   /**
@@ -392,7 +402,9 @@ describe("tools() resolver - MCP refs", () => {
       warnings.push(String(second));
       return original(first as never, second as never);
     }) as typeof t.ctx.logger.warn;
-    expect(tools(["mcp__Nuclino__nope"]).resolve(t.ctx)).toEqual([]);
+    expect(
+      tools([{ name: "mcp__Nuclino__nope", raw: true }]).resolve(t.ctx),
+    ).toEqual([]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/list_teams.*search_items/s);
   });
@@ -410,7 +422,9 @@ describe("tools() resolver - MCP refs", () => {
         tools: [{ name: "get_user", description: "Get a user." }],
       },
     ]);
-    const resolved = tools(["mcp__my_company_api__get_user"]).resolve(t.ctx);
+    const resolved = tools([
+      { name: "mcp__my_company_api__get_user", raw: true },
+    ]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
     expect(resolved[0]!.name).toBe("mcp__my_company_api__get_user");
   });
@@ -450,12 +464,12 @@ describe("tools() resolver - MCP refs", () => {
     t = await buildCtxWithMcp([
       { source: "Nuclino", transport: "http", tools: [{ name: "real_tool" }] },
     ]);
-    expect(() => tools(["MCP(:foo)"]).resolve(t!.ctx)).toThrow(
-      /MCP reference.*empty server or tool/,
-    );
-    expect(() => tools(["MCP(foo:)"]).resolve(t!.ctx)).toThrow(
-      /MCP reference.*empty server or tool/,
-    );
+    expect(() =>
+      tools([{ name: "MCP(:foo)", raw: true }]).resolve(t!.ctx),
+    ).toThrow(/MCP reference.*empty server or tool/);
+    expect(() =>
+      tools([{ name: "MCP(foo:)", raw: true }]).resolve(t!.ctx),
+    ).toThrow(/MCP reference.*empty server or tool/);
   });
 
   /**
@@ -467,9 +481,9 @@ describe("tools() resolver - MCP refs", () => {
     t = await testContext()
       .with({ plugins: [agentPlugin({})] })
       .build();
-    expect(() => tools(["mcp__Foo__bar"]).resolve(t!.ctx)).toThrow(
-      /no MCP plugin is installed/,
-    );
+    expect(() =>
+      tools([{ name: "mcp__Foo__bar", raw: true }]).resolve(t!.ctx),
+    ).toThrow(/no MCP plugin is installed/);
   });
 
   /**
@@ -533,7 +547,9 @@ describe("tools() resolver - MCP refs", () => {
         ],
       },
     ]);
-    const resolved = tools(["mcp__Nuclino__search_items"]).resolve(t!.ctx);
+    const resolved = tools([
+      { name: "mcp__Nuclino__search_items", raw: true },
+    ]).resolve(t!.ctx);
     expect(resolved).toHaveLength(1);
     const tool = resolved[0]!;
     await expect(

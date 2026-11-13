@@ -116,6 +116,19 @@ export function declaredExactProxies(
 }
 
 /**
+ * The clients at least one route declares a proxy over, live or not.
+ *
+ * @internal
+ */
+export function proxiedServers(c: Pick<PluginContext, "routes">): Set<string> {
+  const servers = new Set<string>();
+  for (const { ref } of proxyDeclarations(c.routes.list())) {
+    servers.add(ref.serverId);
+  }
+  return servers;
+}
+
+/**
  * The registration that covers a remote tool: the exact one when there is
  * one, otherwise the client's star registration, otherwise undefined.
  *

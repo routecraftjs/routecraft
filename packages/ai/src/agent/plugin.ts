@@ -5,6 +5,7 @@ import {
   REMOTES,
   authorityOf,
   parsePageQuery,
+  rcError,
   type Plugin,
   type PluginContext,
   type OpsPage,
@@ -18,6 +19,8 @@ import type {
 } from "./session/types.ts";
 import { defaultSessionsPlugin } from "./session/config.ts";
 import { SESSION_STORE } from "./session/port.ts";
+import { MCP } from "../mcp/port.ts";
+import { proxiedServers } from "../mcp/proxy.ts";
 import { AGENTS, type AgentContribution } from "./port.ts";
 import {
   AgentRegistryImpl,
@@ -26,6 +29,7 @@ import {
   validateToolPolicy,
 } from "./registry.ts";
 import type { AgentToolPolicy } from "./tools/policy.ts";
+import { assembleCatalog, type McpRefHost } from "./tools/selection.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import {
   isLazyFn,
@@ -230,7 +234,7 @@ function createAgentRuntimePlugin(): Plugin {
     requires: [SESSION_STORE],
     // REMOTES orders the remotes plugin first, so its imported routes are
     // capabilities by the time start() resolves directTool references.
-    optional: [AUTHORITY, CONTINUATIONS, OPS, REMOTES],
+    optional: [AUTHORITY, CONTINUATIONS, OPS, REMOTES, MCP],
     installs: [defaultSessionsPlugin()],
     bind(c: PluginContext) {
       // Opened here rather than on first use, so it is retained on the store
@@ -303,6 +307,7 @@ function createAgentRuntimePlugin(): Plugin {
       const run = runs.get(c);
       if (!run) return;
       resolveLazyTools(c, run);
+      assertMcpRefsGoverned(c, run);
       emitRegistrations(c, run);
       run.boot =
         run.sessions === undefined
@@ -444,6 +449,72 @@ function resolveLazyTools(
       continue;
     }
     resolveFnOptions(tools, id, entry, registry.resolvedFunctions);
+  }
+}
+
+/**
+ * Refuse a registered agent whose `MCP(...)` reference names a client no
+ * route proxies, unless the reference says `raw: true`.
+ *
+ * A proxy route is the policy on a remote server's tools, for an agent as
+ * for an external caller. A reference with no such route would call the
+ * remote on the client's credential under no policy at all, and nothing in
+ * the agent's tool list shows that. The check is on the client rather than
+ * the tool: a client with routes that leave a tool out withholds that tool
+ * at dispatch, which is a state of the routes and not a missing decision.
+ *
+ * A client that is not configured is left to the dispatch error that names
+ * the known clients. Inline agents exist only at dispatch, where an
+ * ungoverned tool is withheld with a warning.
+ *
+ * @throws AI2004 naming the agent and the reference
+ */
+function assertMcpRefsGoverned(
+  c: PluginContext,
+  { registry, tools }: AgentRun,
+): void {
+  const service = c.lookup(MCP);
+  if (service === undefined) return;
+  const host: McpRefHost = {
+    hasFn: (name) => registry.functions.has(name),
+    catalog: () =>
+      assembleCatalog(
+        [...registry.functions]
+          .filter(
+            ([id, entry]) =>
+              !isLazyFn(entry) || registry.resolvedFunctions.has(id),
+          )
+          .map(([id, entry]) => [
+            id,
+            resolveFnOptions(tools, id, entry, registry.resolvedFunctions),
+          ]),
+        tools.capabilities(),
+        service.tools.getTools(),
+      ),
+  };
+  const selections: Array<[string, AgentRegisteredOptions["tools"]]> = [
+    ["defaultOptions", registry.defaults?.tools],
+    ...[...registry.agents].map(
+      ([id, entry]) =>
+        [`agent "${id}"`, entry.tools] as [
+          string,
+          AgentRegisteredOptions["tools"],
+        ],
+    ),
+  ];
+  let proxied: Set<string> | undefined;
+  for (const [owner, selection] of selections) {
+    if (selection === undefined) continue;
+    for (const { ref, server, raw } of selection.mcpRefs(host)) {
+      if (raw) continue;
+      if (!service.clients.has(server) && !service.disabledClients.has(server))
+        continue;
+      proxied ??= proxiedServers(c);
+      if (proxied.has(server)) continue;
+      throw rcError("AI2004", undefined, {
+        message: `agentPlugin: ${owner} lists "${ref}", and no route proxies MCP client "${server}". Add a proxy route for it, or write the reference as { name: "${ref}", raw: true }.`,
+      });
+    }
   }
 }
 

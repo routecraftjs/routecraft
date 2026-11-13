@@ -158,10 +158,12 @@ A raw MCP tool carries no per-call policy. When an agent calls one, the credenti
 
 | You need | Use | Cost | Reusable |
 |---|---|---|---|
-| A read-only or otherwise harmless tool, trusted agent | raw `MCP(server:tool)` | nothing | n/a |
-| To block by identity or role, a pure yes/no | a per-tool `guard` on the binding | one inline function | no, per binding |
+| A read-only or otherwise harmless tool, trusted agent | raw `{ name: 'MCP(server:tool)', raw: true }` | nothing | n/a |
+| To block by identity or role, a pure yes/no | a per-tool `guard` on the raw binding | one inline function | no, per binding |
 | Anything stateful or time-based, or shared across agents | wrap the tool in a route, hand the agent `Direct(<id>)` | a few lines | yes |
 | Policy on a vendor's whole server, or a tool under the remote's own schema and call contract | a [proxy route](#governing-a-remote-servers-tools), `.from(mcp({ proxy }))`; the agent's `MCP(server:tool)` runs through it | a few lines | yes |
+
+A raw tool is one you say is raw. An `MCP(server:tool)` reference without `raw: true` runs through the route that proxies it, and with no such route the agent is not offered the tool; a registered agent that names a client no route proxies fails the start ([`AI2004`](/docs/reference/errors#ai-2004)). Calling a remote under no policy is a decision, so it is written on the reference.
 
 Tiers 1 and 2 are covered on the [agent plugin reference](/docs/reference/plugins/agentplugin). For tier 3, put a route in front of the tool. A route per tool starts at a `direct()` endpoint, ends in the `.to(mcp(...))` call you have already seen, and keeps the guardrails on the steps between; a route over a vendor's whole server starts at the proxy source instead, shown [below](#governing-a-remote-servers-tools).
 
@@ -183,7 +185,7 @@ Hand the agent the governed route instead of the raw tool. The same underlying t
 agent({
   tools: tools([
     'Direct(github-create-issue)', // governed: authorized and auditable
-    'MCP(github:list_issues)',     // raw: read-only, fine ungoverned
+    { name: 'MCP(github:list_issues)', raw: true }, // read-only, fine ungoverned
   ]),
 })
 ```
