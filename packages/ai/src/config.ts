@@ -6,6 +6,7 @@ import {
 import { llmPlugin } from "./llm/plugin.ts";
 import { mcpPlugin, mcpPluginOptions } from "./mcp/plugin.ts";
 import { connectLogin, isConnectAuth } from "./mcp/connect.ts";
+import { pinMcpClients } from "./mcp/pin-command.ts";
 import { embeddingPlugin } from "./embedding/plugin.ts";
 import { agentPlugin } from "./agent/plugin.ts";
 import type { LlmPluginOptions } from "./llm/types.ts";
@@ -101,3 +102,8 @@ registerCredentialLogins("mcp", (config) => {
   }
   return logins;
 });
+
+// `craft mcp pin` finds the command here: the CLI does not depend on this
+// package, and a second copy of it replaces the entry rather than adding one.
+(globalThis as Record<symbol, unknown>)[Symbol.for("routecraft.mcp.pin")] =
+  pinMcpClients;

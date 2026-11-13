@@ -27,7 +27,6 @@ import {
   StdioClientManager,
   type StdioClientManagerOptions,
 } from "./stdio-client-manager.ts";
-import type { McpToolRegistry } from "./tool-registry.ts";
 import type { AuthProvider } from "@modelcontextprotocol/client";
 import {
   coalescedAuthProvider,
@@ -39,6 +38,12 @@ import {
 import { assertRemoteUrl } from "./sdk.ts";
 import { createMcpHttpConnections } from "./http-connections.ts";
 import { declaredExactProxies, proxyCoverage } from "./proxy.ts";
+import { McpToolRegistry } from "./tool-registry.ts";
+import {
+  readLockfile,
+  type McpLockfile,
+  type McpPinTransition,
+} from "./pins.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
 
@@ -99,7 +104,17 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       const disabledClients = new Map<string, string>();
       const authProviders = new Map<string, AuthProvider>();
       // Shared, so the disposer that removes a manager removes what dispatch sees.
+      const lockfile = await pinnedLockfile();
       const service: McpService = createMcpService({
+        tools: new McpToolRegistry({
+          of: (serverId) => {
+            const pins = options.clients?.[serverId]?.pins;
+            return pins === undefined || lockfile === undefined
+              ? undefined
+              : { pins, locked: lockfile.clients[serverId]?.tools ?? {} };
+          },
+          report: (transition) => reportPin(c, transition),
+        }),
         stdio,
         clients,
         disabledClients,
@@ -236,6 +251,51 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
   return Object.assign(plugin, { [PLUGIN_OPTIONS]: options });
 
   /**
+   * The lockfile, when a client is pinned. Read once, as the plugin binds:
+   * approval is a commit, so a running application holds to the file it
+   * started with.
+   *
+   * @throws RC5003 when a client sets `pins` and the lockfile is missing,
+   *   unreadable or not a version this build reads
+   */
+  async function pinnedLockfile(): Promise<McpLockfile | undefined> {
+    const pinned = Object.values(options.clients ?? {}).some(
+      (client) => client.pins !== undefined,
+    );
+    return pinned ? readLockfile(options.lockfile) : undefined;
+  }
+
+  /** Say that a pinned tool left the state the lockfile approved. */
+  function reportPin(c: PluginContext, transition: McpPinTransition): void {
+    const { kind, serverId, name: tool } = transition;
+    if (kind === "changed" && !transition.warn) return;
+    const hashes = {
+      ...("approved" in transition && transition.approved !== undefined
+        ? { approved: transition.approved }
+        : {}),
+      ...("live" in transition ? { live: transition.live } : {}),
+    };
+    const message =
+      kind === "held"
+        ? transition.reason === "added"
+          ? "MCP tool is withheld: the lockfile has never seen it. Review it with craft mcp pin and commit the lockfile to approve"
+          : "MCP tool is withheld: its definition is not the one approved in the lockfile. Review it with craft mcp pin and commit the lockfile to approve"
+        : kind === "changed"
+          ? "MCP tool is served on a definition the lockfile does not vouch for, classed destructive until it is approved"
+          : "MCP tool in the lockfile is no longer listed by its server";
+    c.logger.warn({ client: serverId, tool, ...hashes }, message);
+    c.emit(
+      `plugin:mcp:pin:${kind}` as EventName,
+      {
+        serverId,
+        tool,
+        ...(kind === "held" ? { reason: transition.reason } : {}),
+        ...hashes,
+      } as Record<string, unknown>,
+    );
+  }
+
+  /**
    * Say, once per client at start, whether a route stands in front of its
    * tools. A proxy route that was removed, or one that names a few tools
    * and leaves the rest, changes nothing an operator would otherwise see:
@@ -255,9 +315,12 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
             client,
             route: declared.star.routeId,
             ownRoute: tools,
-            excluded: declared.star.exclude.filter(
-              (tool) => !tools.includes(tool),
-            ),
+            excluded:
+              typeof declared.star.exclude === "function"
+                ? "decided per tool by a function"
+                : declared.star.exclude.filter(
+                    (tool) => !tools.includes(tool),
+                  ),
           },
           "MCP client is proxied: an MCP caller or an agent reaches its tools through a route, and an excluded tool not at all",
         );

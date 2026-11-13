@@ -425,6 +425,35 @@ declare module "@routecraft/routecraft" {
     } & McpToolProvenance &
       McpToolMount;
     /**
+     * A pinned client lists a tool its pins hold back: one the lockfile has
+     * never seen (`reason: "added"`, no `approved`), or one whose
+     * definition is no longer the approved one. Emitted when the tool
+     * becomes held or its definition changes again, never per listing.
+     */
+    "plugin:mcp:pin:held": {
+      serverId: string;
+      tool: string;
+      reason: "added" | "changed";
+      approved?: string;
+      live: string;
+    };
+    /**
+     * A pinned client under `changed: "warn"` serves a tool on a
+     * definition the lockfile does not vouch for.
+     */
+    "plugin:mcp:pin:changed": {
+      serverId: string;
+      tool: string;
+      approved: string;
+      live: string;
+    };
+    /** A pinned client no longer lists a tool the lockfile holds. */
+    "plugin:mcp:pin:removed": {
+      serverId: string;
+      tool: string;
+      approved: string;
+    };
+    /**
      * A call toward a remote MCP server's tool is about to run, from any
      * caller: an MCP client at the door, an agent, or a route's own hop.
      * Carries no arguments.
@@ -529,6 +558,8 @@ declare module "@routecraft/routecraft" {
     AI2002: RCMeta;
     /** Remote MCP tool reported an error: the result was flagged isError */
     AI2003: RCMeta;
+    /** MCP tool withheld by pinning: the lockfile does not vouch for it */
+    AI2004: RCMeta;
   }
 }
 
@@ -711,6 +742,14 @@ registerErrorCodes(
       suggestion:
         "The remote server answered the call with isError: true, so its content is an error text, not a result. The message names the tool and leaves that text out, because a message reaches logs and events; remoteErrorTextOf(error) from @routecraft/ai returns it, bounded. On a route, handle it with .error() or .retry(); on a route that proxies the remote, the caller receives the remote's text as a failed call. Not a Routecraft or transport failure (those are RC5003).",
       docs: `${DOCS_BASE}#ai-2003`,
+      retryable: false,
+    },
+    AI2004: {
+      category: "Adapter",
+      message: "MCP tool withheld by pinning",
+      suggestion:
+        "The client sets pins, and the lockfile (mcp.lock) does not vouch for this tool as the server lists it now: the tool is new, its definition changed, the server no longer lists it, or the client's tools have not been listed yet. The message says which. Review what the server lists with craft mcp pin, which rewrites the lockfile, and commit it to approve; or set the client's pins to serve what it now holds.",
+      docs: `${DOCS_BASE}#ai-2004`,
       retryable: false,
     },
   },

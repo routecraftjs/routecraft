@@ -8,7 +8,9 @@ import {
 import type {
   McpArgsExtractor,
   McpClientOptions,
+  McpProxyOptionsFor,
   McpServerOptions,
+  McpToolSourceOptions,
 } from "../../types.ts";
 import type { RegisteredMcpShorthand } from "../../../registry.ts";
 import { McpSourceAdapter } from "./source.ts";
@@ -45,7 +47,12 @@ import type { McpMessage } from "./types.ts";
  * .to(mcp('my-server:search', { args: (ex) => ex.body.params }))
  * ```
  */
-export function mcp(options?: McpServerOptions): Source<McpMessage<undefined>>;
+export function mcp(
+  options?: McpToolSourceOptions,
+): Source<McpMessage<undefined>>;
+export function mcp<const P extends string>(
+  options: { proxy: P } & McpProxyOptionsFor<P>,
+): Source<McpMessage<undefined>>;
 export function mcp(
   clientOptions: McpClientOptions,
 ): Enricher<unknown, unknown>;

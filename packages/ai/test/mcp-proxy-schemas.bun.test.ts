@@ -8,6 +8,13 @@ import { callTool } from "./helpers/mcp-tool-call.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { mcp, tools } from "../src/index.ts";
 import type { McpClientConfig } from "../src/mcp/port.ts";
+import type { McpServerOptions } from "../src/mcp/types.ts";
+
+/**
+ * `mcp()` for a combination its types already refuse, to reach the check
+ * that refuses it for a caller the types do not cover.
+ */
+const untypedMcp = (options: McpServerOptions) => mcp(options);
 
 /** A contact as the remote returns it, bank account included. */
 const CONTACT = { id: "c-1", name: "Ada", bank_account: "NL00BANK0123" };
@@ -395,7 +402,12 @@ describe("proxy routes advertise their own schemas", () => {
         "mcp({ annotations })",
         (b) =>
           b
-            .from(mcp({ proxy: "crm:*", annotations: { readOnlyHint: true } }))
+            .from(
+              untypedMcp({
+                proxy: "crm:*",
+                annotations: { readOnlyHint: true },
+              }),
+            )
             .to(mcp("crm:*")) as AnyRouteBuilder,
       ],
     ];
@@ -448,7 +460,7 @@ describe("proxy routes advertise their own schemas", () => {
    */
   test("schemas beside an exact proxy is refused", () => {
     expect(() =>
-      mcp({ proxy: "crm:get_contact", schemas: () => ({}) }),
+      untypedMcp({ proxy: "crm:get_contact", schemas: () => ({}) }),
     ).toThrow(/schemas cannot be set with the exact proxy/);
   });
 });

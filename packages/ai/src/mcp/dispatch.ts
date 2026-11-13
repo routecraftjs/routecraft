@@ -278,6 +278,11 @@ function remoteErrorText(raw: McpRawToolResult): string {
  *
  * Throws `RC5003` under the same conditions as {@link dispatchMcpCall}.
  *
+ * Every call to a configured client passes here, a route's hop and an
+ * agent's tool alike, which is what makes this the place a pinned client's
+ * withheld tool is refused.
+ *
+ * @throws AI2004 when the client is pinned and its pins do not serve the tool
  * @internal
  */
 export async function dispatchMcpCallRaw(
@@ -287,6 +292,12 @@ export async function dispatchMcpCallRaw(
   args: Record<string, unknown>,
   trace?: McpCallTrace,
 ): Promise<McpRawToolResult> {
+  const pinned = service?.tools.refusalOf(serverId, toolName);
+  if (pinned !== undefined) {
+    throw rcError("AI2004", undefined, {
+      message: `MCP tool "${serverId}:${toolName}" is withheld by the client's pins: ${pinned}.`,
+    });
+  }
   const config = service?.clients.get(serverId);
   const registered =
     typeof config === "object" ? config.traceContext : undefined;

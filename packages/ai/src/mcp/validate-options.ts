@@ -195,6 +195,21 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       // `isSplittableNameHead`. Both this throw and the resolution-time
       // drop in `agent/tools/selection.ts` call it, so the two layers
       // cannot disagree about what they reject.
+      const pins: unknown = (config as { pins?: unknown } | undefined)?.pins;
+      if (pins !== undefined) {
+        const { added, changed, ...rest } = (
+          pins !== null && typeof pins === "object" ? pins : { invalid: true }
+        ) as Record<string, unknown>;
+        if (
+          Object.keys(rest).length > 0 ||
+          ![undefined, "serve", "hold"].includes(added as string) ||
+          ![undefined, "serve", "warn", "hold"].includes(changed as string)
+        ) {
+          throw rcError("RC5003", undefined, {
+            message: `mcpPlugin: clients.${name}.pins must be an object with added ("serve" or "hold") and changed ("serve", "warn" or "hold"), each optional and "hold" when left out.`,
+          });
+        }
+      }
       const enabled: unknown = (config as { enabled?: unknown } | undefined)
         ?.enabled;
       if (

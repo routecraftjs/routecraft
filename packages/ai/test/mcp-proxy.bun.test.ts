@@ -23,7 +23,13 @@ import {
 import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
 import { MemorySessionStore } from "../src/agent/session/memory-store.ts";
 import type { McpClientConfig } from "../src/mcp/port.ts";
-import type { McpRawToolResult } from "../src/mcp/types.ts";
+import type { McpRawToolResult, McpServerOptions } from "../src/mcp/types.ts";
+
+/**
+ * `mcp()` for a combination its types already refuse, to reach the check
+ * that refuses it for a caller the types do not cover.
+ */
+const untypedMcp = (options: McpServerOptions) => mcp(options);
 
 /** Recorded dispatches from the fake stdio managers. */
 let dispatches: Array<{
@@ -1067,16 +1073,16 @@ describe("a route that proxies a remote MCP server", () => {
       }
       throw new Error("expected mcp() to refuse the exclude");
     };
-    expect(() => mcp({ proxy: "docs:*", name: "x" })).toThrow();
-    expect(() => mcp({ prefix: "x_" })).toThrow();
-    refusesExclude(() => mcp({ exclude: ["x"] }));
+    expect(() => untypedMcp({ proxy: "docs:*", name: "x" })).toThrow();
+    expect(() => untypedMcp({ prefix: "x_" })).toThrow();
+    refusesExclude(() => untypedMcp({ exclude: ["x"] }));
     refusesExclude(() =>
-      mcp({ proxy: "docs:get_document", exclude: ["search"] }),
+      untypedMcp({ proxy: "docs:get_document", exclude: ["search"] }),
     );
     refusesExclude(() => mcp({ proxy: "docs:*", exclude: [] }));
     refusesExclude(() => mcp({ proxy: "docs:*", exclude: ["bad.name"] }));
     expect(() =>
-      mcp({ proxy: "docs:*", ui: { html: "<p>view</p>" } }),
+      untypedMcp({ proxy: "docs:*", ui: { html: "<p>view</p>" } }),
     ).toThrow();
     expect(() => mcp({ proxy: ":tool" })).toThrow();
     expect(() =>
