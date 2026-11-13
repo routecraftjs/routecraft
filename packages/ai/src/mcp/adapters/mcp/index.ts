@@ -27,8 +27,8 @@ import type { McpMessage } from "./types.ts";
  *   non-empty `.description()` is required. Requires `mcpPlugin()`.
  *
  * - **Proxy source (for `.from()`):** `mcp({ proxy: 'server:*' })` puts the
- *   route in front of every tool of a registered client (with `exclude` and
- *   `schemas`), and `mcp({ proxy: 'server:tool' })` in front of one (with
+ *   route in front of the tools of a registered client, all but those its
+ *   `exclude` or an exact route takes (with `exclude` and `schemas`), and `mcp({ proxy: 'server:tool' })` in front of one (with
  *   `name` and `annotations`).
  *
  * - **Enricher (for `.enrich()` / `.to()` / `.tap()`):** Call with client options:

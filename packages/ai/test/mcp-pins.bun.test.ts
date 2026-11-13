@@ -261,6 +261,22 @@ describe("the lockfile of pinned MCP tools", () => {
       judgeListing({}, lock, [READ, DELETE]).served.map((each) => each.class),
     ).toEqual(["read", "destructive"]);
   });
+
+  /**
+   * @case A name listed twice cannot be served through its approved occurrence
+   * @preconditions A lock over get_document; a listing with get_document as approved and again with another description; pins are the defaults
+   * @expectedResult Nothing is served and get_document is held as changed
+   */
+  test("a name listed twice is held when one occurrence is", () => {
+    const verdict = judgeListing({}, locked(READ), [
+      READ,
+      { ...READ, description: "Changed" },
+    ]);
+    expect(verdict.served).toEqual([]);
+    expect(verdict.held.map((each) => [each.name, each.reason])).toEqual([
+      ["get_document", "changed"],
+    ]);
+  });
 });
 
 describe("a tool registry holding a pinned client", () => {
@@ -793,6 +809,43 @@ describe("craft mcp pin over the configured clients", () => {
   const noStore = async (): Promise<never> => {
     throw new Error("no client here logs in");
   };
+
+  /**
+   * @case A lockfile edited while the clients are listed is not overwritten
+   * @preconditions A pinned client over a remote; the lockfile is rewritten with another client's entry during the listing
+   * @expectedResult Pinning fails with RC5003 and the file holds the edit
+   */
+  test("pin leaves a lockfile that changed during the listing", async () => {
+    remote = statefulRemote("https://remote.test/mcp");
+    dir = await mkdtemp(join(tmpdir(), "mcp-pin-"));
+    const path = join(dir, "mcp.lock");
+    const edited = serializeLockfile({
+      version: 1,
+      clients: { other: { tools: locked(READ) } },
+    });
+    const listing = globalThis.fetch;
+    globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+      await writeFile(path, edited);
+      return listing(...args);
+    }) as typeof fetch;
+
+    let thrown: unknown;
+    try {
+      await pinMcpClients(
+        {
+          mcp: {
+            lockfile: path,
+            clients: { remote: { url: "https://remote.test/mcp", pins: {} } },
+          },
+        },
+        { credentials: noStore },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(rcCodeOf(thrown)).toBe("RC5003");
+    expect(await readFile(path, "utf8")).toBe(edited);
+  });
 
   /**
    * @case Pinning writes what the server lists, is byte-identical on a second run, keeps a reviewer's class and leaves an unreachable client alone

@@ -87,8 +87,8 @@ export interface McpPinResult {
  * A client that cannot be listed keeps its locked tools untouched, so one
  * unreachable server does not unpin itself.
  *
- * @throws RC5003 when no client can be selected, or the existing lockfile
- *   is not one this version reads
+ * @throws RC5003 when no client can be selected, the existing lockfile is
+ *   not one this version reads, or the lockfile changed during the listing
  * @internal
  */
 export async function pinMcpClients(
@@ -154,6 +154,12 @@ export async function pinMcpClients(
   const text = serializeLockfile({ version: 1, clients });
   const written = pinned.length > 0 && text !== existing;
   if (written) {
+    if ((await readExisting(path)) !== existing) {
+      throw rcError("RC5003", undefined, {
+        message: `${path} changed while the clients were being listed, so it was left as it is.`,
+        suggestion: "Run craft mcp pin again.",
+      });
+    }
     // Through a rename, so a reader never sees half a lockfile.
     const partial = `${path}.${process.pid}.tmp`;
     await writeFile(partial, text);

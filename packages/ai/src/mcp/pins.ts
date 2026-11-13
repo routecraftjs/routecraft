@@ -325,7 +325,8 @@ export interface McpPinVerdict {
  *
  * A tool served on anything but its approved definition is classed
  * `destructive`: nobody has reviewed what it now says, so nothing may treat
- * it as safe.
+ * it as safe. A name the server lists more than once is held when any of
+ * its occurrences is.
  *
  * @internal
  */
@@ -382,6 +383,9 @@ export function judgeListing(
   for (const [name, tool] of Object.entries(locked)) {
     if (!seen.has(name)) verdict.removed.push({ name, approved: tool.hash });
   }
+  // A name listed twice is one tool to a caller, so one held occurrence holds it.
+  const held = new Set(verdict.held.map((each) => each.name));
+  verdict.served = verdict.served.filter((each) => !held.has(each.tool.name));
   return verdict;
 }
 
