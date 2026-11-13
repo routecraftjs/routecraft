@@ -477,7 +477,9 @@ jobs:
   site-image-security:
     needs: [changes]
     if: needs.changes.outputs.docs == 'true'
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-26.04 the daemon keeps images in containerd and Trivy
+    # fails reading this image's layers. The release builds it on 24.04 too.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
