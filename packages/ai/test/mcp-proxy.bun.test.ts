@@ -3,6 +3,7 @@ import {
   authorityOf,
   craft,
   noop,
+  rcCodeOf,
   type AnyRouteBuilder,
   type Exchange,
 } from "@routecraft/routecraft";
@@ -795,6 +796,16 @@ describe("a route that proxies a remote MCP server", () => {
       serverId: "docs",
       remoteTool: "get_document",
     });
+    expect(JSON.stringify(failures[0])).not.toContain("File not found");
+    const logged = JSON.stringify(
+      [...t.contextLogger.error.mock.calls, ...t.logger.error.mock.calls].map(
+        (c: unknown[]) => [
+          c[1],
+          (c[0] as { err?: Error } | undefined)?.err?.message,
+        ],
+      ),
+    );
+    expect(logged).not.toContain("File not found");
   });
 
   /**
@@ -1077,7 +1088,10 @@ describe("an agent's MCP reference to a proxied tool", () => {
 
   let sessions: MemorySessionStore;
 
-  async function build(routes: AnyRouteBuilder[]): Promise<TestContext> {
+  async function build(
+    routes: AnyRouteBuilder[],
+    answer?: (toolName: string) => McpRawToolResult,
+  ): Promise<TestContext> {
     sessions = new MemorySessionStore();
     t = await testContext()
       .routes(routes)
@@ -1085,7 +1099,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
         plugins: [
           mcpPort({
             tools: buildRegistry(),
-            stdio: buildManagers(),
+            stdio: buildManagers(answer),
             clients: buildClients(),
           }),
           sessionsPlugin({ store: sessions }),
@@ -1304,6 +1318,48 @@ describe("an agent's MCP reference to a proxied tool", () => {
     for (const tool of star) {
       expect(tool.source).toMatchObject({ routeId: "docs" });
     }
+  });
+
+  /**
+   * @case A model reads the remote's error text, which the AI2003 message does not carry
+   * @preconditions The remote answers isError with a text block; one agent tool runs through a star route and one reaches a client with no proxy route
+   * @expectedResult Both handlers reject with the remote's text, and the AI2003 underneath names the tool without it
+   */
+  test("an agent tool call fails with the remote's text beside a clean AI2003", async () => {
+    const failing = (): McpRawToolResult => ({
+      content: [{ type: "text", text: "File not found" }],
+      isError: true,
+    });
+    await build(
+      [
+        craft()
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+      ],
+      failing,
+    );
+    const [governed] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const rejection = (tool: typeof governed): Promise<Error> =>
+      Promise.resolve()
+        .then(() => tool.handler({ id: "gone" }, handlerContext(tool.name)))
+        .then(
+          () => new Error("resolved"),
+          (error: unknown) => error as Error,
+        );
+    const viaRoute = await rejection(governed);
+    expect(viaRoute.message).toContain("File not found");
+    expect((viaRoute.cause as Error).message).not.toContain("File not found");
+    expect(rcCodeOf(viaRoute.cause)).toBe("AI2003");
+
+    await t.stop();
+    await build([], failing);
+    const [direct] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const viaClient = await rejection(direct);
+    expect(viaClient.message).toContain("File not found");
+    expect((viaClient.cause as Error).message).toBe(
+      'Remote MCP tool "docs:get_document" reported an error',
+    );
   });
 
   /**

@@ -155,7 +155,7 @@ function snapshotOf(body: unknown): string | undefined {
   }
 }
 
-/** How much of a remote error text reaches a message and a log line. */
+/** How much of a remote error text is kept for the caller it answers. */
 const REMOTE_ERROR_TEXT_LIMIT = 500;
 
 /** The bounded remote text of each AI2003, beside the error, never parsed out of its message. */
@@ -177,6 +177,17 @@ export function relayRemoteError(error: unknown, routeId: string): void {
   if (error instanceof Error && REMOTE_TEXT.has(error)) {
     RELAYED.set(error, routeId);
   }
+}
+
+/**
+ * The remote's own text for an `AI2003`, for the one reader it answers: the
+ * model whose tool call reached the remote without a route. Empty when the
+ * remote sent none.
+ *
+ * @internal
+ */
+export function remoteErrorTextOf(error: unknown): string | undefined {
+  return error instanceof Error ? REMOTE_TEXT.get(error) : undefined;
 }
 
 /**
@@ -204,8 +215,10 @@ export function relayedRemoteErrorOf(
  *
  * A result flagged `isError` is the remote reporting failure, so it throws
  * rather than arriving as content a route would process or a model would
- * summarise. The error names the tool and carries the remote's text,
- * bounded, because that text is the remote's answer to the caller.
+ * summarise. The error names the tool. The remote's text is its answer to
+ * the caller, so it is held beside the error, bounded, and stays off the
+ * message: a message reaches logs and events, and the remote writes that
+ * text.
  *
  * @throws AI2003 when the result is flagged `isError`
  * @internal
@@ -214,7 +227,7 @@ export function toolResultBody(raw: McpRawToolResult, where: string): unknown {
   if (raw.isError === true) {
     const text = remoteErrorText(raw);
     const error = rcError("AI2003", undefined, {
-      message: `Remote MCP tool ${where} reported an error${text === "" ? "" : `: ${text}`}`,
+      message: `Remote MCP tool ${where} reported an error`,
     });
     REMOTE_TEXT.set(error, text);
     throw error;

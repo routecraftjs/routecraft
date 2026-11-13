@@ -11,7 +11,11 @@ import {
   traceContextFor,
 } from "@routecraft/routecraft";
 import type { FnHandlerContext, FnOptions, ToolGuard } from "../../fn/types.ts";
-import { dispatchMcpCall } from "../../mcp/dispatch.ts";
+import {
+  dispatchMcpCall,
+  relayedRemoteErrorOf,
+  remoteErrorTextOf,
+} from "../../mcp/dispatch.ts";
 import { MCP, type McpService } from "../../mcp/port.ts";
 import { coveringProxy, declaredProxy, proxiedEntry } from "../../mcp/proxy.ts";
 import {
@@ -1292,20 +1296,25 @@ function mcpEntryToResolvedTool(
   const input = standardSchemaFromJsonSchema(entry.inputSchema);
   const handler: FnOptions["handler"] = async (rawInput, hctx) => {
     const { exchangeId, correlationId } = hctx;
-    return dispatchMcpCall(
-      ctx.lookup(MCP),
-      entry.source,
-      entry.name,
-      objectArguments(name, rawInput),
-      // The turn's journey continues into the server, as a `directTool`
-      // dispatch continues into its route.
-      exchangeId !== undefined
-        ? {
-            context: ctx,
-            carrier: () => traceContextFor({ exchangeId, correlationId }, ctx),
-          }
-        : undefined,
-    );
+    try {
+      return await dispatchMcpCall(
+        ctx.lookup(MCP),
+        entry.source,
+        entry.name,
+        objectArguments(name, rawInput),
+        // The turn's journey continues into the server, as a `directTool`
+        // dispatch continues into its route.
+        exchangeId !== undefined
+          ? {
+              context: ctx,
+              carrier: () =>
+                traceContextFor({ exchangeId, correlationId }, ctx),
+            }
+          : undefined,
+      );
+    } catch (error) {
+      throw withRemoteText(error, remoteErrorTextOf(error));
+    }
   };
   const tool: ResolvedTool = {
     name,
@@ -1412,13 +1421,23 @@ function governedMcpTool(
     args: Record<string, unknown>,
     headers: ExchangeHeaders | undefined,
   ): Promise<unknown> => {
-    const exchange = await governed.handler({
-      body: args,
-      headers: {
-        ...headers,
-        [McpHeadersKeys.REQUEST]: randomUUID(),
-      } as ExchangeHeaders,
-    });
+    let exchange: Awaited<ReturnType<typeof governed.handler>>;
+    try {
+      exchange = await governed.handler({
+        body: args,
+        headers: {
+          ...headers,
+          [McpHeadersKeys.REQUEST]: randomUUID(),
+        } as ExchangeHeaders,
+      });
+    } catch (error) {
+      // Only from the proxy route's own hop, as the MCP server relays it.
+      const relayed = relayedRemoteErrorOf(error);
+      throw withRemoteText(
+        error,
+        relayed?.routeId === covering.routeId ? relayed.text : undefined,
+      );
+    }
     const declined = declinedError(governed, exchange);
     if (declined) throw declined;
     return exchange.body;
@@ -1465,6 +1484,19 @@ function governedMcpTool(
     },
   };
   return toResolvedTool(name, fn, guard, source);
+}
+
+/**
+ * The error a model reads for a failed MCP tool call. The remote's text is
+ * its answer to the model that called it, and the `AI2003` message leaves
+ * it out because a message reaches logs and events; the tool bridge keeps
+ * this one inside the snapshot envelope.
+ */
+function withRemoteText(error: unknown, text: string | undefined): unknown {
+  if (!(error instanceof Error) || text === undefined || text === "") {
+    return error;
+  }
+  return new Error(`${error.message}: ${text}`, { cause: error });
 }
 
 /** Every client id a reference may name: configured, disabled, or listing tools. */
