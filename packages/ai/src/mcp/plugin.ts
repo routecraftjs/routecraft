@@ -365,9 +365,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
             excluded:
               typeof declared.star.exclude === "function"
                 ? "decided per tool by a function"
-                : declared.star.exclude.filter(
-                    (tool) => !tools.includes(tool),
-                  ),
+                : declared.star.exclude.filter((tool) => !tools.includes(tool)),
           },
           "MCP client is proxied: an MCP caller or an agent reaches its tools through a route, and an excluded tool not at all",
         );
