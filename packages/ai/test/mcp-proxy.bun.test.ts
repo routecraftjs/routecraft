@@ -12,7 +12,13 @@ import type { McpServer } from "../src/mcp/server.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
-import { mcp, McpHeadersKeys, sessionsPlugin, tools } from "../src/index.ts";
+import {
+  mcp,
+  McpHeadersKeys,
+  remoteErrorTextOf,
+  sessionsPlugin,
+  tools,
+} from "../src/index.ts";
 import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
 import { MemorySessionStore } from "../src/agent/session/memory-store.ts";
 import type { McpClientConfig } from "../src/mcp/port.ts";
@@ -676,6 +682,35 @@ describe("a route that proxies a remote MCP server", () => {
     const result = await call("own", {});
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toBe('Error: Tool "own" failed (AI2003).');
+  });
+
+  /**
+   * @case A route's error handler reads the remote's text off the error it is given
+   * @preconditions A local mcp() route "own" with a route-level .error() that answers from remoteErrorTextOf; the docs client answers isError with "File not found"
+   * @expectedResult The route answers with the handler's body, built from the remote's text
+   */
+  test("a route's error handler reads the remote's text", async () => {
+    await serve(
+      [
+        craft()
+          .id("own")
+          .description("Reads a document through our own route")
+          .error((error) => ({ remoteSaid: remoteErrorTextOf(error) }))
+          .from(mcp())
+          .to(mcp("docs:get_document")),
+      ],
+      {
+        answer: () => ({
+          isError: true,
+          content: [{ type: "text", text: "File not found" }],
+        }),
+      },
+    );
+    const result = await call("own", { id: "1" });
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content[0]!.text)).toEqual({
+      remoteSaid: "File not found",
+    });
   });
 
   /**

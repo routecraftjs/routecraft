@@ -128,6 +128,7 @@ export {
   type McpConnectOptions,
   McpHeadersKeys,
   mcpPlugin,
+  remoteErrorTextOf,
   McpServer,
   McpToolRegistry,
   MCP,

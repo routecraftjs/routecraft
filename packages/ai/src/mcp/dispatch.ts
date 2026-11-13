@@ -180,14 +180,38 @@ export function relayRemoteError(error: unknown, routeId: string): void {
 }
 
 /**
- * The remote's own text for an `AI2003`, for the one reader it answers: the
- * model whose tool call reached the remote without a route. Empty when the
- * remote sent none.
+ * The text a remote MCP server sent with a result it flagged `isError`,
+ * read off the `AI2003` the call threw or off an error that wraps it.
  *
- * @internal
+ * The `AI2003` message leaves the text out, because a message reaches logs
+ * and events and the text is whatever the remote chose to write. A route
+ * that decides on it (a rate limit to wait out, a missing record to answer
+ * for) reads it here, in its `.error()` handler.
+ *
+ * @param error - What the `mcp()` hop or an agent's MCP tool threw
+ * @returns The remote's text, bounded; `""` when it sent none; `undefined`
+ *   when the error is not a remote tool's error
+ *
+ * @example
+ * ```ts
+ * craft()
+ *   .id("read-document")
+ *   .error((error) => {
+ *     if (remoteErrorTextOf(error)?.includes("not found")) return { found: false };
+ *     throw error;
+ *   })
+ *   .from(direct())
+ *   .to(mcp("docs:get_document"));
+ * ```
  */
 export function remoteErrorTextOf(error: unknown): string | undefined {
-  return error instanceof Error ? REMOTE_TEXT.get(error) : undefined;
+  let current = error;
+  for (let depth = 0; depth < 8 && current instanceof Error; depth++) {
+    const text = REMOTE_TEXT.get(current);
+    if (text !== undefined) return text;
+    current = current.cause;
+  }
+  return undefined;
 }
 
 /**
