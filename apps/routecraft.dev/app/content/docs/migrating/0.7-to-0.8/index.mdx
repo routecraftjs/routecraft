@@ -237,7 +237,7 @@ Neither changes how the adapter or the provider behaves.
 
 `plugin:mcp:tool:called` carried the call's arguments as `args`, a plain field of the event details. The telemetry plugin writes event details to its store and holds back only the `_snapshot` envelope, so a project that had left `captureSnapshots` off was storing every tool call's arguments regardless. The arguments are now `_snapshot: { args }`, the envelope an agent tool's input already uses: the bus always carries them, and the telemetry store keeps them only when `captureSnapshots` is on.
 
-```ts
+```ts skip="fragment: ctx and record are illustrative, and the first line is the 0.7 shape"
 // Before
 ctx.on('plugin:mcp:tool:called', ({ details }) => record(details.tool, details.args))
 
