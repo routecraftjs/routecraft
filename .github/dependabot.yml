@@ -10,7 +10,8 @@ updates:
     # caught within days. These PRs also need a human approval to merge.
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 10
+    # One grouped PR at a time; it is refreshed in place until merged.
+    open-pull-requests-limit: 1
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -25,12 +26,17 @@ updates:
       actions:
         patterns:
           - "*"
+      # The PR limit does not cap security updates, so bundle those too.
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   - package-ecosystem: "bun"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 1
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -65,5 +71,9 @@ updates:
         versions: [">=0.7.0"]
     groups:
       dependencies:
+        patterns:
+          - "*"
+      dependencies-security:
+        applies-to: security-updates
         patterns:
           - "*"
