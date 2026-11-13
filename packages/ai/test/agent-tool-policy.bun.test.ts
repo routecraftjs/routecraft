@@ -112,8 +112,8 @@ async function buildCtx(opts: {
                   "localFn",
                   "aliasedCapability",
                   "Direct(cancel-order)",
-                  { name: "MCP(github:create_issue)", raw: true },
-                  { name: "MCP(docs:search)", raw: true },
+                  "MCP(github:create_issue)",
+                  "MCP(docs:search)",
                 ]),
               },
             },
@@ -142,8 +142,8 @@ async function buildCtx(opts: {
             "localFn",
             "aliasedCapability",
             "Direct(cancel-order)",
-            { name: "MCP(github:create_issue)", raw: true },
-            { name: "MCP(docs:search)", raw: true },
+            "MCP(github:create_issue)",
+            "MCP(docs:search)",
           ]),
           ...(opts.withBlock
             ? {

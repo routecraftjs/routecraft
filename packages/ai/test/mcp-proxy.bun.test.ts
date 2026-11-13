@@ -10,15 +10,8 @@ import { deferring, testContext, type TestContext } from "@routecraft/testing";
 import type { McpServer } from "../src/mcp/server.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
-import { captureWarnings } from "./helpers/warnings.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
-import {
-  agentPlugin,
-  mcp,
-  McpHeadersKeys,
-  sessionsPlugin,
-  tools,
-} from "../src/index.ts";
+import { mcp, McpHeadersKeys, sessionsPlugin, tools } from "../src/index.ts";
 import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
 import { MemorySessionStore } from "../src/agent/session/memory-store.ts";
 import type { McpClientConfig } from "../src/mcp/port.ts";
@@ -1357,169 +1350,22 @@ describe("an agent's MCP reference to a proxied tool", () => {
   });
 
   /**
-   * @case A tool no route covers is withheld from a reference that does not say raw
-   * @preconditions An exact route over get_document only; an inline selection lists MCP(docs:search), resolved twice
-   * @expectedResult The reference resolves to nothing, one warning names the client and says no proxy route covers it, and nothing reaches the client
+   * @case A proxied tool no route covers is offered raw
+   * @preconditions An exact route over get_document only
+   * @expectedResult MCP(docs:search) resolves raw and its call reaches the client
    */
-  test("an uncovered tool is withheld", async () => {
+  test("an uncovered tool stays raw", async () => {
     await build([
       craft()
         .id("fetch")
         .from(mcp({ proxy: "docs:get_document" }))
         .to(mcp("docs:get_document")),
     ]);
-    const warnings = captureWarnings(t);
-    const selection = tools(["MCP(docs:search)"]);
-    expect(selection.resolve(t.ctx)).toEqual([]);
-    expect(selection.resolve(t.ctx)).toEqual([]);
-    const uncovered = warnings.filter((w) =>
-      w.message.includes("no proxy route"),
-    );
-    expect(uncovered).toHaveLength(1);
-    expect(uncovered[0]!.fields).toMatchObject({
-      server: "docs",
-      tool: "search",
-    });
-    expect(dispatches).toEqual([]);
-  });
-
-  /**
-   * @case raw: true reaches a tool no route covers, without the bypass warning
-   * @preconditions An exact route over get_document only; the selection lists { name: MCP(docs:search), raw: true }
-   * @expectedResult The tool resolves with no governing route, its call reaches the client, and no warning says a route's policy was bypassed
-   */
-  test("raw: true reaches an uncovered tool", async () => {
-    await build([
-      craft()
-        .id("fetch")
-        .from(mcp({ proxy: "docs:get_document" }))
-        .to(mcp("docs:get_document")),
-    ]);
-    const warnings = captureWarnings(t);
-    const [tool] = tools([{ name: "MCP(docs:search)", raw: true }]).resolve(
-      t.ctx,
-    );
+    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
     expect(tool.source).not.toHaveProperty("routeId");
     await tool.handler({ q: "x" }, handlerContext(tool.name));
     expect(dispatches).toEqual([
       { serverId: "docs", toolName: "search", args: { q: "x" } },
     ]);
-    expect(warnings.some((w) => w.message.includes("bypass"))).toBe(false);
-  });
-});
-
-describe("a registered agent's MCP reference with no proxy route", () => {
-  let t: TestContext | undefined;
-
-  afterEach(async () => {
-    if (t) await t.stop();
-    t = undefined;
-  });
-
-  function context(
-    agents: Parameters<typeof agentPlugin>[0],
-    routes: AnyRouteBuilder[] = [],
-  ): Promise<TestContext> {
-    return testContext()
-      .routes(routes)
-      .with({
-        plugins: [
-          mcpPort({
-            tools: buildRegistry(),
-            stdio: buildManagers(),
-            clients: buildClients(),
-          }),
-          agentPlugin(agents),
-        ],
-      })
-      .build();
-  }
-
-  const helper = (selection: ReturnType<typeof tools>) => ({
-    agents: {
-      helper: {
-        description: "A registered agent.",
-        model: "anthropic:claude-opus-4-7" as const,
-        system: "You are a helper.",
-        tools: selection,
-      },
-    },
-  });
-
-  /**
-   * @case A registered agent listing an MCP reference to a client no route proxies fails the start
-   * @preconditions Client docs configured, no proxy route; agent helper lists MCP(docs:search)
-   * @expectedResult context start rejects with AI2004 naming the agent and the reference
-   */
-  test("start fails with AI2004", async () => {
-    t = await context(helper(tools(["MCP(docs:search)"])));
-    await expect(t.ctx.start()).rejects.toMatchObject({
-      rc: "AI2004",
-      message: expect.stringMatching(/agent "helper".*MCP\(docs:search\)/),
-    });
-  });
-
-  /**
-   * @case The same reference written raw starts
-   * @preconditions Client docs configured, no proxy route; agent helper lists { name: MCP(docs:search), raw: true }
-   * @expectedResult The context starts
-   */
-  test("raw: true starts", async () => {
-    t = await context(helper(tools([{ name: "MCP(docs:search)", raw: true }])));
-    await t.startAndWaitReady();
-  });
-
-  /**
-   * @case A proxy route over the client is enough, live or not
-   * @preconditions Agent helper lists the whole client; one star proxy route over docs held back by .enabled(false)
-   * @expectedResult The context starts: the route is the decision, and its being off withholds the tools at dispatch
-   */
-  test("a declared proxy route starts", async () => {
-    t = await context(helper(tools(["MCP(docs)"])), [
-      craft()
-        .id("docs")
-        .enabled(() => "held back")
-        .from(mcp({ proxy: "docs:*" }))
-        .to(mcp("docs:*")),
-    ]);
-    await t.startAndWaitReady();
-  });
-
-  /**
-   * @case The context default selection is checked as an agent's own is
-   * @preconditions defaultOptions.tools lists mcp__docs__search; no proxy route
-   * @expectedResult context start rejects with AI2004 naming defaultOptions
-   */
-  test("defaultOptions.tools is checked", async () => {
-    t = await context({
-      defaultOptions: { tools: tools(["mcp__docs__search"]) },
-    });
-    await expect(t.ctx.start()).rejects.toMatchObject({
-      rc: "AI2004",
-      message: expect.stringContaining("defaultOptions"),
-    });
-  });
-
-  /**
-   * @case A builder selection is checked through what the builder returns
-   * @preconditions Agent helper's tools is a builder returning MCP(docs:search); no proxy route
-   * @expectedResult context start rejects with AI2004
-   */
-  test("a builder selection is checked", async () => {
-    t = await context(helper(tools(() => ["MCP(docs:search)"])));
-    await expect(t.ctx.start()).rejects.toMatchObject({ rc: "AI2004" });
-  });
-
-  /**
-   * @case A reference to a client that is not configured is left to the dispatch error
-   * @preconditions Agent helper lists MCP(nope:search); no client nope
-   * @expectedResult The context starts; resolving the reference throws RC5003 naming the known clients
-   */
-  test("an unconfigured client is not this check's fault", async () => {
-    t = await context(helper(tools(["MCP(nope:search)"])));
-    await t.startAndWaitReady();
-    expect(() => tools(["MCP(nope:search)"]).resolve(t!.ctx)).toThrow(
-      /is not configured/,
-    );
   });
 });

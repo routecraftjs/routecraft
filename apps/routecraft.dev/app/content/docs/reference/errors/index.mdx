@@ -1338,19 +1338,6 @@ Not a Routecraft or transport failure: a connection that could not be made, a se
 - On a route that proxies the remote (`mcp({ proxy })`), nothing to do: the caller receives the remote's text as a failed call when the hop was to the tool they called. From any other hop, or from a nested route, the caller receives the code alone.
 - When the text names an argument, fix the arguments the route sends; the remote validated them at its door.
 
-## AI2004
-Agent MCP reference has no proxy route
-
-**Why it happens**  
-A registered agent, or `defaultOptions.tools`, lists an `MCP(server:tool)` reference to a configured client that no route proxies. A proxy route is the policy on a remote server's tools, so this reference would call the remote on the client's credential under no `authorize`, no rule and no event. The start fails rather than leaving that implicit. The message names the agent and the reference.
-
-The check is on the client, not the tool: once any route proxies the client, a tool its routes leave out is withheld from the agent with a warning instead. A reference to a client that is not configured is [RC5003](#rc-5003).
-
-**Suggestion**  
-- Add a proxy route for the client, `.from(mcp({ proxy: 'server:*' })).to(mcp('server:*'))`, and put the policy on it. The agent's references run through it.
-- Or write the reference as `{ name: 'MCP(server:tool)', raw: true }` to state that the agent reaches the client directly.
-- A markdown agent's `tools` frontmatter cannot say `raw`, so it needs the route.
-
 ## OS1001
 Isolation tier unavailable
 

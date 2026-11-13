@@ -211,7 +211,7 @@ describe("MCP client tool-name validation", () => {
       },
     ]);
 
-    const resolved = tools([{ name: "MCP(github)", raw: true }]).resolve(t.ctx);
+    const resolved = tools(["MCP(github)"]).resolve(t.ctx);
     expect(resolved.map((r) => r.name)).toEqual(["mcp__github__list_issues"]);
 
     const warned = t.contextLogger.warn.mock.calls.some(
@@ -239,9 +239,7 @@ describe("MCP client tool-name validation", () => {
       },
     ]);
 
-    expect(
-      tools([{ name: "MCP(github:issues.create)", raw: true }]).resolve(t.ctx),
-    ).toEqual([]);
+    expect(tools(["MCP(github:issues.create)"]).resolve(t.ctx)).toEqual([]);
   });
 
   /**
@@ -269,14 +267,13 @@ describe("MCP client tool-name validation", () => {
 
     // `resolve()` runs per dispatch, so three resolutions stand in for
     // three dispatches of an agent bound to this server.
-    for (let i = 0; i < 3; i++)
-      tools([{ name: "MCP(github)", raw: true }]).resolve(t.ctx);
+    for (let i = 0; i < 3; i++) tools(["MCP(github)"]).resolve(t.ctx);
     expect(warnCount()).toBe(1);
 
     // A re-listing that returns the same tools does not bump the
     // registry version, so it must not re-open the report either.
     registry.setToolsForSource("github", "stdio", [bad]);
-    tools([{ name: "MCP(github)", raw: true }]).resolve(t.ctx);
+    tools(["MCP(github)"]).resolve(t.ctx);
     expect(warnCount()).toBe(1);
 
     // A real change does: the condition may have been fixed, and if it
@@ -288,7 +285,7 @@ describe("MCP client tool-name validation", () => {
         inputSchema: { type: "object" as const, properties: {} },
       },
     ]);
-    tools([{ name: "MCP(github)", raw: true }]).resolve(t.ctx);
+    tools(["MCP(github)"]).resolve(t.ctx);
     expect(warnCount()).toBe(2);
   });
 
@@ -307,9 +304,7 @@ describe("MCP client tool-name validation", () => {
       { name: "c", inputSchema: { type: "object", properties: {} } },
     ]);
 
-    expect(tools([{ name: "MCP(a__b)", raw: true }]).resolve(t.ctx)).toEqual(
-      [],
-    );
+    expect(tools(["MCP(a__b)"]).resolve(t.ctx)).toEqual([]);
     const warned = t.contextLogger.warn.mock.calls.some(
       (c: unknown[]) =>
         typeof c[1] === "string" &&
@@ -335,15 +330,11 @@ describe("MCP client tool-name validation", () => {
       },
     ]);
 
-    const [resolved] = tools([{ name: "MCP(github)", raw: true }]).resolve(
-      t.ctx,
-    );
+    const [resolved] = tools(["MCP(github)"]).resolve(t.ctx);
     expect(resolved?.name).toBe("mcp__github__issues__create");
     // Splitting at the first separator is unambiguous now that the
     // server half cannot contain one, so the raw form round-trips.
-    const [byRawName] = tools([
-      { name: "mcp__github__issues__create", raw: true },
-    ]).resolve(t.ctx);
+    const [byRawName] = tools(["mcp__github__issues__create"]).resolve(t.ctx);
     expect(byRawName?.name).toBe("mcp__github__issues__create");
   });
 
@@ -362,9 +353,7 @@ describe("MCP client tool-name validation", () => {
       { name: longTool, inputSchema: { type: "object", properties: {} } },
     ]);
 
-    expect(tools([{ name: "MCP(github)", raw: true }]).resolve(t.ctx)).toEqual(
-      [],
-    );
+    expect(tools(["MCP(github)"]).resolve(t.ctx)).toEqual([]);
     const warned = t.contextLogger.warn.mock.calls.some(
       (c: unknown[]) =>
         typeof c[1] === "string" &&

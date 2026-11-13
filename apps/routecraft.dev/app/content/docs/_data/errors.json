@@ -672,12 +672,6 @@
     "retryable": false
   },
   {
-    "code": "AI2004",
-    "category": "Definition",
-    "message": "Agent MCP reference has no proxy route",
-    "retryable": false
-  },
-  {
     "code": "OS1001",
     "category": "Adapter",
     "message": "Isolation tier unavailable",

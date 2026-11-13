@@ -445,8 +445,6 @@ declare module "@routecraft/routecraft" {
     AI2002: RCMeta;
     /** Remote MCP tool reported an error: the result was flagged isError */
     AI2003: RCMeta;
-    /** An agent's MCP reference names a client no proxy route governs */
-    AI2004: RCMeta;
   }
 }
 
@@ -629,14 +627,6 @@ registerErrorCodes(
       suggestion:
         "The remote server answered the call with isError: true, so its content is an error text, not a result. The message carries that text, bounded. On a route, handle it with .error() or .retry(); on a route that proxies the remote, the caller receives the remote's text as a failed call. Not a Routecraft or transport failure (those are RC5003).",
       docs: `${DOCS_BASE}#ai-2003`,
-      retryable: false,
-    },
-    AI2004: {
-      category: "Definition",
-      message: "Agent MCP reference has no proxy route",
-      suggestion:
-        "A registered agent lists an MCP(server:tool) reference, and no route proxies that client, so the tool would be called under no route's policy. Add a proxy route for the client (.from(mcp({ proxy: 'server:*' })).to(mcp('server:*'))) and put the policy on it, or write the reference as { name: 'MCP(server:tool)', raw: true } to say the agent reaches the client directly.",
-      docs: `${DOCS_BASE}#ai-2004`,
       retryable: false,
     },
   },

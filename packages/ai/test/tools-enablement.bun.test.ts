@@ -12,7 +12,27 @@ import {
 import { MCP, createMcpService } from "../src/mcp/port.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
-import { captureWarnings } from "./helpers/warnings.ts";
+
+/** Collect the warning messages a context logs, keeping the bound fields. */
+function captureWarnings(
+  t: TestContext,
+): Array<{ fields: Record<string, unknown>; message: string }> {
+  const warnings: Array<{ fields: Record<string, unknown>; message: string }> =
+    [];
+  const original = t.ctx.logger.warn.bind(t.ctx.logger);
+  t.ctx.logger.warn = ((first: unknown, second?: unknown) => {
+    warnings.push(
+      typeof first === "string"
+        ? { fields: {}, message: first }
+        : {
+            fields: first as Record<string, unknown>,
+            message: String(second),
+          },
+    );
+    return original(first as never, second as never);
+  }) as typeof t.ctx.logger.warn;
+  return warnings;
+}
 
 /**
  * A direct route whose `.enabled()` follows a flag the test flips. A live
@@ -316,10 +336,7 @@ describe("agent MCP refs follow client configuration", () => {
       disabled: { vendor: "VENDOR_TOKEN is unset" },
     });
     const warnings = captureWarnings(t);
-    const selection = tools([
-      { name: "MCP(vendor:search)", raw: true },
-      { name: "MCP(vendor)", raw: true },
-    ]);
+    const selection = tools(["MCP(vendor:search)", "MCP(vendor)"]);
     expect(selection.resolve(t.ctx)).toEqual([]);
     expect(selection.resolve(t.ctx)).toEqual([]);
     expect(warnings.map((w) => w.fields)).toEqual([
@@ -344,9 +361,7 @@ describe("agent MCP refs follow client configuration", () => {
   test("a configured client with no tools yet is withheld until it lists them", async () => {
     t = await contextWithClients({ clients: ["vendor"] });
     const warnings = captureWarnings(t);
-    expect(
-      tools([{ name: "MCP(vendor:search)", raw: true }]).resolve(t.ctx),
-    ).toEqual([]);
+    expect(tools(["MCP(vendor:search)"]).resolve(t.ctx)).toEqual([]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.fields["client"]).toBe("vendor");
 
@@ -356,7 +371,7 @@ describe("agent MCP refs follow client configuration", () => {
         { name: "search", inputSchema: { type: "object" } },
       ]);
     expect(
-      tools([{ name: "MCP(vendor:search)", raw: true }])
+      tools(["MCP(vendor:search)"])
         .resolve(t.ctx)
         .map((tool) => tool.name),
     ).toEqual(["mcp__vendor__search"]);
@@ -373,9 +388,7 @@ describe("agent MCP refs follow client configuration", () => {
       tools: { vendor: ["search", "lookup"] },
     });
     const warnings = captureWarnings(t);
-    expect(
-      tools([{ name: "MCP(vendor:find)", raw: true }]).resolve(t.ctx),
-    ).toEqual([]);
+    expect(tools(["MCP(vendor:find)"]).resolve(t.ctx)).toEqual([]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.fields["known"]).toEqual(["lookup", "search"]);
   });
@@ -391,9 +404,9 @@ describe("agent MCP refs follow client configuration", () => {
       disabled: { ledger: "LEDGER_TOKEN is unset" },
       tools: { vendor: ["search"] },
     });
-    expect(() =>
-      tools([{ name: "MCP(vendr:search)", raw: true }]).resolve(t!.ctx),
-    ).toThrow(/client "vendr" is not configured.*"ledger", "vendor"/s);
+    expect(() => tools(["MCP(vendr:search)"]).resolve(t!.ctx)).toThrow(
+      /client "vendr" is not configured.*"ledger", "vendor"/s,
+    );
   });
 });
 

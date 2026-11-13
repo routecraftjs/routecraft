@@ -360,9 +360,7 @@ describe("MCP trace context", () => {
         ],
       })
       .build();
-    const [tool] = tools([{ name: "MCP(docs:search)", raw: true }]).resolve(
-      t.ctx,
-    );
+    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
     await tool!.handler({}, {
       correlationId: "turn-journey",
       exchangeId: "turn-exchange",

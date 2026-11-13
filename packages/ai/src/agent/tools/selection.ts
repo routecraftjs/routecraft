@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
   rcError,
-  type Capability,
   type CraftContext,
   type ExchangeHeaders,
   type Tag,
@@ -261,39 +260,6 @@ export interface ToolSelection {
    * {@link resolveMcpRefs}.
    */
   readonly resolve: (ctx: CraftContext) => ResolvedTool[];
-  /**
-   * The MCP references the selection names, unresolved, so the agent
-   * plugin can refuse at start one that no proxy route governs. A builder
-   * runs against the catalog as it stands when this is called.
-   *
-   * @internal
-   */
-  readonly mcpRefs: (host: McpRefHost) => McpToolRef[];
-}
-
-/**
- * What {@link ToolSelection.mcpRefs} reads: the catalog a builder runs
- * against, and whether a name is a registered fn, which wins over the MCP
- * reference grammar.
- *
- * @internal
- */
-export interface McpRefHost {
-  catalog(): ToolsCatalog;
-  hasFn(name: string): boolean;
-}
-
-/**
- * One `MCP(server:tool)` reference of a selection. `tool` is `*` for a
- * whole-server reference.
- *
- * @internal
- */
-export interface McpToolRef {
-  ref: string;
-  server: string;
-  tool: string;
-  raw: boolean;
 }
 
 /**
@@ -413,27 +379,6 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
   }
   return {
     [TOOL_SELECTION_BRAND]: true,
-    mcpRefs(host) {
-      const items =
-        typeof arg === "function" ? runBuilder(arg, host.catalog()) : arg;
-      const refs: McpToolRef[] = [];
-      for (const item of items) {
-        const named: unknown =
-          typeof item === "string" ? item : (item as { name?: unknown })?.name;
-        if (typeof named !== "string") continue;
-        if (!isMcpRefName(named) || host.hasFn(named)) continue;
-        const { clientName, toolName } = parseMcpRef(named);
-        refs.push({
-          ref: named,
-          server: clientName,
-          tool: toolName,
-          raw:
-            typeof item === "object" &&
-            (item as { raw?: unknown }).raw === true,
-        });
-      }
-      return refs;
-    },
     resolve(ctx) {
       const items =
         typeof arg === "function" ? runBuilder(arg, buildCatalog(ctx)) : arg;
@@ -564,7 +509,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
  * @internal
  */
 function buildCatalog(ctx: CraftContext): ToolsCatalog {
-  const declared: Array<[string, RegisteredFn]> = [];
+  const fns: ToolsCatalog["fns"][number][] = [];
   const fnRegistry = ctx.lookup(AGENTS)?.functions;
   if (fnRegistry) {
     for (const [name, entry] of fnRegistry) {
@@ -583,48 +528,26 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
       // Every other deferred entry resolved during the plugin's start(),
       // so this reads the memoized result; one that could not resolve
       // failed the boot rather than reaching here.
-      declared.push([name, declaredFn(ctx, name, entry)]);
+      const declared = declaredFn(ctx, name, entry);
+      const tags =
+        declared.tags && declared.tags.length > 0
+          ? Object.freeze([...declared.tags])
+          : undefined;
+      fns.push(
+        Object.freeze({
+          name,
+          description: declared.description,
+          ...(tags !== undefined ? { tags } : {}),
+        }),
+      );
     }
-  }
-  return assembleCatalog(
-    declared,
-    ctx.capabilities(),
-    ctx.lookup(MCP)?.tools.getTools(),
-  );
-}
-
-/**
- * Freeze resolved fns, capabilities and MCP registry entries into a
- * {@link ToolsCatalog}. The one shape both the dispatch resolver and the
- * agent plugin's start check hand a builder.
- *
- * @internal
- */
-export function assembleCatalog(
-  declaredFns: Iterable<[string, RegisteredFn]>,
-  capabilities: Iterable<Capability>,
-  mcpTools: Iterable<McpToolRegistryEntry> | undefined,
-): ToolsCatalog {
-  const fns: ToolsCatalog["fns"][number][] = [];
-  for (const [name, declared] of declaredFns) {
-    const tags =
-      declared.tags && declared.tags.length > 0
-        ? Object.freeze([...declared.tags])
-        : undefined;
-    fns.push(
-      Object.freeze({
-        name,
-        description: declared.description,
-        ...(tags !== undefined ? { tags } : {}),
-      }),
-    );
   }
 
   const routes: ToolsCatalog["routes"][number][] = [];
   // `capabilities()` already speaks raw route ids (it decodes the
   // sanitised registry keys), so a builder that does `Direct(${r.id})`
   // resolves cleanly for ids containing `/`, `:`, etc.
-  for (const meta of capabilities) {
+  for (const meta of ctx.capabilities()) {
     const tags =
       meta.tags && meta.tags.length > 0
         ? Object.freeze([...meta.tags])
@@ -640,8 +563,9 @@ export function assembleCatalog(
   }
 
   const mcp: ToolsCatalog["mcp"][number][] = [];
-  if (mcpTools) {
-    for (const entry of mcpTools) {
+  const mcpRegistry = ctx.lookup(MCP)?.tools;
+  if (mcpRegistry) {
+    for (const entry of mcpRegistry.getTools()) {
       const tags =
         entry.tags && entry.tags.length > 0
           ? Object.freeze([...entry.tags])
@@ -1398,13 +1322,6 @@ function mcpEntryToResolvedTool(
           : "MCP tool is proxied by a route that is not live, so the agent is not offered it. Enable the route, or reference the tool with raw: true to reach the client without it.",
       );
     }
-    // Keyed by server: a whole-server reference over a client with a few
-    // exact routes leaves every other tool here, for the same reason.
-    return dropOnce(
-      `mcp-uncovered:${entry.source}`,
-      { server: entry.source, tool: entry.name },
-      "MCP tool has no proxy route, so the agent is not offered it. Proxy it with a route, or reference the tool with raw: true to reach the client under no route's policy.",
-    );
   }
   const input = standardSchemaFromJsonSchema(entry.inputSchema);
   const handler: FnOptions["handler"] = async (rawInput, hctx) => {
