@@ -115,6 +115,36 @@ export function declaredExactProxies(
   };
 }
 
+/** What the application's routes declare over one client's tools. */
+export interface McpProxyCoverage {
+  /** The route proxying every tool of the client, when one does. */
+  star?: { routeId: string; exclude: readonly string[] };
+  /** The tools that have a route of their own, by remote name. */
+  exact: Array<{ tool: string; routeId: string }>;
+}
+
+/**
+ * The proxy routes declared over each client, enabled or not, read from the
+ * route definitions. A client no route proxies is absent.
+ *
+ * @internal
+ */
+export function proxyCoverage(
+  c: Pick<PluginContext, "routes">,
+): Map<string, McpProxyCoverage> {
+  const coverage = new Map<string, McpProxyCoverage>();
+  for (const { routeId, ref } of proxyDeclarations(c.routes.list())) {
+    const client = coverage.get(ref.serverId) ?? { exact: [] };
+    coverage.set(ref.serverId, client);
+    if (ref.tool === "*") {
+      client.star ??= { routeId, exclude: ref.exclude ?? [] };
+    } else {
+      client.exact.push({ tool: ref.tool, routeId });
+    }
+  }
+  return coverage;
+}
+
 /**
  * The registration that covers a remote tool: the exact one when there is
  * one, otherwise the client's star registration, otherwise undefined.

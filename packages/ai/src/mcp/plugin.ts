@@ -38,7 +38,7 @@ import {
 } from "./connect.ts";
 import { assertRemoteUrl } from "./sdk.ts";
 import { createMcpHttpConnections } from "./http-connections.ts";
-import { declaredExactProxies } from "./proxy.ts";
+import { declaredExactProxies, proxyCoverage } from "./proxy.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
 
@@ -86,6 +86,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
   validateMcpPluginOptions(options);
 
   const servers = new WeakMap<PluginContext, McpServer>();
+  const services = new WeakMap<PluginContext, McpService>();
 
   const plugin: Plugin = {
     id: "routecraft.ai.mcp",
@@ -124,6 +125,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         );
       };
       c.provide(MCP, service);
+      services.set(c, service);
 
       // Registered ahead of every refresh timer: disposers run in reverse, so
       // no refresh can reopen a client once the connections are closed.
@@ -228,9 +230,48 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     },
     async start(c: PluginContext) {
       await servers.get(c)?.start();
+      reportProxyCoverage(c);
     },
   };
   return Object.assign(plugin, { [PLUGIN_OPTIONS]: options });
+
+  /**
+   * Say, once per client at start, whether a route stands in front of its
+   * tools. A proxy route that was removed, or one that names a few tools
+   * and leaves the rest, changes nothing an operator would otherwise see:
+   * the calls still succeed, on the client's credential, with no policy in
+   * front of them. Routes added after start are not reported.
+   */
+  function reportProxyCoverage(c: PluginContext): void {
+    const service = services.get(c);
+    if (service === undefined) return;
+    const coverage = proxyCoverage(c);
+    for (const client of service.clients.keys()) {
+      const declared = coverage.get(client);
+      const tools = declared?.exact.map(({ tool }) => tool) ?? [];
+      if (declared?.star !== undefined) {
+        c.logger.info(
+          {
+            client,
+            route: declared.star.routeId,
+            ownRoute: tools,
+            excluded: declared.star.exclude,
+          },
+          "MCP client is proxied: an MCP caller or an agent reaches its tools through a route, and an excluded tool not at all",
+        );
+      } else if (declared !== undefined) {
+        c.logger.info(
+          { client, proxied: tools },
+          "MCP client is partly proxied: the tools its routes name run through them, and an agent calls every other tool directly",
+        );
+      } else {
+        c.logger.info(
+          { client },
+          "MCP client is not proxied: routes and agents call its tools directly",
+        );
+      }
+    }
+  }
 
   /**
    * Why a client that logs in cannot connect, or `undefined` when its
