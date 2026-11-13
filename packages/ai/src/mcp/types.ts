@@ -122,7 +122,7 @@ export interface McpProxyRegistration {
   /** Exposed name override, exact registrations only. */
   name?: string;
   /** Remote tools a star registration leaves out, star registrations only. */
-  exclude?: readonly string[];
+  exclude?: readonly string[] | McpProxyExclude;
   /** The route behind the registration, for the log and the ops listing. */
   routeId: string;
   /** The route's `.description()`, replacing the remote's when set. */
@@ -165,7 +165,35 @@ declare module "@routecraft/routecraft" {
     "routecraft.mcp.client"?: string;
     /** The remote tool's annotations, on a proxied call. */
     "routecraft.mcp.annotations"?: McpToolAnnotations;
+    /** On a route that proxies a remote server: the tool's approved class. */
+    "routecraft.mcp.class"?: McpToolClass;
   }
+}
+
+/**
+ * What a tool is allowed to do, as the person who approved it in the
+ * lockfile decided. A policy keys on this rather than on the annotations
+ * the server publishes about itself. A tool nobody has approved, or one
+ * served on a definition that changed since, is `"destructive"`.
+ */
+export type McpToolClass = "read" | "write" | "destructive";
+
+/**
+ * How a client treats a tool the lockfile (`mcp.lock`) does not vouch for.
+ * Setting `pins` on a client, even as `{}`, pins it.
+ *
+ * - `added`: a tool the lockfile has never seen. `"hold"` withholds it,
+ *   `"serve"` serves it.
+ * - `changed`: a locked tool whose definition no longer matches. `"hold"`
+ *   withholds it, `"warn"` serves the new definition with a warning and an
+ *   event, `"serve"` serves it quietly.
+ *
+ * A key left out is `"hold"`. A withheld tool is not listed to any caller
+ * or agent, and a call to it is refused (`AI2004`) on every path.
+ */
+export interface McpPins {
+  added?: "serve" | "hold";
+  changed?: "serve" | "warn" | "hold";
 }
 
 /**
@@ -189,6 +217,20 @@ export interface McpClientHttpConfig {
    * store keeps.
    */
   auth?: McpClientAuthOptions | McpConnectAuth;
+  /**
+   * Hold this client to the tool definitions approved in `mcp.lock`; see
+   * {@link McpPins}. The lockfile is written by `craft mcp pin` and
+   * approved by committing it. With `pins` set and no readable lockfile,
+   * the application does not start.
+   *
+   * @example
+   * ```ts
+   * clients: {
+   *   books: { url: env.BOOKS_MCP_URL, pins: { added: "hold", changed: "warn" } },
+   * }
+   * ```
+   */
+  pins?: McpPins;
   /** Whether tool calls carry the caller's trace context; see {@link McpClientOptions.traceContext}. */
   traceContext?: boolean;
   /**
@@ -237,6 +279,8 @@ export interface McpClientStdioConfig {
   traceContext?: boolean;
   /** Whether this client is configured; see {@link McpClientHttpConfig.enabled}. */
   enabled?: EnablementDeclaration;
+  /** Hold this client to the lockfile; see {@link McpClientHttpConfig.pins}. */
+  pins?: McpPins;
 }
 
 /**
@@ -279,6 +323,13 @@ export enum McpHeadersKeys {
    * differently.
    */
   ANNOTATIONS = "routecraft.mcp.annotations",
+  /**
+   * On a route that proxies a remote server: the tool's {@link McpToolClass},
+   * always present. It is the class approved in the lockfile for a pinned
+   * tool served on its approved definition, and `"destructive"` otherwise,
+   * so a step that keys on it never trusts what a server says of itself.
+   */
+  CLASS = "routecraft.mcp.class",
 }
 
 /**
@@ -582,6 +633,12 @@ export interface McpPluginOptions {
    * Set to 0 to disable periodic refresh. Default: 60000 (60s).
    */
   toolRefreshInterval?: Duration;
+  /**
+   * Where the lockfile of the pinned clients is read from, relative to the
+   * directory the application starts in. Default: `mcp.lock`. Read only
+   * when a client sets `pins`.
+   */
+  lockfile?: string;
 }
 
 /**
@@ -715,8 +772,19 @@ export interface McpServerOptions {
    * without the exclusion an exact route wins while it is live and the star
    * route serves the tool again when it goes. A name the client does not
    * list warns once and leaves nothing out. Only with a star `proxy`.
+   *
+   * A function decides per tool instead, handed the tool as the client
+   * lists it with its approved {@link McpToolClass}, and leaves out every
+   * tool it returns `true` for. Its answer is kept for as long as the
+   * tool's listing stands, so it must depend on the tool alone. One that
+   * throws leaves the tool out.
+   *
+   * @example
+   * ```ts
+   * mcp({ proxy: "books:*", exclude: (tool) => tool.class !== "read" })
+   * ```
    */
-  exclude?: string[];
+  exclude?: string[] | McpProxyExclude;
 
   /**
    * The exposed name of the one tool an exact `proxy` names, in place of
@@ -756,10 +824,20 @@ export interface McpServerOptions {
   schemas?: McpProxySchemas;
 }
 
-/** The remote tool a star route's {@link McpServerOptions.schemas} derives from. */
+/**
+ * The remote tool a star route's {@link McpServerOptions.schemas} derives
+ * from and its {@link McpServerOptions.exclude} function judges.
+ */
 export interface McpProxiedToolInfo {
   /** The tool's name as the remote lists it. */
   readonly name: string;
+  /** The remote's description, when it gives one. */
+  readonly description?: string;
+  /**
+   * What the tool is allowed to do: the class approved in the lockfile for
+   * a pinned client's tool, `"destructive"` otherwise.
+   */
+  readonly class: McpToolClass;
   /** The remote's input JSON Schema. */
   readonly inputSchema: Readonly<Record<string, unknown>>;
   /** The remote's output JSON Schema, when it declares one. */
@@ -781,6 +859,49 @@ export interface McpDerivedSchemas {
 
 /** A star route's per-tool schema derivation. */
 export type McpProxySchemas = (remote: McpProxiedToolInfo) => McpDerivedSchemas;
+
+/** A star route's per-tool exclusion: `true` leaves the tool out. */
+export type McpProxyExclude = (tool: McpProxiedToolInfo) => boolean;
+
+/** The options of a route that is its own tool: {@link McpServerOptions} without the proxy keys. */
+export type McpToolSourceOptions = Omit<
+  McpServerOptions,
+  "proxy" | "prefix" | "exclude" | "name" | "schemas"
+>;
+
+/** What a star proxy source takes: every tool of a client. */
+export interface McpStarProxyOptions extends Pick<
+  McpServerOptions,
+  "prefix" | "exclude" | "schemas" | "icons"
+> {
+  name?: never;
+  annotations?: never;
+  ui?: never;
+}
+
+/** What an exact proxy source takes: one tool of a client. */
+export interface McpExactProxyOptions extends Pick<
+  McpServerOptions,
+  "prefix" | "name" | "annotations" | "icons"
+> {
+  exclude?: never;
+  schemas?: never;
+  ui?: never;
+}
+
+/**
+ * The options that go with a `proxy` ref, by its form: `"server:*"` and a
+ * bare `"server"` are a star proxy, `"server:tool"` an exact one. A ref
+ * known only as `string` takes either set, and `mcp()` checks it when
+ * called.
+ */
+export type McpProxyOptionsFor<P extends string> = string extends P
+  ? Omit<McpServerOptions, "proxy" | "ui"> & { ui?: never }
+  : P extends `${string}:*`
+    ? McpStarProxyOptions
+    : P extends `${string}:${string}`
+      ? McpExactProxyOptions
+      : McpStarProxyOptions;
 
 /**
  * Origins an MCP Apps view may reach beyond its own inline content, mirrored
@@ -927,7 +1048,15 @@ export interface McpToolRegistryEntry {
   /** MCP tool annotations (behavior hints). */
   annotations?: McpToolAnnotations;
   /**
-   * Capability tags derived from the MCP `annotations` field at
+   * What the tool is allowed to do: the class approved in the lockfile when
+   * its client is pinned and it is served on its approved definition,
+   * `"destructive"` otherwise.
+   */
+  class: McpToolClass;
+  /**
+   * Capability tags. For a pinned client they come from {@link class}, so
+   * a selector or a guard does not read the server's account of itself.
+   * Otherwise they are derived from the MCP `annotations` field at
    * registration time. Mirrors the `Tag` namespace fns and direct
    * routes use; surfaced on `ToolsCatalog.mcp[].tags` for the builder
    * form of `tools((catalog) => ...)` so MCP tools can be filtered

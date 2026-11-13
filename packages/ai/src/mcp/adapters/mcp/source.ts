@@ -465,7 +465,9 @@ function assertValidProxyOptions(
         "exclude leaves tools out of a star proxy; an exact proxy names the one tool it serves.",
       );
     }
-    if (
+    if (typeof options.exclude === "function") {
+      ref = { ...ref, exclude: options.exclude };
+    } else if (
       !Array.isArray(options.exclude) ||
       options.exclude.length === 0 ||
       options.exclude.some(
@@ -473,11 +475,12 @@ function assertValidProxyOptions(
       )
     ) {
       invalid(
-        "exclude must be a non-empty array of remote tool names",
-        'Name the tools as the remote lists them, for example exclude: ["create_issue"].',
+        "exclude must be a non-empty array of remote tool names, or a function of the tool",
+        'Name the tools as the remote lists them, for example exclude: ["create_issue"], or decide per tool: exclude: (tool) => tool.class !== "read".',
       );
+    } else {
+      ref = { ...ref, exclude: [...options.exclude] };
     }
-    ref = { ...ref, exclude: [...options.exclude] };
   }
   if (options.schemas !== undefined) {
     if (ref.tool !== "*") {

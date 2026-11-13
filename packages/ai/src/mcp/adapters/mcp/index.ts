@@ -8,7 +8,9 @@ import {
 import type {
   McpArgsExtractor,
   McpClientOptions,
+  McpProxyOptionsFor,
   McpServerOptions,
+  McpToolSourceOptions,
 } from "../../types.ts";
 import type { RegisteredMcpShorthand } from "../../../registry.ts";
 import { McpSourceAdapter } from "./source.ts";
@@ -24,6 +26,11 @@ import type { McpMessage } from "./types.ts";
  *   builder (`.description()`, `.title()`, `.input()`, `.output()`) and a
  *   non-empty `.description()` is required. Requires `mcpPlugin()`.
  *
+ * - **Proxy source (for `.from()`):** `mcp({ proxy: 'server:*' })` puts the
+ *   route in front of the tools of a registered client, all but those its
+ *   `exclude` or an exact route takes (with `exclude` and `schemas`), and `mcp({ proxy: 'server:tool' })` in front of one (with
+ *   `name` and `annotations`).
+ *
  * - **Enricher (for `.enrich()` / `.to()` / `.tap()`):** Call with client options:
  *   - `mcp({ url, tool })` - Direct HTTP URL to remote MCP server
  *   - `mcp({ serverId, tool })` - Server ID registered via mcpPlugin({ clients })
@@ -38,6 +45,13 @@ import type { McpMessage } from "./types.ts";
  *   .input({ body: mySchema })
  *   .from(mcp({ annotations: { readOnlyHint: true } }))
  *
+ * // Proxy route (the policy on a registered client's tools)
+ * craft()
+ *   .id("books")
+ *   .authorize({ roles: ["finance"] })
+ *   .from(mcp({ proxy: "books:*", exclude: ["delete_invoice"] }))
+ *   .to(mcp("books:*"))
+ *
  * // Enricher (call remote MCP server)
  * .to(mcp({ url: 'http://localhost:3001/mcp', tool: 'search' }))
  * .to(mcp({ serverId: 'my-server', tool: 'search' }))
@@ -45,7 +59,12 @@ import type { McpMessage } from "./types.ts";
  * .to(mcp('my-server:search', { args: (ex) => ex.body.params }))
  * ```
  */
-export function mcp(options?: McpServerOptions): Source<McpMessage<undefined>>;
+export function mcp(
+  options?: McpToolSourceOptions,
+): Source<McpMessage<undefined>>;
+export function mcp<const P extends string>(
+  options: { proxy: P } & McpProxyOptionsFor<P>,
+): Source<McpMessage<undefined>>;
 export function mcp(
   clientOptions: McpClientOptions,
 ): Enricher<unknown, unknown>;

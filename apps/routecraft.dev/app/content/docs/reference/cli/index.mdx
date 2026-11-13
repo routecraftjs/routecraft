@@ -333,6 +333,26 @@ craft disconnect <client>
 
 The seed's standard output is the seed alone, so `craft connect mail --export > seed.txt` captures it; the instructions go to standard error.
 
+### mcp pin
+
+Write the tools the configured MCP clients list now to the lockfile a [pinned client](/docs/advanced/call-an-mcp#pinning-a-servers-tools) is held to. Run it from the project directory, with the credentials the clients need: a static token from the environment, or a login stored by [`craft connect`](#connect).
+
+```bash
+craft mcp pin [client]
+```
+
+With no client named it lists every client that sets `pins`; a named client is listed whether it sets `pins` or not. The output counts what changed per client and names each added (`+`, with the class proposed for it), changed (`~`) and removed (`-`) tool, with any character outside printable ASCII in a name shown as a `\u` escape.
+
+The command approves nothing. It replaces each tool's definition and hash with what the server lists, keeps a class the file already holds, and proposes one for a new tool. The lockfile is approved by committing it, so read the diff first. Running it twice against an unchanged server writes nothing.
+
+A client that cannot be listed (unreachable, disabled by its `enabled`, or without a working credential) is reported, with any text the server sent escaped the same way, its locked tools are left as they were, and the command exits `1` after pinning the rest. An existing lockfile the command cannot read is not overwritten: restore it from version control or delete it.
+
+| Option | Description |
+| --- | --- |
+| `--env <path>`, `--profile <name>` | The environment to load first, as for [`start`](#start) |
+
+The file is `mcp.lock` in the directory the command runs in, or the path [`lockfile`](/docs/reference/plugins/mcpplugin#pinning) names; the application reads the same path against the directory it starts in. A client's entries are dropped once the client is no longer in the config. For a client behind a login the command connects with the stored credential and may refresh it, as the application does. The config must import `@routecraft/ai`, which provides the command.
+
 ### ops
 
 Inspect a running instance: health, readiness, routes, indicators.

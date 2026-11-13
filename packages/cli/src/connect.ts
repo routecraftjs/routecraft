@@ -4,10 +4,9 @@ import type {
   CredentialLogin,
   CredentialLoginIO,
   CredentialStore,
-  CraftConfig,
 } from "@routecraft/routecraft";
 import type { ExecResult } from "./exec.js";
-import { displayPath, findConfigFile } from "./project.js";
+import { loadProjectConfig } from "./project-config.js";
 import { messageOf } from "./util.js";
 
 /** What a credential command prints and exits with, as `settle` takes it. */
@@ -181,25 +180,10 @@ interface Session {
  * the application opens it so a login writes where the application reads.
  */
 async function openSession(): Promise<Session> {
-  const root = process.cwd();
-  const configPath = findConfigFile(root);
-  if (configPath === undefined) {
-    throw new Error(
-      `No craft.config.ts found in "${root}". craft connect reads the clients to log in from it.`,
-    );
-  }
-  const { loadConfig, projectContentRoot, withFolderPlugins } =
-    await import("./start.js");
-  let config: CraftConfig;
-  try {
-    config = await loadConfig(configPath);
-    config = await withFolderPlugins(root, projectContentRoot(root), config);
-  } catch (error: unknown) {
-    throw new Error(
-      `Failed to load ${displayPath(root, configPath)}: ${messageOf(error)}`,
-      { cause: error },
-    );
-  }
+  const { config } = await loadProjectConfig(
+    "craft connect",
+    "the clients to log in",
+  );
   const { collectCredentialLogins, credentialsConfigOf, openCredentialStore } =
     await import("@routecraft/routecraft");
   const logins = collectCredentialLogins(config);

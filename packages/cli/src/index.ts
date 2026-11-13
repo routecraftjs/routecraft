@@ -566,6 +566,35 @@ withEnvironment(
 });
 
 /**
+ * The 'mcp pin' command lists the configured MCP clients and writes their
+ * tool definitions to the lockfile a pinned client is held to. The file is
+ * approved by committing it.
+ *
+ * Example:
+ * craft mcp pin
+ * craft mcp pin books
+ */
+withEnvironment(
+  program
+    .command("mcp")
+    .description("Work with the configured MCP clients")
+    .command("pin")
+    .description(
+      "Write the tools the MCP clients list now to mcp.lock, for review and commit",
+    )
+    .argument(
+      "[client]",
+      "Client to pin, by its configured name; every client that sets pins when left out",
+    ),
+  () => process.cwd(),
+).action(async (client: string | undefined) => {
+  const { runProjectCommand } = await import("./project-command.js");
+  settle(
+    await runProjectCommand("mcp pin", client === undefined ? [] : [client]),
+  );
+});
+
+/**
  * The 'acp' command is the pipe an editor runs.
  *
  * An editor starts it and speaks the Agent Client Protocol over its

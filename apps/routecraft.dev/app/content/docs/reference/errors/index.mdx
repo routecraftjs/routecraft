@@ -18,7 +18,7 @@ Within a namespace, the leading digit reserves a range for one subsystem, so two
 | --- | --- | --- |
 | `RC****` | `@routecraft/routecraft` | Core: routes, exchanges, adapters, auth, deferral. The digit after `RC` is the category, not a subsystem range. |
 | `AI1xxx` | `@routecraft/ai` | Agent blocks, configuration, and runtime (run cancellation, deferral surface, the editor surface) |
-| `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client, and a remote's result received by one |
+| `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client, a remote's result received by one, and a call refused before it reaches a remote (pinning) |
 | `AI3xxx` | `@routecraft/ai` | Built-in agent tools |
 | `OS1xxx` | `@routecraft/os` | Subprocess execution and isolation tiers |
 
@@ -1337,6 +1337,19 @@ Not a Routecraft or transport failure: a connection that could not be made, a se
 - On a route, handle it where the hop is: `.error()` to recover (reading the remote's text with `remoteErrorTextOf(error)` when the handler decides on it), or `.retry({ retryOn })` with a predicate that admits `AI2003` when the remote's failure is transient; the code is registered as not retryable, so the default predicate skips it.
 - On a route that proxies the remote (`mcp({ proxy })`), nothing to do: the caller receives the remote's text as a failed call when the hop was to the tool they called. From any other hop, or from a nested route, the caller receives the code alone.
 - When the text names an argument, fix the arguments the route sends; the remote validated them at its door.
+
+## AI2004
+MCP tool withheld by pinning
+
+**Why it happens**  
+The client sets `pins`, and its lockfile (`mcp.lock`) does not vouch for the tool as the server lists it now. The message says which case: the lockfile has never seen the tool, its definition is not the approved one, the server does not list it, or the client's tools have not been listed yet (it has not answered a listing since start). The call was refused before it reached the server, whichever path it took: a route's `.to(mcp(...))` hop, a proxy route, or an agent's tool.
+
+**Suggestion**  
+- Run [`craft mcp pin`](/docs/reference/cli#mcp-pin), read the diff of `mcp.lock`, commit it and restart: that approves what the server lists now.
+- To serve new or changed tools without approval, set the client's `pins` to `added: 'serve'` or `changed: 'serve'` / `'warn'`; they are then classed `destructive`.
+- When the tools have not been listed yet, the server was unreachable at start. The client's refresh lists it once the server answers; with `toolRefreshInterval: 0` there is no refresh, and the client stays refused until a restart.
+
+See [pinning](/docs/reference/plugins/mcpplugin#pinning).
 
 ## OS1001
 Isolation tier unavailable

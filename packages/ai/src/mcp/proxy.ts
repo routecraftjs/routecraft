@@ -13,6 +13,7 @@ import {
   type McpLocalToolEntry,
   type McpDerivedSchemas,
   type McpProxiedToolInfo,
+  type McpProxyExclude,
   type McpProxyRegistration,
   type McpToolRegistryEntry,
 } from "./types.ts";
@@ -21,8 +22,8 @@ import {
 export interface McpProxyRef {
   serverId: string;
   tool: string;
-  /** Remote tools a star ref leaves out. */
-  exclude?: readonly string[];
+  /** Remote tools a star ref leaves out, by name or by a function of the tool. */
+  exclude?: readonly string[] | McpProxyExclude;
 }
 
 /**
@@ -118,7 +119,7 @@ export function declaredExactProxies(
 /** What the application's routes declare over one client's tools. */
 export interface McpProxyCoverage {
   /** The route proxying every tool of the client, when one does. */
-  star?: { routeId: string; exclude: readonly string[] };
+  star?: { routeId: string; exclude: readonly string[] | McpProxyExclude };
   /** The tools that have a route of their own, by remote name. */
   exact: Array<{ tool: string; routeId: string }>;
 }
@@ -166,15 +167,58 @@ export function coveringProxy(
   if (exact !== undefined) return exact;
   if (service.isProxyDeclared(serverId, tool)) return undefined;
   const star = service.proxies.get(proxyRegistrationKey(serverId, "*"));
-  return star !== undefined && !excludes(star, tool) ? star : undefined;
+  return star !== undefined &&
+    !excludes(star, tool, service.tools.getToolBySource(serverId, tool))
+    ? star
+    : undefined;
 }
 
-/** Whether a star registration or ref leaves `tool` out. */
+/** Each exclude function's answer per listed tool, or the error it threw. */
+const EXCLUSIONS = new WeakMap<
+  McpProxyExclude,
+  WeakMap<McpToolRegistryEntry, boolean | Error>
+>();
+
+/**
+ * What an exclude function says of a listed tool, asked once per listing
+ * of the tool: the registry stores a fresh entry whenever a client lists,
+ * so an answer lives exactly as long as the definition it was given for.
+ */
+function exclusionOf(
+  exclude: McpProxyExclude,
+  remote: McpToolRegistryEntry,
+): boolean | Error {
+  let answers = EXCLUSIONS.get(exclude);
+  if (answers === undefined) {
+    answers = new WeakMap();
+    EXCLUSIONS.set(exclude, answers);
+  }
+  let answer = answers.get(remote);
+  if (answer === undefined) {
+    try {
+      answer = exclude(proxiedToolInfo(remote)) === true;
+    } catch (error) {
+      answer = error instanceof Error ? error : new Error(String(error));
+    }
+    answers.set(remote, answer);
+  }
+  return answer;
+}
+
+/**
+ * Whether a star registration or ref leaves `tool` out. A function is
+ * asked about the tool as its client lists it: one that throws leaves the
+ * tool out, and so does a tool the client does not list, since there is
+ * nothing to ask it about.
+ */
 function excludes(
-  star: { exclude?: readonly string[] | undefined },
+  star: { exclude?: readonly string[] | McpProxyExclude | undefined },
   tool: string,
+  remote: McpToolRegistryEntry | undefined,
 ): boolean {
-  return star.exclude !== undefined && star.exclude.includes(tool);
+  if (star.exclude === undefined) return false;
+  if (typeof star.exclude !== "function") return star.exclude.includes(tool);
+  return remote === undefined || exclusionOf(star.exclude, remote) !== false;
 }
 
 /**
@@ -191,15 +235,15 @@ function excludes(
  */
 export function declaredProxy(
   context: CraftContext,
-  serverId: string,
-  tool: string,
+  remote: McpToolRegistryEntry,
 ): { routeId: string; tool: string; excluded: boolean } | undefined {
+  const { source: serverId, name: tool } = remote;
   let star: { routeId: string; tool: string; excluded: boolean } | undefined;
   for (const { routeId, ref } of proxyDeclarations(context.getRoutes())) {
     if (ref.serverId !== serverId) continue;
     if (ref.tool === tool) return { routeId, tool, excluded: false };
     if (ref.tool === "*") {
-      star ??= { routeId, tool, excluded: excludes(ref, tool) };
+      star ??= { routeId, tool, excluded: excludes(ref, tool, remote) };
     }
   }
   return star;
@@ -266,7 +310,30 @@ export function resolveProxiedEntries(
     { registration: McpProxyRegistration; tool: string }
   >();
   for (const registration of service.proxies.values()) {
-    if (registration.tool === "*" && registration.exclude !== undefined) {
+    if (
+      registration.tool === "*" &&
+      typeof registration.exclude === "function"
+    ) {
+      for (const remote of service.tools.getToolsByServer(
+        registration.serverId,
+      )) {
+        const answer = exclusionOf(registration.exclude, remote);
+        if (typeof answer === "boolean") continue;
+        report(
+          `proxy:exclude-threw:${registration.serverId}:${remote.name}`,
+          "mcp({ proxy, exclude }): the exclude function threw for a remote tool; leaving the tool out.",
+          {
+            route: registration.routeId,
+            server: registration.serverId,
+            tool: remote.name,
+            error: answer.message,
+          },
+        );
+      }
+    } else if (
+      registration.tool === "*" &&
+      Array.isArray(registration.exclude)
+    ) {
       const listed = new Set(
         service.tools
           .getToolsByServer(registration.serverId)
@@ -452,6 +519,10 @@ function deriveSchemas(
 function proxiedToolInfo(remote: McpToolRegistryEntry): McpProxiedToolInfo {
   return {
     name: remote.name,
+    ...(remote.description !== undefined
+      ? { description: remote.description }
+      : {}),
+    class: remote.class,
     inputSchema: remote.inputSchema,
     ...(remote.outputSchema !== undefined
       ? { outputSchema: remote.outputSchema }
@@ -500,6 +571,7 @@ export function proxiedEntry(
           ...(remote.annotations !== undefined
             ? { [McpHeadersKeys.ANNOTATIONS]: remote.annotations }
             : {}),
+          [McpHeadersKeys.CLASS]: remote.class,
         },
       }),
   };

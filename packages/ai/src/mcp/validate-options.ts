@@ -1,3 +1,4 @@
+import { isRecord } from "../shared/is-record.ts";
 import {
   TRACE_CONTEXT_MODES,
   isTraceContextMode,
@@ -173,6 +174,21 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
   // Validate stdio client configs
   if (options.clients) {
     for (const [name, config] of Object.entries(options.clients)) {
+      const pins: unknown = (config as { pins?: unknown } | undefined)?.pins;
+      if (pins !== undefined) {
+        const { added, changed, ...rest } = isRecord(pins)
+          ? pins
+          : { invalid: true };
+        if (
+          Object.keys(rest).length > 0 ||
+          ![undefined, "serve", "hold"].includes(added as string) ||
+          ![undefined, "serve", "warn", "hold"].includes(changed as string)
+        ) {
+          throw rcError("RC5003", undefined, {
+            message: `mcpPlugin: clients.${name}.pins must be an object with added ("serve" or "hold") and changed ("serve", "warn" or "hold"), each optional and "hold" when left out.`,
+          });
+        }
+      }
       // A client name is one segment of the `mcp__<server>__<tool>` wire
       // name an agent sees, and resolution splits that at the FIRST
       // separator after the prefix. A client called `a__b` exposing `c`

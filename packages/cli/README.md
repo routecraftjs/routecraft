@@ -27,6 +27,7 @@ If Bun is missing, the CLI fails fast with a `[routecraft]` error pointing at th
 | `craft acp` | Bridge an editor speaking the Agent Client Protocol to an instance; `--agent <name>` picks the agent. It reconnects on its own when the instance restarts |
 | `craft connect [client]` | Log in a client declared with `connect()` and store its credential where the application reads it. `--all` logs in every client holding nothing, `--list` shows what each holds, `--export` prints a sealed seed for a server (needs `ROUTECRAFT_CREDENTIALS_KEY`) |
 | `craft disconnect <client>` | Remove a client's stored credential, or one no declared client claims by the owner name `--list` shows |
+| `craft mcp pin [client]` | List the tools of every MCP client that sets `pins` and write them to `mcp.lock` for review; committing the file approves them. Provided by `@routecraft/ai`, so the config has to import it |
 | `craft tui [--db <path>]` | Browse routes, agents, tool calls, exchanges and events recorded by the `telemetry()` plugin, from its SQLite database (`.routecraft/telemetry.db` by default). Works while the context runs and after it stops |
 
 `exec`, `ops` and `acp` reach the instance through its ops server: `--url` and `--token` name it directly, or a profile does.

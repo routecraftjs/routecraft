@@ -1289,7 +1289,7 @@ function mcpEntryToResolvedTool(
   // `.enabled()`, or not yet started), or a star route that leaves the
   // tool out, withholds it: the policy the operator wrote for it is off,
   // and off is closed, not open.
-  const declared = declaredProxy(ctx, entry.source, entry.name);
+  const declared = declaredProxy(ctx, entry);
   if (declared !== undefined) {
     return dropOnce(
       `mcp-withheld:${name}`,

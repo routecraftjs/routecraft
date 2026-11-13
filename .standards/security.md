@@ -93,7 +93,7 @@ The principle generalises across the security surface; it is not a network-expos
 - **MCP public-resource guard** (see §6). An explicit HTTPS `resource.url` is required unless `NODE_ENV` is exactly `development` or `test`; an unset environment fails closed.
 - **Browser ingress on MCP and ACP** (see §6). Requests carrying Origin require explicit `browserOrigins`; CORS configuration cannot grant admission. Local browser tools also opt in. CORS response headers default to loopback-only.
 - **The resume-token signing secret is required, and ephemeral keys are gated on a NAMED environment** (`packages/routecraft/src/plugins/deferral/index.ts`). A context whose routes can reach a durable `.defer()` fails at build time with `RC5040` when no secret is configured. The dev relaxation (mint an ephemeral in-memory key) fires only when `NODE_ENV` is `development` or `test`, deliberately an allowlist rather than `NODE_ENV !== "production"`: an unset `NODE_ENV` is the commonest production misconfiguration, and under the negated form it would silently enable ephemeral signing on a real deployment. The secret is never generated into the store, because a store compromise must not also yield forgeable resume tokens.
-- **Resume is securable, not secured, and that is a stated default rather than an oversight** (`packages/routecraft/src/plugins/deferral/resume-step.ts`). The framework ships no model of who may resume a deferred run: `.resume({ authorize })` is a developer hook, and a door that declares none is bearer, exactly as before the hook existed. This is the one place the safe-default rule in §6a is knowingly not applied, because the alternative is the framework inventing an approval semantic it cannot get right for every application. What the framework does own is that the decision is always POSSIBLE at the only moment it is free, and the docs state the bearer default in the reference rather than hiding it behind a warning nobody reads. Do not quietly add a global default later: a context-level policy that flips the posture is ambient authority, and a site would stop being readable on its own.
+- **Resume is securable, not secured, and that is a stated default rather than an oversight** (`packages/routecraft/src/plugins/deferral/resume-step.ts`). The framework ships no model of who may resume a deferred run: `.resume({ authorize })` is a developer hook, and a door that declares none is bearer, exactly as before the hook existed. This is one of two places the safe-default rule in §6a is knowingly not applied (the other is an unpinned MCP client, §11), because the alternative is the framework inventing an approval semantic it cannot get right for every application. What the framework does own is that the decision is always POSSIBLE at the only moment it is free, and the docs state the bearer default in the reference rather than hiding it behind a warning nobody reads. Do not quietly add a global default later: a context-level policy that flips the posture is ambient authority, and a site would stop being readable on its own.
 - **The pre-claim window is ordered, and the ordering is the security property** (`packages/routecraft/src/kernel/continuation/resume.ts`). Two transitions in that window settle a record and drive the deferred route's error channel (the deadline arm and the continuation arm). The per-call credential binding and the `authorize` hook therefore run ABOVE both, and above the settled-state disclosure: otherwise a holder the checks exist to reject could deny the record, burn the rightful principal's single-use claim, and drive an approver notification with a credential that was never theirs, while also learning the record's lifecycle state. The hash is compared non-destructively for the same reason. Do not move a check below either transition without re-deriving that argument.
 - **A refusal is non-destructive, and its cause never reaches the wire.** `false`, a throw, and an unsettled hook are one `RC5056` with one message; the boundary log is the only place they are distinguishable, because a hook whose failure modes can be probed from outside is an oracle for what it knows. Every refusal leaves the record exactly as it was found.
 - **The ops surface mounts on the `default` server unless told otherwise** (`packages/routecraft/src/plugins/ops/plugin.ts`). This is the one ops default that decides network exposure, so it is recorded here alongside the details gate. It is deliberately NOT a tightening: `server` defaults to `"default"`, which on a typical app is the public listener, and component names (route ids, indicator names) are served to every caller in every mode because a probe carrying no credential must be able to read them. The bounding is that the whole surface is off until `ops` appears in config, and the reference page states plainly that an app which must not disclose its route inventory puts the mount on a server the public cannot reach. An operator who needs that gets it by naming a second server, not by a flag.
@@ -213,6 +213,38 @@ from the agent rather than offered raw, per § 6a. An agent reference has
 no flag that skips a proxy route: a call that must not pass the route's
 policy is a hop on another route (`.to(mcp('server:tool'))`), offered to
 the agent as `Direct(<routeId>)`.
+
+A tool definition is input from the remote: its description is text a model
+reads, and its annotations are the server's account of itself. A client
+that sets `pins` is held to the definitions in `mcp.lock`, and the rules
+are:
+
+- The registry judges a listing before it stores it, so no reader of the
+  registry sees a withheld tool. A new consumer of remote tools reads the
+  registry, never a client's listing directly.
+- Every call the platform makes to a configured client passes
+  `dispatchMcpCallRaw`, which refuses a tool the pins do not serve
+  (`AI2004`). A new call path goes through it. `McpService.stdio` is the
+  transport handle dispatch uses; it carries no pin check, and code that
+  calls it directly is outside this rule, as is code that opens its own
+  connection to the remote.
+- Nothing approves a definition at run time. Approval is a commit of the
+  lockfile, read once at bind.
+- A policy keys on the approved `class`, which is `destructive` for
+  anything served without approval, not on `annotations`.
+- The definition a caller receives is the definition that was hashed: the
+  registry entry is built from `pinnedDefinition`, and a new field of a
+  tool is added there or not served. Records keyed by a name the remote
+  chose have no prototype (`ownRecord`), so `__proto__` is a key like any
+  other.
+- Pinning is opt-in per client, a stated exception to §6a: an
+  application that calls a server it runs itself has nothing to review,
+  and a default that fails every start without a lockfile would be
+  switched off rather than used. The unpinned default is made visible
+  instead: every tool of an unpinned client is classed
+  `destructive`.
+- Pinning does not cover what a tool does when called, nor the time
+  between two listings. The reference page says so in those words.
 
 The remote MCP server is outside the trust zone, and so is the path to it.
 What it sends is data, and it is given nothing the configuration did not

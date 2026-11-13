@@ -237,6 +237,74 @@ An agent that lists `MCP(github:create_issue)` goes through that route too, so y
 
 ---
 
+## Pinning a server's tools
+
+A remote server decides what its tools are called, what their descriptions say and what arguments they take, and it can change any of that between two listings. A description is text a model reads, so a server that changes one changes what your agent is told. Pinning holds a client to the definitions someone reviewed.
+
+Set `pins` on the client, write the lockfile, and commit it:
+
+```ts
+// craft.config.ts
+import '@routecraft/ai'
+import { defineConfig } from '@routecraft/routecraft'
+
+export const craftConfig = defineConfig({
+  mcp: {
+    clients: {
+      books: {
+        url: 'https://mcp.example.com/mcp',
+        pins: { added: 'hold', changed: 'hold' },
+      },
+    },
+  },
+})
+```
+
+```bash
+craft mcp pin
+git add mcp.lock && git commit -m "chore: approve the books tools"
+```
+
+`craft mcp pin` lists every pinned client and writes `mcp.lock`: each tool's full definition, a hash of it, and a class. Approval is the commit. The file is JSON with sorted keys, and every character outside printable ASCII is escaped (`\n` and the other short JSON escapes, `\u` for the rest), so the diff of a later `craft mcp pin` shows exactly what the server changed, including a character you could not otherwise see.
+
+From then on each listing is compared with the file:
+
+| Case | `serve` | `warn` | `hold` (default) |
+| --- | --- | --- | --- |
+| `added`: a tool the lockfile has never seen | Served | n/a | Withheld |
+| `changed`: a locked tool whose definition differs | New definition served | New definition served, with a warning and an event | Withheld |
+
+A withheld tool is not listed by your MCP server, and is not offered to an agent. A caller of your MCP server is told the tool is unknown, and a call that names it from inside the application, a route's own `.to(mcp('books:new_tool'))` included, is refused with [`AI2004`](/docs/reference/errors#ai-2004). A locked tool the server stops listing is reported and is no longer callable. Nothing is approved at run time: to accept a change, run `craft mcp pin`, read the diff, commit, and restart.
+
+With `pins` set and no readable lockfile, the application does not start. A client without `pins` is not pinned, and with no pinned client no file is read.
+
+### The class of a tool
+
+Each locked tool has a `class`: `read`, `write` or `destructive`. `craft mcp pin` proposes one for a new tool from the server's hints (`readOnlyHint: true` gives `read`, `destructiveHint: false` gives `write`, anything else `destructive`), you correct it in the file, and a later pin keeps what the file says. It is the reviewer's statement about the tool, where annotations are the server's.
+
+A proxy route reads it from the `routecraft.mcp.class` header, and a star route's `exclude` function is handed it:
+
+```ts
+// capabilities/books/route.ts
+import { mcp, McpHeadersKeys } from '@routecraft/ai'
+import { craft, type Exchange } from '@routecraft/routecraft'
+
+const reads = (ex: Exchange) => ex.headers[McpHeadersKeys.CLASS] === 'read'
+
+export default craft()
+  .id('books')
+  .authorize({ roles: ['finance'] })
+  .cache({ ttl: '2m', when: reads })
+  .from(mcp({ proxy: 'books:*', exclude: (tool) => tool.class === 'destructive' }))
+  .to(mcp('books:*'))
+```
+
+The class is `destructive` whenever nobody approved what is being served: the client is not pinned, the tool is new and served under `added: 'serve'`, or its definition changed and is served under `changed: 'serve'` or `'warn'`. A rule written on `read` therefore never applies to a definition nobody read. For a pinned client the tags an agent's tool selector sees (`read-only`, `destructive`) come from the class too, not from the server's annotations.
+
+The [mcpPlugin reference](/docs/reference/plugins/mcpplugin#pinning) has the options and the lockfile format, and [`craft mcp pin`](/docs/reference/cli#mcp-pin) the command.
+
+---
+
 ## Related
 
 <QuickLinks>

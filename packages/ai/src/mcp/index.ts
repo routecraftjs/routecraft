@@ -33,6 +33,13 @@ export {
   type McpProxiedToolInfo,
   type McpDerivedSchemas,
   type McpProxySchemas,
+  type McpProxyExclude,
+  type McpProxyOptionsFor,
+  type McpStarProxyOptions,
+  type McpExactProxyOptions,
+  type McpToolSourceOptions,
+  type McpPins,
+  type McpToolClass,
   type McpTool,
   type McpToolAnnotations,
   type McpInput,
@@ -44,3 +51,11 @@ export {
   type McpToolResult,
 } from "./types.ts";
 export { validateWithSchema } from "./validate-options.ts";
+export type {
+  McpHeldTool,
+  McpLockedTool,
+  McpLockfile,
+  McpPinnedDefinition,
+  McpPinRules,
+  McpPinTransition,
+} from "./pins.ts";

@@ -152,6 +152,13 @@ export {
   type McpProxiedToolInfo,
   type McpDerivedSchemas,
   type McpProxySchemas,
+  type McpProxyExclude,
+  type McpProxyOptionsFor,
+  type McpStarProxyOptions,
+  type McpExactProxyOptions,
+  type McpToolSourceOptions,
+  type McpPins,
+  type McpToolClass,
   type McpStdioToolCaller,
   type McpTool,
   type McpToolAnnotations,
@@ -178,7 +185,13 @@ export type {
 export type {
   McpArgsExtractor,
   McpClientHttpConfig,
+  McpHeldTool,
+  McpLockedTool,
+  McpLockfile,
   McpMessage,
+  McpPinnedDefinition,
+  McpPinRules,
+  McpPinTransition,
 } from "./mcp/index.ts";
 
 // Agent destination, plugin, and types. For inline use, identity and

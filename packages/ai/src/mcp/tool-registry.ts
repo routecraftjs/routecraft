@@ -1,5 +1,14 @@
-import type { McpTool, McpToolRegistryEntry } from "./types.ts";
+import type { McpTool, McpToolClass, McpToolRegistryEntry } from "./types.ts";
 import { deriveTagsFromAnnotations } from "./annotation-tags.ts";
+import {
+  judgeListing,
+  pinnedDefinition,
+  tagsOfClass,
+  type McpHeldTool,
+  type McpPinRefusal,
+  type McpPinRules,
+  type McpPinTransition,
+} from "./pins.ts";
 
 /**
  * Central registry of MCP tools discovered from remote MCP servers.
@@ -14,8 +23,25 @@ import { deriveTagsFromAnnotations } from "./annotation-tags.ts";
  * there by the MCP server when responding to `tools/list`. The "local" transport
  * label remains a valid value for callers that want to manually register tools
  * with that provenance.
+ *
+ * A pinned client's listing is judged against the lockfile here, before it
+ * is stored, so everything that reads the registry (the server's listing,
+ * the agent tool resolver, the proxy resolution) sees only the tools the
+ * client's pins serve.
  */
 export class McpToolRegistry {
+  /** Per pinned source, the tools its last listing held back, by name. */
+  private held = new Map<string, Map<string, McpHeldTool>>();
+
+  /** Per pinned source, each tool out of its approved state and the hash it was reported at. */
+  private departed = new Map<string, Map<string, string>>();
+
+  /**
+   * @param pinning - The pin rules of the configured clients. Without it no
+   *   client is pinned and every listed tool is stored.
+   */
+  constructor(private readonly pinning?: McpPinRules) {}
+
   /** Nested Map: source -> toolName -> McpToolRegistryEntry */
   private tools = new Map<string, Map<string, McpToolRegistryEntry>>();
 
@@ -86,30 +112,36 @@ export class McpToolRegistry {
     tools: McpTool[],
   ): void {
     const sourceMap = new Map<string, McpToolRegistryEntry>();
+    const rule = this.pinning?.of(source);
+    const verdict =
+      rule === undefined
+        ? undefined
+        : judgeListing(rule.pins, rule.locked, tools);
+    const served: ReadonlyArray<{
+      tool: McpTool;
+      definition: ReturnType<typeof pinnedDefinition>;
+      class: McpToolClass;
+    }> =
+      verdict?.served ??
+      tools.map((tool) => ({
+        tool,
+        definition: pinnedDefinition(tool),
+        class: "destructive" as const,
+      }));
 
-    for (const tool of tools) {
+    for (const { tool, definition, class: toolClass } of served) {
+      // The entry is the hashed definition and nothing else of the tool, so
+      // a field a caller receives is always a field the hash covers.
       const entry: McpToolRegistryEntry = {
-        name: tool.name,
-        inputSchema: tool.inputSchema as Record<string, unknown>,
+        ...definition,
         source,
         transport,
+        class: toolClass,
       };
-      if (tool.title !== undefined) {
-        entry.title = tool.title;
-      }
-      if (tool.description !== undefined) {
-        entry.description = tool.description;
-      }
-      if (tool.outputSchema !== undefined) {
-        entry.outputSchema = tool.outputSchema as Record<string, unknown>;
-      }
-      if (tool.icons !== undefined) {
-        entry.icons = tool.icons;
-      }
-      if (tool.annotations !== undefined) {
-        entry.annotations = tool.annotations;
-      }
-      const derivedTags = deriveTagsFromAnnotations(tool.annotations);
+      const derivedTags =
+        verdict === undefined
+          ? deriveTagsFromAnnotations(tool.annotations)
+          : tagsOfClass(toolClass);
       if (derivedTags.length > 0) {
         entry.tags = derivedTags;
       }
@@ -117,11 +149,34 @@ export class McpToolRegistry {
     }
 
     this.tools.set(source, sourceMap);
+    if (verdict !== undefined) {
+      this.held.set(
+        source,
+        new Map(verdict.held.map((tool) => [tool.name, tool])),
+      );
+      this.reportDepartures(source, [
+        ...verdict.held.map((tool): McpPinTransition => ({
+          kind: "held",
+          serverId: source,
+          ...tool,
+        })),
+        ...verdict.changed.map((tool): McpPinTransition => ({
+          kind: "changed",
+          serverId: source,
+          ...tool,
+        })),
+        ...verdict.removed.map((tool): McpPinTransition => ({
+          kind: "removed",
+          serverId: source,
+          ...tool,
+        })),
+      ]);
+    }
 
     // Only bump the change version when the source's tools actually
     // differ from what was stored, so periodic HTTP re-listings with an
     // unchanged tool set do not invalidate memoized consumers.
-    const fingerprint = JSON.stringify([transport, tools]);
+    const fingerprint = JSON.stringify([transport, served]);
     if (this.fingerprints.get(source) !== fingerprint) {
       this.fingerprints.set(source, fingerprint);
       this.changed();
@@ -166,10 +221,56 @@ export class McpToolRegistry {
    * @param source - Source identifier whose tools should be removed
    */
   removeSource(source: string): void {
+    // A client switched off is not a tool removed: its departures are
+    // forgotten without a word, and reported afresh if it lists again.
+    this.held.delete(source);
+    this.departed.delete(source);
     if (this.tools.delete(source)) {
       this.fingerprints.delete(source);
       this.changed();
     }
+  }
+
+  /**
+   * Report each tool of a pinned source that has left its approved state
+   * since the last listing, or left it for a different definition. A tool
+   * that stays as it was reported says nothing on the next listing.
+   */
+  private reportDepartures(
+    source: string,
+    transitions: readonly McpPinTransition[],
+  ): void {
+    const before = this.departed.get(source);
+    const now = new Map<string, string>();
+    for (const transition of transitions) {
+      const key = JSON.stringify([transition.kind, transition.name]);
+      const at = transition.kind === "removed" ? "" : transition.live;
+      now.set(key, at);
+      if (before?.get(key) === at) continue;
+      try {
+        this.pinning?.report?.(transition);
+      } catch {
+        // A reporter that throws must not fail the listing it reports on.
+      }
+    }
+    this.departed.set(source, now);
+  }
+
+  /**
+   * Why a call to `source:tool` must not reach the server, or `undefined`
+   * when it may. Only a pinned source refuses: a call is allowed when the
+   * tool is among those its pins serve, so a held tool, a tool the server
+   * does not list and any tool before the first successful listing are all
+   * refused, whichever path the call took.
+   *
+   * @internal
+   */
+  refusalOf(source: string, tool: string): McpPinRefusal | undefined {
+    if (this.pinning?.of(source) === undefined) return undefined;
+    const listed = this.tools.get(source);
+    if (listed === undefined) return "unlisted";
+    if (listed.has(tool)) return undefined;
+    return this.held.get(source)?.get(tool)?.reason ?? "absent";
   }
 
   /**
