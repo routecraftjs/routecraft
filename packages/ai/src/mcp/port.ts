@@ -46,8 +46,9 @@ export interface McpService {
    */
   readonly proxies: ReadonlyMap<string, McpProxyRegistration>;
   /**
-   * Bumped whenever {@link proxies} changes, so a consumer memoising the
-   * exposed tools recomputes only when a registration came or went.
+   * Bumped whenever {@link proxies} changes, or a route declaring an exact
+   * proxy is added, so a consumer memoising the exposed tools recomputes
+   * only when what covers a tool can have changed.
    */
   readonly proxiesVersion: number;
   /**
@@ -118,6 +119,7 @@ export function createMcpService(
   for (const entry of seed.local ?? []) local.set(entry.endpoint, entry);
   const proxies = new Map<string, McpProxyRegistration>();
   let proxiesVersion = 0;
+  let declaredSeen = 0;
   const listeners = new Set<() => void>();
   const changed = (): void => {
     for (const listener of listeners) listener();
@@ -126,6 +128,13 @@ export function createMcpService(
     local,
     proxies,
     get proxiesVersion() {
+      // Routes are only ever added, so the count changes exactly when the
+      // declared set does.
+      const declared = seed.declaredProxies?.().size ?? 0;
+      if (declared !== declaredSeen) {
+        declaredSeen = declared;
+        proxiesVersion++;
+      }
       return proxiesVersion;
     },
     registerProxy(registration) {

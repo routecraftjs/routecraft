@@ -364,6 +364,38 @@ describe("a route that proxies a remote MCP server", () => {
   });
 
   /**
+   * @case An exact route declared after the server resolved its tools still closes its tool
+   * @preconditions Star route over docs, tools listed once; then a disabled exact route over docs:get_document is registered on the running context
+   * @expectedResult The first listing carries docs_get_document; the listing after the registration does not, and a call to it is not found
+   */
+  test("a disabled exact route registered later closes its tool", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+    ]);
+    expect(server.getAvailableTools().map((tool) => tool.name)).toContain(
+      "docs_get_document",
+    );
+    t.ctx.registerRoutes(
+      ...craft()
+        .id("fetch")
+        .enabled(() => false)
+        .from(mcp({ proxy: "docs:get_document" }))
+        .to(mcp("docs:get_document"))
+        .build(),
+    );
+    await Promise.resolve();
+    expect(server.getAvailableTools().map((tool) => tool.name)).not.toContain(
+      "docs_get_document",
+    );
+    const closed = await call("docs_get_document", { id: "1" });
+    expect(closed.isError).toBe(true);
+    expect(closed.content[0]?.text).toContain("Tool not found");
+  });
+
+  /**
    * @case An exclude name the client does not list is warned about once
    * @preconditions Star route over docs excluding "serch", a name the client never lists
    * @expectedResult Listing the tools logs one warning naming the route, the client and the unmatched name, and the group is unchanged
