@@ -25,7 +25,7 @@ export function mcpPort(seed: McpSeed = {}): Plugin {
     bind(c) {
       c.provide(
         MCP,
-        createMcpService({ declaredProxies: declaredExactProxies(c), ...seed }),
+        createMcpService({ ...seed, declaredProxies: declaredExactProxies(c) }),
       );
     },
   };
@@ -77,8 +77,8 @@ export function mcpServerPlugin(
     optional: [WEB_INGRESS, ENFORCEMENT],
     async bind(c) {
       const service = createMcpService({
-        declaredProxies: declaredExactProxies(c),
         ...seed,
+        declaredProxies: declaredExactProxies(c),
       });
       c.provide(MCP, service);
       const server = new McpServer(
