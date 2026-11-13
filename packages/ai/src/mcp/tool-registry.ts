@@ -2,8 +2,10 @@ import type { McpTool, McpToolClass, McpToolRegistryEntry } from "./types.ts";
 import { deriveTagsFromAnnotations } from "./annotation-tags.ts";
 import {
   judgeListing,
+  pinnedDefinition,
   tagsOfClass,
   type McpHeldTool,
+  type McpPinRefusal,
   type McpPinRules,
   type McpPinTransition,
 } from "./pins.ts";
@@ -115,33 +117,27 @@ export class McpToolRegistry {
       rule === undefined
         ? undefined
         : judgeListing(rule.pins, rule.locked, tools);
-    const served: ReadonlyArray<{ tool: McpTool; class: McpToolClass }> =
+    const served: ReadonlyArray<{
+      tool: McpTool;
+      definition: ReturnType<typeof pinnedDefinition>;
+      class: McpToolClass;
+    }> =
       verdict?.served ??
-      tools.map((tool) => ({ tool, class: "destructive" as const }));
+      tools.map((tool) => ({
+        tool,
+        definition: pinnedDefinition(tool),
+        class: "destructive" as const,
+      }));
 
-    for (const { tool, class: toolClass } of served) {
+    for (const { tool, definition, class: toolClass } of served) {
+      // The entry is the hashed definition and nothing else of the tool, so
+      // a field a caller receives is always a field the hash covers.
       const entry: McpToolRegistryEntry = {
-        name: tool.name,
-        inputSchema: tool.inputSchema as Record<string, unknown>,
+        ...definition,
         source,
         transport,
         class: toolClass,
       };
-      if (tool.title !== undefined) {
-        entry.title = tool.title;
-      }
-      if (tool.description !== undefined) {
-        entry.description = tool.description;
-      }
-      if (tool.outputSchema !== undefined) {
-        entry.outputSchema = tool.outputSchema as Record<string, unknown>;
-      }
-      if (tool.icons !== undefined) {
-        entry.icons = tool.icons;
-      }
-      if (tool.annotations !== undefined) {
-        entry.annotations = tool.annotations;
-      }
       const derivedTags =
         verdict === undefined
           ? deriveTagsFromAnnotations(tool.annotations)
@@ -261,14 +257,6 @@ export class McpToolRegistry {
   }
 
   /**
-   * The tools a pinned source's last listing carried that its pins hold
-   * back. Empty for a source that is not pinned.
-   */
-  getHeldTools(source: string): McpHeldTool[] {
-    return Array.from(this.held.get(source)?.values() ?? []);
-  }
-
-  /**
    * Why a call to `source:tool` must not reach the server, or `undefined`
    * when it may. Only a pinned source refuses: a call is allowed when the
    * tool is among those its pins serve, so a held tool, a tool the server
@@ -277,21 +265,12 @@ export class McpToolRegistry {
    *
    * @internal
    */
-  refusalOf(source: string, tool: string): string | undefined {
+  refusalOf(source: string, tool: string): McpPinRefusal | undefined {
     if (this.pinning?.of(source) === undefined) return undefined;
     const listed = this.tools.get(source);
-    if (listed === undefined) {
-      return "the client's tools have not been listed yet, so none can be checked against the lockfile";
-    }
+    if (listed === undefined) return "unlisted";
     if (listed.has(tool)) return undefined;
-    const held = this.held.get(source)?.get(tool);
-    if (held?.reason === "added") {
-      return "the lockfile has never seen this tool";
-    }
-    if (held?.reason === "changed") {
-      return "its definition is not the one approved in the lockfile";
-    }
-    return "the client does not list it";
+    return this.held.get(source)?.get(tool)?.reason ?? "absent";
   }
 
   /**

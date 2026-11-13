@@ -1,6 +1,7 @@
 ---
 "@routecraft/ai": minor
 "@routecraft/cli": minor
+"@routecraft/routecraft": minor
 ---
 
 Pin a remote MCP server's tools to definitions you reviewed.
@@ -11,3 +12,5 @@ Pin a remote MCP server's tools to definitions you reviewed.
 - `plugin:mcp:pin:held`, `plugin:mcp:pin:changed` and `plugin:mcp:pin:removed` report a tool leaving its approved state.
 - A star proxy's `exclude` also takes `(tool) => boolean`.
 - `mcp({ proxy })` types its options by the form of the ref: `exclude` and `schemas` beside an exact ref, or `name` and `annotations` beside a star ref, are now type errors as well as the start-time `RC5003` they already were. A ref typed as `string` is checked when `mcp()` is called, as before.
+- `registerProjectCommand(name, command)` and `projectCommand(name)` in `@routecraft/routecraft` let an ecosystem package contribute a `craft` command that runs against the project's loaded config, the way `registerCredentialLogins` contributes logins. `craft mcp pin` is the first.
+- The lockfile and pin types (`McpPins`, `McpToolClass`, `McpLockfile`, `McpLockedTool`, `McpPinnedDefinition`, `McpPinRules`, `McpPinTransition`, `McpHeldTool`) and the proxy option types (`McpProxyExclude`, `McpProxyOptionsFor`, `McpStarProxyOptions`, `McpExactProxyOptions`, `McpToolSourceOptions`) are exported from `@routecraft/ai`.

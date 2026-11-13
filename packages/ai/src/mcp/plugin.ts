@@ -3,6 +3,7 @@ import {
   CREDENTIALS,
   ENFORCEMENT,
   evaluateEnablementOnce,
+  type CraftConfig,
   type Plugin,
   type PluginContext,
   type EventName,
@@ -29,11 +30,10 @@ import {
 } from "./stdio-client-manager.ts";
 import type { AuthProvider } from "@modelcontextprotocol/client";
 import {
-  coalescedAuthProvider,
   connectHint,
   connectOwner,
   isConnectAuth,
-  StoreOAuthProvider,
+  storedAuthProvider,
 } from "./connect.ts";
 import { assertRemoteUrl } from "./sdk.ts";
 import { createMcpHttpConnections } from "./http-connections.ts";
@@ -69,8 +69,50 @@ export function mcpPluginOptions(
     : undefined;
 }
 
-function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
+/** @internal */
+export function isStdioConfig(
+  config: ClientConfig,
+): config is McpClientStdioConfig {
   return "transport" in config && config.transport === "stdio";
+}
+
+/**
+ * Every set of `mcpPlugin` options a configuration carries, in order: the
+ * `mcp` key, then each `mcpPlugin()` in `plugins`. The one reading of
+ * where MCP clients are declared, for the commands that act on them.
+ *
+ * @internal
+ */
+export function configuredMcpOptions(config: CraftConfig): McpPluginOptions[] {
+  return [
+    config.mcp,
+    ...(config.plugins ?? []).map((plugin) => mcpPluginOptions(plugin)),
+  ].filter((options) => options !== undefined);
+}
+
+/**
+ * What a stdio client's subprocess is started with, under the given
+ * restart policy. Shared by the application and `craft mcp pin`, so both
+ * run the server the same way.
+ *
+ * @internal
+ */
+export function stdioManagerOptions(
+  serverId: string,
+  config: McpClientStdioConfig,
+  restart: Pick<
+    StdioClientManagerOptions,
+    "maxRestarts" | "restartDelayMs" | "restartBackoffMultiplier"
+  >,
+): StdioClientManagerOptions {
+  return {
+    serverId,
+    command: config.command,
+    args: config.args ?? [],
+    ...(config.env !== undefined ? { env: config.env } : {}),
+    ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
+    ...restart,
+  };
 }
 
 /**
@@ -103,8 +145,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       const clients = new Map<string, McpClientConfig>();
       const disabledClients = new Map<string, string>();
       const authProviders = new Map<string, AuthProvider>();
-      // Shared, so the disposer that removes a manager removes what dispatch sees.
       const lockfile = await pinnedLockfile();
+      // The maps are shared, so the disposer that removes a manager removes what dispatch sees.
       const service: McpService = createMcpService({
         tools: new McpToolRegistry({
           of: (serverId) => {
@@ -192,13 +234,11 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
           }
           authProviders.set(
             serverId,
-            coalescedAuthProvider(
-              new StoreOAuthProvider({
-                serverId,
-                options: config.auth.options,
-                store: c.require(CREDENTIALS),
-                onLoginRequired: (why) => disable(serverId, why),
-              }),
+            storedAuthProvider(
+              serverId,
+              config.auth,
+              c.require(CREDENTIALS),
+              (why) => disable(serverId, why),
             ),
           );
         }
@@ -267,32 +307,39 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
 
   /** Say that a pinned tool left the state the lockfile approved. */
   function reportPin(c: PluginContext, transition: McpPinTransition): void {
-    const { kind, serverId, name: tool } = transition;
-    if (kind === "changed" && !transition.warn) return;
-    const hashes = {
-      ...("approved" in transition && transition.approved !== undefined
-        ? { approved: transition.approved }
-        : {}),
-      ...("live" in transition ? { live: transition.live } : {}),
-    };
-    const message =
-      kind === "held"
-        ? transition.reason === "added"
-          ? "MCP tool is withheld: the lockfile has never seen it. Review it with craft mcp pin and commit the lockfile to approve"
-          : "MCP tool is withheld: its definition is not the one approved in the lockfile. Review it with craft mcp pin and commit the lockfile to approve"
-        : kind === "changed"
-          ? "MCP tool is served on a definition the lockfile does not vouch for, classed destructive until it is approved"
-          : "MCP tool in the lockfile is no longer listed by its server";
-    c.logger.warn({ client: serverId, tool, ...hashes }, message);
-    c.emit(
-      `plugin:mcp:pin:${kind}` as EventName,
-      {
-        serverId,
-        tool,
-        ...(kind === "held" ? { reason: transition.reason } : {}),
-        ...hashes,
-      } as Record<string, unknown>,
-    );
+    const { serverId, name: tool } = transition;
+    switch (transition.kind) {
+      case "held": {
+        const { reason, approved, live } = transition;
+        const hashes = approved === undefined ? { live } : { approved, live };
+        c.logger.warn(
+          { client: serverId, tool, ...hashes },
+          reason === "added"
+            ? "MCP tool is withheld: the lockfile has never seen it. Review it with craft mcp pin and commit the lockfile to approve"
+            : "MCP tool is withheld: its definition is not the one approved in the lockfile. Review it with craft mcp pin and commit the lockfile to approve",
+        );
+        c.emit("plugin:mcp:pin:held", { serverId, tool, reason, ...hashes });
+        return;
+      }
+      case "changed": {
+        if (!transition.warn) return;
+        const { approved, live } = transition;
+        c.logger.warn(
+          { client: serverId, tool, approved, live },
+          "MCP tool is served on a definition the lockfile does not vouch for, classed destructive until it is approved",
+        );
+        c.emit("plugin:mcp:pin:changed", { serverId, tool, approved, live });
+        return;
+      }
+      case "removed": {
+        const { approved } = transition;
+        c.logger.warn(
+          { client: serverId, tool, approved },
+          "MCP tool in the lockfile is no longer listed by its server",
+        );
+        c.emit("plugin:mcp:pin:removed", { serverId, tool, approved });
+      }
+    }
   }
 
   /**
@@ -376,19 +423,14 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     config: McpClientStdioConfig,
     registry: McpToolRegistry,
   ): Promise<void> {
-    const managerOpts: StdioClientManagerOptions = {
-      serverId,
-      command: config.command,
-      args: config.args ?? [],
+    const managerOpts = stdioManagerOptions(serverId, config, {
       maxRestarts: options.maxRestarts ?? 5,
       restartDelayMs:
         options.restartDelay === undefined
           ? 1000
           : parseDuration(options.restartDelay, "mcpPlugin.restartDelay"),
       restartBackoffMultiplier: options.restartBackoffMultiplier ?? 2,
-    };
-    if (config.env !== undefined) managerOpts.env = config.env;
-    if (config.cwd !== undefined) managerOpts.cwd = config.cwd;
+    });
 
     const manager = new StdioClientManager(
       managerOpts,

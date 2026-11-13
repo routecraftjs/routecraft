@@ -1,37 +1,43 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
+import { relative, sep } from "node:path";
 import type { AuthProvider } from "@modelcontextprotocol/client";
 import {
   evaluateEnablementOnce,
   rcError,
   type CraftConfig,
   type CredentialStore,
+  type ProjectCommand,
 } from "@routecraft/routecraft";
-import {
-  coalescedAuthProvider,
-  isConnectAuth,
-  StoreOAuthProvider,
-} from "./connect.ts";
+import { isConnectAuth, storedAuthProvider } from "./connect.ts";
 import { createMcpHttpConnections } from "./http-connections.ts";
 import {
   lockfilePath,
   lockTools,
+  ownRecord,
   parseLockfile,
   serializeLockfile,
   type McpLockedTool,
   type McpLockfile,
 } from "./pins.ts";
-import { mcpPluginOptions } from "./plugin.ts";
+import {
+  configuredMcpOptions,
+  isStdioConfig,
+  stdioManagerOptions,
+} from "./plugin.ts";
 import { assertRemoteUrl } from "./sdk.ts";
 import { StdioClientManager } from "./stdio-client-manager.ts";
 import type {
   McpClientServerConfig,
   McpClientStdioConfig,
-  McpPluginOptions,
   McpTool,
   McpToolClass,
 } from "./types.ts";
 
-/** What `craft mcp pin` asks for. */
+/**
+ * What `craft mcp pin` asks for.
+ *
+ * @internal
+ */
 export interface McpPinRequest {
   /** The one client to pin. Every client that sets `pins` when left out. */
   readonly client?: string | undefined;
@@ -39,7 +45,11 @@ export interface McpPinRequest {
   readonly credentials: () => Promise<CredentialStore>;
 }
 
-/** How one client's listing compares with what the lockfile held. */
+/**
+ * How one client's listing compares with what the lockfile held.
+ *
+ * @internal
+ */
 export interface McpPinnedClient {
   readonly id: string;
   /** Tools the lockfile had not seen, each with the class proposed for it. */
@@ -51,7 +61,11 @@ export interface McpPinnedClient {
   readonly unchanged: number;
 }
 
-/** What `craft mcp pin` did. */
+/**
+ * What `craft mcp pin` did.
+ *
+ * @internal
+ */
 export interface McpPinResult {
   /** The lockfile's path. */
   readonly path: string;
@@ -81,10 +95,7 @@ export async function pinMcpClients(
   config: CraftConfig,
   request: McpPinRequest,
 ): Promise<McpPinResult> {
-  const sources: McpPluginOptions[] = [
-    config.mcp,
-    ...(config.plugins ?? []).map((plugin) => mcpPluginOptions(plugin)),
-  ].filter((options) => options !== undefined);
+  const sources = configuredMcpOptions(config);
   const configured = new Map<string, McpClientServerConfig>();
   for (const options of sources) {
     for (const [id, client] of Object.entries(options.clients ?? {})) {
@@ -116,7 +127,7 @@ export async function pinMcpClients(
   const previous =
     existing === undefined ? undefined : parseLockfile(existing, path);
 
-  const clients: McpLockfile["clients"] = {};
+  const clients: McpLockfile["clients"] = ownRecord();
   for (const id of configured.keys()) {
     const kept = previous?.clients[id];
     if (kept !== undefined) clients[id] = kept;
@@ -124,14 +135,14 @@ export async function pinMcpClients(
   const pinned: McpPinnedClient[] = [];
   const failed: Array<{ id: string; reason: string }> = [];
   for (const id of targets) {
-    const before = previous?.clients[id]?.tools;
+    const before = clients[id]?.tools;
     try {
       const tools = lockTools(
         await listClient(id, configured.get(id)!, request),
         before,
       );
       clients[id] = { tools };
-      pinned.push(compare(id, before ?? {}, tools));
+      pinned.push(compare(id, before ?? ownRecord(), tools));
     } catch (error) {
       failed.push({
         id,
@@ -196,9 +207,7 @@ async function listClient(
       throw new Error(`the client is disabled (${state.reason})`);
     }
   }
-  if ("transport" in client && client.transport === "stdio") {
-    return listStdio(id, client);
-  }
+  if (isStdioConfig(client)) return listStdio(id, client);
   assertRemoteUrl(
     client.url,
     client.allowHttp === true,
@@ -209,15 +218,13 @@ async function listClient(
   if (isConnectAuth(client.auth)) {
     authProviders.set(
       id,
-      coalescedAuthProvider(
-        new StoreOAuthProvider({
-          serverId: id,
-          options: client.auth.options,
-          store: await request.credentials(),
-          onLoginRequired: (why) => {
-            loginRequired = why;
-          },
-        }),
+      storedAuthProvider(
+        id,
+        client.auth,
+        await request.credentials(),
+        (why) => {
+          loginRequired = why;
+        },
       ),
     );
   }
@@ -237,29 +244,14 @@ async function listStdio(
   client: McpClientStdioConfig,
 ): Promise<McpTool[]> {
   let listed: McpTool[] | undefined;
-  let failure: unknown;
   const quiet = () => undefined;
   const manager = new StdioClientManager(
-    {
-      serverId: id,
-      command: client.command,
-      args: client.args ?? [],
-      ...(client.env !== undefined ? { env: client.env } : {}),
-      ...(client.cwd !== undefined ? { cwd: client.cwd } : {}),
+    stdioManagerOptions(id, client, {
       maxRestarts: 0,
       restartDelayMs: 0,
       restartBackoffMultiplier: 1,
-    },
-    {
-      info: quiet,
-      debug: quiet,
-      warn: (bindings) => {
-        failure ??= bindings["err"];
-      },
-      error: (bindings) => {
-        failure ??= bindings["err"];
-      },
-    },
+    }),
+    { info: quiet, debug: quiet, warn: quiet, error: quiet },
     quiet,
     (_id, tools) => {
       listed = tools;
@@ -267,16 +259,76 @@ async function listStdio(
   );
   try {
     await manager.start();
-  } finally {
-    await manager.stop().catch(() => undefined);
-  }
-  if (listed === undefined) {
+    if (listed !== undefined) return listed;
+    const failure = manager.lastListingError;
     throw new Error(
       failure instanceof Error
         ? failure.message
         : "the server did not list its tools",
       { cause: failure },
     );
+  } finally {
+    await manager.stop().catch(() => undefined);
   }
-  return listed;
 }
+
+/**
+ * Text a remote server chose, made safe to print: anything outside
+ * printable ASCII becomes a `\u` escape, so a tool name or an error cannot
+ * move the cursor or hide part of the lines a reviewer reads.
+ */
+function printable(text: string): string {
+  return text.replace(
+    /[^\x20-\x7e]/g,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+/**
+ * `craft mcp pin [client]`: write what the configured MCP clients list now
+ * to the lockfile, and say what changed. The lockfile is approved by
+ * committing it, so the output names the changes and leaves the review to
+ * the diff.
+ *
+ * @internal
+ */
+export const mcpPinCommand: ProjectCommand = async (config, io) => {
+  if (io.args.length > 1) {
+    return { code: 1, error: "craft mcp pin takes at most one client." };
+  }
+  const result = await pinMcpClients(config, {
+    client: io.args[0],
+    credentials: io.credentials,
+  });
+  const lines: string[] = [];
+  for (const each of result.clients) {
+    const total = each.added.length + each.changed.length + each.unchanged;
+    lines.push(
+      `${each.id}: ${total} tools, ${each.added.length} added, ${each.changed.length} changed, ${each.removed.length} removed`,
+    );
+    for (const tool of each.added) {
+      lines.push(`  + ${printable(tool.name)}  (class: ${tool.class})`);
+    }
+    for (const name of each.changed) lines.push(`  ~ ${printable(name)}`);
+    for (const name of each.removed) lines.push(`  - ${printable(name)}`);
+  }
+  if (result.clients.length > 0) {
+    const shown = relative(io.root, result.path);
+    const file =
+      shown === ".." || shown.startsWith(`..${sep}`) ? result.path : shown;
+    lines.push(
+      result.written
+        ? `Wrote ${file}. Check the class of each added tool, review the diff, and commit it to approve.`
+        : `${file} is up to date.`,
+    );
+  }
+  const errors = result.failed.map(
+    (each) =>
+      `"${each.id}" was not listed, and its locked tools are unchanged: ${printable(each.reason)}`,
+  );
+  return {
+    code: errors.length > 0 ? 1 : 0,
+    ...(lines.length > 0 ? { output: lines.join("\n") } : {}),
+    ...(errors.length > 0 ? { error: errors.join("\n") } : {}),
+  };
+};

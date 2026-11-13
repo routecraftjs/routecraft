@@ -215,6 +215,8 @@ Three kinds of module. The 8-to-12 bound governs only the first group.
 | `@routecraft/cli` | the `craft` binary (run routes/contexts) |
 | `create-routecraft` | project scaffolder |
 
+The CLI depends on core alone. A command that belongs to an ecosystem package (`craft connect` running an MCP login, `craft mcp pin`) reaches that package through a registry core owns, which the package fills when the project's config imports it: `registerCredentialLogins` for a login, `registerProjectCommand` for a command. The package owns what the command does and prints, and the CLI loads the project and dispatches. A new such command uses the registry; it does not add a dependency to the CLI or a slot on `globalThis` of its own.
+
 ### C. Dev and authoring plugins (not installed at runtime)
 
 | Package | Role |

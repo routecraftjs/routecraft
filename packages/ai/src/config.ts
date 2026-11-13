@@ -1,12 +1,13 @@
 import {
   registerConfigApplier,
   registerCredentialLogins,
+  registerProjectCommand,
   type CredentialLogin,
 } from "@routecraft/routecraft";
 import { llmPlugin } from "./llm/plugin.ts";
-import { mcpPlugin, mcpPluginOptions } from "./mcp/plugin.ts";
+import { configuredMcpOptions, mcpPlugin } from "./mcp/plugin.ts";
 import { connectLogin, isConnectAuth } from "./mcp/connect.ts";
-import { pinMcpClients } from "./mcp/pin-command.ts";
+import { mcpPinCommand } from "./mcp/pin-command.ts";
 import { embeddingPlugin } from "./embedding/plugin.ts";
 import { agentPlugin } from "./agent/plugin.ts";
 import type { LlmPluginOptions } from "./llm/types.ts";
@@ -84,13 +85,9 @@ registerConfigApplier("acp", (options) => acpPlugin(options));
 // `craft connect` runs the logins of the clients declared with connect(),
 // whether under the `mcp` key or in an `mcpPlugin()` in `plugins`.
 registerCredentialLogins("mcp", (config) => {
-  const sources = [
-    config.mcp,
-    ...(config.plugins ?? []).map((plugin) => mcpPluginOptions(plugin)),
-  ];
   const logins: CredentialLogin[] = [];
-  for (const options of sources) {
-    for (const [serverId, client] of Object.entries(options?.clients ?? {})) {
+  for (const options of configuredMcpOptions(config)) {
+    for (const [serverId, client] of Object.entries(options.clients ?? {})) {
       if ("url" in client && isConnectAuth(client.auth)) {
         logins.push(
           connectLogin(serverId, client.url, client.auth, {
@@ -103,7 +100,4 @@ registerCredentialLogins("mcp", (config) => {
   return logins;
 });
 
-// `craft mcp pin` finds the command here: the CLI does not depend on this
-// package, and a second copy of it replaces the entry rather than adding one.
-(globalThis as Record<symbol, unknown>)[Symbol.for("routecraft.mcp.pin")] =
-  pinMcpClients;
+registerProjectCommand("mcp pin", mcpPinCommand);

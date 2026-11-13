@@ -588,8 +588,10 @@ withEnvironment(
     ),
   () => process.cwd(),
 ).action(async (client: string | undefined) => {
-  const { mcpPinCommand } = await import("./mcp-pin.js");
-  settle(await mcpPinCommand(client));
+  const { runProjectCommand } = await import("./project-command.js");
+  settle(
+    await runProjectCommand("mcp pin", client === undefined ? [] : [client]),
+  );
 });
 
 /**

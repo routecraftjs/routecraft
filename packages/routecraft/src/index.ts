@@ -910,6 +910,13 @@ export {
 } from "./plugins/credentials/login.ts";
 export { MemoryCredentialStore } from "./plugins/credentials/memory-store.ts";
 export {
+  registerProjectCommand,
+  projectCommand,
+  type ProjectCommand,
+  type ProjectCommandIO,
+  type ProjectCommandResult,
+} from "./project-command.ts";
+export {
   SqliteCredentialStore,
   DEFAULT_CREDENTIALS_DB_PATH,
 } from "./plugins/credentials/sqlite-store.ts";

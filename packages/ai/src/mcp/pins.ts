@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { rcError, type Tag } from "@routecraft/routecraft";
+import { isRecord } from "../shared/is-record.ts";
 import type {
+  McpIcon,
   McpPins,
   McpTool,
   McpToolAnnotations,
@@ -37,7 +39,7 @@ export interface McpPinnedDefinition {
   inputSchema: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
   annotations?: McpToolAnnotations;
-  icons?: unknown[];
+  icons?: McpIcon[];
 }
 
 /** One approved tool in the lockfile. */
@@ -60,6 +62,9 @@ export interface McpLockfile {
  * differ only in an invisible character differ visibly in a diff.
  * `indent` adds line breaks for the file; the hash uses none.
  *
+ * The output is what every approved hash was taken over, so a change to
+ * it invalidates every lockfile and needs a new lockfile version.
+ *
  * @internal
  */
 export function canonicalJson(value: unknown, indent = 0): string {
@@ -70,11 +75,23 @@ export function canonicalJson(value: unknown, indent = 0): string {
   );
 }
 
+/**
+ * A record with no prototype, for keys a remote server chose. Assigning
+ * `__proto__` on an ordinary object sets its prototype instead of a key,
+ * which would leave that part of a definition out of the hash and out of
+ * the file a reviewer reads.
+ *
+ * @internal
+ */
+export function ownRecord<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>;
+}
+
 function sorted(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sorted);
   if (value === null || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
+  const out = ownRecord<unknown>();
   for (const key of Object.keys(record).sort()) {
     if (record[key] !== undefined) out[key] = sorted(record[key]);
   }
@@ -170,12 +187,12 @@ export function parseLockfile(text: string, path: string): McpLockfile {
     throw invalid("its version is not 1");
   }
   if (!isRecord(parsed["clients"])) throw invalid("it has no clients");
-  const clients: McpLockfile["clients"] = {};
+  const clients: McpLockfile["clients"] = ownRecord();
   for (const [client, entry] of Object.entries(parsed["clients"])) {
     if (!isRecord(entry) || !isRecord(entry["tools"])) {
       throw invalid(`client "${client}" has no tools`);
     }
-    const tools: Record<string, McpLockedTool> = {};
+    const tools = ownRecord<McpLockedTool>();
     for (const [name, tool] of Object.entries(entry["tools"])) {
       if (
         !isRecord(tool) ||
@@ -258,11 +275,14 @@ export function lockTools(
   listed: readonly McpTool[],
   previous: Record<string, McpLockedTool> | undefined,
 ): Record<string, McpLockedTool> {
-  const tools: Record<string, McpLockedTool> = {};
+  const tools = ownRecord<McpLockedTool>();
   for (const tool of listed) {
     const definition = pinnedDefinition(tool);
     tools[tool.name] = {
-      class: previous?.[tool.name]?.class ?? proposedClass(tool.annotations),
+      class:
+        (previous !== undefined && Object.hasOwn(previous, tool.name)
+          ? previous[tool.name]?.class
+          : undefined) ?? proposedClass(tool.annotations),
       hash: definitionHash(definition),
       definition,
     };
@@ -283,7 +303,11 @@ export interface McpHeldTool {
 /** What one listing of a pinned client comes to. */
 export interface McpPinVerdict {
   /** The tools to serve, each with the class a policy may rely on. */
-  served: Array<{ tool: McpTool; class: McpToolClass }>;
+  served: Array<{
+    tool: McpTool;
+    definition: McpPinnedDefinition;
+    class: McpToolClass;
+  }>;
   held: McpHeldTool[];
   /** Locked tools served on a definition the lockfile does not vouch for. */
   changed: Array<{
@@ -321,7 +345,8 @@ export function judgeListing(
   const seen = new Set<string>();
   for (const tool of listed) {
     seen.add(tool.name);
-    const live = definitionHash(pinnedDefinition(tool));
+    const definition = pinnedDefinition(tool);
+    const live = definitionHash(definition);
     const approved = Object.hasOwn(locked, tool.name)
       ? locked[tool.name]
       : undefined;
@@ -329,12 +354,12 @@ export function judgeListing(
       if (added === "hold") {
         verdict.held.push({ name: tool.name, reason: "added", live });
       } else {
-        verdict.served.push({ tool, class: "destructive" });
+        verdict.served.push({ tool, definition, class: "destructive" });
       }
       continue;
     }
     if (approved.hash === live) {
-      verdict.served.push({ tool, class: approved.class });
+      verdict.served.push({ tool, definition, class: approved.class });
       continue;
     }
     if (changed === "hold") {
@@ -346,7 +371,7 @@ export function judgeListing(
       });
       continue;
     }
-    verdict.served.push({ tool, class: "destructive" });
+    verdict.served.push({ tool, definition, class: "destructive" });
     verdict.changed.push({
       name: tool.name,
       approved: approved.hash,
@@ -358,10 +383,6 @@ export function judgeListing(
     if (!seen.has(name)) verdict.removed.push({ name, approved: tool.hash });
   }
   return verdict;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /**
@@ -380,11 +401,21 @@ export type McpPinTransition =
     }
   | { kind: "removed"; serverId: string; name: string; approved: string };
 
+/** Why a pinned client's tool may not be called. */
+export type McpPinRefusal =
+  /** The client's tools have not been listed since start. */
+  | "unlisted"
+  /** The lockfile has never seen the tool. */
+  | "added"
+  /** The tool's definition is not the approved one. */
+  | "changed"
+  /** The client does not list the tool. */
+  | "absent";
+
 /**
  * What the tool registry asks of pinning: the rule for a client, and
- * somewhere to say a tool left its approved state.
- *
- * @internal
+ * somewhere to say a tool left its approved state. `mcpPlugin` supplies it
+ * from the clients' `pins` and the lockfile.
  */
 export interface McpPinRules {
   /** A client's pins and locked tools, or `undefined` when it is not pinned. */

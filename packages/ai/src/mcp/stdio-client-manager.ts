@@ -54,6 +54,7 @@ export class StdioClientManager {
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private stabilityTimer: ReturnType<typeof setTimeout> | null = null;
   private tools: McpTool[] = [];
+  private listingError: unknown;
 
   /**
    * @param options - Subprocess command, restart policy, and server identity
@@ -277,6 +278,11 @@ export class StdioClientManager {
     return [...this.tools];
   }
 
+  /** Why the last tool listing failed, `undefined` when it succeeded. */
+  get lastListingError(): unknown {
+    return this.listingError;
+  }
+
   /** @returns Whether the subprocess is connected and running. */
   isRunning(): boolean {
     return this.running;
@@ -289,6 +295,7 @@ export class StdioClientManager {
 
     try {
       const result = await this.client.listTools();
+      this.listingError = undefined;
       this.tools = result.tools ?? [];
       this.onToolsUpdated(serverId, this.tools);
       this.onEvent(`plugin:mcp:client:${serverId}:tools:listed`, {
@@ -296,6 +303,7 @@ export class StdioClientManager {
         toolCount: this.tools.length,
       });
     } catch (err) {
+      this.listingError = err;
       this.logger.warn(
         { err, serverId },
         "Failed to list tools for stdio client",

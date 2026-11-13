@@ -229,6 +229,17 @@ are:
   lockfile, read once at bind.
 - A policy keys on the approved `class`, which is `destructive` for
   anything served without approval, not on `annotations`.
+- The definition a caller receives is the definition that was hashed: the
+  registry entry is built from `pinnedDefinition`, and a new field of a
+  tool is added there or not served. Records keyed by a name the remote
+  chose have no prototype (`ownRecord`), so `__proto__` is a key like any
+  other.
+- Pinning is opt-in per client, because an application that calls a
+  server it runs itself has nothing to review. The unpinned default is
+  made visible instead: every tool of an unpinned client is classed
+  `destructive`.
+- Pinning does not cover what a tool does when called, nor the time
+  between two listings. The reference page says so in those words.
 
 The remote MCP server is outside the trust zone, and so is the path to it.
 What it sends is data, and it is given nothing the configuration did not

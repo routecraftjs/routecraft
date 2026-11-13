@@ -467,6 +467,29 @@ export function coalescedAuthProvider(
 }
 
 /**
+ * The OAuth provider a client declared with {@link connect} authenticates
+ * through, over its stored credential: what the application and
+ * `craft mcp pin` both connect with.
+ *
+ * @internal
+ */
+export function storedAuthProvider(
+  serverId: string,
+  auth: McpConnectAuth,
+  store: CredentialStore,
+  onLoginRequired: (reason: string) => void,
+): AuthProvider {
+  return coalescedAuthProvider(
+    new StoreOAuthProvider({
+      serverId,
+      options: auth.options,
+      store,
+      onLoginRequired,
+    }),
+  );
+}
+
+/**
  * The login `craft connect <serverId>` runs for a client declared with
  * {@link connect}: the authorization code flow with PKCE, through the
  * person's browser, ending with the credential in the store.

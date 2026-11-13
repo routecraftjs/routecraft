@@ -10,6 +10,7 @@ import {
 import "../errors.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
 import { extractContent } from "./extract-content.ts";
+import type { McpPinRefusal } from "./pins.ts";
 import type { McpService } from "./port.ts";
 import type { McpHttpConnections } from "./http-connections.ts";
 import {
@@ -271,6 +272,14 @@ function remoteErrorText(raw: McpRawToolResult): string {
   return clipText(text, REMOTE_ERROR_TEXT_LIMIT);
 }
 
+const PIN_REFUSALS: Record<McpPinRefusal, string> = {
+  unlisted:
+    "the client's tools have not been listed yet, so none can be checked against the lockfile",
+  added: "the lockfile has never seen this tool",
+  changed: "its definition is not the one approved in the lockfile",
+  absent: "the client does not list it",
+};
+
 /**
  * Dispatch an MCP tool call like {@link dispatchMcpCall} but return the raw
  * MCP `tools/call` result (content array, structuredContent, isError) that
@@ -295,7 +304,7 @@ export async function dispatchMcpCallRaw(
   const pinned = service?.tools.refusalOf(serverId, toolName);
   if (pinned !== undefined) {
     throw rcError("AI2004", undefined, {
-      message: `MCP tool "${serverId}:${toolName}" is withheld by the client's pins: ${pinned}.`,
+      message: `MCP tool "${serverId}:${toolName}" is withheld by the client's pins: ${PIN_REFUSALS[pinned]}.`,
     });
   }
   const config = service?.clients.get(serverId);
