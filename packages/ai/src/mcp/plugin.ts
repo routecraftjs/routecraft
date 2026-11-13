@@ -255,7 +255,9 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
             client,
             route: declared.star.routeId,
             ownRoute: tools,
-            excluded: declared.star.exclude,
+            excluded: declared.star.exclude.filter(
+              (tool) => !tools.includes(tool),
+            ),
           },
           "MCP client is proxied: an MCP caller or an agent reaches its tools through a route, and an excluded tool not at all",
         );

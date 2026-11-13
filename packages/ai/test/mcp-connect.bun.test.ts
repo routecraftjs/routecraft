@@ -130,6 +130,32 @@ describe("connect(): MCP clients behind an OAuth login", () => {
   });
 
   /**
+   * @case A login to a plain http client url on another host is refused
+   * @preconditions connectLogin for http://mcp.example/mcp without allowHttp
+   * @expectedResult RC5003 before any request is sent, and nothing is stored
+   */
+  test("refuses to log in to a plain http url without allowHttp", async () => {
+    const store = new MemoryCredentialStore();
+    let opened = false;
+    const io: CredentialLoginIO = {
+      redirectUrl: "http://127.0.0.1:53682/callback",
+      openUrl: async () => {
+        opened = true;
+      },
+      waitForCallback: async () => new URLSearchParams(),
+    };
+    await expect(
+      connectLogin(
+        "mail",
+        "http://mcp.example/mcp",
+        connect({ clientId: "app-1" }),
+      ).login(store, io),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+    expect(opened).toBe(false);
+    expect(await store.get("mcp:mail")).toBeUndefined();
+  });
+
+  /**
    * @case Extra authorization parameters and no resource indicator
    * @preconditions connect() with authorizationParams and resourceIndicator false
    * @expectedResult The authorization URL carries the extra parameters and no resource; the code exchange sends no resource either

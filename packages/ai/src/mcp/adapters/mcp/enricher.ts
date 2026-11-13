@@ -2,7 +2,7 @@ import type { Exchange, Enricher } from "@routecraft/routecraft";
 import {
   getExchangeContext,
   HeadersKeys,
-  principalOf,
+  authorityOf,
   rcError,
   sendsTraceContext,
   traceContextOf,
@@ -141,23 +141,23 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
           own,
           carrier: () => traceContextOf(exchange),
         });
-      const raw = isProxiedCallHop(exchange, serverId, toolName)
-        ? await dispatch()
-        : await recordRemoteCall(
-            context,
-            { ...this.bypassedCall(exchange, toolName), serverId },
-            dispatch,
-            directSettlement,
-          );
-      const result = toolResultBody(raw, `"${serverId}:${toolName}"`);
-      // Only a hop to the tool the proxied call addressed, on its client: a
-      // route that answers with another tool's result is shaping the answer.
-      // The server keeps the record only while it is answering that call.
-      if (
-        exchange.headers[McpHeadersKeys.CLIENT] === this.options.serverId &&
-        exchange.headers[McpHeadersKeys.TOOL] === toolName
-      ) {
+      const where = `"${serverId}:${toolName}"`;
+      let result: unknown;
+      if (isProxiedCallHop(exchange, serverId, toolName)) {
+        // Only a hop to the tool the proxied call addressed, on its client: a
+        // route that answers with another tool's result is shaping the answer.
+        // The server keeps the record only while it is answering that call.
+        const raw = await dispatch();
+        result = toolResultBody(raw, where);
         recordHopResult(exchange.headers[McpHeadersKeys.REQUEST], result, raw);
+      } else {
+        // Read inside the record, so a remote `isError` settles as one.
+        result = await recordRemoteCall(
+          context,
+          { ...this.bypassedCall(exchange, toolName), serverId },
+          async () => toolResultBody(await dispatch(), where),
+          directSettlement,
+        );
       }
       if (result && typeof result === "object") {
         metadataOf.set(result, {
@@ -182,20 +182,21 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
           : undefined,
         allowHttp: this.options.allowHttp,
       });
-    const raw =
+    // The URL is configuration, not part of the answer.
+    const answer = async (): Promise<unknown> =>
+      toolResultBody(await send(), `"${toolName}"`);
+    const result =
       context === undefined
-        ? await send()
+        ? await answer()
         : await recordRemoteCall(
             context,
             {
               ...this.bypassedCall(exchange, toolName),
               origin: new URL(url).origin,
             },
-            send,
+            answer,
             directSettlement,
           );
-    // The URL is configuration, not part of the answer.
-    const result = toolResultBody(raw, `"${toolName}"`);
     if (result && typeof result === "object") {
       metadataOf.set(result, { toolName, url, transport: "http" });
     }
@@ -219,7 +220,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
         ...(typeof routeId === "string" ? { routeId } : {}),
         ...exchangeIdsOf(exchange),
       },
-      principalOf(exchange),
+      authorityOf(exchange).read(exchange),
     );
   }
 

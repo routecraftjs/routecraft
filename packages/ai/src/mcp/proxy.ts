@@ -261,7 +261,10 @@ export function resolveProxiedEntries(
   ) => void,
 ): Map<string, McpProxiedEntry> {
   const resolved = new Map<string, McpProxiedEntry>();
-  const contested = new Map<string, McpProxyRegistration>();
+  const contested = new Map<
+    string,
+    { registration: McpProxyRegistration; tool: string }
+  >();
   for (const registration of service.proxies.values()) {
     if (registration.tool === "*" && registration.exclude !== undefined) {
       const listed = new Set(
@@ -316,11 +319,15 @@ export function resolveProxiedEntries(
         );
         continue;
       }
-      const holder =
-        resolved.get(exposedName)?.registration ?? contested.get(exposedName);
-      if (holder !== undefined) {
+      const exposed = resolved.get(exposedName);
+      const first =
+        exposed !== undefined
+          ? { registration: exposed.registration, tool: exposed.remote.name }
+          : contested.get(exposedName);
+      if (first !== undefined) {
+        const holder = first.registration;
         resolved.delete(exposedName);
-        contested.set(exposedName, holder);
+        contested.set(exposedName, first);
         report(
           `proxy:collision:${exposedName}:${registration.routeId}`,
           "mcp({ proxy }): two routes expose a proxied tool under one name; neither is exposed. Give one of them a prefix or a name.",
@@ -328,6 +335,7 @@ export function resolveProxiedEntries(
             exposed: exposedName,
             route: holder.routeId,
             server: holder.serverId,
+            tool: first.tool,
             otherRoute: registration.routeId,
             otherServer: registration.serverId,
             otherTool: remote.name,

@@ -239,13 +239,16 @@ name:
 - **A star route does not speak for tools it has not seen.** A title, a
   description or a hint on one is refused at start.
 - **Every call is on record.** `plugin:mcp:remote:requested` and
-  `plugin:mcp:remote:settled` are emitted on every path to a remote tool,
-  with `policy: "bypassed"` where no proxy route judged the call, and carry
-  the caller as a `PrincipalRef` (`principalRef`, the one reduction an
-  audit record uses) without arguments, results or error text.
+  `plugin:mcp:remote:settled` are emitted on every path to a remote tool
+  from an exchange that has a context, with `policy: "bypassed"` where no
+  proxy route judged the call. They carry the caller, when the call has a
+  principal, as a `PrincipalRef` (`principalRef`, the one reduction an
+  audit record uses) and never arguments, results or error text. A
+  hand-built exchange with no context has no bus and leaves no record.
 
 The remote's annotations and descriptions are still its own claims, relayed
-as published; a policy keyed on `readOnlyHint` trusts the server that far.
+as published unless an exact route states its own; a policy keyed on
+`readOnlyHint` trusts the server that far.
 
 ## 12. Agent identity and delegation
 

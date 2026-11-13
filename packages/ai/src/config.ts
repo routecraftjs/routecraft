@@ -91,7 +91,11 @@ registerCredentialLogins("mcp", (config) => {
   for (const options of sources) {
     for (const [serverId, client] of Object.entries(options?.clients ?? {})) {
       if ("url" in client && isConnectAuth(client.auth)) {
-        logins.push(connectLogin(serverId, client.url, client.auth));
+        logins.push(
+          connectLogin(serverId, client.url, client.auth, {
+            allowHttp: client.allowHttp,
+          }),
+        );
       }
     }
   }

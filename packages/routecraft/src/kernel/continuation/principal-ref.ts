@@ -14,8 +14,6 @@ import type { PrincipalRef } from "./types.ts";
  * of a `PrincipalRef` (an operator deny path, a cancellation) has to
  * record the same subset, and a second hand-rolled projection is how a
  * scope or a claims bag ends up in the store.
- *
- * @internal
  */
 export function principalRef(principal: Principal): PrincipalRef {
   return {

@@ -458,7 +458,7 @@ A call that arrived on a [mount](/docs/reference/plugins/mcpplugin#mounts) below
 
 ### Remote call events
 
-One pair per call toward a remote MCP server's tool, whoever made it: an MCP client at the door, an agent, or a route's own `.to(mcp(...))` hop. The tool call events above describe what this application's MCP server was asked; these describe what a remote server was asked, and by whom.
+One pair per call toward a remote MCP server's tool, whoever made it: an MCP client at the door, an agent, or a route's own `.to(mcp(...))` hop. A call from a hand-built exchange with no context has no bus to record on and leaves none. The tool call events above describe what this application's MCP server was asked; these describe what a remote server was asked, and by whom.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
@@ -476,8 +476,8 @@ One pair per call toward a remote MCP server's tool, whoever made it: an MCP cli
 
 | `outcome` | Meaning |
 | --- | --- |
-| `completed` | The call was answered |
-| `remote-error` | The remote answered with `isError`; `code` is `AI2003` |
+| `completed` | The call was answered, by the remote or by the proxy route's own `.error()` handler recovering from a failure |
+| `remote-error` | The remote answered with `isError` and nothing recovered from it; `code` is `AI2003` |
 | `refused` | The proxy route's `.input()`, `.authorize()` or a validate hook refused the caller; `refusal` names the class: what the chain refused (`input`, `unauthenticated`, `expired`, `insufficient_permissions`, `insufficient_scope`) or the kind a validate hook or a `.validate()` step refused with (`invalid`, `forbidden`, `not_found`, `conflict`, `gone`, `rate_limited`, `unavailable`). The remote was not reached |
 | `declined` | The proxy route dropped the exchange |
 | `deferred` | The proxy route parked; the answer belongs to a later run |
@@ -487,7 +487,7 @@ One pair per call toward a remote MCP server's tool, whoever made it: an MCP cli
 
 A `bypassed` call carries the `exchangeId` and `correlationId` of the exchange it was made from: the hop's exchange, or the agent's turn. A `route` call is joined to its proxy route's exchange through `callId`, which is that exchange's `routecraft.mcp.request` header. The types are exported from `@routecraft/ai` as `McpRemoteCall`, `McpRemoteCallSettlement` and `McpRemoteCallRefusal`.
 
-A `refused` outcome is a refusal the caller caused, as every door classifies it. A step that throws to refuse, a throttle, an open circuit or a timeout is `failed` with its code. A call answered from a `.cache()` hit is `completed` without the remote being reached. A process that stops between the two events leaves a `requested` with no `settled`.
+A `refused` outcome is a refusal the caller caused, as every door classifies it. A step that throws an error of its own instead of refusing, a throttle, an open circuit or a timeout is `failed` with its code, unless the route's `.error()` handler answers, which is `completed`. A call answered from a `.cache()` hit is `completed` without the remote being reached. A process that stops between the two events leaves a `requested` with no `settled`.
 
 Neither event carries arguments, a result or error text, so both are safe to store. A proxy route whose hop calls a tool other than the one its caller addressed leaves two records: the call to the proxied tool under `route`, and the hop under `bypassed`. An outcome is read at the route: a call that completed here and then failed the door's output check is `completed`, with `plugin:mcp:tool:failed` beside it.
 

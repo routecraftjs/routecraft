@@ -13,7 +13,7 @@ import type {
   StoredOAuthClientInformation,
   StoredOAuthTokens,
 } from "@modelcontextprotocol/client";
-import { loadMcpClientSdk } from "./sdk.ts";
+import { assertRemoteUrl, loadMcpClientSdk } from "./sdk.ts";
 
 /** Brands a {@link connect} declaration, so it is told apart from `{ token }`. */
 const CONNECT = Symbol.for("routecraft.ai.mcp.connect");
@@ -477,6 +477,7 @@ export function connectLogin(
   serverId: string,
   url: string,
   auth: McpConnectAuth,
+  options: { allowHttp?: boolean | undefined } = {},
 ): CredentialLogin {
   return {
     id: serverId,
@@ -494,7 +495,12 @@ export function connectLogin(
             io.openUrl(authorizationUrl),
         },
       });
-      const serverUrl = new URL(url);
+      // Before discovery: the login sends the code and the tokens here.
+      const serverUrl = assertRemoteUrl(
+        url,
+        options.allowHttp === true,
+        `mcpPlugin: clients.${serverId}.url`,
+      );
       if ((await sdk.auth(provider, { serverUrl })) === "AUTHORIZED") return;
       const callback = await io.waitForCallback();
       const refused = callback.get("error");

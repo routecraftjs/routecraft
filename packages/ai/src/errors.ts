@@ -90,8 +90,10 @@ export type McpRemoteCallRefusal =
 /**
  * How a call toward a remote MCP tool ended.
  *
- * - `completed`: the call was answered.
- * - `remote-error`: the remote answered with `isError` (`AI2003`).
+ * - `completed`: the call was answered, by the remote or by the proxy
+ *   route's own `.error()` handler recovering from a failure.
+ * - `remote-error`: the remote answered with `isError` (`AI2003`) and
+ *   nothing recovered from it.
  * - `refused`: the proxy route's `.input()`, `.authorize()` or a
  *   validate hook refused the caller; `refusal` names the class. The remote
  *   was not reached by this call.

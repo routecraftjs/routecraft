@@ -508,7 +508,9 @@ describe("a route that proxies a remote MCP server", () => {
     expect(warned?.[0]).toMatchObject({
       exposed: "search",
       route: "docs",
+      tool: "search",
       otherRoute: "billing",
+      otherTool: "search",
     });
   });
 
@@ -1690,6 +1692,34 @@ describe("the record of a call toward a remote MCP tool", () => {
       routeId: "own",
       caller: { subject: "alice" },
       outcome: "completed",
+    });
+  });
+
+  /**
+   * @case A remote isError on a route's own hop settles as a remote error
+   * @preconditions A local mcp() route "own" ending in .to(mcp("docs:get_document")); the docs client answers with isError
+   * @expectedResult The bypassed pair settles with outcome "remote-error" and code AI2003, not "completed"
+   */
+  test("a remote error on a bypassed hop is recorded as one", async () => {
+    await build(
+      [
+        craft()
+          .id("own")
+          .description("Reads a document through our own route")
+          .from(mcp())
+          .to(mcp("docs:get_document")),
+      ],
+      () => ({
+        content: [{ type: "text", text: "File not found" }],
+        isError: true,
+      }),
+    );
+    await callTool(server!, "own", { id: "1" }, alice);
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      policy: "bypassed",
+      outcome: "remote-error",
+      code: "AI2003",
     });
   });
 

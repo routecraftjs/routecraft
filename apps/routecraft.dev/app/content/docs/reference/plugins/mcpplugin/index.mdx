@@ -99,7 +99,7 @@ Plain `http` is accepted for a loopback host (`localhost`, an address in `127.0.
 
 **At start, each client says what stands in front of it:**
 
-One info line per registered client: `MCP client is proxied` with the star route, the tools that have a route of their own and the excluded tools; `MCP client is partly proxied` with the tools its exact routes name, when no star route covers the rest; or `MCP client is not proxied`. A [proxy route](#proxying-client-tools) that was removed, or held behind a condition that no longer includes it, shows up here and nowhere else: calls to the client keep succeeding, on its credential, with no policy in front of them. Each such call is also recorded with [`policy: 'bypassed'`](/docs/reference/events#remote-call-events).
+One info line per registered client: `MCP client is proxied` with the star route, the tools that have a route of their own and the excluded tools; `MCP client is partly proxied` with the tools its exact routes name, when no star route covers the rest; or `MCP client is not proxied`. The line reports the routes that are declared, live or not. A [proxy route](#proxying-client-tools) that was removed shows up here and nowhere else: calls to the client keep succeeding, on its credential, with no policy in front of them, and each is recorded with [`policy: 'bypassed'`](/docs/reference/events#remote-call-events). A route that is declared and held back by `.enabled()` still counts: its tools are closed, not called directly.
 
 **A client can be declared and switched off:**
 

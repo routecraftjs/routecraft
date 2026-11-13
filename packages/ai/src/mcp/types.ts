@@ -174,7 +174,7 @@ declare module "@routecraft/routecraft" {
  */
 export interface McpClientHttpConfig {
   transport?: "streamable-http";
-  /** The server's URL. It must be https; see {@link McpClientHttpConfig.allowHttp}. */
+  /** The server's URL: https, or http on a loopback host. See {@link McpClientHttpConfig.allowHttp} for http elsewhere. */
   url: string;
   /**
    * Accept a plain `http` URL for a host that is not loopback. The
@@ -832,7 +832,7 @@ export type McpArgsExtractor = (
  *   tools directly on the subprocess -- no HTTP involved.
  */
 export interface McpClientOptions {
-  /** URL of the remote MCP server. It must be https unless `allowHttp` is set. Omit when using serverId. */
+  /** URL of the remote MCP server: https, or http on a loopback host; http elsewhere needs `allowHttp`. Omit when using serverId. */
   url?: string;
   /** With `url`: accept plain `http` for a host that is not loopback. See {@link McpClientHttpConfig.allowHttp}. */
   allowHttp?: boolean;
