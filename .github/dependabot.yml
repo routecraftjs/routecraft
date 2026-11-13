@@ -10,7 +10,8 @@ updates:
     # caught within days. These PRs also need a human approval to merge.
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 10
+    # One grouped PR at a time; it is refreshed in place until merged.
+    open-pull-requests-limit: 1
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -19,12 +20,23 @@ updates:
       # v2. Lift this when the CLI is migrated to v3.
       - dependency-name: "changesets/action"
         update-types: ["version-update:semver-major"]
+    groups:
+      # CodeQL fails analyze when init and analyze run different versions,
+      # so its actions must move in one PR.
+      actions:
+        patterns:
+          - "*"
+      # The PR limit does not cap security updates, so bundle those too.
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   - package-ecosystem: "bun"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 1
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -47,7 +59,21 @@ updates:
         versions: [">=19.3.0"]
       - dependency-name: "@types/react-dom"
         versions: [">=19.3.0"]
+      # @opentelemetry/sdk-trace-base 2.x declares peer api <1.10.0; api 1.10
+      # installs a second copy and tracing silently becomes a no-op. Lift this
+      # when sdk-trace-base widens its peer range.
+      - dependency-name: "@opentelemetry/api"
+        versions: [">=1.10.0"]
+      # 0.7 buffers responses by locking and releasing the body reader, which
+      # bun treats as consumed, so every request throws "Body already used".
+      # Lift this when the SDK or bun fixes it.
+      - dependency-name: "@typesafe-ai/sdk"
+        versions: [">=0.7.0"]
     groups:
       dependencies:
+        patterns:
+          - "*"
+      dependencies-security:
+        applies-to: security-updates
         patterns:
           - "*"
