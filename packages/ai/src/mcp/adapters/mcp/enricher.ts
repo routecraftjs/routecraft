@@ -14,6 +14,7 @@ import type {
 import { MCP } from "../../port.ts";
 import { McpHeadersKeys } from "../../types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
+import { assertRemoteUrl } from "../../sdk.ts";
 import {
   callRemoteToolRaw,
   dispatchMcpCallRaw,
@@ -21,16 +22,6 @@ import {
   relayRemoteError,
   toolResultBody,
 } from "../../dispatch.ts";
-
-/** Ensure inline url is HTTP(S) only. Stdio clients are reached via dispatchMcpCall. */
-function assertHttpUrl(url: string): void {
-  const trimmed = url.trim().toLowerCase();
-  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-    throw new Error(
-      `MCP client: url must be HTTP or HTTPS. Stdio is not supported in routes; register stdio clients via mcpPlugin({ clients: { name: { command, args } } }). Got: "${url.slice(0, 50)}${url.length > 50 ? "..." : ""}"`,
-    );
-  }
-}
 
 /**
  * The URL and auth of an inline-url call. A registered client's call never
@@ -46,7 +37,7 @@ function resolveConnection(options: McpClientOptions): {
       "MCP client: either url or serverId must be provided in McpClientOptions.",
     );
   }
-  assertHttpUrl(options.url);
+  assertRemoteUrl(options.url, options.allowHttp === true, "mcp({ url })");
   return { url: options.url, auth: options.auth };
 }
 
@@ -178,6 +169,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
       sendsTraceContext(context, own)
         ? { ...traceContextOf(exchange) }
         : undefined,
+      this.options.allowHttp === true,
     );
     // The URL is configuration, not part of the answer, as in callRemoteTool.
     const result = toolResultBody(raw, `"${toolName}"`);

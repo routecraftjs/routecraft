@@ -373,10 +373,16 @@ export async function callRemoteToolRaw(
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
   meta?: Record<string, string>,
+  allowHttp = false,
 ): Promise<McpRawToolResult> {
   let connection: Awaited<ReturnType<typeof connectMcpHttpClient>> | undefined;
   try {
-    connection = await connectMcpHttpClient(new URL(serverUrl), auth);
+    connection = await connectMcpHttpClient(
+      new URL(serverUrl),
+      auth,
+      undefined,
+      allowHttp,
+    );
     return (await connection.client.callTool({
       name: toolName,
       arguments: args,

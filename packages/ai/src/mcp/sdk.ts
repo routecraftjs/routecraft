@@ -13,7 +13,7 @@
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28
  */
-import { loadOptionalPeer } from "@routecraft/routecraft";
+import { loadOptionalPeer, rcError } from "@routecraft/routecraft";
 import { version as packageVersion } from "../../package.json";
 import { buildAuthHeaders } from "./build-auth-headers.ts";
 import type { AuthProvider } from "@modelcontextprotocol/client";
@@ -94,6 +94,62 @@ export const MCP_CLIENT_INFO = {
 } as const;
 
 /**
+ * Refuse a remote MCP URL that is not https. Plain http is accepted for a
+ * loopback host, and for any host when the client says `allowHttp`: the
+ * credential and every tool argument travel to this server.
+ *
+ * @throws RC5003
+ * @internal
+ */
+export function assertRemoteUrl(
+  value: string | URL,
+  allowHttp: boolean,
+  field: string,
+): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw rcError("RC5003", undefined, {
+      message: `${field} must be an absolute http(s) URL.`,
+    });
+  }
+  if (url.protocol === "https:") return url;
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol === "http:" && (loopback || allowHttp)) return url;
+  throw rcError("RC5003", undefined, {
+    message: `${field} must be an https URL: the credential and the tool arguments are sent to it.`,
+    suggestion:
+      url.protocol === "http:"
+        ? "Use https, or set allowHttp: true on the client for a host on a private network."
+        : "Use an https URL. A stdio server is registered with { transport: 'stdio', command }.",
+  });
+}
+
+/**
+ * A `fetch` that answers a redirect with an error instead of following it.
+ * A remote that redirects would otherwise receive the request, its custom
+ * auth headers included, at a host nobody configured.
+ */
+function refusingRedirects(
+  send: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
+  return async (input, init) => {
+    const response = await send(input, { ...init, redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      await response.body?.cancel().catch(() => {});
+      throw rcError("RC5003", undefined, {
+        message: `mcp: the remote server answered with a redirect (${response.status}${location === null ? "" : ` to "${location}"`}), which is not followed.`,
+        suggestion:
+          "Configure the client with the URL the server redirects to, after checking it is the server you mean.",
+      });
+    }
+    return response;
+  };
+}
+
+/**
  * Open one outbound MCP client over Streamable HTTP.
  *
  * Every caller that talks to a remote MCP server over HTTP goes through here,
@@ -110,6 +166,7 @@ export async function connectMcpHttpClient(
   url: URL,
   auth?: McpClientAuthOptions,
   authProvider?: AuthProvider,
+  allowHttp = false,
 ): Promise<{
   client: InstanceType<Awaited<ReturnType<typeof loadMcpClientSdk>>["Client"]>;
   transport: InstanceType<
@@ -118,6 +175,7 @@ export async function connectMcpHttpClient(
     >["StreamableHTTPClientTransport"]
   >;
 }> {
+  assertRemoteUrl(url, allowHttp, "mcp: the client url");
   const { Client, StreamableHTTPClientTransport } =
     await loadMcpClientSdk("mcp (http client)");
 
@@ -133,9 +191,9 @@ export async function connectMcpHttpClient(
   const transport = new StreamableHTTPClientTransport(
     url,
     authProvider
-      ? { authProvider }
+      ? { authProvider, fetch: refusingRedirects(fetch) }
       : {
-          fetch: async (input, init) => {
+          fetch: refusingRedirects(async (input, init) => {
             const headers = await buildAuthHeaders(auth);
             if (!headers) return fetch(input, init);
             const merged = new Headers(init?.headers);
@@ -143,7 +201,7 @@ export async function connectMcpHttpClient(
               merged.set(name, value);
             }
             return fetch(input, { ...init, headers: merged });
-          },
+          }),
         },
   );
   const client = new Client(MCP_CLIENT_INFO, {

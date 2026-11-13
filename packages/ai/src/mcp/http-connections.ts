@@ -129,6 +129,7 @@ export function createMcpHttpConnections(
         new URL(config.url),
         login ? undefined : (config.auth as McpClientAuthOptions | undefined),
         authProvider,
+        config.allowHttp === true,
       );
       let inFlight = 0;
       let retired = false;

@@ -16,7 +16,7 @@ import { MCP } from "../src/mcp/port.ts";
 import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
 import { oauthRemote } from "./helpers/oauth-remote.ts";
 
-const URL_ = "http://remote.test/mcp";
+const URL_ = "https://remote.test/mcp";
 
 // Another suite may have replaced the SDK loader with a mock; this one
 // drives the real client and the real OAuth flow.
@@ -187,6 +187,34 @@ describe("connect(): MCP clients behind an OAuth login", () => {
       tokens: { refresh_token: "refresh-2" },
     });
     expect(stored!.version).toBeGreaterThan(1);
+  });
+
+  /**
+   * @case A 401 that names a foreign resource_metadata URL is not followed
+   * @preconditions mail logged in, with the discovery record removed from the stored credential so a refresh has to discover again; every access token expires; the server's 401 then names a metadata URL on another origin
+   * @expectedResult The call succeeds after one refresh, discovered from the configured server URL, and no request goes to the foreign origin
+   */
+  test("a 401 does not choose where the refresh token is presented", async () => {
+    server = oauthRemote(URL_);
+    const store = new MemoryCredentialStore();
+    await login(store);
+    const stored = (await store.get("mcp:mail"))!;
+    const withoutDiscovery = { ...(stored.value as Record<string, unknown>) };
+    delete withoutDiscovery["discovery"];
+    await store.put("mcp:mail", withoutDiscovery, {
+      ifVersion: stored.version,
+    });
+    const service = await start(store);
+    server.expireAccess();
+    server.remote.dropSessions();
+    server.advertiseMetadataAt(
+      "https://evil.test/.well-known/oauth-protected-resource",
+    );
+    expect(await dispatchMcpCall(service, "mail", "echo", {})).toBe("pong");
+    expect(server.counts.refreshed).toBe(1);
+    expect(
+      server.requested.filter((url) => url.startsWith("https://evil.test")),
+    ).toEqual([]);
   });
 
   /**

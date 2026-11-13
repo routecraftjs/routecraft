@@ -36,6 +36,7 @@ import {
   isConnectAuth,
   StoreOAuthProvider,
 } from "./connect.ts";
+import { assertRemoteUrl } from "./sdk.ts";
 import { createMcpHttpConnections } from "./http-connections.ts";
 import { declaredExactProxies } from "./proxy.ts";
 
@@ -157,6 +158,14 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
             );
             continue;
           }
+        }
+        // After the enablement verdict: a disabled client may leave its url unset.
+        if (!isStdioConfig(config)) {
+          assertRemoteUrl(
+            config.url,
+            config.allowHttp === true,
+            `mcpPlugin: clients.${serverId}.url`,
+          );
         }
         if (!isStdioConfig(config) && isConnectAuth(config.auth)) {
           const reason = await loginCredential(c, serverId);

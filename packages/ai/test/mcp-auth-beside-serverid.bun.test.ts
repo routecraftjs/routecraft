@@ -5,7 +5,7 @@ import { mcp, mcpPlugin } from "../src/index.ts";
 import { MCP } from "../src/mcp/port.ts";
 import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
 
-const REMOTE = "http://remote.test/mcp";
+const REMOTE = "https://remote.test/mcp";
 
 /**
  * Capture the Authorization header of every request to the remote, and

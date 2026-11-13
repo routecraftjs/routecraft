@@ -448,13 +448,12 @@ export function coalescedAuthProvider(
     onUnauthorized(ctx) {
       inFlight ??= (async () => {
         const sdk = await loadMcpClientSdk("mcp (http client)");
-        const { resourceMetadataUrl, scope } = sdk.extractWWWAuthenticateParams(
-          ctx.response,
-        );
+        // The 401's `resource_metadata` is left unread: the remote writes it,
+        // and it would choose where the refresh token is presented.
+        const { scope } = sdk.extractWWWAuthenticateParams(ctx.response);
         const result = await sdk.auth(provider, {
           serverUrl: ctx.serverUrl,
           fetchFn: ctx.fetchFn,
-          ...(resourceMetadataUrl !== undefined ? { resourceMetadataUrl } : {}),
           ...(scope !== undefined ? { scope } : {}),
         });
         if (result !== "AUTHORIZED") throw new sdk.UnauthorizedError();
