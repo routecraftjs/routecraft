@@ -261,20 +261,12 @@ export interface ToolSelection {
    * {@link resolveMcpRefs}.
    */
   readonly resolve: (ctx: CraftContext) => ResolvedTool[];
-  /**
-   * The MCP references the selection names, unresolved, so the agent
-   * plugin can refuse at start one that no proxy route governs. A builder
-   * runs against the catalog as it stands when this is called.
-   *
-   * @internal
-   */
-  readonly mcpRefs: (host: McpRefHost) => McpToolRef[];
 }
 
 /**
- * What {@link ToolSelection.mcpRefs} reads: the catalog a builder runs
- * against, and whether a name is a registered fn, which wins over the MCP
- * reference grammar.
+ * What {@link mcpRefsOf} reads: the catalog a builder runs against, and
+ * whether a name is a registered fn, which wins over the MCP reference
+ * grammar.
  *
  * @internal
  */
@@ -284,15 +276,13 @@ export interface McpRefHost {
 }
 
 /**
- * One `MCP(server:tool)` reference of a selection. `tool` is `*` for a
- * whole-server reference.
+ * One `MCP(server:tool)` or `MCP(server)` reference of a selection.
  *
  * @internal
  */
 export interface McpToolRef {
   ref: string;
   server: string;
-  tool: string;
   raw: boolean;
 }
 
@@ -342,6 +332,34 @@ export function isToolSelection(value: unknown): value is ToolSelection {
     (value as { [TOOL_SELECTION_BRAND]: unknown })[TOOL_SELECTION_BRAND] ===
       true
   );
+}
+
+const MCP_REFS = new WeakMap<
+  ToolSelection,
+  (host: McpRefHost) => McpToolRef[]
+>();
+
+/**
+ * The MCP references a selection names, unresolved, so the agent plugin can
+ * refuse at start one that no proxy route governs. A builder runs against
+ * the catalog as it stands when this is called.
+ *
+ * @internal
+ */
+export function mcpRefsOf(
+  selection: ToolSelection,
+  host: McpRefHost,
+): McpToolRef[] {
+  return MCP_REFS.get(selection)?.(host) ?? [];
+}
+
+/**
+ * Whether a tool name is an MCP reference: it is in the reference grammar
+ * and no registered fn has that exact id, which would win. The one rule the
+ * dispatch resolver and the start check both read.
+ */
+function namesMcpRef(name: string, hasFn: (name: string) => boolean): boolean {
+  return isMcpRefName(name) && !hasFn(name);
 }
 
 /**
@@ -411,38 +429,36 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
       message: `tools(): argument must be an array of ToolsItem or a (catalog) => ToolsItem[] builder.`,
     });
   }
-  return {
+  const mcpRefs = (host: McpRefHost): McpToolRef[] => {
+    const items =
+      typeof arg === "function" ? runBuilder(arg, host.catalog()) : arg;
+    const refs: McpToolRef[] = [];
+    for (const item of items) {
+      const named: unknown =
+        typeof item === "string" ? item : (item as { name?: unknown })?.name;
+      if (typeof named !== "string") continue;
+      if (!namesMcpRef(named, host.hasFn)) continue;
+      refs.push({
+        ref: named,
+        server: parseMcpRef(named).clientName,
+        raw:
+          typeof item === "object" && (item as { raw?: unknown }).raw === true,
+      });
+    }
+    return refs;
+  };
+  const selection: ToolSelection = {
     [TOOL_SELECTION_BRAND]: true,
-    mcpRefs(host) {
-      const items =
-        typeof arg === "function" ? runBuilder(arg, host.catalog()) : arg;
-      const refs: McpToolRef[] = [];
-      for (const item of items) {
-        const named: unknown =
-          typeof item === "string" ? item : (item as { name?: unknown })?.name;
-        if (typeof named !== "string") continue;
-        if (!isMcpRefName(named) || host.hasFn(named)) continue;
-        const { clientName, toolName } = parseMcpRef(named);
-        refs.push({
-          ref: named,
-          server: clientName,
-          tool: toolName,
-          raw:
-            typeof item === "object" &&
-            (item as { raw?: unknown }).raw === true,
-        });
-      }
-      return refs;
-    },
     resolve(ctx) {
       const items =
         typeof arg === "function" ? runBuilder(arg, buildCatalog(ctx)) : arg;
       const out = new Map<string, ResolvedTool>();
+      const hasFn = (name: string): boolean => fnRegistryHas(ctx, name);
       for (const item of items) {
         if (typeof item === "string") {
           // An exact fn id always wins over the MCP-ref grammar, so a fn
           // whose id happens to start with `mcp__` stays reachable.
-          if (isMcpRefName(item) && !fnRegistryHas(ctx, item)) {
+          if (namesMcpRef(item, hasFn)) {
             for (const tool of resolveMcpRefs(ctx, item, undefined)) {
               record(out, tool);
             }
@@ -476,8 +492,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): { name: "${item.name}", background } must be a boolean when present.`,
           });
         }
-        const mcpRef =
-          isMcpRefName(item.name) && !fnRegistryHas(ctx, item.name);
+        const mcpRef = namesMcpRef(item.name, hasFn);
         const remoteRef =
           isRemoteRefName(item.name) && !fnRegistryHas(ctx, item.name);
         if ((mcpRef || remoteRef) && item.background !== undefined) {
@@ -551,6 +566,8 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
       return [...out.values()];
     },
   };
+  MCP_REFS.set(selection, mcpRefs);
+  return selection;
 }
 
 /**
@@ -1398,10 +1415,8 @@ function mcpEntryToResolvedTool(
           : "MCP tool is proxied by a route that is not live, so the agent is not offered it. Enable the route, or reference the tool with raw: true to reach the client without it.",
       );
     }
-    // Keyed by server: a whole-server reference over a client with a few
-    // exact routes leaves every other tool here, for the same reason.
     return dropOnce(
-      `mcp-uncovered:${entry.source}`,
+      `mcp-uncovered:${name}`,
       { server: entry.source, tool: entry.name },
       "MCP tool has no proxy route, so the agent is not offered it. Proxy it with a route, or reference the tool with raw: true to reach the client under no route's policy.",
     );
