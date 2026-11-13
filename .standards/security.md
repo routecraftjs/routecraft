@@ -209,8 +209,10 @@ establishes identity (`.authenticate()`) replaces it on purpose. The hop from th
 route to the MCP server still authenticates with the client's registered
 `auth` alone; the principal stops at the route. While that route is
 declared but not live (held back by `.enabled()`), the tool is withheld
-from the agent rather than offered raw, per § 6a: `raw: true` is the
-named opt-in.
+from the agent rather than offered raw, per § 6a. An agent reference has
+no flag that skips a proxy route: a call that must not pass the route's
+policy is a hop on another route (`.to(mcp('server:tool'))`), offered to
+the agent as `Direct(<routeId>)`.
 
 ## 12. Agent identity and delegation
 

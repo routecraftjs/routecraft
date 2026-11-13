@@ -1151,37 +1151,6 @@ describe("an agent's MCP reference to a proxied tool", () => {
   });
 
   /**
-   * @case raw: true reaches the client without the route, and says so once
-   * @preconditions Same star route; the agent lists { name: "MCP(docs:get_document)", raw: true }
-   * @expectedResult The call reaches the client with the arguments as given, the source carries no governing route, and a warning names the bypass
-   */
-  test("raw: true bypasses the route with a warning", async () => {
-    await build([
-      craft()
-        .id("docs")
-        .from(mcp({ proxy: "docs:*" }))
-        .transform((args) => ({
-          ...(args as Record<string, unknown>),
-          via: "route",
-        }))
-        .to(mcp("docs:*")),
-    ]);
-
-    const [tool] = tools([
-      { name: "MCP(docs:get_document)", raw: true },
-    ]).resolve(t.ctx);
-    expect(tool.source).not.toHaveProperty("routeId");
-    await tool.handler({ id: "7" }, handlerContext(tool.name));
-    expect(dispatches).toEqual([
-      { serverId: "docs", toolName: "get_document", args: { id: "7" } },
-    ]);
-    const warned = t.contextLogger.warn.mock.calls.some(
-      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("raw: true"),
-    );
-    expect(warned).toBe(true);
-  });
-
-  /**
    * @case A route that declines leaves the agent with a failed call, not an echoed request
    * @preconditions Star route whose filter drops every exchange
    * @expectedResult The handler rejects with AI2002 and the client is never reached
@@ -1242,8 +1211,8 @@ describe("an agent's MCP reference to a proxied tool", () => {
 
   /**
    * @case A tool whose proxy route is declared but not live is withheld
-   * @preconditions Star route over docs held back by .enabled(() => false); the agent lists MCP(docs:get_document), then the same with raw: true
-   * @expectedResult The plain reference resolves to no tool, with a warning naming the route; raw: true resolves the tool without a governing route
+   * @preconditions Star route over docs held back by .enabled(() => false); the agent lists MCP(docs:get_document)
+   * @expectedResult The reference resolves to no tool, with a warning naming the route
    */
   test("a disabled proxy route withholds the tool", async () => {
     await build([
@@ -1258,10 +1227,6 @@ describe("an agent's MCP reference to a proxied tool", () => {
       (c: unknown[]) => typeof c[1] === "string" && c[1].includes("not live"),
     );
     expect(warned?.[0]).toMatchObject({ route: "docs", tool: "get_document" });
-    const [raw] = tools([
-      { name: "MCP(docs:get_document)", raw: true },
-    ]).resolve(t.ctx);
-    expect(raw.source).not.toHaveProperty("routeId");
   });
 
   /**
@@ -1285,7 +1250,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
   /**
    * @case A tool the star route excludes is withheld from the agent, as from the server
    * @preconditions Star route over docs excluding search; the agent lists MCP(docs:search), MCP(docs:*) and MCP(docs:get_document)
-   * @expectedResult search is not offered, with a warning naming the exclusion; the star expansion omits it; get_document runs through the star route; raw: true reaches search without the route
+   * @expectedResult search is not offered, with a warning naming the exclusion; the star expansion omits it; get_document runs through the star route
    */
   test("a tool the star route excludes is withheld from the agent", async () => {
     await build([
@@ -1307,16 +1272,12 @@ describe("an agent's MCP reference to a proxied tool", () => {
     ).toEqual(["mcp__docs__delete_document", "mcp__docs__get_document"]);
     const [fetched] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
     expect(fetched.source).toMatchObject({ routeId: "docs" });
-    const [raw] = tools([{ name: "MCP(docs:search)", raw: true }]).resolve(
-      t.ctx,
-    );
-    expect(raw.source).not.toHaveProperty("routeId");
   });
 
   /**
    * @case A disabled exact route closes its tool for an agent, even under a live star route
-   * @preconditions Star route over docs and an exact route over get_document held back by .enabled(); the agent lists MCP(docs:get_document), MCP(docs:*), then get_document with raw: true
-   * @expectedResult get_document is not offered, with a warning naming the exact route; the star expansion omits it and keeps the others on the star route; raw: true reaches the client without a route
+   * @preconditions Star route over docs and an exact route over get_document held back by .enabled(); the agent lists MCP(docs:get_document) and MCP(docs:*)
+   * @expectedResult get_document is not offered, with a warning naming the exact route; the star expansion omits it and keeps the others on the star route
    */
   test("a disabled exact route withholds its tool under a live star route", async () => {
     await build([
@@ -1343,10 +1304,6 @@ describe("an agent's MCP reference to a proxied tool", () => {
     for (const tool of star) {
       expect(tool.source).toMatchObject({ routeId: "docs" });
     }
-    const [raw] = tools([
-      { name: "MCP(docs:get_document)", raw: true },
-    ]).resolve(t.ctx);
-    expect(raw.source).not.toHaveProperty("routeId");
   });
 
   /**

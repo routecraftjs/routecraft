@@ -42,8 +42,8 @@ export type AgentToolSource =
       /**
        * The route that proxies this tool (`.from(mcp({ proxy }))`), when
        * one covers it: the call runs through that route's chain and steps
-       * rather than reaching the client raw. Absent for a raw call, which
-       * an item opts into with `raw: true`.
+       * rather than reaching the client directly. Absent when no route
+       * proxies the tool's client.
        */
       readonly routeId?: string;
     }
