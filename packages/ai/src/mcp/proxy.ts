@@ -87,20 +87,30 @@ function* proxyDeclarations(
  * The exact `mcp({ proxy: "server:tool" })` declarations among the
  * application's routes, enabled or not, as registration keys. Read from the
  * route definitions rather than the live registrations, so a route held
- * back by `.enabled()` still counts. Read afresh on every call: routes
- * are registered after the plugins bind, and may be added later.
+ * back by `.enabled()` still counts.
+ *
+ * The set is kept for the current tick only. A listing asks once per remote
+ * tool, synchronously, so one scan serves the whole pass; routes are
+ * registered after the plugins bind and may be added later, so nothing is
+ * kept across ticks.
  *
  * @internal
  */
 export function declaredExactProxies(
   c: Pick<PluginContext, "routes">,
 ): () => ReadonlySet<string> {
+  let thisTick: ReadonlySet<string> | undefined;
   return () => {
+    if (thisTick !== undefined) return thisTick;
     const declared = new Set<string>();
     for (const { ref } of proxyDeclarations(c.routes.list())) {
       if (ref.tool === "*") continue;
       declared.add(proxyRegistrationKey(ref.serverId, ref.tool));
     }
+    thisTick = declared;
+    queueMicrotask(() => {
+      thisTick = undefined;
+    });
     return declared;
   };
 }
