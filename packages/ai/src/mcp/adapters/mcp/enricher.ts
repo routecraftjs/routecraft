@@ -2,6 +2,7 @@ import type { Exchange, Enricher } from "@routecraft/routecraft";
 import {
   getExchangeContext,
   HeadersKeys,
+  principalOf,
   rcError,
   sendsTraceContext,
   traceContextOf,
@@ -18,9 +19,10 @@ import { assertRemoteUrl } from "../../sdk.ts";
 import type { McpRemoteCall } from "../../../errors.ts";
 import {
   directSettlement,
-  principalOnHeaders,
+  exchangeIdsOf,
+  isProxiedCallHop,
   recordRemoteCall,
-  remoteCallerOf,
+  remoteCall,
 } from "../../remote-call.ts";
 import {
   callRemoteToolRaw,
@@ -139,18 +141,14 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
           own,
           carrier: () => traceContextOf(exchange),
         });
-      // A proxy route's hop to the tool its caller addressed is already on
-      // record as that call. Any other hop reaches the client unjudged.
-      const raw =
-        exchange.headers[McpHeadersKeys.CLIENT] === serverId &&
-        exchange.headers[McpHeadersKeys.TOOL] === toolName
-          ? await dispatch()
-          : await recordRemoteCall(
-              context,
-              { ...this.bypassedCall(exchange, toolName), serverId },
-              dispatch,
-              directSettlement,
-            );
+      const raw = isProxiedCallHop(exchange, serverId, toolName)
+        ? await dispatch()
+        : await recordRemoteCall(
+            context,
+            { ...this.bypassedCall(exchange, toolName), serverId },
+            dispatch,
+            directSettlement,
+          );
       const result = toolResultBody(raw, `"${serverId}:${toolName}"`);
       // Only a hop to the tool the proxied call addressed, on its client: a
       // route that answers with another tool's result is shaping the answer.
@@ -172,22 +170,18 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     }
 
     // Inline-URL path -> direct HTTP call without going through the
-    // registry. Uses the shared `callRemoteTool` helper so transport
-    // setup, auth-header building, and cleanup stay aligned with
-    // `dispatchMcpCall`.
+    // registry. An exchange with no context has no bus to record the call
+    // on, which only a hand-built exchange outside a route is.
     const { url, auth } = resolveConnection(this.options);
     const send = (): ReturnType<typeof callRemoteToolRaw> =>
-      callRemoteToolRaw(
-        url,
-        toolName,
-        args,
+      callRemoteToolRaw(url, toolName, args, {
         auth,
         // `_meta.traceparent` and `_meta.tracestate`, as SEP-414 names them.
-        sendsTraceContext(context, own)
+        meta: sendsTraceContext(context, own)
           ? { ...traceContextOf(exchange) }
           : undefined,
-        this.options.allowHttp === true,
-      );
+        allowHttp: this.options.allowHttp,
+      });
     const raw =
       context === undefined
         ? await send()
@@ -200,7 +194,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
             send,
             directSettlement,
           );
-    // The URL is configuration, not part of the answer, as in callRemoteTool.
+    // The URL is configuration, not part of the answer.
     const result = toolResultBody(raw, `"${toolName}"`);
     if (result && typeof result === "object") {
       metadataOf.set(result, { toolName, url, transport: "http" });
@@ -212,16 +206,21 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
   private bypassedCall(
     exchange: Exchange<unknown>,
     remoteTool: string,
-  ): McpRemoteCall {
-    const caller = remoteCallerOf(principalOnHeaders(exchange.headers));
+  ): Omit<
+    Extract<McpRemoteCall, { policy: "bypassed" }>,
+    "serverId" | "origin"
+  > {
     const routeId = exchange.headers[HeadersKeys.ROUTE_ID];
-    return {
-      callId: crypto.randomUUID(),
-      remoteTool,
-      policy: "bypassed",
-      ...(typeof routeId === "string" ? { routeId } : {}),
-      ...(caller !== undefined ? { caller } : {}),
-    };
+    return remoteCall(
+      {
+        callId: crypto.randomUUID(),
+        remoteTool,
+        policy: "bypassed" as const,
+        ...(typeof routeId === "string" ? { routeId } : {}),
+        ...exchangeIdsOf(exchange),
+      },
+      principalOf(exchange),
+    );
   }
 
   /**

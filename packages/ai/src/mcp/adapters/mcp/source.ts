@@ -1,4 +1,5 @@
 import {
+  principalOf,
   rcError,
   routeCanDefer,
   type CraftContext,
@@ -25,9 +26,8 @@ import {
 } from "../../annotation-tags.ts";
 import { McpHeadersKeys, MCP_TOOL_NAME_PATTERN } from "../../types.ts";
 import {
-  principalOnHeaders,
   recordRemoteCall,
-  remoteCallerOf,
+  remoteCall,
   routeSettlement,
 } from "../../remote-call.ts";
 
@@ -318,18 +318,22 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       prefix: this.options.prefix ?? `${ref.serverId}_`,
       routeId,
       handler: (request: McpToolRequest) => {
-        const principal = principalOnHeaders(request.headers);
-        const caller = remoteCallerOf(principal);
+        const principal = principalOf(request);
+        const callId = request.headers[McpHeadersKeys.REQUEST];
+        const remoteTool = request.headers[McpHeadersKeys.TOOL];
         return recordRemoteCall(
           context,
-          {
-            callId: String(request.headers[McpHeadersKeys.REQUEST]),
-            serverId: ref.serverId,
-            remoteTool: String(request.headers[McpHeadersKeys.TOOL]),
-            policy: "route",
-            routeId,
-            ...(caller !== undefined ? { caller } : {}),
-          },
+          remoteCall(
+            {
+              callId: typeof callId === "string" ? callId : crypto.randomUUID(),
+              serverId: ref.serverId,
+              remoteTool:
+                typeof remoteTool === "string" ? remoteTool : ref.tool,
+              policy: "route",
+              routeId,
+            },
+            principal,
+          ),
           () =>
             sub.emit({
               message: request.body as McpMessage<undefined>,
@@ -390,6 +394,8 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
  * of its client: a title, a description, a hint tag or an explicit hint.
  * One description cannot describe each tool, and one hint classifies tools
  * the route's author has not seen, including those the server adds later.
+ * `icons` are left out on purpose: one icon for a server's tools is a
+ * brand, and says nothing about what a tool does.
  */
 function starBlanketMetadata(
   discovery: RouteDiscovery,

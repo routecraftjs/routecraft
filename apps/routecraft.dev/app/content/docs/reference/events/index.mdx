@@ -462,7 +462,7 @@ One pair per call toward a remote MCP server's tool, whoever made it: an MCP cli
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:mcp:remote:requested` | The call is about to run | `{ callId, serverId?, origin?, remoteTool, policy, routeId?, caller? }` |
+| `plugin:mcp:remote:requested` | The call is about to run | `{ callId, serverId \| origin, remoteTool, policy, routeId?, caller?, exchangeId?, correlationId? }` |
 | `plugin:mcp:remote:settled` | The call ended | The same fields, with `outcome`, `durationMs`, and `refusal?` or `code?` |
 
 `policy` says whether a route judged the call:
@@ -478,12 +478,16 @@ One pair per call toward a remote MCP server's tool, whoever made it: an MCP cli
 | --- | --- |
 | `completed` | The call was answered |
 | `remote-error` | The remote answered with `isError`; `code` is `AI2003` |
-| `refused` | The proxy route's `.input()`, `.authorize()` or a validate hook refused the caller; `refusal` names the class (`input`, `unauthenticated`, `expired`, `insufficient_permissions`, `insufficient_scope`, `forbidden`). The remote was not reached |
+| `refused` | The proxy route's `.input()`, `.authorize()` or a validate hook refused the caller; `refusal` names the class: what the chain refused (`input`, `unauthenticated`, `expired`, `insufficient_permissions`, `insufficient_scope`) or the kind a validate hook or a `.validate()` step refused with (`invalid`, `forbidden`, `not_found`, `conflict`, `gone`, `rate_limited`, `unavailable`). The remote was not reached |
 | `declined` | The proxy route dropped the exchange |
 | `deferred` | The proxy route parked; the answer belongs to a later run |
 | `failed` | Anything else, with the error `code` when it has one |
 
-`callId` is the same on both events, and for a proxied call it is the `routecraft.mcp.request` header the route reads. `serverId` names the registered client; a call to an inline `url` carries the URL's `origin` instead. `caller` is `{ subject, issuer?, clientId? }`, absent for a call made without a principal: the identity, never the credential or the other claims.
+`callId` is the same on both events, and for a proxied call it is the `routecraft.mcp.request` header the route reads. `serverId` names the registered client; a call to an inline `url` carries the URL's `origin` instead. `caller` is `{ subject, issuer?, clientId?, actorSubject? }`, absent for a call made without a principal: the identity, never the credential or the other claims, with `actorSubject` naming who acted when the call was made on someone's behalf.
+
+A `bypassed` call carries the `exchangeId` and `correlationId` of the exchange it was made from: the hop's exchange, or the agent's turn. A `route` call is joined to its proxy route's exchange through `callId`, which is that exchange's `routecraft.mcp.request` header. The types are exported from `@routecraft/ai` as `McpRemoteCall`, `McpRemoteCallSettlement` and `McpRemoteCallRefusal`.
+
+A `refused` outcome is a refusal the caller caused, as every door classifies it. A step that throws to refuse, a throttle, an open circuit or a timeout is `failed` with its code. A call answered from a `.cache()` hit is `completed` without the remote being reached. A process that stops between the two events leaves a `requested` with no `settled`.
 
 Neither event carries arguments, a result or error text, so both are safe to store. A proxy route whose hop calls a tool other than the one its caller addressed leaves two records: the call to the proxied tool under `route`, and the hop under `bypassed`. An outcome is read at the route: a call that completed here and then failed the door's output check is `completed`, with `plugin:mcp:tool:failed` beside it.
 

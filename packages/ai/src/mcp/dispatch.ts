@@ -362,32 +362,10 @@ function resolveHttpConfig(
 }
 
 /**
- * Open a one-shot MCP SDK client over Streamable HTTP, dispatch the
- * tool, then close. Used by `McpEnricherAdapter` for inline-URL routes,
- * which have no registered client id to keep a connection under.
- * Centralised here so transport setup, auth-header building, and content
- * extraction stay in one place.
- *
- * @internal
- */
-export async function callRemoteTool(
-  serverUrl: string,
-  toolName: string,
-  args: Record<string, unknown>,
-  auth?: McpClientAuthOptions,
-  meta?: Record<string, string>,
-): Promise<unknown> {
-  // The URL is configuration, not part of the answer: the message can
-  // reach a caller, the route's own log carries the URL.
-  return toolResultBody(
-    await callRemoteToolRaw(serverUrl, toolName, args, auth, meta),
-    `"${toolName}"`,
-  );
-}
-
-/**
- * Like {@link callRemoteTool} but returns the raw MCP `tools/call` result
- * that {@link toolResultBody} interprets.
+ * Open a one-shot MCP SDK client over Streamable HTTP, call the tool, then
+ * close, returning the raw `tools/call` result that {@link toolResultBody}
+ * interprets. Used by `McpEnricherAdapter` for inline-URL routes, which
+ * have no registered client id to keep a connection under.
  *
  * @internal
  */
@@ -395,18 +373,20 @@ export async function callRemoteToolRaw(
   serverUrl: string,
   toolName: string,
   args: Record<string, unknown>,
-  auth?: McpClientAuthOptions,
-  meta?: Record<string, string>,
-  allowHttp = false,
+  options: {
+    readonly auth?: McpClientAuthOptions | undefined;
+    /** `_meta` for the call, the trace context when it is sent. */
+    readonly meta?: Record<string, string> | undefined;
+    readonly allowHttp?: boolean | undefined;
+  } = {},
 ): Promise<McpRawToolResult> {
+  const { meta } = options;
   let connection: Awaited<ReturnType<typeof connectMcpHttpClient>> | undefined;
   try {
-    connection = await connectMcpHttpClient(
-      new URL(serverUrl),
-      auth,
-      undefined,
-      allowHttp,
-    );
+    connection = await connectMcpHttpClient(new URL(serverUrl), {
+      auth: options.auth,
+      allowHttp: options.allowHttp,
+    });
     return (await connection.client.callTool({
       name: toolName,
       arguments: args,

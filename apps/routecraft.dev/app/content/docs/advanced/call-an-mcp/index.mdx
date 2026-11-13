@@ -88,7 +88,7 @@ If you only need to call a single external tool and do not want to register it g
 .to(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'navigate' }))
 ```
 
-A URL that is not on this machine is `https`, on an inline call and on a registered client alike. Plain `http` to another host needs `allowHttp: true` beside the URL, and a redirect from the server is refused; the [mcp adapter reference](/docs/reference/adapters/mcp) has the rule.
+A URL that is not on this machine is `https`, on an inline call and on a registered client alike. Plain `http` to another host needs `allowHttp: true` beside the URL, and a redirect to another origin is not followed; the [mcp adapter reference](/docs/reference/adapters/mcp) has the rule.
 
 ## Servers behind a login
 

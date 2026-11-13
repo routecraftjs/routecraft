@@ -40,9 +40,13 @@ describe("outbound MCP requests", () => {
     expect(check("https://mcp.example.com/mcp")).not.toThrow();
     expect(check("http://localhost:3000/mcp")).not.toThrow();
     expect(check("http://127.0.0.1:3000/mcp")).not.toThrow();
+    expect(check("http://127.0.0.2:3000/mcp")).not.toThrow();
+    expect(check("http://[::1]:3000/mcp")).not.toThrow();
     expect(check("http://10.0.0.5/mcp", true)).not.toThrow();
     for (const refused of [
       check("http://mcp.example.com/mcp"),
+      check("http://localhost.example.com/mcp"),
+      check("http://localhost@mcp.example.com/mcp"),
       check("ftp://mcp.example.com/mcp", true),
       check("not a url"),
     ]) {
@@ -103,28 +107,22 @@ describe("outbound MCP requests", () => {
     expect(t).toBeDefined();
   });
 
-  /**
-   * @case A redirect from the remote is refused, not followed
-   * @preconditions The remote answers every request with a 307 to another origin
-   * @expectedResult The connection fails naming the redirect and its target, and no request reaches the target
-   */
-  test("a redirect fails the call and is not followed", async () => {
-    const requested: string[] = [];
+  /** Connect to remote.test with a secret header and return the failure and every URL asked. */
+  async function connectAgainst(
+    answer: (url: string) => Response,
+  ): Promise<{ messages: string; requested: Request[] }> {
+    const requested: Request[] = [];
     globalThis.fetch = (async (
       input: RequestInfo | URL,
       init?: RequestInit,
     ) => {
       const request = new Request(input, init);
-      requested.push(request.url);
-      return new Response(null, {
-        status: 307,
-        headers: { location: "https://evil.test/mcp" },
-      });
+      requested.push(request);
+      return answer(request.url);
     }) as typeof fetch;
-
     const error = await prior
       .connectMcpHttpClient(new URL("https://remote.test/mcp"), {
-        headers: { "x-api-key": "secret" },
+        auth: { headers: { "x-api-key": "secret" } },
       })
       .then(
         () => undefined,
@@ -134,11 +132,48 @@ describe("outbound MCP requests", () => {
     for (let e = error as Error | undefined; e; e = e.cause as Error) {
       messages.push(e.message);
     }
-    expect(messages.join("\n")).toContain("redirect (307");
-    expect(messages.join("\n")).toContain("https://evil.test/mcp");
+    return { messages: messages.join("\n"), requested };
+  }
+
+  /**
+   * @case A redirect to another origin is not followed
+   * @preconditions The remote answers every request with a 307 to another origin; the client sends a secret header
+   * @expectedResult The connection fails saying the redirect was not followed, and no request, so no credential, reaches the other origin
+   */
+  test("a redirect to another origin fails the call and is not followed", async () => {
+    const { messages, requested } = await connectAgainst(
+      () =>
+        new Response(null, {
+          status: 307,
+          headers: { location: "https://evil.test/mcp" },
+        }),
+    );
+    expect(messages).toContain("not followed");
     expect(requested.length).toBeGreaterThan(0);
     expect(
-      requested.every((url) => url.startsWith("https://remote.test/")),
+      requested.every((request) =>
+        request.url.startsWith("https://remote.test/"),
+      ),
     ).toBe(true);
+  });
+
+  /**
+   * @case A redirect within the configured origin is followed, with the credential
+   * @preconditions The remote answers /mcp with a 307 to /mcp/ on the same origin, and anything else with 404
+   * @expectedResult The request is repeated at /mcp/ carrying the secret header
+   */
+  test("a redirect within the origin is followed", async () => {
+    const { requested } = await connectAgainst((url) =>
+      url === "https://remote.test/mcp"
+        ? new Response(null, {
+            status: 307,
+            headers: { location: "https://remote.test/mcp/" },
+          })
+        : new Response("Not Found", { status: 404 }),
+    );
+    const followed = requested.find(
+      (request) => request.url === "https://remote.test/mcp/",
+    );
+    expect(followed?.headers.get("x-api-key")).toBe("secret");
   });
 });

@@ -308,7 +308,7 @@ export class McpServer {
    * changed (a client that recovers and then degrades again is not silenced
    * by its first outage).
    */
-  private proxyWarnings = new Set<string>();
+  private proxyReported = new Set<string>();
 
   /**
    * The registry and registration versions the memoized proxy resolution
@@ -1546,7 +1546,7 @@ export class McpServer {
     for (const proxied of this.resolveProxied().values()) {
       const name = proxied.entry.endpoint;
       if (served.has(name)) {
-        this.warnProxyOnce(
+        this.reportProxyOnce(
           `proxy:local-conflict:${name}`,
           "mcp({ proxy }): a proxied tool's exposed name is a local mcp() route's; the route keeps it. Give the proxy a prefix or a name to expose both.",
           {
@@ -1574,7 +1574,8 @@ export class McpServer {
       entries = resolveClientEntries(
         this.service,
         serverId,
-        (key, message, bindings) => this.warnProxyOnce(key, message, bindings),
+        (key, message, bindings) =>
+          this.reportProxyOnce(key, message, bindings),
       );
       this.clientResolved.set(serverId, entries);
     }
@@ -1636,25 +1637,25 @@ export class McpServer {
   private syncProxyCaches(): void {
     const version = `${this.service.tools.version}:${this.service.proxiesVersion}`;
     if (version === this.proxyResolvedVersion) return;
-    this.proxyWarnings.clear();
+    this.proxyReported.clear();
     this.clientResolved.clear();
     this.proxyResolved = resolveProxiedEntries(
       this.service,
       (key, message, bindings, level) =>
-        this.warnProxyOnce(key, message, bindings, level),
+        this.reportProxyOnce(key, message, bindings, level),
     );
     this.proxyResolvedVersion = version;
   }
 
   /** Log a proxy-resolution finding once per dedup key. */
-  private warnProxyOnce(
+  private reportProxyOnce(
     key: string,
     message: string,
     bindings: Record<string, unknown>,
     level: "warn" | "error" = "warn",
   ): void {
-    if (this.proxyWarnings.has(key)) return;
-    this.proxyWarnings.add(key);
+    if (this.proxyReported.has(key)) return;
+    this.proxyReported.add(key);
     this.host.logger[level](bindings, message);
   }
 

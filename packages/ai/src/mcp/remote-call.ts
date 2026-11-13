@@ -3,16 +3,14 @@ import {
   HeadersKeys,
   isDeferred,
   isDropped,
+  principalRef,
   rcCodeOf,
   type CraftContext,
   type Exchange,
   type Principal,
 } from "@routecraft/routecraft";
-import type {
-  McpRemoteCall,
-  McpRemoteCaller,
-  McpRemoteCallSettlement,
-} from "../errors.ts";
+import type { McpRemoteCall, McpRemoteCallSettlement } from "../errors.ts";
+import { McpHeadersKeys } from "./types.ts";
 
 /**
  * Record one call toward a remote MCP server's tool: `requested` before it
@@ -20,7 +18,7 @@ import type {
  *
  * The pair is the one record every path to a remote tool leaves. A call that
  * ran a proxy route is recorded once, by that route, with `policy: "route"`.
- * A call that reached a client with no proxy route in front of it (an agent
+ * A call that reached a server with no proxy route in front of it (an agent
  * reference no route covers, a route's own hop, an inline url) is recorded
  * with `policy: "bypassed"`, so the calls no policy judged can be counted
  * rather than inferred from silence.
@@ -60,6 +58,42 @@ export async function recordRemoteCall<T>(
 }
 
 /**
+ * The record of a call, with the caller reduced to the reference an audit
+ * record keeps. The one place a principal becomes part of the record, so
+ * every path records the same subset of it.
+ *
+ * @internal
+ */
+export function remoteCall<T extends Omit<McpRemoteCall, "caller">>(
+  fields: T,
+  principal: Principal | undefined,
+): T & Pick<McpRemoteCall, "caller"> {
+  return principal === undefined
+    ? fields
+    : { ...fields, caller: principalRef(principal) };
+}
+
+/**
+ * Whether a hop to `serverId:remoteTool` is the hop of the proxied call its
+ * exchange carries, which the proxy route's source already has on record.
+ * The source stamps the client and the remote tool it was called for on the
+ * exchange; a hop to anything else reaches a server unjudged and is recorded
+ * on its own.
+ *
+ * @internal
+ */
+export function isProxiedCallHop(
+  exchange: Pick<Exchange, "headers">,
+  serverId: string,
+  remoteTool: string,
+): boolean {
+  return (
+    exchange.headers[McpHeadersKeys.CLIENT] === serverId &&
+    exchange.headers[McpHeadersKeys.TOOL] === remoteTool
+  );
+}
+
+/**
  * How a call that ran a proxy route ended, read off the route's exchange
  * the way the MCP server reads it: a dropped exchange is a decline, a
  * `Deferred` body is a parked run, anything else is the answer.
@@ -87,21 +121,21 @@ export function routeSettlement(
       });
       // A caller sends no headers, so a headers refusal is the route's own.
       if (
-        refusal !== undefined &&
-        !(refusal.kind === "input" && refusal.in === "headers")
+        refusal === undefined ||
+        (refusal.kind === "input" && refusal.in === "headers")
       ) {
-        return {
-          outcome: "refused",
-          refusal: refusal.kind === "refused" ? refusal.as : refusal.kind,
-        };
+        return failure(error);
       }
-      return failure(error);
+      return {
+        outcome: "refused",
+        refusal: refusal.kind === "refused" ? refusal.as : refusal.kind,
+      };
     },
   };
 }
 
 /**
- * How a call that reached a client with no route in front of it ended.
+ * How a call that reached a server with no route in front of it ended.
  *
  * @internal
  */
@@ -120,28 +154,16 @@ function failure(error: unknown): McpRemoteCallSettlement {
 }
 
 /**
- * Who a call is recorded as made by: the identity, never the credential or
- * the claims behind it.
+ * The exchange a hop was made from, for the record of that hop.
  *
  * @internal
  */
-export function remoteCallerOf(
-  principal:
-    Readonly<Pick<Principal, "subject" | "issuer" | "clientId">> | undefined,
-): McpRemoteCaller | undefined {
-  if (principal === undefined) return undefined;
+export function exchangeIdsOf(
+  exchange: Exchange,
+): Pick<McpRemoteCall, "exchangeId" | "correlationId"> {
+  const correlationId = exchange.headers[HeadersKeys.CORRELATION_ID];
   return {
-    subject: principal.subject,
-    ...(principal.issuer !== undefined ? { issuer: principal.issuer } : {}),
-    ...(principal.clientId !== undefined
-      ? { clientId: principal.clientId }
-      : {}),
+    exchangeId: exchange.id,
+    ...(typeof correlationId === "string" ? { correlationId } : {}),
   };
-}
-
-/** The principal a door or an agent put on a call's headers. */
-export function principalOnHeaders(
-  headers: Record<string, unknown> | undefined,
-): Principal | undefined {
-  return headers?.[HeadersKeys.AUTH_PRINCIPAL] as Principal | undefined;
 }

@@ -13,7 +13,11 @@
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28
  */
-import { loadOptionalPeer, rcError } from "@routecraft/routecraft";
+import {
+  isLoopbackHostname,
+  loadOptionalPeer,
+  rcError,
+} from "@routecraft/routecraft";
 import { version as packageVersion } from "../../package.json";
 import { buildAuthHeaders } from "./build-auth-headers.ts";
 import type { AuthProvider } from "@modelcontextprotocol/client";
@@ -115,8 +119,12 @@ export function assertRemoteUrl(
     });
   }
   if (url.protocol === "https:") return url;
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (url.protocol === "http:" && (loopback || allowHttp)) return url;
+  if (
+    url.protocol === "http:" &&
+    (allowHttp || isLoopbackHostname(url.hostname))
+  ) {
+    return url;
+  }
   throw rcError("RC5003", undefined, {
     message: `${field} must be an https URL: the credential and the tool arguments are sent to it.`,
     suggestion:
@@ -127,35 +135,17 @@ export function assertRemoteUrl(
 }
 
 /**
- * A `fetch` that answers a redirect with an error instead of following it.
- * A remote that redirects would otherwise receive the request, its custom
- * auth headers included, at a host nobody configured.
- */
-function refusingRedirects(
-  send: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
-): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
-  return async (input, init) => {
-    const response = await send(input, { ...init, redirect: "manual" });
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      await response.body?.cancel().catch(() => {});
-      throw rcError("RC5003", undefined, {
-        message: `mcp: the remote server answered with a redirect (${response.status}${location === null ? "" : ` to "${location}"`}), which is not followed.`,
-        suggestion:
-          "Configure the client with the URL the server redirects to, after checking it is the server you mean.",
-      });
-    }
-    return response;
-  };
-}
-
-/**
  * Open one outbound MCP client over Streamable HTTP.
  *
  * Every caller that talks to a remote MCP server over HTTP goes through here,
  * so negotiation mode, client identity and auth headers cannot drift between
  * the one-shot dispatch path and the plugin's cached clients. A failed
  * handshake closes the transport rather than orphaning its socket.
+ *
+ * A redirect is left to the SDK's default policy, which follows one only
+ * within the origin that was configured and reports any other as an error
+ * naming the target, so the credential goes to no host the remote chose.
+ * `redirectPolicy: "follow"` is never passed.
  *
  * The stdio manager deliberately does not use this: it builds a stdio
  * transport and registers a `listChanged` handler, and folding both shapes
@@ -164,9 +154,11 @@ function refusingRedirects(
  */
 export async function connectMcpHttpClient(
   url: URL,
-  auth?: McpClientAuthOptions,
-  authProvider?: AuthProvider,
-  allowHttp = false,
+  options: {
+    readonly auth?: McpClientAuthOptions | undefined;
+    readonly authProvider?: AuthProvider | undefined;
+    readonly allowHttp?: boolean | undefined;
+  } = {},
 ): Promise<{
   client: InstanceType<Awaited<ReturnType<typeof loadMcpClientSdk>>["Client"]>;
   transport: InstanceType<
@@ -175,7 +167,8 @@ export async function connectMcpHttpClient(
     >["StreamableHTTPClientTransport"]
   >;
 }> {
-  assertRemoteUrl(url, allowHttp, "mcp: the client url");
+  const { auth, authProvider } = options;
+  assertRemoteUrl(url, options.allowHttp === true, "mcp: the client url");
   const { Client, StreamableHTTPClientTransport } =
     await loadMcpClientSdk("mcp (http client)");
 
@@ -191,9 +184,9 @@ export async function connectMcpHttpClient(
   const transport = new StreamableHTTPClientTransport(
     url,
     authProvider
-      ? { authProvider, fetch: refusingRedirects(fetch) }
+      ? { authProvider }
       : {
-          fetch: refusingRedirects(async (input, init) => {
+          fetch: async (input, init) => {
             const headers = await buildAuthHeaders(auth);
             if (!headers) return fetch(input, init);
             const merged = new Headers(init?.headers);
@@ -201,7 +194,7 @@ export async function connectMcpHttpClient(
               merged.set(name, value);
             }
             return fetch(input, { ...init, headers: merged });
-          }),
+          },
         },
   );
   const client = new Client(MCP_CLIENT_INFO, {

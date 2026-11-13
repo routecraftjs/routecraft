@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  isLoopbackHostname,
   rcError,
   type CredentialLogin,
   type CredentialStore,
@@ -539,8 +540,10 @@ function assertUrl(value: string, field: string): void {
       message: `${field} must be an absolute URL, got "${value}".`,
     });
   }
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+  if (
+    url.protocol !== "https:" &&
+    !(url.protocol === "http:" && isLoopbackHostname(url.hostname))
+  ) {
     throw rcError("RC5003", undefined, {
       message: `${field} must be an https URL, got "${value}": the client secret and the tokens are sent to it.`,
     });

@@ -95,7 +95,7 @@ The rule applies whenever the client is registered, including contexts with no a
 
 **A client's URL is `https`:**
 
-Plain `http` is accepted for a loopback host (`localhost`, `127.0.0.1`, `[::1]`). For any other host it fails the bind with `RC5003` unless the client sets `allowHttp: true`, which is for a server on a private network that offers nothing else: the client's credential and every call's arguments are readable on the path. A redirect from the server is refused and never followed; set the URL it redirects to.
+Plain `http` is accepted for a loopback host (`localhost`, an address in `127.0.0.0/8`, `[::1]`). For any other host it fails the bind with `RC5003` unless the client sets `allowHttp: true`, which is for a server on a private network that offers nothing else: the client's credential and every call's arguments are readable on the path. A redirect is followed only within the configured origin; one to another origin fails the call and the credential is not sent there.
 
 **At start, each client says what stands in front of it:**
 

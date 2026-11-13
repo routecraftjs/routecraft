@@ -1,7 +1,10 @@
 import {
   registerErrorCodes,
   type ExchangeScoped,
+  type CallerRefusal,
+  type PrincipalRef,
   type RCMeta,
+  type RefusalKind,
 } from "@routecraft/routecraft";
 
 /**
@@ -35,37 +38,54 @@ export type McpToolProvenance =
     }
   | { proxied: true; serverId: string; remoteTool: string; routeId: string };
 
-/** Who made a call toward a remote MCP tool: the identity, never the credential. */
-export interface McpRemoteCaller {
-  subject: string;
-  issuer?: string;
-  clientId?: string;
-}
-
 /**
  * One call toward a remote MCP server's tool, as both of its events carry
  * it.
  *
  * `policy` says whether a proxy route judged the call. `"route"`: it ran
  * the route proxying the tool, named by `routeId`. `"bypassed"`: it
- * reached the client with no proxy route in front of it, from an agent
+ * reached the server with no proxy route in front of it, from an agent
  * reference no route covers (no `routeId`), or from the hop of the route
  * `routeId` names.
+ *
+ * The server is a registered client (`serverId`) or the origin of an inline
+ * `url` (`origin`), never both.
  */
-export interface McpRemoteCall {
-  /** One id per call, on both events. For a proxied call it is the `routecraft.mcp.request` header the route reads. */
+export type McpRemoteCall = {
+  /**
+   * One id per call, on both events. For a call that ran a proxy route it
+   * is the `routecraft.mcp.request` header that route reads.
+   */
   callId: string;
-  /** The registered client, absent for a call to an inline `url`. */
-  serverId?: string;
-  /** The origin of an inline `url`, absent for a registered client. */
-  origin?: string;
   /** The tool's name on the remote server. */
   remoteTool: string;
-  policy: "route" | "bypassed";
-  routeId?: string;
-  /** Absent for a call made without a principal. */
-  caller?: McpRemoteCaller;
-}
+  /**
+   * Who called: the identity, never the credential or the claims. Absent
+   * for a call made without a principal.
+   */
+  caller?: PrincipalRef;
+  /**
+   * The exchange the call was made from, when the caller is one: the hop's
+   * exchange, or the agent turn's. A call that ran a proxy route is joined
+   * to that route's exchange through `callId`.
+   */
+  exchangeId?: string;
+  correlationId?: string;
+} & (
+  { serverId: string; origin?: never } | { origin: string; serverId?: never }
+) &
+  (
+    | { policy: "route"; routeId: string }
+    | { policy: "bypassed"; routeId?: string }
+  );
+
+/**
+ * The class of a refusal a proxy route gave its caller: what the route's
+ * chain refused (`input`, `expired`, `insufficient_scope`, ...) or the
+ * kind a validate hook or a `.validate()` step refused with.
+ */
+export type McpRemoteCallRefusal =
+  Exclude<CallerRefusal["kind"], "refused"> | RefusalKind;
 
 /**
  * How a call toward a remote MCP tool ended.
@@ -79,17 +99,11 @@ export interface McpRemoteCall {
  * - `deferred`: the proxy route parked; the answer belongs to a later run.
  * - `failed`: anything else, with the error `code` when it has one.
  */
-export interface McpRemoteCallSettlement {
-  outcome:
-    | "completed"
-    | "remote-error"
-    | "refused"
-    | "declined"
-    | "deferred"
-    | "failed";
-  refusal?: string;
-  code?: string;
-}
+export type McpRemoteCallSettlement =
+  | { outcome: "completed" | "declined" | "deferred" }
+  | { outcome: "remote-error"; code: "AI2003" }
+  | { outcome: "refused"; refusal: McpRemoteCallRefusal }
+  | { outcome: "failed"; code?: string };
 
 /**
  * The mount a tool call arrived on, absent for the root: a client mount
@@ -693,7 +707,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Remote MCP tool reported an error",
       suggestion:
-        "The remote server answered the call with isError: true, so its content is an error text, not a result. The message carries that text, bounded. On a route, handle it with .error() or .retry(); on a route that proxies the remote, the caller receives the remote's text as a failed call. Not a Routecraft or transport failure (those are RC5003).",
+        "The remote server answered the call with isError: true, so its content is an error text, not a result. The message names the tool and leaves that text out, because a message reaches logs and events; remoteErrorTextOf(error) from @routecraft/ai returns it, bounded. On a route, handle it with .error() or .retry(); on a route that proxies the remote, the caller receives the remote's text as a failed call. Not a Routecraft or transport failure (those are RC5003).",
       docs: `${DOCS_BASE}#ai-2003`,
       retryable: false,
     },

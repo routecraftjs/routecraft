@@ -222,8 +222,11 @@ name:
   for another host only with `allowHttp: true` on the client or the call
   (`assertRemoteUrl` in `packages/ai/src/mcp/sdk.ts`). The credential and
   the arguments travel in that request.
-- **A redirect is refused, never followed.** Following one presents the
-  credential to a host the remote chose.
+- **A redirect is followed only within the configured origin.** That is
+  the MCP SDK's default policy (`redirectPolicy: "same-origin"`), which
+  `connectMcpHttpClient` never overrides: a redirect elsewhere fails the
+  call, so the credential reaches no host the remote chose. A test pins it
+  (`packages/ai/test/mcp-outbound.bun.test.ts`).
 - **A `401` does not choose where a login credential goes.** The
   `resource_metadata` URL in a challenge is ignored; discovery reads the
   server's own well-known path.
@@ -238,7 +241,8 @@ name:
 - **Every call is on record.** `plugin:mcp:remote:requested` and
   `plugin:mcp:remote:settled` are emitted on every path to a remote tool,
   with `policy: "bypassed"` where no proxy route judged the call, and carry
-  the caller's identity without arguments, results or error text.
+  the caller as a `PrincipalRef` (`principalRef`, the one reduction an
+  audit record uses) without arguments, results or error text.
 
 The remote's annotations and descriptions are still its own claims, relayed
 as published; a policy keyed on `readOnlyHint` trusts the server that far.

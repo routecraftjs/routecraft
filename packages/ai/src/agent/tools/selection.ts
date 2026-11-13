@@ -3,6 +3,7 @@ import {
   rcError,
   type CraftContext,
   type ExchangeHeaders,
+  type Principal,
   type Tag,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -19,7 +20,7 @@ import {
 import {
   directSettlement,
   recordRemoteCall,
-  remoteCallerOf,
+  remoteCall,
 } from "../../mcp/remote-call.ts";
 import { MCP, type McpService } from "../../mcp/port.ts";
 import { coveringProxy, declaredProxy, proxiedEntry } from "../../mcp/proxy.ts";
@@ -1302,17 +1303,20 @@ function mcpEntryToResolvedTool(
   const handler: FnOptions["handler"] = async (rawInput, hctx) => {
     const { exchangeId, correlationId } = hctx;
     const args = objectArguments(name, rawInput);
-    const caller = remoteCallerOf(hctx.principal);
     try {
       return await recordRemoteCall(
         ctx,
-        {
-          callId: randomUUID(),
-          serverId: entry.source,
-          remoteTool: entry.name,
-          policy: "bypassed",
-          ...(caller !== undefined ? { caller } : {}),
-        },
+        remoteCall(
+          {
+            callId: randomUUID(),
+            serverId: entry.source,
+            remoteTool: entry.name,
+            policy: "bypassed" as const,
+            ...(exchangeId !== undefined ? { exchangeId } : {}),
+            ...(correlationId !== undefined ? { correlationId } : {}),
+          },
+          hctx.principal as Principal | undefined,
+        ),
         () =>
           dispatchMcpCall(
             ctx.lookup(MCP),
@@ -1515,7 +1519,7 @@ function withRemoteText(error: unknown, text: string | undefined): unknown {
   if (!(error instanceof Error) || text === undefined || text === "") {
     return error;
   }
-  return new Error(`${error.message}: ${text}`, { cause: error });
+  return rcError("AI2003", error, { message: `${error.message}: ${text}` });
 }
 
 /** Every client id a reference may name: configured, disabled, or listing tools. */

@@ -11,6 +11,7 @@ import { deferring, testContext, type TestContext } from "@routecraft/testing";
 import type { McpServer } from "../src/mcp/server.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
+import { statefulRemote } from "./helpers/stateful-remote.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import {
   mcp,
@@ -1393,6 +1394,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
     const [direct] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
     const viaClient = await rejection(direct);
     expect(viaClient.message).toContain("File not found");
+    expect(rcCodeOf(viaClient)).toBe("AI2003");
     expect((viaClient.cause as Error).message).toBe(
       'Remote MCP tool "docs:get_document" reported an error',
     );
@@ -1449,6 +1451,7 @@ describe("the record of a call toward a remote MCP tool", () => {
           }),
         ],
       })
+      .with(deferring())
       .build();
     t.ctx.on("plugin:mcp:remote:requested", ({ details }) => {
       requested.push({ ...details });
@@ -1555,6 +1558,55 @@ describe("the record of a call toward a remote MCP tool", () => {
     ]);
     await callTool(server!, "docs_search", {});
     expect(settled.map((event) => event["outcome"])).toEqual(["declined"]);
+  });
+
+  /**
+   * @case A call the proxy route parks is recorded as deferred, not completed
+   * @preconditions Star route with a .defer() before the hop
+   * @expectedResult The settled event carries outcome "deferred" and the client is not reached
+   */
+  test("a parked call is recorded as deferred", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .defer({ ttl: "1h" })
+        .to(mcp("docs:*")),
+    ]);
+    await callTool(server!, "docs_search", {});
+    expect(settled.map((event) => event["outcome"])).toEqual(["deferred"]);
+    expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case A hop to an inline url is recorded under the url's origin alone
+   * @preconditions A local mcp() route "own" ending in .to(mcp({ url, tool })) with a path and a query on the url
+   * @expectedResult One bypassed pair carrying the origin and the calling exchange's id, with no serverId, path or query
+   */
+  test("an inline url hop is recorded by its origin", async () => {
+    const remote = statefulRemote("https://inline.test/mcp");
+    try {
+      await build([
+        craft()
+          .id("own")
+          .description("Echoes through an inline url")
+          .from(mcp())
+          .to(mcp({ url: "https://inline.test/mcp?key=secret", tool: "echo" })),
+      ]);
+      await callTool(server!, "own", { text: "hi" });
+    } finally {
+      remote.restore();
+    }
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      origin: "https://inline.test",
+      remoteTool: "echo",
+      policy: "bypassed",
+      routeId: "own",
+    });
+    expect(typeof settled[0]!["exchangeId"]).toBe("string");
+    expect(settled[0]).not.toHaveProperty("serverId");
+    expect(JSON.stringify([requested, settled])).not.toContain("secret");
   });
 
   /**
