@@ -10,7 +10,7 @@ title: argv
 argv(): Source<unknown>
 ```
 
-Turn the command line of `craft run <file>` into one exchange. The route runs its full chain, the CLI prints the result and the process exits with the exit codes of `craft exec`, with one difference: an `.authorize()` refusal exits `1`, not `4`, because [the door admits no principal](#no-principal).
+Turn the command line of `craft run <file>` into one exchange. The route runs its full chain, the CLI prints the result and the process exits with the exit codes of `craft exec`, with two differences: an `.authorize()` refusal exits `1`, not `4`, because [the door admits no principal](#no-principal), and an `.input()` failure exits `2`, not `1`, because the rejected payload is the command line itself.
 
 ```ts
 import { argv, craft, direct } from "@routecraft/routecraft";

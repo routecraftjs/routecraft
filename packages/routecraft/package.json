@@ -23,7 +23,7 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api": "~1.9.1",
     "@standard-schema/spec": "^1.1.0",
     "lru-cache": "^11.5.3",
     "pino": "^10.4.0"
@@ -32,7 +32,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "@opentelemetry/sdk-trace-base": "^2.12.0",
+    "@opentelemetry/sdk-trace-base": "^2.12.1",
     "@routecraft/testing": "workspace:*",
     "@sinonjs/fake-timers": "^11.3.1",
     "@types/better-sqlite3": "^7.6.13",
@@ -41,16 +41,16 @@
     "@types/semver": "^7.8.0",
     "@types/sinonjs__fake-timers": "^15.0.1",
     "arktype": "^2.2.9",
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "^13.1.1",
     "cheerio": "^1.2.0",
     "croner": "^10.0.1",
-    "fast-xml-parser": "^5.11.2",
+    "fast-xml-parser": "^5.12.0",
     "imapflow": "^1.7.8",
     "mailauth": "^8.0.6",
-    "mailparser": "^3.14.1",
-    "nodemailer": "^10.3.1",
-    "papaparse": "^5.7.0",
-    "semver": "^7.8.5",
+    "mailparser": "^3.14.3",
+    "nodemailer": "^10.5.0",
+    "papaparse": "^5.7.1",
+    "semver": "^7.8.6",
     "tsdav": "^2.5.0",
     "vitest": "^4.1.12",
     "zod": "^4.6.7"
@@ -79,7 +79,7 @@
     "fast-xml-parser": "^5.11.2",
     "imapflow": "^1.0.77",
     "jose": "^6.0.0",
-    "mailauth": "^4.0.0 || ^5.0.0 || ^7.1.0 || ^8.0.6",
+    "mailauth": "^8.0.6",
     "mailparser": "^3.7.0",
     "nodemailer": "^6.0.0 || ^10.0.6",
     "papaparse": "^5.4.1",
