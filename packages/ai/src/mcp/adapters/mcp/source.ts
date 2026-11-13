@@ -11,6 +11,7 @@ import type {
   McpLocalToolEntry,
   McpProxyRegistration,
   McpServerOptions,
+  McpToolAnnotations,
   McpToolRequest,
   McpUiOptions,
 } from "../../types.ts";
@@ -20,6 +21,7 @@ import { BRAND_MCP_ADAPTER } from "./shared.ts";
 import {
   deriveAnnotationsFromTags,
   mergeAnnotations,
+  TAG_ANNOTATION_HINTS,
 } from "../../annotation-tags.ts";
 import { MCP_TOOL_NAME_PATTERN } from "../../types.ts";
 
@@ -328,6 +330,13 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
           suggestion: `Give a tool its own exact route, .from(mcp({ proxy: "${ref.serverId}:<tool>" })), where .input() and .output() are advertised for that tool, or derive each tool's schemas with mcp({ proxy: "${ref.serverId}:*", schemas }).`,
         });
       }
+      const blanket = starBlanketMetadata(discovery, this.options.annotations);
+      if (blanket.length > 0) {
+        throw rcError("RC5003", undefined, {
+          message: `Route "${routeId}" proxies every tool of client "${ref.serverId}" and declares ${blanket.join(", ")}, which would replace what each tool says about itself with one statement for all of them`,
+          suggestion: `Give a tool its own exact route, .from(mcp({ proxy: "${ref.serverId}:<tool>" })), and declare it there. A tool the server adds later would inherit a star route's statement unseen.`,
+        });
+      }
       if (this.options.schemas !== undefined) {
         registration.schemas = this.options.schemas;
       }
@@ -352,6 +361,28 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
 
     await this.holdUntilAborted(sub, () => service.registerProxy(registration));
   }
+}
+
+/**
+ * What a star proxy route declares that would be advertised for every tool
+ * of its client: a title, a description, a hint tag or an explicit hint.
+ * One description cannot describe each tool, and one hint classifies tools
+ * the route's author has not seen, including those the server adds later.
+ */
+function starBlanketMetadata(
+  discovery: RouteDiscovery,
+  annotations: McpToolAnnotations | undefined,
+): string[] {
+  const declared: string[] = [];
+  if (discovery?.title !== undefined) declared.push(".title()");
+  if (discovery?.description !== undefined) declared.push(".description()");
+  for (const [tag] of TAG_ANNOTATION_HINTS) {
+    if (discovery?.tags?.includes(tag)) declared.push(`.tag("${tag}")`);
+  }
+  if (annotations !== undefined && Object.keys(annotations).length > 0) {
+    declared.push("mcp({ annotations })");
+  }
+  return declared;
 }
 
 /**
