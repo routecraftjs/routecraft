@@ -93,6 +93,14 @@ A single underscore inside the name is fine (`my_company_api`), and because only
 
 The rule applies whenever the client is registered, including contexts with no agent in them. `mcpPlugin()` validates its options at construction, before it can know whether an agent will later join the same context, so the constraint is namespace-wide rather than conditional on how the client is consumed.
 
+**A client's URL is `https`:**
+
+Plain `http` is accepted for a loopback host (`localhost`, `127.0.0.1`, `[::1]`). For any other host it fails the bind with `RC5003` unless the client sets `allowHttp: true`, which is for a server on a private network that offers nothing else: the client's credential and every call's arguments are readable on the path. A redirect from the server is refused and never followed; set the URL it redirects to.
+
+**At start, each client says what stands in front of it:**
+
+One info line per registered client: `MCP client is proxied` with the star route, the tools that have a route of their own and the excluded tools; `MCP client is partly proxied` with the tools its exact routes name, when no star route covers the rest; or `MCP client is not proxied`. A [proxy route](#proxying-client-tools) that was removed, or held behind a condition that no longer includes it, shows up here and nowhere else: calls to the client keep succeeding, on its credential, with no policy in front of them. Each such call is also recorded with [`policy: 'bypassed'`](/docs/reference/events#remote-call-events).
+
 **A client can be declared and switched off:**
 
 `enabled` on a client takes what a route's [`.enabled()`](/docs/reference/operations/enabled) predicate answers: `true`, a reason string, `false`, or a function returning one of those. It is evaluated once, as the plugin binds, and has no refresh cadence.

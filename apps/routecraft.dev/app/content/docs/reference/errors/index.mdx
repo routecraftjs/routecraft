@@ -1329,12 +1329,12 @@ This is the MCP-side equivalent of [RC5031](#rc-5031) on the direct and forward 
 Remote MCP tool reported an error
 
 **Why it happens**  
-A remote MCP server answers a failed call with `isError: true` and its content as the error text. The `mcp()` client, on a route's `.to(mcp(...))` hop and on an agent's `MCP(server:tool)` tool alike, throws this instead of handing that text on as a result a route would process or a model would summarise as content. The message names the tool, and the registered client when there is one, and carries the remote's text, bounded; a configured URL stays out of it.
+A remote MCP server answers a failed call with `isError: true` and its content as the error text. The `mcp()` client, on a route's `.to(mcp(...))` hop and on an agent's `MCP(server:tool)` tool alike, throws this instead of handing that text on as a result a route would process or a model would summarise as content. The message names the tool, and the registered client when there is one. The remote's text and a configured URL stay out of it, because a message reaches logs and events: `remoteErrorTextOf(error)` from `@routecraft/ai` returns the text, bounded, and an agent's model is given it with the failed call.
 
 Not a Routecraft or transport failure: a connection that could not be made, a server that is not registered, or a stdio client that is not running is [RC5003](#rc-5003).
 
 **Suggestion**  
-- On a route, handle it where the hop is: `.error()` to recover, or `.retry({ retryOn })` with a predicate that admits `AI2003` when the remote's failure is transient; the code is registered as not retryable, so the default predicate skips it.
+- On a route, handle it where the hop is: `.error()` to recover (reading the remote's text with `remoteErrorTextOf(error)` when the handler decides on it), or `.retry({ retryOn })` with a predicate that admits `AI2003` when the remote's failure is transient; the code is registered as not retryable, so the default predicate skips it.
 - On a route that proxies the remote (`mcp({ proxy })`), nothing to do: the caller receives the remote's text as a failed call when the hop was to the tool they called. From any other hop, or from a nested route, the caller receives the code alone.
 - When the text names an argument, fix the arguments the route sends; the remote validated them at its door.
 
