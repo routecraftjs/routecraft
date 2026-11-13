@@ -19,6 +19,12 @@ updates:
       # v2. Lift this when the CLI is migrated to v3.
       - dependency-name: "changesets/action"
         update-types: ["version-update:semver-major"]
+    groups:
+      # CodeQL fails analyze when init and analyze run different versions,
+      # so its actions must move in one PR.
+      actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: "bun"
     directory: "/"
@@ -47,6 +53,16 @@ updates:
         versions: [">=19.3.0"]
       - dependency-name: "@types/react-dom"
         versions: [">=19.3.0"]
+      # @opentelemetry/sdk-trace-base 2.x declares peer api <1.10.0; api 1.10
+      # installs a second copy and tracing silently becomes a no-op. Lift this
+      # when sdk-trace-base widens its peer range.
+      - dependency-name: "@opentelemetry/api"
+        versions: [">=1.10.0"]
+      # 0.7 buffers responses by locking and releasing the body reader, which
+      # bun treats as consumed, so every request throws "Body already used".
+      # Lift this when the SDK or bun fixes it.
+      - dependency-name: "@typesafe-ai/sdk"
+        versions: [">=0.7.0"]
     groups:
       dependencies:
         patterns:
