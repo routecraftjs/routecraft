@@ -1841,11 +1841,6 @@ export class McpServer {
         };
       }
 
-      this.host.logger.debug(
-        { bodyType: typeof body, body },
-        "MCP tool call exchange body",
-      );
-
       // Build exchange headers. The authenticated principal (when present)
       // rides as a single structured header rather than ten flat keys; the
       // `ex.principal` getter on the exchange surfaces it ergonomically.
@@ -1871,7 +1866,7 @@ export class McpServer {
         tool: toolName,
         // Deep snapshot: the live body is handed to the route handler next
         // and may be mutated (including nested values) after emission.
-        args: structuredClone(body),
+        _snapshot: { args: structuredClone(body) },
       });
 
       const resultExchange = await entry.handler({

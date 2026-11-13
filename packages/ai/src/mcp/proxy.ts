@@ -2,6 +2,7 @@ import {
   HeadersKeys,
   standardSchemaFromJsonSchema,
   type CraftContext,
+  type PluginContext,
 } from "@routecraft/routecraft";
 import { isMcpAdapter } from "../brand.ts";
 import { mergeAnnotations } from "./annotation-tags.ts";
@@ -61,8 +62,68 @@ export function proxyRegistrationKey(serverId: string, tool: string): string {
 }
 
 /**
+ * Every `mcp({ proxy })` declaration among `routes`, live or not. The one
+ * reading of the route definitions, so the server and the agent resolver
+ * cannot disagree about what is declared.
+ */
+function* proxyDeclarations(
+  routes: Iterable<{
+    readonly definition: {
+      readonly id: string;
+      readonly sources: readonly unknown[];
+    };
+  }>,
+): Generator<{ routeId: string; ref: McpProxyRef }> {
+  for (const route of routes) {
+    for (const source of route.definition.sources) {
+      if (!isMcpAdapter(source)) continue;
+      const ref = (source as { proxyRef?: McpProxyRef }).proxyRef;
+      if (ref !== undefined) yield { routeId: route.definition.id, ref };
+    }
+  }
+}
+
+/**
+ * The exact `mcp({ proxy: "server:tool" })` declarations among the
+ * application's routes, enabled or not, as registration keys. Read from the
+ * route definitions rather than the live registrations, so a route held
+ * back by `.enabled()` still counts.
+ *
+ * The set is kept for the current tick only. A listing asks once per remote
+ * tool, synchronously, so one scan serves the whole pass; routes are
+ * registered after the plugins bind and may be added later, so nothing is
+ * kept across ticks.
+ *
+ * @internal
+ */
+export function declaredExactProxies(
+  c: Pick<PluginContext, "routes">,
+): () => ReadonlySet<string> {
+  let thisTick: ReadonlySet<string> | undefined;
+  return () => {
+    if (thisTick !== undefined) return thisTick;
+    const declared = new Set<string>();
+    for (const { ref } of proxyDeclarations(c.routes.list())) {
+      if (ref.tool === "*") continue;
+      declared.add(proxyRegistrationKey(ref.serverId, ref.tool));
+    }
+    thisTick = declared;
+    queueMicrotask(() => {
+      thisTick = undefined;
+    });
+    return declared;
+  };
+}
+
+/**
  * The registration that covers a remote tool: the exact one when there is
  * one, otherwise the client's star registration, otherwise undefined.
+ *
+ * A tool whose exact route is declared but not live (held back by
+ * `.enabled()`, stopped, or not yet started) is covered by nothing. The
+ * star route does not take it over: the exact route is the policy the
+ * operator wrote for that tool, and a policy that is off is closed, not
+ * replaced by a weaker one.
  *
  * @internal
  */
@@ -73,6 +134,7 @@ export function coveringProxy(
 ): McpProxyRegistration | undefined {
   const exact = service.proxies.get(proxyRegistrationKey(serverId, tool));
   if (exact !== undefined) return exact;
+  if (service.isProxyDeclared(serverId, tool)) return undefined;
   const star = service.proxies.get(proxyRegistrationKey(serverId, "*"));
   return star !== undefined && !excludes(star, tool) ? star : undefined;
 }
@@ -103,21 +165,11 @@ export function declaredProxy(
   tool: string,
 ): { routeId: string; tool: string; excluded: boolean } | undefined {
   let star: { routeId: string; tool: string; excluded: boolean } | undefined;
-  for (const route of context.getRoutes()) {
-    for (const source of route.definition.sources) {
-      const ref = (source as { proxyRef?: McpProxyRef }).proxyRef;
-      if (!isMcpAdapter(source) || ref === undefined) continue;
-      if (ref.serverId !== serverId) continue;
-      if (ref.tool === tool) {
-        return { routeId: route.definition.id, tool, excluded: false };
-      }
-      if (ref.tool === "*") {
-        star ??= {
-          routeId: route.definition.id,
-          tool,
-          excluded: excludes(ref, tool),
-        };
-      }
+  for (const { routeId, ref } of proxyDeclarations(context.getRoutes())) {
+    if (ref.serverId !== serverId) continue;
+    if (ref.tool === tool) return { routeId, tool, excluded: false };
+    if (ref.tool === "*") {
+      star ??= { routeId, tool, excluded: excludes(ref, tool) };
     }
   }
   return star;

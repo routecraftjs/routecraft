@@ -3405,7 +3405,11 @@ describe("McpServer", () => {
       });
 
       expect(called).toHaveLength(1);
-      expect(called[0]).toMatchObject({ tool: "call-evt", args: { x: 42 } });
+      expect(called[0]).toMatchObject({
+        tool: "call-evt",
+        _snapshot: { args: { x: 42 } },
+      });
+      expect(called[0]).not.toHaveProperty("args");
 
       expect(completed).toHaveLength(1);
       expect(completed[0]).toMatchObject({ tool: "call-evt" });

@@ -46,8 +46,9 @@ export interface McpService {
    */
   readonly proxies: ReadonlyMap<string, McpProxyRegistration>;
   /**
-   * Bumped whenever {@link proxies} changes, so a consumer memoising the
-   * exposed tools recomputes only when a registration came or went.
+   * Bumped whenever {@link proxies} changes, or a route declaring an exact
+   * proxy is added, so a consumer memoising the exposed tools recomputes
+   * only when what covers a tool can have changed.
    */
   readonly proxiesVersion: number;
   /**
@@ -58,6 +59,12 @@ export interface McpService {
    *   whole client
    */
   registerProxy(registration: McpProxyRegistration): () => void;
+  /**
+   * Whether a route declares an exact proxy over `serverId:tool`, live or
+   * not. A declared route that is not live closes its tool: the client's
+   * star route does not take it over.
+   */
+  isProxyDeclared(serverId: string, tool: string): boolean;
   /**
    * Run `listener` after every change to {@link local} or {@link proxies},
    * so a transport can tell its clients the advertised tools changed.
@@ -100,12 +107,19 @@ export function createMcpService(
     readonly disabledClients?: ReadonlyMap<string, string>;
     readonly local?: Iterable<McpLocalToolEntry>;
     readonly http?: McpHttpConnections;
+    /**
+     * The exact proxy declarations, as {@link proxyRegistrationKey} keys.
+     * A function, because the routes are not all registered when the
+     * plugin builds the service.
+     */
+    readonly declaredProxies?: () => ReadonlySet<string>;
   } = {},
 ): McpService {
   const local = new Map<string, McpLocalToolEntry>();
   for (const entry of seed.local ?? []) local.set(entry.endpoint, entry);
   const proxies = new Map<string, McpProxyRegistration>();
   let proxiesVersion = 0;
+  let declaredSeen = 0;
   const listeners = new Set<() => void>();
   const changed = (): void => {
     for (const listener of listeners) listener();
@@ -114,6 +128,13 @@ export function createMcpService(
     local,
     proxies,
     get proxiesVersion() {
+      // Routes are only ever added, so the count changes exactly when the
+      // declared set does.
+      const declared = seed.declaredProxies?.().size ?? 0;
+      if (declared !== declaredSeen) {
+        declaredSeen = declared;
+        proxiesVersion++;
+      }
       return proxiesVersion;
     },
     registerProxy(registration) {
@@ -143,6 +164,12 @@ export function createMcpService(
           changed();
         }
       };
+    },
+    isProxyDeclared(serverId, tool) {
+      return (
+        seed.declaredProxies?.().has(proxyRegistrationKey(serverId, tool)) ??
+        false
+      );
     },
     onChange(listener) {
       listeners.add(listener);

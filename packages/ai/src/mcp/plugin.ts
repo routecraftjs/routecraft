@@ -37,6 +37,7 @@ import {
   StoreOAuthProvider,
 } from "./connect.ts";
 import { createMcpHttpConnections } from "./http-connections.ts";
+import { declaredExactProxies } from "./proxy.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
 
@@ -101,6 +102,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         clients,
         disabledClients,
         http: createMcpHttpConnections({ authProviders, disabledClients }),
+        declaredProxies: declaredExactProxies(c),
       });
 
       // A client that logs in and has lost its credential is switched off
