@@ -12,7 +12,7 @@ import { MCP } from "../src/mcp/port.ts";
 import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
 import { statefulRemote } from "./helpers/stateful-remote.ts";
 
-const URL_ = "http://remote.test/mcp";
+const URL_ = "https://remote.test/mcp";
 
 // Another suite in the same process may have replaced the SDK loader seam
 // with a mock client, and `mock.module` outlives the suite that set it. This

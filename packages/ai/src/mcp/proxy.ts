@@ -115,6 +115,36 @@ export function declaredExactProxies(
   };
 }
 
+/** What the application's routes declare over one client's tools. */
+export interface McpProxyCoverage {
+  /** The route proxying every tool of the client, when one does. */
+  star?: { routeId: string; exclude: readonly string[] };
+  /** The tools that have a route of their own, by remote name. */
+  exact: Array<{ tool: string; routeId: string }>;
+}
+
+/**
+ * The proxy routes declared over each client, enabled or not, read from the
+ * route definitions. A client no route proxies is absent.
+ *
+ * @internal
+ */
+export function proxyCoverage(
+  c: Pick<PluginContext, "routes">,
+): Map<string, McpProxyCoverage> {
+  const coverage = new Map<string, McpProxyCoverage>();
+  for (const { routeId, ref } of proxyDeclarations(c.routes.list())) {
+    const client = coverage.get(ref.serverId) ?? { exact: [] };
+    coverage.set(ref.serverId, client);
+    if (ref.tool === "*") {
+      client.star ??= { routeId, exclude: ref.exclude ?? [] };
+    } else {
+      client.exact.push({ tool: ref.tool, routeId });
+    }
+  }
+  return coverage;
+}
+
 /**
  * The registration that covers a remote tool: the exact one when there is
  * one, otherwise the client's star registration, otherwise undefined.
@@ -211,22 +241,30 @@ export interface McpClientEntry extends McpProxiedEntry {
  * as it lists and calls a `.from(mcp())` route's entry, so every rule that
  * applies to one applies to the other.
  *
- * A remote tool is not exposed, with a warning through `warn`, when its
- * exposed name does not conform to the tool name pattern or when two
- * registrations expose the same name (the first in registration order
- * wins). Which registration covers a tool follows {@link coveringProxy}.
+ * A remote tool is not exposed, with a warning through `report`, when its
+ * exposed name does not conform to the tool name pattern. When two
+ * registrations expose the same name, none of them is exposed and the
+ * conflict is reported at error level: a name that goes to whichever
+ * registered first lets one client's server take a name another client's
+ * tool was expected under. Which registration covers a tool follows
+ * {@link coveringProxy}.
  *
  * @internal
  */
 export function resolveProxiedEntries(
   service: McpService,
-  warn: (
+  report: (
     key: string,
     message: string,
     bindings: Record<string, unknown>,
+    level?: "warn" | "error",
   ) => void,
 ): Map<string, McpProxiedEntry> {
   const resolved = new Map<string, McpProxiedEntry>();
+  const contested = new Map<
+    string,
+    { registration: McpProxyRegistration; tool: string }
+  >();
   for (const registration of service.proxies.values()) {
     if (registration.tool === "*" && registration.exclude !== undefined) {
       const listed = new Set(
@@ -236,7 +274,7 @@ export function resolveProxiedEntries(
       );
       for (const name of registration.exclude) {
         if (listed.has(name)) continue;
-        warn(
+        report(
           `proxy:exclude-unmatched:${registration.serverId}:${name}`,
           "mcp({ proxy }): exclude names a tool the client does not list; a misspelt name leaves the tool it meant in the group.",
           {
@@ -268,7 +306,7 @@ export function resolveProxiedEntries(
       const exposedName =
         registration.name ?? `${registration.prefix}${remote.name}`;
       if (!MCP_TOOL_NAME_PATTERN.test(exposedName)) {
-        warn(
+        report(
           `proxy:name:${exposedName}`,
           "mcp({ proxy }): a proxied tool's exposed name is not a valid MCP tool name; skipping it. Set a prefix or a name that matches the pattern.",
           {
@@ -281,25 +319,33 @@ export function resolveProxiedEntries(
         );
         continue;
       }
-      const existing = resolved.get(exposedName);
-      if (existing) {
-        warn(
-          `proxy:collision:${exposedName}`,
-          "mcp({ proxy }): two routes expose a proxied tool under one name; the first keeps it. Give one of them a prefix or a name.",
+      const exposed = resolved.get(exposedName);
+      const first =
+        exposed !== undefined
+          ? { registration: exposed.registration, tool: exposed.remote.name }
+          : contested.get(exposedName);
+      if (first !== undefined) {
+        const holder = first.registration;
+        resolved.delete(exposedName);
+        contested.set(exposedName, first);
+        report(
+          `proxy:collision:${exposedName}:${registration.routeId}`,
+          "mcp({ proxy }): two routes expose a proxied tool under one name; neither is exposed. Give one of them a prefix or a name.",
           {
             exposed: exposedName,
-            route: existing.registration.routeId,
-            server: existing.registration.serverId,
-            tool: existing.remote.name,
+            route: holder.routeId,
+            server: holder.serverId,
+            tool: first.tool,
             otherRoute: registration.routeId,
             otherServer: registration.serverId,
             otherTool: remote.name,
           },
+          "error",
         );
         continue;
       }
       resolved.set(exposedName, {
-        entry: proxiedEntry(exposedName, registration, remote, warn),
+        entry: proxiedEntry(exposedName, registration, remote, report),
         registration,
         remote,
       });
@@ -314,14 +360,14 @@ export function resolveProxiedEntries(
  * covers, exact over star. The root mount's prefixes and its collision
  * rules do not apply here, since the mount already names the client; a
  * remote name that is not a valid tool name is still skipped, with a
- * warning through `warn`.
+ * warning through `report`.
  *
  * @internal
  */
 export function resolveClientEntries(
   service: McpService,
   serverId: string,
-  warn: (
+  report: (
     key: string,
     message: string,
     bindings: Record<string, unknown>,
@@ -332,7 +378,7 @@ export function resolveClientEntries(
     const registration = coveringProxy(service, serverId, remote.name);
     if (registration === undefined) continue;
     if (!MCP_TOOL_NAME_PATTERN.test(remote.name)) {
-      warn(
+      report(
         `proxy:remote-name:${serverId}:${remote.name}`,
         "mcp({ proxy }): a remote tool's name is not a valid MCP tool name; skipping it on the client's mount.",
         {
@@ -345,12 +391,12 @@ export function resolveClientEntries(
       continue;
     }
     resolved.set(remote.name, {
-      entry: proxiedEntry(remote.name, registration, remote, warn),
+      entry: proxiedEntry(remote.name, registration, remote, report),
       exposed: proxiedEntry(
         registration.name ?? `${registration.prefix}${remote.name}`,
         registration,
         remote,
-        warn,
+        report,
       ),
       registration,
       remote,
@@ -369,7 +415,7 @@ export function resolveClientEntries(
 function deriveSchemas(
   registration: McpProxyRegistration,
   remote: McpToolRegistryEntry,
-  warn:
+  report:
     | ((
         key: string,
         message: string,
@@ -378,8 +424,8 @@ function deriveSchemas(
     | undefined,
 ): McpDerivedSchemas | undefined {
   if (registration.schemas === undefined) return undefined;
-  const report = (error: unknown): undefined => {
-    warn?.(
+  const failed = (error: unknown): undefined => {
+    report?.(
       `proxy:schemas:${registration.routeId}:${remote.name}`,
       "mcp({ proxy, schemas }): the schemas function failed for a remote tool; advertising the remote's schemas for it.",
       {
@@ -394,11 +440,11 @@ function deriveSchemas(
   try {
     const derived = registration.schemas(proxiedToolInfo(remote));
     if (derived === null || typeof derived !== "object") {
-      return report(new TypeError("schemas must return an object"));
+      return failed(new TypeError("schemas must return an object"));
     }
     return derived;
   } catch (error) {
-    return report(error);
+    return failed(error);
   }
 }
 
@@ -428,7 +474,7 @@ export function proxiedEntry(
   exposedName: string,
   registration: McpProxyRegistration,
   remote: McpToolRegistryEntry,
-  warn?: (
+  report?: (
     key: string,
     message: string,
     bindings: Record<string, unknown>,
@@ -461,7 +507,7 @@ export function proxiedEntry(
   if (title !== undefined) entry.title = title;
   // The route's own schemas win: an exact route's `.input()` / `.output()`,
   // else what a star route derives from the remote's, else the remote's.
-  const derived = deriveSchemas(registration, remote, warn);
+  const derived = deriveSchemas(registration, remote, report);
   // Only a body schema replaces the remote's: a route that declares headers
   // alone says nothing about the tool's arguments or result.
   if (registration.input?.body !== undefined) {

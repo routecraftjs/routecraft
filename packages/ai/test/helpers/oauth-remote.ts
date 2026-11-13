@@ -24,6 +24,8 @@ export function oauthRemote(mcpUrl: string, issuer = "https://as.test") {
   let tokenOutage = false;
   const tokenRequests: URLSearchParams[] = [];
   const counts = { authorized: 0, refreshed: 0, refused: 0 };
+  let advertisedMetadataUrl = metadataUrl;
+  const requested: string[] = [];
 
   function json(body: unknown, status = 200): Response {
     return new Response(JSON.stringify(body), {
@@ -48,6 +50,13 @@ export function oauthRemote(mcpUrl: string, issuer = "https://as.test") {
 
   async function handle(request: Request): Promise<Response | undefined> {
     const url = new URL(request.url);
+    requested.push(url.href);
+    if (
+      advertisedMetadataUrl !== metadataUrl &&
+      url.href === advertisedMetadataUrl
+    ) {
+      return new Response("Not Found", { status: 404 });
+    }
     if (url.href === metadataUrl) {
       return json({ resource: mcpUrl, authorization_servers: [issuer] });
     }
@@ -108,7 +117,7 @@ export function oauthRemote(mcpUrl: string, issuer = "https://as.test") {
         return new Response("Unauthorized", {
           status: 401,
           headers: {
-            "www-authenticate": `Bearer resource_metadata="${metadataUrl}"`,
+            "www-authenticate": `Bearer resource_metadata="${advertisedMetadataUrl}"`,
           },
         });
       }
@@ -126,6 +135,12 @@ export function oauthRemote(mcpUrl: string, issuer = "https://as.test") {
     remote,
     counts,
     tokenRequests,
+    /** Every URL requested, in order. */
+    requested,
+    /** Make the MCP server's 401 name another `resource_metadata` URL. */
+    advertiseMetadataAt(url: string): void {
+      advertisedMetadataUrl = url;
+    },
     /**
      * Play the person's browser: consent at the authorization URL and
      * return the redirect's query, as the loopback listener would see it.

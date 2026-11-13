@@ -155,7 +155,7 @@ function snapshotOf(body: unknown): string | undefined {
   }
 }
 
-/** How much of a remote error text reaches a message and a log line. */
+/** How much of a remote error text is kept for the caller it answers. */
 const REMOTE_ERROR_TEXT_LIMIT = 500;
 
 /** The bounded remote text of each AI2003, beside the error, never parsed out of its message. */
@@ -177,6 +177,41 @@ export function relayRemoteError(error: unknown, routeId: string): void {
   if (error instanceof Error && REMOTE_TEXT.has(error)) {
     RELAYED.set(error, routeId);
   }
+}
+
+/**
+ * The text a remote MCP server sent with a result it flagged `isError`,
+ * read off the `AI2003` the call threw or off an error that wraps it.
+ *
+ * The `AI2003` message leaves the text out, because a message reaches logs
+ * and events and the text is whatever the remote chose to write. A route
+ * that decides on it (a rate limit to wait out, a missing record to answer
+ * for) reads it here, in its `.error()` handler.
+ *
+ * @param error - What the `mcp()` hop or an agent's MCP tool threw
+ * @returns The remote's text, bounded; `""` when it sent none; `undefined`
+ *   when the error is not a remote tool's error
+ *
+ * @example
+ * ```ts
+ * craft()
+ *   .id("read-document")
+ *   .error((error) => {
+ *     if (remoteErrorTextOf(error)?.includes("not found")) return { found: false };
+ *     throw error;
+ *   })
+ *   .from(direct())
+ *   .to(mcp("docs:get_document"));
+ * ```
+ */
+export function remoteErrorTextOf(error: unknown): string | undefined {
+  let current = error;
+  for (let depth = 0; depth < 8 && current instanceof Error; depth++) {
+    const text = REMOTE_TEXT.get(current);
+    if (text !== undefined) return text;
+    current = current.cause;
+  }
+  return undefined;
 }
 
 /**
@@ -204,8 +239,10 @@ export function relayedRemoteErrorOf(
  *
  * A result flagged `isError` is the remote reporting failure, so it throws
  * rather than arriving as content a route would process or a model would
- * summarise. The error names the tool and carries the remote's text,
- * bounded, because that text is the remote's answer to the caller.
+ * summarise. The error names the tool. The remote's text is its answer to
+ * the caller, so it is held beside the error, bounded, and stays off the
+ * message: a message reaches logs and events, and the remote writes that
+ * text.
  *
  * @throws AI2003 when the result is flagged `isError`
  * @internal
@@ -214,7 +251,7 @@ export function toolResultBody(raw: McpRawToolResult, where: string): unknown {
   if (raw.isError === true) {
     const text = remoteErrorText(raw);
     const error = rcError("AI2003", undefined, {
-      message: `Remote MCP tool ${where} reported an error${text === "" ? "" : `: ${text}`}`,
+      message: `Remote MCP tool ${where} reported an error`,
     });
     REMOTE_TEXT.set(error, text);
     throw error;
@@ -325,32 +362,10 @@ function resolveHttpConfig(
 }
 
 /**
- * Open a one-shot MCP SDK client over Streamable HTTP, dispatch the
- * tool, then close. Used by `McpEnricherAdapter` for inline-URL routes,
- * which have no registered client id to keep a connection under.
- * Centralised here so transport setup, auth-header building, and content
- * extraction stay in one place.
- *
- * @internal
- */
-export async function callRemoteTool(
-  serverUrl: string,
-  toolName: string,
-  args: Record<string, unknown>,
-  auth?: McpClientAuthOptions,
-  meta?: Record<string, string>,
-): Promise<unknown> {
-  // The URL is configuration, not part of the answer: the message can
-  // reach a caller, the route's own log carries the URL.
-  return toolResultBody(
-    await callRemoteToolRaw(serverUrl, toolName, args, auth, meta),
-    `"${toolName}"`,
-  );
-}
-
-/**
- * Like {@link callRemoteTool} but returns the raw MCP `tools/call` result
- * that {@link toolResultBody} interprets.
+ * Open a one-shot MCP SDK client over Streamable HTTP, call the tool, then
+ * close, returning the raw `tools/call` result that {@link toolResultBody}
+ * interprets. Used by `McpEnricherAdapter` for inline-URL routes, which
+ * have no registered client id to keep a connection under.
  *
  * @internal
  */
@@ -358,12 +373,20 @@ export async function callRemoteToolRaw(
   serverUrl: string,
   toolName: string,
   args: Record<string, unknown>,
-  auth?: McpClientAuthOptions,
-  meta?: Record<string, string>,
+  options: {
+    readonly auth?: McpClientAuthOptions | undefined;
+    /** `_meta` for the call, the trace context when it is sent. */
+    readonly meta?: Record<string, string> | undefined;
+    readonly allowHttp?: boolean | undefined;
+  } = {},
 ): Promise<McpRawToolResult> {
+  const { meta } = options;
   let connection: Awaited<ReturnType<typeof connectMcpHttpClient>> | undefined;
   try {
-    connection = await connectMcpHttpClient(new URL(serverUrl), auth);
+    connection = await connectMcpHttpClient(new URL(serverUrl), {
+      auth: options.auth,
+      allowHttp: options.allowHttp,
+    });
     return (await connection.client.callTool({
       name: toolName,
       arguments: args,

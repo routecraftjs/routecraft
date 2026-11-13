@@ -2,6 +2,7 @@ import type { Exchange, Enricher } from "@routecraft/routecraft";
 import {
   getExchangeContext,
   HeadersKeys,
+  authorityOf,
   rcError,
   sendsTraceContext,
   traceContextOf,
@@ -14,6 +15,15 @@ import type {
 import { MCP } from "../../port.ts";
 import { McpHeadersKeys } from "../../types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
+import { assertRemoteUrl } from "../../sdk.ts";
+import type { McpRemoteCall } from "../../../errors.ts";
+import {
+  directSettlement,
+  exchangeIdsOf,
+  isProxiedCallHop,
+  recordRemoteCall,
+  remoteCall,
+} from "../../remote-call.ts";
 import {
   callRemoteToolRaw,
   dispatchMcpCallRaw,
@@ -21,16 +31,6 @@ import {
   relayRemoteError,
   toolResultBody,
 } from "../../dispatch.ts";
-
-/** Ensure inline url is HTTP(S) only. Stdio clients are reached via dispatchMcpCall. */
-function assertHttpUrl(url: string): void {
-  const trimmed = url.trim().toLowerCase();
-  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-    throw new Error(
-      `MCP client: url must be HTTP or HTTPS. Stdio is not supported in routes; register stdio clients via mcpPlugin({ clients: { name: { command, args } } }). Got: "${url.slice(0, 50)}${url.length > 50 ? "..." : ""}"`,
-    );
-  }
-}
 
 /**
  * The URL and auth of an inline-url call. A registered client's call never
@@ -46,7 +46,7 @@ function resolveConnection(options: McpClientOptions): {
       "MCP client: either url or serverId must be provided in McpClientOptions.",
     );
   }
-  assertHttpUrl(options.url);
+  assertRemoteUrl(options.url, options.allowHttp === true, "mcp({ url })");
   return { url: options.url, auth: options.auth };
 }
 
@@ -133,26 +133,31 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
           `MCP client: serverId "${this.options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route).`,
         );
       }
-      const transport = resolveServerTransport(context, this.options.serverId);
-      const raw = await dispatchMcpCallRaw(
-        context.lookup(MCP),
-        this.options.serverId,
-        toolName,
-        args,
-        { context, own, carrier: () => traceContextOf(exchange) },
-      );
-      const result = toolResultBody(
-        raw,
-        `"${this.options.serverId}:${toolName}"`,
-      );
-      // Only a hop to the tool the proxied call addressed, on its client: a
-      // route that answers with another tool's result is shaping the answer.
-      // The server keeps the record only while it is answering that call.
-      if (
-        exchange.headers[McpHeadersKeys.CLIENT] === this.options.serverId &&
-        exchange.headers[McpHeadersKeys.TOOL] === toolName
-      ) {
+      const serverId = this.options.serverId;
+      const transport = resolveServerTransport(context, serverId);
+      const dispatch = (): ReturnType<typeof dispatchMcpCallRaw> =>
+        dispatchMcpCallRaw(context.lookup(MCP), serverId, toolName, args, {
+          context,
+          own,
+          carrier: () => traceContextOf(exchange),
+        });
+      const where = `"${serverId}:${toolName}"`;
+      let result: unknown;
+      if (isProxiedCallHop(exchange, serverId, toolName)) {
+        // Only a hop to the tool the proxied call addressed, on its client: a
+        // route that answers with another tool's result is shaping the answer.
+        // The server keeps the record only while it is answering that call.
+        const raw = await dispatch();
+        result = toolResultBody(raw, where);
         recordHopResult(exchange.headers[McpHeadersKeys.REQUEST], result, raw);
+      } else {
+        // Read inside the record, so a remote `isError` settles as one.
+        result = await recordRemoteCall(
+          context,
+          { ...this.bypassedCall(exchange, toolName), serverId },
+          async () => toolResultBody(await dispatch(), where),
+          directSettlement,
+        );
       }
       if (result && typeof result === "object") {
         metadataOf.set(result, {
@@ -165,26 +170,58 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     }
 
     // Inline-URL path -> direct HTTP call without going through the
-    // registry. Uses the shared `callRemoteTool` helper so transport
-    // setup, auth-header building, and cleanup stay aligned with
-    // `dispatchMcpCall`.
+    // registry. An exchange with no context has no bus to record the call
+    // on, which only a hand-built exchange outside a route is.
     const { url, auth } = resolveConnection(this.options);
-    const raw = await callRemoteToolRaw(
-      url,
-      toolName,
-      args,
-      auth,
-      // `_meta.traceparent` and `_meta.tracestate`, as SEP-414 names them.
-      sendsTraceContext(context, own)
-        ? { ...traceContextOf(exchange) }
-        : undefined,
-    );
-    // The URL is configuration, not part of the answer, as in callRemoteTool.
-    const result = toolResultBody(raw, `"${toolName}"`);
+    const send = (): ReturnType<typeof callRemoteToolRaw> =>
+      callRemoteToolRaw(url, toolName, args, {
+        auth,
+        // `_meta.traceparent` and `_meta.tracestate`, as SEP-414 names them.
+        meta: sendsTraceContext(context, own)
+          ? { ...traceContextOf(exchange) }
+          : undefined,
+        allowHttp: this.options.allowHttp,
+      });
+    // The URL is configuration, not part of the answer.
+    const answer = async (): Promise<unknown> =>
+      toolResultBody(await send(), `"${toolName}"`);
+    const result =
+      context === undefined
+        ? await answer()
+        : await recordRemoteCall(
+            context,
+            {
+              ...this.bypassedCall(exchange, toolName),
+              origin: new URL(url).origin,
+            },
+            answer,
+            directSettlement,
+          );
     if (result && typeof result === "object") {
       metadataOf.set(result, { toolName, url, transport: "http" });
     }
     return result;
+  }
+
+  /** The record of a hop no proxy route stands in front of. */
+  private bypassedCall(
+    exchange: Exchange<unknown>,
+    remoteTool: string,
+  ): Omit<
+    Extract<McpRemoteCall, { policy: "bypassed" }>,
+    "serverId" | "origin"
+  > {
+    const routeId = exchange.headers[HeadersKeys.ROUTE_ID];
+    return remoteCall(
+      {
+        callId: crypto.randomUUID(),
+        remoteTool,
+        policy: "bypassed" as const,
+        ...(typeof routeId === "string" ? { routeId } : {}),
+        ...exchangeIdsOf(exchange),
+      },
+      authorityOf(exchange).read(exchange),
+    );
   }
 
   /**

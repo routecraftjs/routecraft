@@ -127,8 +127,13 @@ export function createMcpHttpConnections(
     return cache.getOrCreate(serverId, async () => {
       const { client, transport } = await connectMcpHttpClient(
         new URL(config.url),
-        login ? undefined : (config.auth as McpClientAuthOptions | undefined),
-        authProvider,
+        {
+          auth: login
+            ? undefined
+            : (config.auth as McpClientAuthOptions | undefined),
+          authProvider,
+          allowHttp: config.allowHttp,
+        },
       );
       let inFlight = 0;
       let retired = false;

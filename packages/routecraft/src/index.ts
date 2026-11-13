@@ -1076,6 +1076,7 @@ export {
 } from "./adapters/carddav/index.ts";
 export { NESTED_STEPS, AUTHENTICATES } from "./dsl-symbol.ts";
 export type { NestedSteps, NestingStep } from "./kernel/continuation/sites.ts";
+export { principalRef } from "./kernel/continuation/principal-ref.ts";
 
 // @internal and re-exported on purpose, see the deferral block above.
 export { clipText } from "./shared/text.ts";

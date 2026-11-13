@@ -3,6 +3,7 @@ import {
   authorityOf,
   craft,
   noop,
+  rcCodeOf,
   type AnyRouteBuilder,
   type Exchange,
 } from "@routecraft/routecraft";
@@ -10,8 +11,15 @@ import { deferring, testContext, type TestContext } from "@routecraft/testing";
 import type { McpServer } from "../src/mcp/server.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
+import { statefulRemote } from "./helpers/stateful-remote.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
-import { mcp, McpHeadersKeys, sessionsPlugin, tools } from "../src/index.ts";
+import {
+  mcp,
+  McpHeadersKeys,
+  remoteErrorTextOf,
+  sessionsPlugin,
+  tools,
+} from "../src/index.ts";
 import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
 import { MemorySessionStore } from "../src/agent/session/memory-store.ts";
 import type { McpClientConfig } from "../src/mcp/port.ts";
@@ -473,11 +481,11 @@ describe("a route that proxies a remote MCP server", () => {
   });
 
   /**
-   * @case Bare prefixes that collide keep the first route's tool and warn
+   * @case Bare prefixes that collide expose neither tool
    * @preconditions Star routes over docs and billing, both with prefix ""; both list "search"
-   * @expectedResult One "search" is exposed, forwarding to docs; a warning names both routes
+   * @expectedResult No "search" is listed, a call to it is refused without reaching a client, and an error-level line names both routes
    */
-  test("a collision between bare names keeps the first and warns", async () => {
+  test("a collision between bare names exposes neither and logs an error", async () => {
     await serve([
       craft()
         .id("docs")
@@ -489,17 +497,20 @@ describe("a route that proxies a remote MCP server", () => {
         .to(mcp("billing:*")),
     ]);
     const names = server.getAvailableTools().map((tool) => tool.name);
-    expect(names.filter((name) => name === "search")).toHaveLength(1);
-    await call("search", {});
-    expect(dispatches.map((d) => d.serverId)).toEqual(["docs"]);
-    const warned = t.contextLogger.warn.mock.calls.find(
+    expect(names).not.toContain("search");
+    const refused = await call("search", {});
+    expect(refused.isError).toBe(true);
+    expect(dispatches).toEqual([]);
+    const warned = t.contextLogger.error.mock.calls.find(
       (c: unknown[]) =>
-        typeof c[1] === "string" && c[1].includes("the first keeps it"),
+        typeof c[1] === "string" && c[1].includes("neither is exposed"),
     );
     expect(warned?.[0]).toMatchObject({
       exposed: "search",
       route: "docs",
+      tool: "search",
       otherRoute: "billing",
+      otherTool: "search",
     });
   });
 
@@ -677,6 +688,35 @@ describe("a route that proxies a remote MCP server", () => {
   });
 
   /**
+   * @case A route's error handler reads the remote's text off the error it is given
+   * @preconditions A local mcp() route "own" with a route-level .error() that answers from remoteErrorTextOf; the docs client answers isError with "File not found"
+   * @expectedResult The route answers with the handler's body, built from the remote's text
+   */
+  test("a route's error handler reads the remote's text", async () => {
+    await serve(
+      [
+        craft()
+          .id("own")
+          .description("Reads a document through our own route")
+          .error((error) => ({ remoteSaid: remoteErrorTextOf(error) }))
+          .from(mcp())
+          .to(mcp("docs:get_document")),
+      ],
+      {
+        answer: () => ({
+          isError: true,
+          content: [{ type: "text", text: "File not found" }],
+        }),
+      },
+    );
+    const result = await call("own", { id: "1" });
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content[0]!.text)).toEqual({
+      remoteSaid: "File not found",
+    });
+  });
+
+  /**
    * @case The star hop refuses a local mcp() route's own exchange
    * @preconditions A local mcp() route "own" ending in .to(mcp("docs:*")); the server sets the tool header to "own" but no client header
    * @expectedResult The call fails with RC5003 and the docs client is never reached
@@ -795,6 +835,16 @@ describe("a route that proxies a remote MCP server", () => {
       serverId: "docs",
       remoteTool: "get_document",
     });
+    expect(JSON.stringify(failures[0])).not.toContain("File not found");
+    const logged = JSON.stringify(
+      [...t.contextLogger.error.mock.calls, ...t.logger.error.mock.calls].map(
+        (c: unknown[]) => [
+          c[1],
+          (c[0] as { err?: Error } | undefined)?.err?.message,
+        ],
+      ),
+    );
+    expect(logged).not.toContain("File not found");
   });
 
   /**
@@ -1077,7 +1127,10 @@ describe("an agent's MCP reference to a proxied tool", () => {
 
   let sessions: MemorySessionStore;
 
-  async function build(routes: AnyRouteBuilder[]): Promise<TestContext> {
+  async function build(
+    routes: AnyRouteBuilder[],
+    answer?: (toolName: string) => McpRawToolResult,
+  ): Promise<TestContext> {
     sessions = new MemorySessionStore();
     t = await testContext()
       .routes(routes)
@@ -1085,7 +1138,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
         plugins: [
           mcpPort({
             tools: buildRegistry(),
-            stdio: buildManagers(),
+            stdio: buildManagers(answer),
             clients: buildClients(),
           }),
           sessionsPlugin({ store: sessions }),
@@ -1307,11 +1360,54 @@ describe("an agent's MCP reference to a proxied tool", () => {
   });
 
   /**
-   * @case A proxied tool no route covers is offered raw
-   * @preconditions An exact route over get_document only
-   * @expectedResult MCP(docs:search) resolves raw and its call reaches the client
+   * @case A model reads the remote's error text, which the AI2003 message does not carry
+   * @preconditions The remote answers isError with a text block; one agent tool runs through a star route and one reaches a client with no proxy route
+   * @expectedResult Both handlers reject with the remote's text, and the AI2003 underneath names the tool without it
    */
-  test("an uncovered tool stays raw", async () => {
+  test("an agent tool call fails with the remote's text beside a clean AI2003", async () => {
+    const failing = (): McpRawToolResult => ({
+      content: [{ type: "text", text: "File not found" }],
+      isError: true,
+    });
+    await build(
+      [
+        craft()
+          .id("docs")
+          .from(mcp({ proxy: "docs:*" }))
+          .to(mcp("docs:*")),
+      ],
+      failing,
+    );
+    const [governed] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const rejection = (tool: typeof governed): Promise<Error> =>
+      Promise.resolve()
+        .then(() => tool.handler({ id: "gone" }, handlerContext(tool.name)))
+        .then(
+          () => new Error("resolved"),
+          (error: unknown) => error as Error,
+        );
+    const viaRoute = await rejection(governed);
+    expect(viaRoute.message).toContain("File not found");
+    expect((viaRoute.cause as Error).message).not.toContain("File not found");
+    expect(rcCodeOf(viaRoute.cause)).toBe("AI2003");
+
+    await t.stop();
+    await build([], failing);
+    const [direct] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const viaClient = await rejection(direct);
+    expect(viaClient.message).toContain("File not found");
+    expect(rcCodeOf(viaClient)).toBe("AI2003");
+    expect((viaClient.cause as Error).message).toBe(
+      'Remote MCP tool "docs:get_document" reported an error',
+    );
+  });
+
+  /**
+   * @case A tool no proxy route covers is called directly
+   * @preconditions An exact route over get_document only
+   * @expectedResult MCP(docs:search) resolves with no governing route and its call reaches the client
+   */
+  test("an uncovered tool is called directly", async () => {
     await build([
       craft()
         .id("fetch")
@@ -1323,6 +1419,333 @@ describe("an agent's MCP reference to a proxied tool", () => {
     await tool.handler({ q: "x" }, handlerContext(tool.name));
     expect(dispatches).toEqual([
       { serverId: "docs", toolName: "search", args: { q: "x" } },
+    ]);
+  });
+});
+
+describe("the record of a call toward a remote MCP tool", () => {
+  let t: TestContext;
+  let server: McpServer | undefined;
+  let requested: Array<Record<string, unknown>> = [];
+  let settled: Array<Record<string, unknown>> = [];
+
+  afterEach(async () => {
+    dispatches = [];
+    requested = [];
+    settled = [];
+    await server?.stop().catch(() => undefined);
+    server = undefined;
+    if (t) await t.stop();
+  });
+
+  async function build(
+    routes: AnyRouteBuilder[],
+    answer?: (toolName: string) => McpRawToolResult,
+  ): Promise<void> {
+    t = await testContext()
+      .routes(routes)
+      .with({
+        plugins: [
+          mcpPort({
+            tools: buildRegistry(),
+            stdio: buildManagers(answer),
+            clients: buildClients(),
+          }),
+        ],
+      })
+      .with(deferring())
+      .build();
+    t.ctx.on("plugin:mcp:remote:requested", ({ details }) => {
+      requested.push({ ...details });
+    });
+    t.ctx.on("plugin:mcp:remote:settled", ({ details }) => {
+      settled.push({ ...details });
+    });
+    await t.startAndWaitReady();
+    server = mcpServerFor(t.ctx);
+  }
+
+  const alice = {
+    kind: "custom",
+    scheme: "bearer",
+    subject: "alice",
+    issuer: "https://idp.test",
+    email: "alice@example.test",
+  };
+
+  const proxyDocs = (): AnyRouteBuilder =>
+    craft()
+      .id("docs")
+      .from(mcp({ proxy: "docs:*" }))
+      .to(mcp("docs:*"));
+
+  function agentContext(toolName: string) {
+    return makeFnHandlerContext(
+      toolName,
+      new AbortController().signal,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      authorityOf(t.ctx),
+    );
+  }
+
+  /**
+   * @case A call through the door to a proxied tool leaves one requested and one settled event
+   * @preconditions Star route over docs; an authenticated caller calls docs_search with arguments
+   * @expectedResult One pair sharing a callId names the client, the remote tool, the route and the caller's identity with policy "route" and outcome "completed"; neither event carries the arguments or the caller's other claims
+   */
+  test("a door call through a proxy route is recorded once", async () => {
+    await build([proxyDocs()]);
+    await callTool(server!, "docs_search", { q: "secret-term" }, alice);
+
+    expect(requested).toHaveLength(1);
+    expect(settled).toHaveLength(1);
+    expect(requested[0]).toMatchObject({
+      serverId: "docs",
+      remoteTool: "search",
+      policy: "route",
+      routeId: "docs",
+      caller: { subject: "alice", issuer: "https://idp.test" },
+    });
+    expect(settled[0]).toMatchObject({
+      callId: requested[0]!["callId"],
+      policy: "route",
+      outcome: "completed",
+    });
+    expect(typeof settled[0]!["durationMs"]).toBe("number");
+    const recorded = JSON.stringify([requested, settled]);
+    expect(recorded).not.toContain("secret-term");
+    expect(recorded).not.toContain("alice@example.test");
+  });
+
+  /**
+   * @case A call the proxy route refuses is recorded as refused, with the remote unreached
+   * @preconditions Star route with .authorize({ roles: ["admin"] }); a caller without the role
+   * @expectedResult The settled event carries outcome "refused" and the refusal class, and the client is never reached
+   */
+  test("a refusal is recorded with its class", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .authorize({ roles: ["admin"] })
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+    ]);
+    await callTool(server!, "docs_search", {}, alice);
+
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      policy: "route",
+      outcome: "refused",
+      refusal: "insufficient_permissions",
+      caller: { subject: "alice" },
+    });
+    expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case A call the proxy route drops is recorded as declined
+   * @preconditions Star route whose filter drops every exchange
+   * @expectedResult The settled event carries outcome "declined"
+   */
+  test("a decline is recorded", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .filter(() => false)
+        .to(mcp("docs:*")),
+    ]);
+    await callTool(server!, "docs_search", {});
+    expect(settled.map((event) => event["outcome"])).toEqual(["declined"]);
+  });
+
+  /**
+   * @case A call the proxy route parks is recorded as deferred, not completed
+   * @preconditions Star route with a .defer() before the hop
+   * @expectedResult The settled event carries outcome "deferred" and the client is not reached
+   */
+  test("a parked call is recorded as deferred", async () => {
+    await build([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .defer({ ttl: "1h" })
+        .to(mcp("docs:*")),
+    ]);
+    await callTool(server!, "docs_search", {});
+    expect(settled.map((event) => event["outcome"])).toEqual(["deferred"]);
+    expect(dispatches).toEqual([]);
+  });
+
+  /**
+   * @case A hop to an inline url is recorded under the url's origin alone
+   * @preconditions A local mcp() route "own" ending in .to(mcp({ url, tool })) with a path and a query on the url
+   * @expectedResult One bypassed pair carrying the origin and the calling exchange's id, with no serverId, path or query
+   */
+  test("an inline url hop is recorded by its origin", async () => {
+    const remote = statefulRemote("https://inline.test/mcp");
+    try {
+      await build([
+        craft()
+          .id("own")
+          .description("Echoes through an inline url")
+          .from(mcp())
+          .to(mcp({ url: "https://inline.test/mcp?key=secret", tool: "echo" })),
+      ]);
+      await callTool(server!, "own", { text: "hi" });
+    } finally {
+      remote.restore();
+    }
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      origin: "https://inline.test",
+      remoteTool: "echo",
+      policy: "bypassed",
+      routeId: "own",
+    });
+    expect(typeof settled[0]!["exchangeId"]).toBe("string");
+    expect(settled[0]).not.toHaveProperty("serverId");
+    expect(JSON.stringify([requested, settled])).not.toContain("secret");
+  });
+
+  /**
+   * @case A remote isError answer is recorded apart from a failure, without its text
+   * @preconditions Star route over docs; the client answers isError with "File not found"
+   * @expectedResult The settled event carries outcome "remote-error" and code AI2003, and no event carries the remote's text
+   */
+  test("a remote error is recorded without its text", async () => {
+    await build([proxyDocs()], () => ({
+      isError: true,
+      content: [{ type: "text", text: "File not found" }],
+    }));
+    await callTool(server!, "docs_get_document", { id: "1" });
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      outcome: "remote-error",
+      code: "AI2003",
+    });
+    expect(JSON.stringify(settled)).not.toContain("File not found");
+  });
+
+  /**
+   * @case An agent's call through the covering route is recorded as judged by the route
+   * @preconditions Star route over docs; an agent tool resolved from MCP(docs:search)
+   * @expectedResult One pair with policy "route" and the route's id
+   */
+  test("an agent call through a proxy route is recorded once", async () => {
+    await build([proxyDocs()]);
+    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
+    await tool.handler({ q: "x" }, agentContext(tool.name));
+    expect(requested).toHaveLength(1);
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      serverId: "docs",
+      remoteTool: "search",
+      policy: "route",
+      routeId: "docs",
+      outcome: "completed",
+    });
+  });
+
+  /**
+   * @case An agent's call to a tool no route proxies is recorded as bypassed
+   * @preconditions No proxy route; an agent tool resolved from MCP(docs:search)
+   * @expectedResult One pair with policy "bypassed" and no route id, and the client is reached
+   */
+  test("an agent call with no proxy route is recorded as bypassed", async () => {
+    await build([]);
+    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
+    await tool.handler({ q: "x" }, agentContext(tool.name));
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      serverId: "docs",
+      remoteTool: "search",
+      policy: "bypassed",
+      outcome: "completed",
+    });
+    expect(settled[0]).not.toHaveProperty("routeId");
+    expect(dispatches).toHaveLength(1);
+  });
+
+  /**
+   * @case A route's own hop to a remote tool is recorded as bypassed, naming the route
+   * @preconditions A local mcp() route "own" ending in .to(mcp("docs:get_document")), called through the door
+   * @expectedResult One pair with policy "bypassed" and routeId "own"
+   */
+  test("a hop from a route that proxies nothing is recorded as bypassed", async () => {
+    await build([
+      craft()
+        .id("own")
+        .description("Reads a document through our own route")
+        .from(mcp())
+        .to(mcp("docs:get_document")),
+    ]);
+    await callTool(server!, "own", { id: "1" }, alice);
+    expect(requested).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      serverId: "docs",
+      remoteTool: "get_document",
+      policy: "bypassed",
+      routeId: "own",
+      caller: { subject: "alice" },
+      outcome: "completed",
+    });
+  });
+
+  /**
+   * @case A remote isError on a route's own hop settles as a remote error
+   * @preconditions A local mcp() route "own" ending in .to(mcp("docs:get_document")); the docs client answers with isError
+   * @expectedResult The bypassed pair settles with outcome "remote-error" and code AI2003, not "completed"
+   */
+  test("a remote error on a bypassed hop is recorded as one", async () => {
+    await build(
+      [
+        craft()
+          .id("own")
+          .description("Reads a document through our own route")
+          .from(mcp())
+          .to(mcp("docs:get_document")),
+      ],
+      () => ({
+        content: [{ type: "text", text: "File not found" }],
+        isError: true,
+      }),
+    );
+    await callTool(server!, "own", { id: "1" }, alice);
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      policy: "bypassed",
+      outcome: "remote-error",
+      code: "AI2003",
+    });
+  });
+
+  /**
+   * @case A proxy route's hop to a tool other than the one its caller addressed is recorded on its own
+   * @preconditions An exact route over docs:search whose hop calls billing:search
+   * @expectedResult Two pairs: the call to docs:search under policy "route", and the hop to billing:search as "bypassed" from the same route
+   */
+  test("a proxy route's hop to another tool is recorded separately", async () => {
+    await build([
+      craft()
+        .id("search")
+        .from(mcp({ proxy: "docs:search" }))
+        .to(mcp("billing:search")),
+    ]);
+    await callTool(server!, "docs_search", {});
+    expect(
+      settled.map((event) => [
+        event["serverId"],
+        event["remoteTool"],
+        event["policy"],
+        event["routeId"],
+      ]),
+    ).toEqual([
+      ["billing", "search", "bypassed", "search"],
+      ["docs", "search", "route", "search"],
     ]);
   });
 });

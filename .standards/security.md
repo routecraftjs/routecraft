@@ -214,6 +214,42 @@ no flag that skips a proxy route: a call that must not pass the route's
 policy is a hop on another route (`.to(mcp('server:tool'))`), offered to
 the agent as `Direct(<routeId>)`.
 
+The remote MCP server is outside the trust zone, and so is the path to it.
+What it sends is data, and it is given nothing the configuration did not
+name:
+
+- **The URL is `https`.** Plain `http` is accepted for a loopback host, and
+  for another host only with `allowHttp: true` on the client or the call
+  (`assertRemoteUrl` in `packages/ai/src/mcp/sdk.ts`). The credential and
+  the arguments travel in that request.
+- **A redirect is followed only within the configured origin.** That is
+  the MCP SDK's default policy (`redirectPolicy: "same-origin"`), which
+  `connectMcpHttpClient` never overrides: a redirect elsewhere fails the
+  call, so the credential reaches no host the remote chose. A test pins it
+  (`packages/ai/test/mcp-outbound.bun.test.ts`).
+- **A `401` does not choose where a login credential goes.** The
+  `resource_metadata` URL in a challenge is ignored; discovery reads the
+  server's own well-known path.
+- **The remote's error text stays out of messages, logs and events.** It
+  reaches the caller it answers (the MCP caller of the proxying route, the
+  model that called the tool) and a route that asks for it with
+  `remoteErrorTextOf`.
+- **A proxied tool's name is never settled by arrival order.** Two routes
+  that would expose one name expose neither.
+- **A star route does not speak for tools it has not seen.** A title, a
+  description or a hint on one is refused at start.
+- **Every call is on record.** `plugin:mcp:remote:requested` and
+  `plugin:mcp:remote:settled` are emitted on every path to a remote tool
+  from an exchange that has a context, with `policy: "bypassed"` where no
+  proxy route judged the call. They carry the caller, when the call has a
+  principal, as a `PrincipalRef` (`principalRef`, the one reduction an
+  audit record uses) and never arguments, results or error text. A
+  hand-built exchange with no context has no bus and leaves no record.
+
+The remote's annotations and descriptions are still its own claims, relayed
+as published unless an exact route states its own; a policy keyed on
+`readOnlyHint` trusts the server that far.
+
 ## 12. Agent identity and delegation
 
 Anchors `packages/routecraft/src/auth/delegate.ts` and the delegation-aware

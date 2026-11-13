@@ -174,7 +174,14 @@ declare module "@routecraft/routecraft" {
  */
 export interface McpClientHttpConfig {
   transport?: "streamable-http";
+  /** The server's URL: https, or http on a loopback host. See {@link McpClientHttpConfig.allowHttp} for http elsewhere. */
   url: string;
+  /**
+   * Accept a plain `http` URL for a host that is not loopback. The
+   * credential and every tool argument then cross the network unencrypted,
+   * so this is for a host on a private network only.
+   */
+  allowHttp?: boolean;
   /**
    * How requests to this server authenticate: a static token or headers
    * sent on every request, or `connect()` for a server behind an OAuth
@@ -825,8 +832,10 @@ export type McpArgsExtractor = (
  *   tools directly on the subprocess -- no HTTP involved.
  */
 export interface McpClientOptions {
-  /** URL of the remote MCP server (HTTP/HTTPS only). Omit when using serverId. */
+  /** URL of the remote MCP server: https, or http on a loopback host; http elsewhere needs `allowHttp`. Omit when using serverId. */
   url?: string;
+  /** With `url`: accept plain `http` for a host that is not loopback. See {@link McpClientHttpConfig.allowHttp}. */
+  allowHttp?: boolean;
   /**
    * Tool name to invoke, or `"*"` to invoke the tool named on
    * `McpHeadersKeys.TOOL`, which a route proxying a remote server

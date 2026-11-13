@@ -359,6 +359,89 @@ describe("proxy routes advertise their own schemas", () => {
   });
 
   /**
+   * @case A star route declaring metadata for every tool is refused at start
+   * @preconditions Star routes over crm, each declaring one of .title(), .description(), a hint tag, or mcp({ annotations })
+   * @expectedResult Each route's source fails with RC5003 naming what it declared, so no tool is advertised under one borrowed statement
+   */
+  test("a star route with a description, title or hint is refused (#914)", async () => {
+    const declared: Array<
+      [string, (b: ReturnType<typeof craft>) => AnyRouteBuilder]
+    > = [
+      [
+        ".title()",
+        (b) =>
+          b
+            .title("CRM")
+            .from(mcp({ proxy: "crm:*" }))
+            .to(mcp("crm:*")) as AnyRouteBuilder,
+      ],
+      [
+        ".description()",
+        (b) =>
+          b
+            .description("Every CRM tool")
+            .from(mcp({ proxy: "crm:*" }))
+            .to(mcp("crm:*")) as AnyRouteBuilder,
+      ],
+      [
+        '.tag("read-only")',
+        (b) =>
+          b
+            .tag("read-only")
+            .from(mcp({ proxy: "crm:*" }))
+            .to(mcp("crm:*")) as AnyRouteBuilder,
+      ],
+      [
+        "mcp({ annotations })",
+        (b) =>
+          b
+            .from(mcp({ proxy: "crm:*", annotations: { readOnlyHint: true } }))
+            .to(mcp("crm:*")) as AnyRouteBuilder,
+      ],
+    ];
+    for (const [name, build] of declared) {
+      const context = await testContext()
+        .with({
+          plugins: [
+            mcpPort({
+              clients: new Map<string, McpClientConfig>([
+                ["crm", { transport: "stdio", command: "crm-server" }],
+              ]),
+            }),
+          ],
+        })
+        .routes([build(craft().id("crm"))])
+        .build();
+      const failures: unknown[] = [];
+      context.ctx.on("route:source:failed", ({ details }) => {
+        failures.push(details.error);
+      });
+      await context.ctx.start().catch(() => undefined);
+      await context.stop();
+      expect(String(failures[0])).toContain(`declares ${name}`);
+    }
+  });
+
+  /**
+   * @case A star route keeps a tag that carries no MCP hint
+   * @preconditions Star route over crm tagged "crm"
+   * @expectedResult The route serves and get_contact is listed with the remote's own description
+   */
+  test("a star route keeps an ordinary tag", async () => {
+    const s = await serve([
+      craft()
+        .id("crm")
+        .tag("crm")
+        .from(mcp({ proxy: "crm:*" }))
+        .to(mcp("crm:*")) as AnyRouteBuilder,
+    ]);
+    const listed = s
+      .getAvailableTools()
+      .find((tool) => tool.name === "crm_get_contact");
+    expect(listed?.description).toBe("Read one contact");
+  });
+
+  /**
    * @case schemas is refused beside an exact proxy
    * @preconditions mcp({ proxy: "crm:get_contact", schemas })
    * @expectedResult mcp() throws RC5003 pointing at .input() and .output()

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  isLoopbackHostname,
   rcError,
   type CredentialLogin,
   type CredentialStore,
@@ -12,7 +13,7 @@ import type {
   StoredOAuthClientInformation,
   StoredOAuthTokens,
 } from "@modelcontextprotocol/client";
-import { loadMcpClientSdk } from "./sdk.ts";
+import { assertRemoteUrl, loadMcpClientSdk } from "./sdk.ts";
 
 /** Brands a {@link connect} declaration, so it is told apart from `{ token }`. */
 const CONNECT = Symbol.for("routecraft.ai.mcp.connect");
@@ -448,13 +449,12 @@ export function coalescedAuthProvider(
     onUnauthorized(ctx) {
       inFlight ??= (async () => {
         const sdk = await loadMcpClientSdk("mcp (http client)");
-        const { resourceMetadataUrl, scope } = sdk.extractWWWAuthenticateParams(
-          ctx.response,
-        );
+        // The 401's `resource_metadata` is left unread: the remote writes it,
+        // and it would choose where the refresh token is presented.
+        const { scope } = sdk.extractWWWAuthenticateParams(ctx.response);
         const result = await sdk.auth(provider, {
           serverUrl: ctx.serverUrl,
           fetchFn: ctx.fetchFn,
-          ...(resourceMetadataUrl !== undefined ? { resourceMetadataUrl } : {}),
           ...(scope !== undefined ? { scope } : {}),
         });
         if (result !== "AUTHORIZED") throw new sdk.UnauthorizedError();
@@ -477,6 +477,7 @@ export function connectLogin(
   serverId: string,
   url: string,
   auth: McpConnectAuth,
+  options: { allowHttp?: boolean | undefined } = {},
 ): CredentialLogin {
   return {
     id: serverId,
@@ -494,7 +495,12 @@ export function connectLogin(
             io.openUrl(authorizationUrl),
         },
       });
-      const serverUrl = new URL(url);
+      // Before discovery: the login sends the code and the tokens here.
+      const serverUrl = assertRemoteUrl(
+        url,
+        options.allowHttp === true,
+        `mcpPlugin: clients.${serverId}.url`,
+      );
       if ((await sdk.auth(provider, { serverUrl })) === "AUTHORIZED") return;
       const callback = await io.waitForCallback();
       const refused = callback.get("error");
@@ -540,8 +546,10 @@ function assertUrl(value: string, field: string): void {
       message: `${field} must be an absolute URL, got "${value}".`,
     });
   }
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+  if (
+    url.protocol !== "https:" &&
+    !(url.protocol === "http:" && isLoopbackHostname(url.hostname))
+  ) {
     throw rcError("RC5003", undefined, {
       message: `${field} must be an https URL, got "${value}": the client secret and the tokens are sent to it.`,
     });

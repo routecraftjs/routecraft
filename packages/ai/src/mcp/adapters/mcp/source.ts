@@ -1,4 +1,5 @@
 import {
+  principalOf,
   rcError,
   routeCanDefer,
   type CraftContext,
@@ -11,6 +12,7 @@ import type {
   McpLocalToolEntry,
   McpProxyRegistration,
   McpServerOptions,
+  McpToolAnnotations,
   McpToolRequest,
   McpUiOptions,
 } from "../../types.ts";
@@ -20,8 +22,14 @@ import { BRAND_MCP_ADAPTER } from "./shared.ts";
 import {
   deriveAnnotationsFromTags,
   mergeAnnotations,
+  TAG_ANNOTATION_HINTS,
 } from "../../annotation-tags.ts";
-import { MCP_TOOL_NAME_PATTERN } from "../../types.ts";
+import { McpHeadersKeys, MCP_TOOL_NAME_PATTERN } from "../../types.ts";
+import {
+  recordRemoteCall,
+  remoteCall,
+  routeSettlement,
+} from "../../remote-call.ts";
 
 /** What the engine discovered on the route builder, as the subscription carries it. */
 type RouteDiscovery = NonNullable<
@@ -309,11 +317,31 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       tool: ref.tool,
       prefix: this.options.prefix ?? `${ref.serverId}_`,
       routeId,
-      handler: (request: McpToolRequest) =>
-        sub.emit({
-          message: request.body as McpMessage<undefined>,
-          headers: request.headers,
-        }),
+      handler: (request: McpToolRequest) => {
+        const principal = principalOf(request);
+        const callId = request.headers[McpHeadersKeys.REQUEST];
+        const remoteTool = request.headers[McpHeadersKeys.TOOL];
+        return recordRemoteCall(
+          context,
+          remoteCall(
+            {
+              callId: typeof callId === "string" ? callId : crypto.randomUUID(),
+              serverId: ref.serverId,
+              remoteTool:
+                typeof remoteTool === "string" ? remoteTool : ref.tool,
+              policy: "route",
+              routeId,
+            },
+            principal,
+          ),
+          () =>
+            sub.emit({
+              message: request.body as McpMessage<undefined>,
+              headers: request.headers,
+            }),
+          routeSettlement(routeId, principal),
+        );
+      },
       ...this.routeToolMetadata(context, routeId, discovery),
     };
     if (this.options.name !== undefined) registration.name = this.options.name;
@@ -326,6 +354,13 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
         throw rcError("RC5003", undefined, {
           message: `Route "${routeId}" proxies every tool of client "${ref.serverId}" and declares .input() or .output(), which would apply one schema to every tool`,
           suggestion: `Give a tool its own exact route, .from(mcp({ proxy: "${ref.serverId}:<tool>" })), where .input() and .output() are advertised for that tool, or derive each tool's schemas with mcp({ proxy: "${ref.serverId}:*", schemas }).`,
+        });
+      }
+      const blanket = starBlanketMetadata(discovery, this.options.annotations);
+      if (blanket.length > 0) {
+        throw rcError("RC5003", undefined, {
+          message: `Route "${routeId}" proxies every tool of client "${ref.serverId}" and declares ${blanket.join(", ")}, which would replace what each tool says about itself with one statement for all of them`,
+          suggestion: `Give a tool its own exact route, .from(mcp({ proxy: "${ref.serverId}:<tool>" })), and declare it there. A tool the server adds later would inherit a star route's statement unseen.`,
         });
       }
       if (this.options.schemas !== undefined) {
@@ -352,6 +387,30 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
 
     await this.holdUntilAborted(sub, () => service.registerProxy(registration));
   }
+}
+
+/**
+ * What a star proxy route declares that would be advertised for every tool
+ * of its client: a title, a description, a hint tag or an explicit hint.
+ * One description cannot describe each tool, and one hint classifies tools
+ * the route's author has not seen, including those the server adds later.
+ * `icons` are left out on purpose: one icon for a server's tools is a
+ * brand, and says nothing about what a tool does.
+ */
+function starBlanketMetadata(
+  discovery: RouteDiscovery,
+  annotations: McpToolAnnotations | undefined,
+): string[] {
+  const declared: string[] = [];
+  if (discovery?.title !== undefined) declared.push(".title()");
+  if (discovery?.description !== undefined) declared.push(".description()");
+  for (const [tag] of TAG_ANNOTATION_HINTS) {
+    if (discovery?.tags?.includes(tag)) declared.push(`.tag("${tag}")`);
+  }
+  if (annotations !== undefined && Object.keys(annotations).length > 0) {
+    declared.push("mcp({ annotations })");
+  }
+  return declared;
 }
 
 /**

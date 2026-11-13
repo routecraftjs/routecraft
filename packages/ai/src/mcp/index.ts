@@ -14,6 +14,7 @@ export type { OAuthFactoryOptions, OAuthVerifier } from "./oauth.ts";
 export type { UserinfoFn, UserinfoOption } from "./userinfo.ts";
 export type { McpCorsOptions, McpCorsOriginResolver } from "./cors.ts";
 export { mcpPlugin } from "./plugin.ts";
+export { remoteErrorTextOf } from "./dispatch.ts";
 export { McpServer } from "./server.ts";
 export { McpToolRegistry } from "./tool-registry.ts";
 export { MCP, type McpClientConfig, type McpService } from "./port.ts";
