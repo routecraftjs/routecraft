@@ -1640,20 +1640,22 @@ export class McpServer {
     this.clientResolved.clear();
     this.proxyResolved = resolveProxiedEntries(
       this.service,
-      (key, message, bindings) => this.warnProxyOnce(key, message, bindings),
+      (key, message, bindings, level) =>
+        this.warnProxyOnce(key, message, bindings, level),
     );
     this.proxyResolvedVersion = version;
   }
 
-  /** Log a proxy-resolution warning once per dedup key. */
+  /** Log a proxy-resolution finding once per dedup key. */
   private warnProxyOnce(
     key: string,
     message: string,
     bindings: Record<string, unknown>,
+    level: "warn" | "error" = "warn",
   ): void {
     if (this.proxyWarnings.has(key)) return;
     this.proxyWarnings.add(key);
-    this.host.logger.warn(bindings, message);
+    this.host.logger[level](bindings, message);
   }
 
   /**

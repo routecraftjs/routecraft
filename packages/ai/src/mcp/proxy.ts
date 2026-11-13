@@ -212,9 +212,12 @@ export interface McpClientEntry extends McpProxiedEntry {
  * applies to one applies to the other.
  *
  * A remote tool is not exposed, with a warning through `warn`, when its
- * exposed name does not conform to the tool name pattern or when two
- * registrations expose the same name (the first in registration order
- * wins). Which registration covers a tool follows {@link coveringProxy}.
+ * exposed name does not conform to the tool name pattern. When two
+ * registrations expose the same name, none of them is exposed and the
+ * conflict is reported at error level: a name that goes to whichever
+ * registered first lets one client's server take a name another client's
+ * tool was expected under. Which registration covers a tool follows
+ * {@link coveringProxy}.
  *
  * @internal
  */
@@ -224,9 +227,11 @@ export function resolveProxiedEntries(
     key: string,
     message: string,
     bindings: Record<string, unknown>,
+    level?: "warn" | "error",
   ) => void,
 ): Map<string, McpProxiedEntry> {
   const resolved = new Map<string, McpProxiedEntry>();
+  const contested = new Map<string, McpProxyRegistration>();
   for (const registration of service.proxies.values()) {
     if (registration.tool === "*" && registration.exclude !== undefined) {
       const listed = new Set(
@@ -281,20 +286,23 @@ export function resolveProxiedEntries(
         );
         continue;
       }
-      const existing = resolved.get(exposedName);
-      if (existing) {
+      const holder =
+        resolved.get(exposedName)?.registration ?? contested.get(exposedName);
+      if (holder !== undefined) {
+        resolved.delete(exposedName);
+        contested.set(exposedName, holder);
         warn(
-          `proxy:collision:${exposedName}`,
-          "mcp({ proxy }): two routes expose a proxied tool under one name; the first keeps it. Give one of them a prefix or a name.",
+          `proxy:collision:${exposedName}:${registration.routeId}`,
+          "mcp({ proxy }): two routes expose a proxied tool under one name; neither is exposed. Give one of them a prefix or a name.",
           {
             exposed: exposedName,
-            route: existing.registration.routeId,
-            server: existing.registration.serverId,
-            tool: existing.remote.name,
+            route: holder.routeId,
+            server: holder.serverId,
             otherRoute: registration.routeId,
             otherServer: registration.serverId,
             otherTool: remote.name,
           },
+          "error",
         );
         continue;
       }

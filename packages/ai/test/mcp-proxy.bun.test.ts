@@ -474,11 +474,11 @@ describe("a route that proxies a remote MCP server", () => {
   });
 
   /**
-   * @case Bare prefixes that collide keep the first route's tool and warn
+   * @case Bare prefixes that collide expose neither tool
    * @preconditions Star routes over docs and billing, both with prefix ""; both list "search"
-   * @expectedResult One "search" is exposed, forwarding to docs; a warning names both routes
+   * @expectedResult No "search" is listed, a call to it is refused without reaching a client, and an error-level line names both routes
    */
-  test("a collision between bare names keeps the first and warns", async () => {
+  test("a collision between bare names exposes neither and logs an error", async () => {
     await serve([
       craft()
         .id("docs")
@@ -490,12 +490,13 @@ describe("a route that proxies a remote MCP server", () => {
         .to(mcp("billing:*")),
     ]);
     const names = server.getAvailableTools().map((tool) => tool.name);
-    expect(names.filter((name) => name === "search")).toHaveLength(1);
-    await call("search", {});
-    expect(dispatches.map((d) => d.serverId)).toEqual(["docs"]);
-    const warned = t.contextLogger.warn.mock.calls.find(
+    expect(names).not.toContain("search");
+    const refused = await call("search", {});
+    expect(refused.isError).toBe(true);
+    expect(dispatches).toEqual([]);
+    const warned = t.contextLogger.error.mock.calls.find(
       (c: unknown[]) =>
-        typeof c[1] === "string" && c[1].includes("the first keeps it"),
+        typeof c[1] === "string" && c[1].includes("neither is exposed"),
     );
     expect(warned?.[0]).toMatchObject({
       exposed: "search",
