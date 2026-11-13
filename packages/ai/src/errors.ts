@@ -35,6 +35,62 @@ export type McpToolProvenance =
     }
   | { proxied: true; serverId: string; remoteTool: string; routeId: string };
 
+/** Who made a call toward a remote MCP tool: the identity, never the credential. */
+export interface McpRemoteCaller {
+  subject: string;
+  issuer?: string;
+  clientId?: string;
+}
+
+/**
+ * One call toward a remote MCP server's tool, as both of its events carry
+ * it.
+ *
+ * `policy` says whether a proxy route judged the call. `"route"`: it ran
+ * the route proxying the tool, named by `routeId`. `"bypassed"`: it
+ * reached the client with no proxy route in front of it, from an agent
+ * reference no route covers (no `routeId`), or from the hop of the route
+ * `routeId` names.
+ */
+export interface McpRemoteCall {
+  /** One id per call, on both events. For a proxied call it is the `routecraft.mcp.request` header the route reads. */
+  callId: string;
+  /** The registered client, absent for a call to an inline `url`. */
+  serverId?: string;
+  /** The origin of an inline `url`, absent for a registered client. */
+  origin?: string;
+  /** The tool's name on the remote server. */
+  remoteTool: string;
+  policy: "route" | "bypassed";
+  routeId?: string;
+  /** Absent for a call made without a principal. */
+  caller?: McpRemoteCaller;
+}
+
+/**
+ * How a call toward a remote MCP tool ended.
+ *
+ * - `completed`: the call was answered.
+ * - `remote-error`: the remote answered with `isError` (`AI2003`).
+ * - `refused`: the proxy route's `.input()`, `.authorize()` or a
+ *   validate hook refused the caller; `refusal` names the class. The remote
+ *   was not reached by this call.
+ * - `declined`: the proxy route dropped the exchange.
+ * - `deferred`: the proxy route parked; the answer belongs to a later run.
+ * - `failed`: anything else, with the error `code` when it has one.
+ */
+export interface McpRemoteCallSettlement {
+  outcome:
+    | "completed"
+    | "remote-error"
+    | "refused"
+    | "declined"
+    | "deferred"
+    | "failed";
+  refusal?: string;
+  code?: string;
+}
+
 /**
  * The mount a tool call arrived on, absent for the root: a client mount
  * names a tool by its remote name, so without the mount the name alone
@@ -352,6 +408,18 @@ declare module "@routecraft/routecraft" {
       reason: string;
     } & McpToolProvenance &
       McpToolMount;
+    /**
+     * A call toward a remote MCP server's tool is about to run, from any
+     * caller: an MCP client at the door, an agent, or a route's own hop.
+     * Carries no arguments.
+     */
+    "plugin:mcp:remote:requested": McpRemoteCall;
+    /**
+     * The call `plugin:mcp:remote:requested` announced ended. Carries no
+     * result and no error text.
+     */
+    "plugin:mcp:remote:settled": McpRemoteCall &
+      McpRemoteCallSettlement & { durationMs: number };
     /** An MCP Apps view was served for `resources/read`. */
     "plugin:mcp:ui:served": {
       tool: string;

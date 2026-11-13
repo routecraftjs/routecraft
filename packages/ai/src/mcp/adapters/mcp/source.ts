@@ -23,7 +23,13 @@ import {
   mergeAnnotations,
   TAG_ANNOTATION_HINTS,
 } from "../../annotation-tags.ts";
-import { MCP_TOOL_NAME_PATTERN } from "../../types.ts";
+import { McpHeadersKeys, MCP_TOOL_NAME_PATTERN } from "../../types.ts";
+import {
+  principalOnHeaders,
+  recordRemoteCall,
+  remoteCallerOf,
+  routeSettlement,
+} from "../../remote-call.ts";
 
 /** What the engine discovered on the route builder, as the subscription carries it. */
 type RouteDiscovery = NonNullable<
@@ -311,11 +317,27 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       tool: ref.tool,
       prefix: this.options.prefix ?? `${ref.serverId}_`,
       routeId,
-      handler: (request: McpToolRequest) =>
-        sub.emit({
-          message: request.body as McpMessage<undefined>,
-          headers: request.headers,
-        }),
+      handler: (request: McpToolRequest) => {
+        const principal = principalOnHeaders(request.headers);
+        const caller = remoteCallerOf(principal);
+        return recordRemoteCall(
+          context,
+          {
+            callId: String(request.headers[McpHeadersKeys.REQUEST]),
+            serverId: ref.serverId,
+            remoteTool: String(request.headers[McpHeadersKeys.TOOL]),
+            policy: "route",
+            routeId,
+            ...(caller !== undefined ? { caller } : {}),
+          },
+          () =>
+            sub.emit({
+              message: request.body as McpMessage<undefined>,
+              headers: request.headers,
+            }),
+          routeSettlement(routeId, principal),
+        );
+      },
       ...this.routeToolMetadata(context, routeId, discovery),
     };
     if (this.options.name !== undefined) registration.name = this.options.name;

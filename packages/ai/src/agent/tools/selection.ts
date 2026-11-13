@@ -16,6 +16,11 @@ import {
   relayedRemoteErrorOf,
   remoteErrorTextOf,
 } from "../../mcp/dispatch.ts";
+import {
+  directSettlement,
+  recordRemoteCall,
+  remoteCallerOf,
+} from "../../mcp/remote-call.ts";
 import { MCP, type McpService } from "../../mcp/port.ts";
 import { coveringProxy, declaredProxy, proxiedEntry } from "../../mcp/proxy.ts";
 import {
@@ -1296,21 +1301,35 @@ function mcpEntryToResolvedTool(
   const input = standardSchemaFromJsonSchema(entry.inputSchema);
   const handler: FnOptions["handler"] = async (rawInput, hctx) => {
     const { exchangeId, correlationId } = hctx;
+    const args = objectArguments(name, rawInput);
+    const caller = remoteCallerOf(hctx.principal);
     try {
-      return await dispatchMcpCall(
-        ctx.lookup(MCP),
-        entry.source,
-        entry.name,
-        objectArguments(name, rawInput),
-        // The turn's journey continues into the server, as a `directTool`
-        // dispatch continues into its route.
-        exchangeId !== undefined
-          ? {
-              context: ctx,
-              carrier: () =>
-                traceContextFor({ exchangeId, correlationId }, ctx),
-            }
-          : undefined,
+      return await recordRemoteCall(
+        ctx,
+        {
+          callId: randomUUID(),
+          serverId: entry.source,
+          remoteTool: entry.name,
+          policy: "bypassed",
+          ...(caller !== undefined ? { caller } : {}),
+        },
+        () =>
+          dispatchMcpCall(
+            ctx.lookup(MCP),
+            entry.source,
+            entry.name,
+            args,
+            // The turn's journey continues into the server, as a
+            // `directTool` dispatch continues into its route.
+            exchangeId !== undefined
+              ? {
+                  context: ctx,
+                  carrier: () =>
+                    traceContextFor({ exchangeId, correlationId }, ctx),
+                }
+              : undefined,
+          ),
+        directSettlement,
       );
     } catch (error) {
       throw withRemoteText(error, remoteErrorTextOf(error));
