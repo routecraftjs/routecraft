@@ -165,14 +165,6 @@ export type ToolsItem =
       guard?: ToolGuard;
       description?: string;
       background?: never;
-      /**
-       * On an `MCP(server:tool)` reference: reach the client raw, even when
-       * a route proxies the tool (`.from(mcp({ proxy }))`). By default such
-       * a reference runs through the proxying route, so the agent is under
-       * the same policy as an external client; `true` bypasses it, and the
-       * resolver warns that it did.
-       */
-      raw?: boolean;
     };
 
 /**
@@ -430,17 +422,6 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): { name: "${item.name}", background } applies to a Direct(<routeId>) reference only.`,
           });
         }
-        const raw = (item as { raw?: unknown }).raw;
-        if (raw !== undefined && typeof raw !== "boolean") {
-          throw rcError("RC5003", undefined, {
-            message: `tools(): { name: "${item.name}", raw } must be a boolean when present.`,
-          });
-        }
-        if (raw !== undefined && !mcpRef) {
-          throw rcError("RC5003", undefined, {
-            message: `tools(): { name: "${item.name}", raw } applies to an MCP(<server>:<tool>) reference only.`,
-          });
-        }
         // MCP refs reject any description override (empty or not) so
         // users see the precise "MCP server is the source of truth"
         // message instead of the generic empty-string error.
@@ -450,12 +431,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
               message: `tools(): { name: "${item.name}", description } is not supported for MCP tools. The MCP server is the source of truth for description and schema; do not override.`,
             });
           }
-          for (const tool of resolveMcpRefs(
-            ctx,
-            item.name,
-            item.guard,
-            raw === true,
-          )) {
+          for (const tool of resolveMcpRefs(ctx, item.name, item.guard)) {
             record(out, tool);
           }
           continue;
@@ -1117,7 +1093,6 @@ function resolveMcpRefs(
   ctx: CraftContext,
   ref: string,
   guard: ToolGuard | undefined,
-  raw = false,
 ): ResolvedTool[] {
   const { clientName, toolName } = parseMcpRef(ref);
   const registry = ctx.lookup(MCP)?.tools;
@@ -1165,7 +1140,7 @@ function resolveMcpRefs(
   }
   if (toolName === "*") {
     return clientTools
-      .map((entry) => mcpEntryToResolvedTool(ctx, registry, entry, guard, raw))
+      .map((entry) => mcpEntryToResolvedTool(ctx, registry, entry, guard))
       .filter((tool): tool is ResolvedTool => tool !== undefined);
   }
   const entry = clientTools.find((t) => t.name === toolName);
@@ -1182,7 +1157,7 @@ function resolveMcpRefs(
     }
     return [];
   }
-  const resolved = mcpEntryToResolvedTool(ctx, registry, entry, guard, raw);
+  const resolved = mcpEntryToResolvedTool(ctx, registry, entry, guard);
   return resolved === undefined ? [] : [resolved];
 }
 
@@ -1218,7 +1193,6 @@ function mcpEntryToResolvedTool(
   registry: McpToolRegistry,
   entry: McpToolRegistryEntry,
   guard: ToolGuard | undefined,
-  raw: boolean,
 ): ResolvedTool | undefined {
   // Both name problems below are properties of the registered tool, not
   // of the dispatch being served, and `resolve()` runs per dispatch.
@@ -1292,36 +1266,28 @@ function mcpEntryToResolvedTool(
       ? entry.description
       : `MCP tool "${entry.name}" on client "${entry.source}".`;
   // A route that proxies this tool is the policy on it, for this agent as
-  // for an external client, unless the item said `raw: true`, which is
-  // worth a line in the log because it is the one way round that policy.
+  // for an external client.
   const service = ctx.lookup(MCP);
   const covering =
     service === undefined
       ? undefined
       : coveringProxy(service, entry.source, entry.name);
   if (covering !== undefined) {
-    if (!raw) return governedMcpTool(ctx, name, entry, covering, guard);
-    if (registry.shouldReport(`mcp-raw:${name}`)) {
-      ctx.logger.warn(
-        { server: entry.source, tool: entry.name, route: covering.routeId },
-        "MCP tool is proxied by a route, and an agent references it with raw: true, so its calls bypass that route's policy.",
-      );
-    }
-  } else if (!raw) {
-    // A proxy route that is declared but not live (held back by
-    // `.enabled()`, or not yet started), or a star route that leaves the
-    // tool out, withholds it: the policy the operator wrote for it is off,
-    // and off is closed, not open.
-    const declared = declaredProxy(ctx, entry.source, entry.name);
-    if (declared !== undefined) {
-      return dropOnce(
-        `mcp-withheld:${name}`,
-        { server: entry.source, tool: entry.name, route: declared.routeId },
-        declared.excluded
-          ? "MCP tool is excluded from the route that proxies its client, so the agent is not offered it. Proxy it with its own route, or reference the tool with raw: true to reach the client without one."
-          : "MCP tool is proxied by a route that is not live, so the agent is not offered it. Enable the route, or reference the tool with raw: true to reach the client without it.",
-      );
-    }
+    return governedMcpTool(ctx, name, entry, covering, guard);
+  }
+  // A proxy route that is declared but not live (held back by
+  // `.enabled()`, or not yet started), or a star route that leaves the
+  // tool out, withholds it: the policy the operator wrote for it is off,
+  // and off is closed, not open.
+  const declared = declaredProxy(ctx, entry.source, entry.name);
+  if (declared !== undefined) {
+    return dropOnce(
+      `mcp-withheld:${name}`,
+      { server: entry.source, tool: entry.name, route: declared.routeId },
+      declared.excluded
+        ? "MCP tool is excluded from the route that proxies its client, so the agent is not offered it. Proxy it with its own route."
+        : "MCP tool is proxied by a route that is not live, so the agent is not offered it. Enable the route.",
+    );
   }
   const input = standardSchemaFromJsonSchema(entry.inputSchema);
   const handler: FnOptions["handler"] = async (rawInput, hctx) => {

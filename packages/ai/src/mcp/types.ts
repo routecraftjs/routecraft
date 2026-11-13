@@ -706,8 +706,7 @@ export interface McpServerOptions {
    * by this route on any mount and is withheld from an agent that references
    * it, so an exact route over it stands alone instead of taking precedence;
    * without the exclusion an exact route wins while it is live and the star
-   * route serves the tool again when it goes. A reference with `raw: true`
-   * still reaches the client without any route. A name the client does not
+   * route serves the tool again when it goes. A name the client does not
    * list warns once and leaves nothing out. Only with a star `proxy`.
    */
   exclude?: string[];
