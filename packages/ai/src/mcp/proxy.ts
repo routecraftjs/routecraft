@@ -62,40 +62,45 @@ export function proxyRegistrationKey(serverId: string, tool: string): string {
 }
 
 /**
- * The proxy ref a route source declares, or undefined when the source is
- * not an `mcp({ proxy })` source.
- *
- * @internal
+ * Every `mcp({ proxy })` declaration among `routes`, live or not. The one
+ * reading of the route definitions, so the server and the agent resolver
+ * cannot disagree about what is declared.
  */
-export function proxyRefOf(source: unknown): McpProxyRef | undefined {
-  if (!isMcpAdapter(source)) return undefined;
-  return (source as { proxyRef?: McpProxyRef }).proxyRef;
+function* proxyDeclarations(
+  routes: Iterable<{
+    readonly definition: {
+      readonly id: string;
+      readonly sources: readonly unknown[];
+    };
+  }>,
+): Generator<{ routeId: string; ref: McpProxyRef }> {
+  for (const route of routes) {
+    for (const source of route.definition.sources) {
+      if (!isMcpAdapter(source)) continue;
+      const ref = (source as { proxyRef?: McpProxyRef }).proxyRef;
+      if (ref !== undefined) yield { routeId: route.definition.id, ref };
+    }
+  }
 }
 
 /**
  * The exact `mcp({ proxy: "server:tool" })` declarations among the
  * application's routes, enabled or not, as registration keys. Read from the
  * route definitions rather than the live registrations, so a route held
- * back by `.enabled()` still counts. Settled once the application froze,
- * since no route is registered after that.
+ * back by `.enabled()` still counts. Read afresh on every call: routes
+ * are registered after the plugins bind, and may be added later.
  *
  * @internal
  */
 export function declaredExactProxies(
-  c: Pick<PluginContext, "routes" | "frozen">,
+  c: Pick<PluginContext, "routes">,
 ): () => ReadonlySet<string> {
-  let settled: ReadonlySet<string> | undefined;
   return () => {
-    if (settled !== undefined) return settled;
     const declared = new Set<string>();
-    for (const route of c.routes.list()) {
-      for (const source of route.definition.sources) {
-        const ref = proxyRefOf(source);
-        if (ref === undefined || ref.tool === "*") continue;
-        declared.add(proxyRegistrationKey(ref.serverId, ref.tool));
-      }
+    for (const { ref } of proxyDeclarations(c.routes.list())) {
+      if (ref.tool === "*") continue;
+      declared.add(proxyRegistrationKey(ref.serverId, ref.tool));
     }
-    if (c.frozen) settled = declared;
     return declared;
   };
 }
@@ -150,20 +155,11 @@ export function declaredProxy(
   tool: string,
 ): { routeId: string; tool: string; excluded: boolean } | undefined {
   let star: { routeId: string; tool: string; excluded: boolean } | undefined;
-  for (const route of context.getRoutes()) {
-    for (const source of route.definition.sources) {
-      const ref = proxyRefOf(source);
-      if (ref === undefined || ref.serverId !== serverId) continue;
-      if (ref.tool === tool) {
-        return { routeId: route.definition.id, tool, excluded: false };
-      }
-      if (ref.tool === "*") {
-        star ??= {
-          routeId: route.definition.id,
-          tool,
-          excluded: excludes(ref, tool),
-        };
-      }
+  for (const { routeId, ref } of proxyDeclarations(context.getRoutes())) {
+    if (ref.serverId !== serverId) continue;
+    if (ref.tool === tool) return { routeId, tool, excluded: false };
+    if (ref.tool === "*") {
+      star ??= { routeId, tool, excluded: excludes(ref, tool) };
     }
   }
   return star;
