@@ -489,8 +489,7 @@ function* resolvedFns({
  * the known clients. Inline agents exist only at dispatch, where an
  * ungoverned tool is withheld with a warning; so do the references a
  * builder derives from `catalog.mcp`, which lists only what the clients
- * have listed by the time this runs. A builder that throws against that
- * early catalog is skipped for the same reason: dispatch reports it.
+ * have listed by the time this runs.
  *
  * @throws AI1020 naming the agent and the reference
  */
@@ -529,7 +528,7 @@ function assertMcpRefsGoverned(
       proxied ??= proxiedServers(c);
       if (proxied.has(server)) continue;
       throw rcError("AI1020", undefined, {
-        message: `agentPlugin: ${owner} lists "${ref}", and no route proxies MCP client "${server}". Add a proxy route for it, or, where the agent is defined in code, write the reference as { name: "${ref}", raw: true }.`,
+        message: `agentPlugin: ${owner} lists "${ref}", and no route proxies MCP client "${server}". Add a proxy route for it, or write the reference as { name: "${ref}", raw: true }.`,
       });
     }
   }

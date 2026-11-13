@@ -342,8 +342,7 @@ const MCP_REFS = new WeakMap<
 /**
  * The MCP references a selection names, unresolved, so the agent plugin can
  * refuse at start one that no proxy route governs. A builder runs against
- * the catalog as it stands when this is called, which may hold no MCP tools
- * yet, so one that throws names nothing here and is left to dispatch.
+ * the catalog as it stands when this is called.
  *
  * @internal
  */
@@ -431,16 +430,8 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
     });
   }
   const mcpRefs = (host: McpRefHost): McpToolRef[] => {
-    let items: ToolsItem[];
-    if (typeof arg === "function") {
-      try {
-        items = runBuilder(arg, host.catalog());
-      } catch {
-        return [];
-      }
-    } else {
-      items = arg;
-    }
+    const items =
+      typeof arg === "function" ? runBuilder(arg, host.catalog()) : arg;
     const refs: McpToolRef[] = [];
     for (const item of items) {
       const named: unknown =

@@ -1473,7 +1473,7 @@ describe("a registered agent's MCP reference with no proxy route", () => {
 
   /**
    * @case A proxy route over the client is enough, live or not
-   * @preconditions Agent helper lists the whole client; one star proxy route over docs held back by its .enabled() predicate
+   * @preconditions Agent helper lists the whole client; one star proxy route over docs held back by .enabled(false)
    * @expectedResult The context starts: the route is the decision, and its being off withholds the tools at dispatch
    */
   test("a declared proxy route starts", async () => {
@@ -1510,20 +1510,6 @@ describe("a registered agent's MCP reference with no proxy route", () => {
   test("a builder selection is checked", async () => {
     t = await context(helper(tools(() => ["MCP(docs:search)"])));
     await expect(t.ctx.start()).rejects.toMatchObject({ rc: "AI1020" });
-  });
-
-  /**
-   * @case A builder that throws against the start-time catalog does not fail the start
-   * @preconditions Agent helper's tools is a builder that throws; no proxy route
-   * @expectedResult The context starts; the builder's failure stays a dispatch error
-   */
-  test("a throwing builder is left to dispatch", async () => {
-    const selection = tools(() => {
-      throw new Error("no MCP tools listed yet");
-    });
-    t = await context(helper(selection));
-    await t.startAndWaitReady();
-    expect(() => selection.resolve(t!.ctx)).toThrow(/builder threw/);
   });
 
   /**
