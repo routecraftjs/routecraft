@@ -265,7 +265,7 @@ craft mcp pin
 git add mcp.lock && git commit -m "chore: approve the books tools"
 ```
 
-`craft mcp pin` lists every pinned client and writes `mcp.lock`: each tool's full definition, a hash of it, and a class. Approval is the commit. The file is JSON with sorted keys, and every character outside printable ASCII is written as a `\u` escape, so the diff of a later `craft mcp pin` shows exactly what the server changed, including a character you could not otherwise see.
+`craft mcp pin` lists every pinned client and writes `mcp.lock`: each tool's full definition, a hash of it, and a class. Approval is the commit. The file is JSON with sorted keys, and every character outside printable ASCII is escaped (`\n` and the other short JSON escapes, `\u` for the rest), so the diff of a later `craft mcp pin` shows exactly what the server changed, including a character you could not otherwise see.
 
 From then on each listing is compared with the file:
 

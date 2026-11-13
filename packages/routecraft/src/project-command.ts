@@ -12,7 +12,8 @@ export interface ProjectCommandIO {
   readonly root: string;
   /**
    * Opens the project's credential store, the way the application opens
-   * it. Called only by a command that needs one; the CLI closes it.
+   * it. Called only by a command that needs one. The CLI closes a store it
+   * opened, and leaves one the configuration supplies to its owner.
    */
   credentials(): Promise<CredentialStore>;
 }

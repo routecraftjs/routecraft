@@ -222,9 +222,12 @@ are:
 - The registry judges a listing before it stores it, so no reader of the
   registry sees a withheld tool. A new consumer of remote tools reads the
   registry, never a client's listing directly.
-- Every call to a configured client passes `dispatchMcpCallRaw`, which
-  refuses a tool the pins do not serve (`AI2004`). A new call path goes
-  through it.
+- Every call the platform makes to a configured client passes
+  `dispatchMcpCallRaw`, which refuses a tool the pins do not serve
+  (`AI2004`). A new call path goes through it. `McpService.stdio` is the
+  transport handle dispatch uses; it carries no pin check, and code that
+  calls it directly is outside this rule, as is code that opens its own
+  connection to the remote.
 - Nothing approves a definition at run time. Approval is a commit of the
   lockfile, read once at bind.
 - A policy keys on the approved `class`, which is `destructive` for

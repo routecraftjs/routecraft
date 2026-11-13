@@ -145,6 +145,7 @@ export class StdioClientManager {
         tools: {
           onChanged: (error: unknown, tools: unknown) => {
             if (tools && Array.isArray((tools as { tools: unknown[] }).tools)) {
+              this.listingError = undefined;
               this.tools = (tools as { tools: McpTool[] }).tools;
               this.onToolsUpdated(serverId, this.tools);
               this.onEvent(`plugin:mcp:client:${serverId}:tools:listed`, {

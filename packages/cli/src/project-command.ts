@@ -17,7 +17,7 @@ export async function runProjectCommand(
   try {
     const { root, configPath, config } = await loadProjectConfig(
       `craft ${name}`,
-      "the clients it acts on",
+      "what it acts on",
     );
     const core = await import("@routecraft/routecraft");
     const command = core.projectCommand(name);

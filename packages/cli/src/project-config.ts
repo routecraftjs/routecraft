@@ -29,10 +29,12 @@ export async function loadProjectConfig(
   const { loadConfig, projectContentRoot, withFolderPlugins } =
     await import("./start.js");
   try {
+    // Loaded first: the content root depends on the folders the config's imports register.
+    const loaded = await loadConfig(configPath);
     const config = await withFolderPlugins(
       root,
       projectContentRoot(root),
-      await loadConfig(configPath),
+      loaded,
     );
     return { root, configPath, config };
   } catch (error: unknown) {

@@ -701,6 +701,8 @@ describe("the MCP plugin with a pinned client", () => {
       expect(rcCodeOf(thrown)).toBe("RC5003");
       remote?.restore();
       remote = undefined;
+      if (dir) await rm(dir, { recursive: true, force: true });
+      dir = undefined;
     }
   });
 
@@ -837,6 +839,7 @@ describe("craft mcp pin over the configured clients", () => {
     const second = await pinMcpClients(config, { credentials: noStore });
     expect(second.written).toBe(false);
     expect(second.clients[0]).toMatchObject({ added: [], unchanged: 2 });
+    expect(second.failed.map((each) => each.id)).toEqual(["down"]);
     expect(await readFile(path, "utf8")).toBe(edited);
 
     let thrown: unknown;
