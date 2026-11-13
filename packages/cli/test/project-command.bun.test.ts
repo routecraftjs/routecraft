@@ -41,6 +41,11 @@ describe("a command an ecosystem package contributes to craft", () => {
   afterEach(() => {
     process.chdir(cwd);
     rmSync(root, { recursive: true, force: true });
+    // The registry is process-wide, so the config's command would outlive
+    // the test.
+    (globalThis as unknown as Record<symbol, Map<string, unknown> | undefined>)[
+      Symbol.for("routecraft.project-commands")
+    ]?.delete("demo echo");
   });
 
   /**

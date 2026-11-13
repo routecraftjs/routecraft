@@ -7,6 +7,8 @@ import {
   direct,
   rcCodeOf,
   type AnyRouteBuilder,
+  type CraftConfig,
+  type EventName,
   type Exchange,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
@@ -589,7 +591,11 @@ describe("the MCP plugin with a pinned client", () => {
     dir = undefined;
   });
 
-  async function build(lockfile: string | undefined, pins: McpPins) {
+  async function build(
+    lockfile: string | undefined,
+    pins: McpPins,
+    on: CraftConfig["on"] = {},
+  ) {
     remote = statefulRemote("https://remote.test/mcp");
     dir = await mkdtemp(join(tmpdir(), "mcp-pins-"));
     const path = join(dir, "mcp.lock");
@@ -600,6 +606,7 @@ describe("the MCP plugin with a pinned client", () => {
         craft().id("slow").from(direct()).to(mcp("remote:slow")),
       ])
       .with({
+        on,
         plugins: [
           mcpPlugin({
             clients: { remote: { url: "https://remote.test/mcp", pins } },
@@ -611,6 +618,72 @@ describe("the MCP plugin with a pinned client", () => {
       .build();
     return t;
   }
+
+  /**
+   * @case A pins option of the wrong shape is refused when the plugin is created
+   * @preconditions pins as an array, as null, with added: "warn", with an unknown changed value, and with an extra key
+   * @expectedResult mcpPlugin throws RC5003 each time
+   */
+  test("a malformed pins option is refused", () => {
+    for (const pins of [
+      [],
+      null,
+      { added: "warn" },
+      { changed: "bogus" },
+      { added: "hold", other: true },
+    ]) {
+      let thrown: unknown;
+      try {
+        mcpPlugin({
+          clients: {
+            remote: {
+              url: "https://remote.test/mcp",
+              pins: pins as unknown as McpPins,
+            },
+          },
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(rcCodeOf(thrown)).toBe("RC5003");
+    }
+  });
+
+  /**
+   * @case A pinned client that is switched off is reported as disabled
+   * @preconditions A pinned client with enabled: false and a lockfile; a route hops to one of its tools
+   * @expectedResult The hop fails with RC5003, the disabled-client refusal, not with AI2004
+   */
+  test("a disabled pinned client is refused as disabled", async () => {
+    dir = await mkdtemp(join(tmpdir(), "mcp-pins-"));
+    const path = join(dir, "mcp.lock");
+    await writeFile(path, serializeLockfile({ version: 1, clients: {} }));
+    t = await testContext()
+      .routes([craft().id("echo").from(direct()).to(mcp("remote:echo"))])
+      .with({
+        plugins: [
+          mcpPlugin({
+            clients: {
+              remote: {
+                url: "https://remote.test/mcp",
+                pins: {},
+                enabled: false,
+              },
+            },
+            lockfile: path,
+          }),
+        ],
+      })
+      .build();
+    await t.startAndWaitReady();
+    let thrown: unknown;
+    try {
+      await t.client.sendDirect("echo", {});
+    } catch (error) {
+      thrown = error;
+    }
+    expect(rcCodeOf(thrown)).toBe("RC5003");
+  });
 
   /**
    * @case A pinned client without a lockfile stops the application from starting
@@ -634,7 +707,7 @@ describe("the MCP plugin with a pinned client", () => {
   /**
    * @case A real listing is held to the lockfile, with an event for the tool held back
    * @preconditions The remote lists echo and slow; the lockfile holds echo as the remote defines it; pins are the defaults
-   * @expectedResult plugin:mcp:pin:held is emitted once for slow with reason added and its live hash; echo is called through; a hop to slow fails with AI2004
+   * @expectedResult plugin:mcp:pin:held is emitted once for slow with reason added and its live hash, to a handler the config registered, and the same is logged as a warning; echo is called through; a hop to slow fails with AI2004
    */
   test("a held tool raises an event and refuses its calls", async () => {
     const probe = statefulRemote("https://probe.test/mcp");
@@ -655,16 +728,30 @@ describe("the MCP plugin with a pinned client", () => {
     const slow = listed.find((tool) => tool.name === "slow")!;
 
     const held: Array<Record<string, unknown>> = [];
+    const events: unknown[] = [];
+    // The plugin lists at bind, so only a handler the config registers is
+    // in place early enough to hear the event.
     const context = await build(
       serializeLockfile({
         version: 1,
         clients: { remote: { tools: locked(echo) } },
       }),
       {},
+      {
+        ["plugin:mcp:pin:held" as EventName]: (event: { details: unknown }) => {
+          events.push(event.details);
+        },
+      },
     );
-    // The plugin lists at bind, before a test can listen, so the report is
-    // read from the registry and the log rather than from a late listener.
     await context.startAndWaitReady();
+    expect(events).toEqual([
+      {
+        serverId: "remote",
+        tool: "slow",
+        reason: "added",
+        live: definitionHash(pinnedDefinition(slow)),
+      },
+    ]);
     for (const [bindings, message] of context.contextLogger.warn.mock
       .calls as Array<[Record<string, unknown>, string]>) {
       if (String(message).startsWith("MCP tool is withheld")) {
@@ -673,7 +760,7 @@ describe("the MCP plugin with a pinned client", () => {
     }
     expect(held).toEqual([
       {
-        client: "remote",
+        serverId: "remote",
         tool: "slow",
         live: definitionHash(pinnedDefinition(slow)),
       },
@@ -791,7 +878,7 @@ describe("craft mcp pin over the configured clients", () => {
         "remote: 2 tools, 2 added, 0 changed, 0 removed",
         "  + echo  (class: destructive)",
         "  + slow  (class: destructive)",
-        "Wrote mcp.lock. Check the class of each added tool, review the diff, and commit it to approve.",
+        "Wrote mcp.lock. Check the class of each added and changed tool, review the diff, and commit it to approve.",
       ].join("\n"),
     );
     expect(first.error).toStartWith(

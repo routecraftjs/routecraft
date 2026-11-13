@@ -318,7 +318,7 @@ export const mcpPinCommand: ProjectCommand = async (config, io) => {
       shown === ".." || shown.startsWith(`..${sep}`) ? result.path : shown;
     lines.push(
       result.written
-        ? `Wrote ${file}. Check the class of each added tool, review the diff, and commit it to approve.`
+        ? `Wrote ${file}. Check the class of each added and changed tool, review the diff, and commit it to approve.`
         : `${file} is up to date.`,
     );
   }

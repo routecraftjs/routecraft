@@ -13,7 +13,7 @@ export async function runProjectCommand(
   name: string,
   args: readonly string[],
 ): Promise<ExecResult> {
-  let opened: { store: CredentialStore; owned: boolean } | undefined;
+  let opening: Promise<{ store: CredentialStore; owned: boolean }> | undefined;
   try {
     const { root, configPath, config } = await loadProjectConfig(
       `craft ${name}`,
@@ -31,15 +31,14 @@ export async function runProjectCommand(
       args,
       root,
       credentials: async () => {
-        opened ??= await core.openCredentialStore(
-          core.credentialsConfigOf(config),
-        );
-        return opened.store;
+        opening ??= core.openCredentialStore(core.credentialsConfigOf(config));
+        return (await opening).store;
       },
     });
   } catch (error: unknown) {
     return { code: 1, error: messageOf(error) };
   } finally {
+    const opened = await opening?.catch(() => undefined);
     if (opened?.owned) await opened.store.close();
   }
 }

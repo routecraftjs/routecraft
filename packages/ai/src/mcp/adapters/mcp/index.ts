@@ -26,6 +26,11 @@ import type { McpMessage } from "./types.ts";
  *   builder (`.description()`, `.title()`, `.input()`, `.output()`) and a
  *   non-empty `.description()` is required. Requires `mcpPlugin()`.
  *
+ * - **Proxy source (for `.from()`):** `mcp({ proxy: 'server:*' })` puts the
+ *   route in front of every tool of a registered client (with `exclude` and
+ *   `schemas`), and `mcp({ proxy: 'server:tool' })` in front of one (with
+ *   `name` and `annotations`).
+ *
  * - **Enricher (for `.enrich()` / `.to()` / `.tap()`):** Call with client options:
  *   - `mcp({ url, tool })` - Direct HTTP URL to remote MCP server
  *   - `mcp({ serverId, tool })` - Server ID registered via mcpPlugin({ clients })
@@ -39,6 +44,13 @@ import type { McpMessage } from "./types.ts";
  *   .description("Search documents")
  *   .input({ body: mySchema })
  *   .from(mcp({ annotations: { readOnlyHint: true } }))
+ *
+ * // Proxy route (the policy on a registered client's tools)
+ * craft()
+ *   .id("books")
+ *   .authorize({ roles: ["finance"] })
+ *   .from(mcp({ proxy: "books:*", exclude: ["delete_invoice"] }))
+ *   .to(mcp("books:*"))
  *
  * // Enricher (call remote MCP server)
  * .to(mcp({ url: 'http://localhost:3001/mcp', tool: 'search' }))

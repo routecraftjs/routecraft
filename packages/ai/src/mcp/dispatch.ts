@@ -301,7 +301,10 @@ export async function dispatchMcpCallRaw(
   args: Record<string, unknown>,
   trace?: McpCallTrace,
 ): Promise<McpRawToolResult> {
-  const pinned = service?.tools.refusalOf(serverId, toolName);
+  // A disabled client is reported as disabled, not as unlisted.
+  const pinned = service?.disabledClients.has(serverId)
+    ? undefined
+    : service?.tools.refusalOf(serverId, toolName);
   if (pinned !== undefined) {
     throw rcError("AI2004", undefined, {
       message: `MCP tool "${serverId}:${toolName}" is withheld by the client's pins: ${PIN_REFUSALS[pinned]}.`,

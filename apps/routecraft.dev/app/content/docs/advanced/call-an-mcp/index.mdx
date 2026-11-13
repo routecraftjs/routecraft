@@ -274,7 +274,7 @@ From then on each listing is compared with the file:
 | `added`: a tool the lockfile has never seen | Served | n/a | Withheld |
 | `changed`: a locked tool whose definition differs | New definition served | New definition served, with a warning and an event | Withheld |
 
-A withheld tool is not listed by your MCP server, is not offered to an agent, and a call to it is refused with [`AI2004`](/docs/reference/errors#ai-2004) on every path, a route's own `.to(mcp('books:new_tool'))` included. A locked tool the server stops listing is reported and is no longer callable. Nothing is approved at run time: to accept a change, run `craft mcp pin`, read the diff, commit, and restart.
+A withheld tool is not listed by your MCP server, and is not offered to an agent. A caller of your MCP server is told the tool is unknown, and a call that names it from inside the application, a route's own `.to(mcp('books:new_tool'))` included, is refused with [`AI2004`](/docs/reference/errors#ai-2004). A locked tool the server stops listing is reported and is no longer callable. Nothing is approved at run time: to accept a change, run `craft mcp pin`, read the diff, commit, and restart.
 
 With `pins` set and no readable lockfile, the application does not start. A client without `pins` is not pinned, and with no pinned client no file is read.
 

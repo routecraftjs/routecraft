@@ -487,7 +487,7 @@ One pair per call toward a remote MCP server's tool, whoever made it: an MCP cli
 
 A `bypassed` call carries the `exchangeId` and `correlationId` of the exchange it was made from: the hop's exchange, or the agent's turn. A `route` call is joined to its proxy route's exchange through `callId`, which is that exchange's `routecraft.mcp.request` header. The types are exported from `@routecraft/ai` as `McpRemoteCall`, `McpRemoteCallSettlement` and `McpRemoteCallRefusal`.
 
-A call to a tool a [pinned client](/docs/reference/plugins/mcpplugin#pinning) withholds is `failed` with code `AI2004`, and the remote is not reached.
+A hop or an agent's call to a tool a [pinned client](/docs/reference/plugins/mcpplugin#pinning) withholds is `failed` with code `AI2004`, and the remote is not reached. An MCP caller of such a tool is told it is unknown, and that leaves no record here.
 
 A `refused` outcome is a refusal the caller caused, as every door classifies it. A step that throws an error of its own instead of refusing, a throttle, an open circuit or a timeout is `failed` with its code, unless the proxy route's `.error()` handler answers, which is `completed`. A `bypassed` hop settles at the hop, before the `.error()` handler of the route around it runs, so its record keeps `failed` or `remote-error` when that route recovers. A call answered from a `.cache()` hit is `completed` without the remote being reached. A process that stops between the two events leaves a `requested` with no `settled`.
 

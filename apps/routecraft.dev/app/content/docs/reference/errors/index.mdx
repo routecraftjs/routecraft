@@ -1347,7 +1347,7 @@ The client sets `pins`, and its lockfile (`mcp.lock`) does not vouch for the too
 **Suggestion**  
 - Run [`craft mcp pin`](/docs/reference/cli#mcp-pin), read the diff of `mcp.lock`, commit it and restart: that approves what the server lists now.
 - To serve new or changed tools without approval, set the client's `pins` to `added: 'serve'` or `changed: 'serve'` / `'warn'`; they are then classed `destructive`.
-- When the tools have not been listed yet, the server was unreachable at start; the client's refresh lists it once it answers.
+- When the tools have not been listed yet, the server was unreachable at start. The client's refresh lists it once the server answers; with `toolRefreshInterval: 0` there is no refresh, and the client stays refused until a restart.
 
 See [pinning](/docs/reference/plugins/mcpplugin#pinning).
 

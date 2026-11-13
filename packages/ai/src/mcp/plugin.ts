@@ -313,7 +313,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         const { reason, approved, live } = transition;
         const hashes = approved === undefined ? { live } : { approved, live };
         c.logger.warn(
-          { client: serverId, tool, ...hashes },
+          { serverId, tool, ...hashes },
           reason === "added"
             ? "MCP tool is withheld: the lockfile has never seen it. Review it with craft mcp pin and commit the lockfile to approve"
             : "MCP tool is withheld: its definition is not the one approved in the lockfile. Review it with craft mcp pin and commit the lockfile to approve",
@@ -325,7 +325,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         if (!transition.warn) return;
         const { approved, live } = transition;
         c.logger.warn(
-          { client: serverId, tool, approved, live },
+          { serverId, tool, approved, live },
           "MCP tool is served on a definition the lockfile does not vouch for, classed destructive until it is approved",
         );
         c.emit("plugin:mcp:pin:changed", { serverId, tool, approved, live });
@@ -334,7 +334,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       case "removed": {
         const { approved } = transition;
         c.logger.warn(
-          { client: serverId, tool, approved },
+          { serverId, tool, approved },
           "MCP tool in the lockfile is no longer listed by its server",
         );
         c.emit("plugin:mcp:pin:removed", { serverId, tool, approved });

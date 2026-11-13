@@ -5,9 +5,11 @@ import { messageOf } from "./util.js";
 export { displayPath };
 
 /**
- * The configuration of the project in the current directory, loaded the
- * way `craft start` loads it, for a command that acts on what the project
- * declares rather than running it.
+ * The configuration of the project in the current directory, for a
+ * command that acts on what the project declares rather than running it:
+ * the config file and the folder plugins, as `craft start` loads them.
+ * The agents and skills `craft start` discovers from folders are left
+ * out, since they declare no client and no credential.
  *
  * @param command - The command, for the message (`"craft connect"`)
  * @param reads - What the command reads from the config, for the message
