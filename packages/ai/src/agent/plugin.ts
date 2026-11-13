@@ -29,18 +29,13 @@ import {
   validateToolPolicy,
 } from "./registry.ts";
 import type { AgentToolPolicy } from "./tools/policy.ts";
-import {
-  assembleCatalog,
-  mcpRefsOf,
-  type McpRefHost,
-} from "./tools/selection.ts";
+import { assembleCatalog, type McpRefHost } from "./tools/selection.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import {
   isLazyFn,
   resolveFnOptions,
   withheldRouteReason,
   type FnEntry,
-  type RegisteredFn,
   type ToolHost,
 } from "./tools/types.ts";
 
@@ -458,23 +453,6 @@ function resolveLazyTools(
 }
 
 /**
- * The registered fns that have a shape at start: every plain one, and each
- * deferred one `resolveLazyTools` resolved. One over a disabled route was
- * left unresolved and is not among them. Reads the memoised resolution, so
- * a route-backed tool has the shape a hand-written one does and nothing can
- * fail here.
- */
-function* resolvedFns({
-  registry,
-  tools,
-}: Pick<AgentRun, "registry" | "tools">): Generator<[string, RegisteredFn]> {
-  for (const [id, entry] of registry.functions) {
-    if (isLazyFn(entry) && !registry.resolvedFunctions.has(id)) continue;
-    yield [id, resolveFnOptions(tools, id, entry, registry.resolvedFunctions)];
-  }
-}
-
-/**
  * Refuse a registered agent whose `MCP(...)` reference names a client no
  * route proxies, unless the reference says `raw: true`.
  *
@@ -487,11 +465,9 @@ function* resolvedFns({
  *
  * A client that is not configured is left to the dispatch error that names
  * the known clients. Inline agents exist only at dispatch, where an
- * ungoverned tool is withheld with a warning; so do the references a
- * builder derives from `catalog.mcp`, which lists only what the clients
- * have listed by the time this runs.
+ * ungoverned tool is withheld with a warning.
  *
- * @throws AI1020 naming the agent and the reference
+ * @throws AI2004 naming the agent and the reference
  */
 function assertMcpRefsGoverned(
   c: PluginContext,
@@ -503,7 +479,15 @@ function assertMcpRefsGoverned(
     hasFn: (name) => registry.functions.has(name),
     catalog: () =>
       assembleCatalog(
-        resolvedFns({ registry, tools }),
+        [...registry.functions]
+          .filter(
+            ([id, entry]) =>
+              !isLazyFn(entry) || registry.resolvedFunctions.has(id),
+          )
+          .map(([id, entry]) => [
+            id,
+            resolveFnOptions(tools, id, entry, registry.resolvedFunctions),
+          ]),
         tools.capabilities(),
         service.tools.getTools(),
       ),
@@ -521,13 +505,13 @@ function assertMcpRefsGoverned(
   let proxied: Set<string> | undefined;
   for (const [owner, selection] of selections) {
     if (selection === undefined) continue;
-    for (const { ref, server, raw } of mcpRefsOf(selection, host)) {
+    for (const { ref, server, raw } of selection.mcpRefs(host)) {
       if (raw) continue;
       if (!service.clients.has(server) && !service.disabledClients.has(server))
         continue;
       proxied ??= proxiedServers(c);
       if (proxied.has(server)) continue;
-      throw rcError("AI1020", undefined, {
+      throw rcError("AI2004", undefined, {
         message: `agentPlugin: ${owner} lists "${ref}", and no route proxies MCP client "${server}". Add a proxy route for it, or write the reference as { name: "${ref}", raw: true }.`,
       });
     }
@@ -557,7 +541,19 @@ function emitRegistrations(
       source: "registered",
     });
   }
-  for (const [id, declared] of resolvedFns({ registry, tools })) {
+  for (const [id, entry] of registry.functions) {
+    // One over a disabled route was left unresolved just before this, and
+    // has no shape to announce yet.
+    if (isLazyFn(entry) && !registry.resolvedFunctions.has(id)) continue;
+    // Resolved, so a route-backed tool announces the same shape a
+    // hand-written one does. Every deferred entry resolved just before
+    // this, so it reads the memoized result and cannot fail here.
+    const declared = resolveFnOptions(
+      tools,
+      id,
+      entry,
+      registry.resolvedFunctions,
+    );
     c.emit("agent:tool:registered", {
       toolName: id,
       description: declared.description,

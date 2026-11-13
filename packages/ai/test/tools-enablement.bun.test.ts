@@ -12,27 +12,7 @@ import {
 import { MCP, createMcpService } from "../src/mcp/port.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
-
-/** Collect the warning messages a context logs, keeping the bound fields. */
-function captureWarnings(
-  t: TestContext,
-): Array<{ fields: Record<string, unknown>; message: string }> {
-  const warnings: Array<{ fields: Record<string, unknown>; message: string }> =
-    [];
-  const original = t.ctx.logger.warn.bind(t.ctx.logger);
-  t.ctx.logger.warn = ((first: unknown, second?: unknown) => {
-    warnings.push(
-      typeof first === "string"
-        ? { fields: {}, message: first }
-        : {
-            fields: first as Record<string, unknown>,
-            message: String(second),
-          },
-    );
-    return original(first as never, second as never);
-  }) as typeof t.ctx.logger.warn;
-  return warnings;
-}
+import { captureWarnings } from "./helpers/warnings.ts";
 
 /**
  * A direct route whose `.enabled()` follows a flag the test flips. A live

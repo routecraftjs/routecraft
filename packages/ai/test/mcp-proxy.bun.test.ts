@@ -10,6 +10,7 @@ import { deferring, testContext, type TestContext } from "@routecraft/testing";
 import type { McpServer } from "../src/mcp/server.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
+import { captureWarnings } from "./helpers/warnings.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import {
   agentPlugin,
@@ -1367,15 +1368,15 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .from(mcp({ proxy: "docs:get_document" }))
         .to(mcp("docs:get_document")),
     ]);
+    const warnings = captureWarnings(t);
     const selection = tools(["MCP(docs:search)"]);
     expect(selection.resolve(t.ctx)).toEqual([]);
     expect(selection.resolve(t.ctx)).toEqual([]);
-    const uncovered = t.contextLogger.warn.mock.calls.filter(
-      (c: unknown[]) =>
-        typeof c[1] === "string" && c[1].includes("no proxy route"),
+    const uncovered = warnings.filter((w) =>
+      w.message.includes("no proxy route"),
     );
     expect(uncovered).toHaveLength(1);
-    expect(uncovered[0]![0]).toMatchObject({
+    expect(uncovered[0]!.fields).toMatchObject({
       server: "docs",
       tool: "search",
     });
@@ -1394,6 +1395,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .from(mcp({ proxy: "docs:get_document" }))
         .to(mcp("docs:get_document")),
     ]);
+    const warnings = captureWarnings(t);
     const [tool] = tools([{ name: "MCP(docs:search)", raw: true }]).resolve(
       t.ctx,
     );
@@ -1402,11 +1404,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
     expect(dispatches).toEqual([
       { serverId: "docs", toolName: "search", args: { q: "x" } },
     ]);
-    expect(
-      t.contextLogger.warn.mock.calls.some(
-        (c: unknown[]) => typeof c[1] === "string" && c[1].includes("bypass"),
-      ),
-    ).toBe(false);
+    expect(warnings.some((w) => w.message.includes("bypass"))).toBe(false);
   });
 });
 
@@ -1451,12 +1449,12 @@ describe("a registered agent's MCP reference with no proxy route", () => {
   /**
    * @case A registered agent listing an MCP reference to a client no route proxies fails the start
    * @preconditions Client docs configured, no proxy route; agent helper lists MCP(docs:search)
-   * @expectedResult context start rejects with AI1020 naming the agent and the reference
+   * @expectedResult context start rejects with AI2004 naming the agent and the reference
    */
-  test("start fails with AI1020", async () => {
+  test("start fails with AI2004", async () => {
     t = await context(helper(tools(["MCP(docs:search)"])));
     await expect(t.ctx.start()).rejects.toMatchObject({
-      rc: "AI1020",
+      rc: "AI2004",
       message: expect.stringMatching(/agent "helper".*MCP\(docs:search\)/),
     });
   });
@@ -1490,14 +1488,14 @@ describe("a registered agent's MCP reference with no proxy route", () => {
   /**
    * @case The context default selection is checked as an agent's own is
    * @preconditions defaultOptions.tools lists mcp__docs__search; no proxy route
-   * @expectedResult context start rejects with AI1020 naming defaultOptions
+   * @expectedResult context start rejects with AI2004 naming defaultOptions
    */
   test("defaultOptions.tools is checked", async () => {
     t = await context({
       defaultOptions: { tools: tools(["mcp__docs__search"]) },
     });
     await expect(t.ctx.start()).rejects.toMatchObject({
-      rc: "AI1020",
+      rc: "AI2004",
       message: expect.stringContaining("defaultOptions"),
     });
   });
@@ -1505,11 +1503,11 @@ describe("a registered agent's MCP reference with no proxy route", () => {
   /**
    * @case A builder selection is checked through what the builder returns
    * @preconditions Agent helper's tools is a builder returning MCP(docs:search); no proxy route
-   * @expectedResult context start rejects with AI1020
+   * @expectedResult context start rejects with AI2004
    */
   test("a builder selection is checked", async () => {
     t = await context(helper(tools(() => ["MCP(docs:search)"])));
-    await expect(t.ctx.start()).rejects.toMatchObject({ rc: "AI1020" });
+    await expect(t.ctx.start()).rejects.toMatchObject({ rc: "AI2004" });
   });
 
   /**
