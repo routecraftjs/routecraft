@@ -6,6 +6,7 @@ import {
   authorityOf,
 } from "@routecraft/routecraft";
 import { MCP, createMcpService, type McpService } from "../../src/mcp/port.ts";
+import { declaredExactProxies } from "../../src/mcp/proxy.ts";
 import { McpServer } from "../../src/mcp/server.ts";
 import type { McpPluginOptions } from "../../src/mcp/types.ts";
 
@@ -22,7 +23,10 @@ export function mcpPort(seed: McpSeed = {}): Plugin {
     id: "test.mcp",
     provides: [MCP],
     bind(c) {
-      c.provide(MCP, createMcpService(seed));
+      c.provide(
+        MCP,
+        createMcpService({ declaredProxies: declaredExactProxies(c), ...seed }),
+      );
     },
   };
 }
@@ -72,7 +76,10 @@ export function mcpServerPlugin(
     requires: [AUTHORITY],
     optional: [WEB_INGRESS, ENFORCEMENT],
     async bind(c) {
-      const service = createMcpService(seed);
+      const service = createMcpService({
+        declaredProxies: declaredExactProxies(c),
+        ...seed,
+      });
       c.provide(MCP, service);
       const server = new McpServer(
         {

@@ -59,6 +59,12 @@ export interface McpService {
    */
   registerProxy(registration: McpProxyRegistration): () => void;
   /**
+   * Whether a route declares an exact proxy over `serverId:tool`, live or
+   * not. A declared route that is not live closes its tool: the client's
+   * star route does not take it over.
+   */
+  isProxyDeclared(serverId: string, tool: string): boolean;
+  /**
    * Run `listener` after every change to {@link local} or {@link proxies},
    * so a transport can tell its clients the advertised tools changed.
    * Returns the function that stops it.
@@ -100,6 +106,12 @@ export function createMcpService(
     readonly disabledClients?: ReadonlyMap<string, string>;
     readonly local?: Iterable<McpLocalToolEntry>;
     readonly http?: McpHttpConnections;
+    /**
+     * The exact proxy declarations, as {@link proxyRegistrationKey} keys.
+     * A function, because the routes are not all registered when the
+     * plugin builds the service.
+     */
+    readonly declaredProxies?: () => ReadonlySet<string>;
   } = {},
 ): McpService {
   const local = new Map<string, McpLocalToolEntry>();
@@ -143,6 +155,12 @@ export function createMcpService(
           changed();
         }
       };
+    },
+    isProxyDeclared(serverId, tool) {
+      return (
+        seed.declaredProxies?.().has(proxyRegistrationKey(serverId, tool)) ??
+        false
+      );
     },
     onChange(listener) {
       listeners.add(listener);

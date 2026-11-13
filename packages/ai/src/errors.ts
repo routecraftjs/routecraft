@@ -307,11 +307,13 @@ declare module "@routecraft/routecraft" {
     /**
      * Inbound MCP tool call dispatched to a route, or (when `proxied` is
      * true) forwarded to a registered client identified by `serverId` /
-     * `remoteTool`.
+     * `remoteTool`. The arguments ride in the `_snapshot` envelope, as an
+     * agent tool's input does: the bus always carries them, and the
+     * telemetry sink persists them only when snapshot capture is on.
      */
     "plugin:mcp:tool:called": {
       tool: string;
-      args: unknown;
+      _snapshot: { args: unknown };
     } & McpToolProvenance &
       McpToolMount;
     /** MCP tool call completed successfully. */

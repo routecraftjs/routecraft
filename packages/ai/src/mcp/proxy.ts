@@ -2,6 +2,7 @@ import {
   HeadersKeys,
   standardSchemaFromJsonSchema,
   type CraftContext,
+  type PluginContext,
 } from "@routecraft/routecraft";
 import { isMcpAdapter } from "../brand.ts";
 import { mergeAnnotations } from "./annotation-tags.ts";
@@ -61,8 +62,53 @@ export function proxyRegistrationKey(serverId: string, tool: string): string {
 }
 
 /**
+ * The proxy ref a route source declares, or undefined when the source is
+ * not an `mcp({ proxy })` source.
+ *
+ * @internal
+ */
+export function proxyRefOf(source: unknown): McpProxyRef | undefined {
+  if (!isMcpAdapter(source)) return undefined;
+  return (source as { proxyRef?: McpProxyRef }).proxyRef;
+}
+
+/**
+ * The exact `mcp({ proxy: "server:tool" })` declarations among the
+ * application's routes, enabled or not, as registration keys. Read from the
+ * route definitions rather than the live registrations, so a route held
+ * back by `.enabled()` still counts. Settled once the application froze,
+ * since no route is registered after that.
+ *
+ * @internal
+ */
+export function declaredExactProxies(
+  c: Pick<PluginContext, "routes" | "frozen">,
+): () => ReadonlySet<string> {
+  let settled: ReadonlySet<string> | undefined;
+  return () => {
+    if (settled !== undefined) return settled;
+    const declared = new Set<string>();
+    for (const route of c.routes.list()) {
+      for (const source of route.definition.sources) {
+        const ref = proxyRefOf(source);
+        if (ref === undefined || ref.tool === "*") continue;
+        declared.add(proxyRegistrationKey(ref.serverId, ref.tool));
+      }
+    }
+    if (c.frozen) settled = declared;
+    return declared;
+  };
+}
+
+/**
  * The registration that covers a remote tool: the exact one when there is
  * one, otherwise the client's star registration, otherwise undefined.
+ *
+ * A tool whose exact route is declared but not live (held back by
+ * `.enabled()`, stopped, or not yet started) is covered by nothing. The
+ * star route does not take it over: the exact route is the policy the
+ * operator wrote for that tool, and a policy that is off is closed, not
+ * replaced by a weaker one.
  *
  * @internal
  */
@@ -73,6 +119,7 @@ export function coveringProxy(
 ): McpProxyRegistration | undefined {
   const exact = service.proxies.get(proxyRegistrationKey(serverId, tool));
   if (exact !== undefined) return exact;
+  if (service.isProxyDeclared(serverId, tool)) return undefined;
   const star = service.proxies.get(proxyRegistrationKey(serverId, "*"));
   return star !== undefined && !excludes(star, tool) ? star : undefined;
 }
@@ -105,9 +152,8 @@ export function declaredProxy(
   let star: { routeId: string; tool: string; excluded: boolean } | undefined;
   for (const route of context.getRoutes()) {
     for (const source of route.definition.sources) {
-      const ref = (source as { proxyRef?: McpProxyRef }).proxyRef;
-      if (!isMcpAdapter(source) || ref === undefined) continue;
-      if (ref.serverId !== serverId) continue;
+      const ref = proxyRefOf(source);
+      if (ref === undefined || ref.serverId !== serverId) continue;
       if (ref.tool === tool) {
         return { routeId: route.definition.id, tool, excluded: false };
       }

@@ -20,8 +20,10 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 10. **The correlation id is engine-owned, and `event()` continues the causing journey.** `.header()` refuses `routecraft.correlation_id`; `.correlate()` re-stamps it. [Section 10](#10-journeys).
 11. **`agentBrowser()` is removed** from `@routecraft/os`. [Section 11](#11-agent-browser).
 12. **`craft run` logs to stderr, and `RUNNER_ARGV` is `RUNNER_INVOCATION`.** [Section 12](#12-craft-run-argv).
+13. **Two optional peers need a newer major.** `mailauth` is `^8.0.6` and `@ai-sdk/openai-compatible` is `^2.0.0`. [Section 13](#13-optional-peers).
+14. **An MCP tool call's arguments ride in `_snapshot`.** A subscriber to `plugin:mcp:tool:called` reads `details._snapshot.args`. [Section 14](#14-mcp-tool-called-args).
 
-Projects that write no plugin of their own typically need section 2 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, and section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`. [Section 14](#14-what-is-new-in-080) lists what is new, for context.
+Projects that write no plugin of their own typically need section 2 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, and section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`. [Section 15](#15-what-is-new-in-080) lists what is new, for context.
 
 ---
 
@@ -60,7 +62,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 14](#14-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 15](#15-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -231,7 +233,21 @@ Both ranges dropped majors whose every release carries a high-severity advisory 
 
 Neither changes how the adapter or the provider behaves.
 
-## 14. What is new in 0.8.0 \{#14-what-is-new-in-080}
+## 14. An MCP tool call's arguments ride in `_snapshot` \{#14-mcp-tool-called-args}
+
+`plugin:mcp:tool:called` carried the call's arguments as `args`, a plain field of the event details. The telemetry plugin writes event details to its store and holds back only the `_snapshot` envelope, so a project that had left `captureSnapshots` off was storing every tool call's arguments regardless. The arguments are now `_snapshot: { args }`, the envelope an agent tool's input already uses: the bus always carries them, and the telemetry store keeps them only when `captureSnapshots` is on.
+
+```ts
+// Before
+ctx.on('plugin:mcp:tool:called', ({ details }) => record(details.tool, details.args))
+
+// After
+ctx.on('plugin:mcp:tool:called', ({ details }) => record(details.tool, details._snapshot.args))
+```
+
+The debug log line that printed the same arguments (`MCP tool call exchange body`) is removed. Rows the telemetry store wrote before the upgrade keep the arguments they were written with; prune them if they should not be retained.
+
+## 15. What is new in 0.8.0 \{#15-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too.

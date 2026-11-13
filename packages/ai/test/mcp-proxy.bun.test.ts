@@ -325,6 +325,45 @@ describe("a route that proxies a remote MCP server", () => {
   });
 
   /**
+   * @case An exact route that is declared but not live closes its tool at the door, even under a live star route
+   * @preconditions Star route over docs and an exact route over docs:get_document held back by .enabled(() => false)
+   * @expectedResult The root and the docs mount list search and delete_document only; a call to docs_get_document is not found and nothing reaches the client; the star route still serves the others
+   */
+  test("a disabled exact route closes its tool under a live star route", async () => {
+    await serve([
+      craft()
+        .id("docs")
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*")),
+      craft()
+        .id("fetch")
+        .enabled(() => false)
+        .from(mcp({ proxy: "docs:get_document" }))
+        .to(mcp("docs:get_document")),
+    ]);
+    expect(
+      server
+        .getAvailableTools()
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(["docs_delete_document", "docs_search"]);
+    expect(
+      server
+        .getAvailableTools("docs")
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(["delete_document", "search"]);
+    const closed = await call("docs_get_document", { id: "1" });
+    expect(closed.isError).toBe(true);
+    expect(closed.content[0]?.text).toContain("Tool not found");
+    expect(dispatches).toEqual([]);
+    await call("docs_search", { q: "x" });
+    expect(dispatches).toEqual([
+      { serverId: "docs", toolName: "search", args: { q: "x" } },
+    ]);
+  });
+
+  /**
    * @case An exclude name the client does not list is warned about once
    * @preconditions Star route over docs excluding "serch", a name the client never lists
    * @expectedResult Listing the tools logs one warning naming the route, the client and the unmatched name, and the group is unchanged
@@ -1243,11 +1282,11 @@ describe("an agent's MCP reference to a proxied tool", () => {
   });
 
   /**
-   * @case A disabled exact route hands its tool back to the live star route
-   * @preconditions Star route over docs and an exact route over get_document held back by .enabled()
-   * @expectedResult The agent's MCP(docs:get_document) runs through the star route, not withheld and not raw
+   * @case A disabled exact route closes its tool for an agent, even under a live star route
+   * @preconditions Star route over docs and an exact route over get_document held back by .enabled(); the agent lists MCP(docs:get_document), MCP(docs:*), then get_document with raw: true
+   * @expectedResult get_document is not offered, with a warning naming the exact route; the star expansion omits it and keeps the others on the star route; raw: true reaches the client without a route
    */
-  test("a disabled exact route yields to the live star route", async () => {
+  test("a disabled exact route withholds its tool under a live star route", async () => {
     await build([
       craft()
         .id("docs")
@@ -1259,8 +1298,23 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .from(mcp({ proxy: "docs:get_document" }))
         .to(mcp("docs:get_document")),
     ]);
-    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
-    expect(tool.source).toMatchObject({ routeId: "docs" });
+    expect(tools(["MCP(docs:get_document)"]).resolve(t.ctx)).toEqual([]);
+    const warned = t.contextLogger.warn.mock.calls.find(
+      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("not live"),
+    );
+    expect(warned?.[0]).toMatchObject({ route: "fetch", tool: "get_document" });
+    const star = tools(["MCP(docs:*)"]).resolve(t.ctx);
+    expect(star.map((tool) => tool.name).sort()).toEqual([
+      "mcp__docs__delete_document",
+      "mcp__docs__search",
+    ]);
+    for (const tool of star) {
+      expect(tool.source).toMatchObject({ routeId: "docs" });
+    }
+    const [raw] = tools([
+      { name: "MCP(docs:get_document)", raw: true },
+    ]).resolve(t.ctx);
+    expect(raw.source).not.toHaveProperty("routeId");
   });
 
   /**
