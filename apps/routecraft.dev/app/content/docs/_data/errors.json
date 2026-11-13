@@ -672,6 +672,12 @@
     "retryable": false
   },
   {
+    "code": "AI2004",
+    "category": "Adapter",
+    "message": "MCP tool withheld by pinning",
+    "retryable": false
+  },
+  {
     "code": "OS1001",
     "category": "Adapter",
     "message": "Isolation tier unavailable",

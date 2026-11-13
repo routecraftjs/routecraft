@@ -214,6 +214,22 @@ no flag that skips a proxy route: a call that must not pass the route's
 policy is a hop on another route (`.to(mcp('server:tool'))`), offered to
 the agent as `Direct(<routeId>)`.
 
+A tool definition is input from the remote: its description is text a model
+reads, and its annotations are the server's account of itself. A client
+that sets `pins` is held to the definitions in `mcp.lock`, and the rules
+are:
+
+- The registry judges a listing before it stores it, so no reader of the
+  registry sees a withheld tool. A new consumer of remote tools reads the
+  registry, never a client's listing directly.
+- Every call to a configured client passes `dispatchMcpCallRaw`, which
+  refuses a tool the pins do not serve (`AI2004`). A new call path goes
+  through it.
+- Nothing approves a definition at run time. Approval is a commit of the
+  lockfile, read once at bind.
+- A policy keys on the approved `class`, which is `destructive` for
+  anything served without approval, not on `annotations`.
+
 The remote MCP server is outside the trust zone, and so is the path to it.
 What it sends is data, and it is given nothing the configuration did not
 name:
