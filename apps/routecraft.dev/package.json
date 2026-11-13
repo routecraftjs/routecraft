@@ -79,7 +79,7 @@
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-mdx-frontmatter": "^6.0.0",
-    "satori": "^0.62.0",
+    "satori": "^0.63.2",
     "sharp": "^0.35.5",
     "typescript-eslint": "^8.72.2",
     "unist-util-visit": "^5.2.0",
