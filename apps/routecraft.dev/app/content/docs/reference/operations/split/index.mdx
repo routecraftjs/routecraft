@@ -32,4 +32,4 @@ If no splitter is provided, array bodies are split into one exchange per element
 **Key behaviors:**
 - Splitter receives the full exchange and returns an array of child bodies
 - Framework overlays `routecraft.split_hierarchy` and assigns new ids
-- Each split exchange is processed independently; aggregate to combine results
+- Each split exchange is processed independently; aggregate to combine results. A child that fails with nothing handling it [fails that aggregate](/docs/reference/operations/aggregate#children-that-do-not-arrive)

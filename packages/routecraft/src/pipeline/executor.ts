@@ -326,9 +326,7 @@ export async function runPipeline(
     ...tail,
   ];
 
-  const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
-    { exchange: exchange, steps: initialSteps },
-  ];
+  const queue: QueueEntry[] = [{ exchange: exchange, steps: initialSteps }];
 
   let lastProcessedExchange: Exchange = exchange;
   let failed = false;
@@ -339,14 +337,35 @@ export async function runPipeline(
   const seenChildExchanges = new Set<string>();
   const childStartTimes = new Map<string, number>();
   const failedChildExchanges = new Set<string>();
+  const groupFailures = new Map<string, ChildFailure[]>();
+  /**
+   * Record a split child that failed with nothing handling it. When a join
+   * follows, the child is parked at it, so the join still happens (and
+   * fails) when every sibling failed or was filtered out.
+   */
+  const noteChildFailure = (
+    child: Exchange,
+    error: RoutecraftError,
+    remaining: Step<Adapter>[],
+  ): void => {
+    failedChildExchanges.add(child.id);
+    const group = splitGroupOf(child);
+    if (group === undefined) return;
+    const join = joinIndex(remaining);
+    if (join < 0) return;
+    const failures = groupFailures.get(group) ?? [];
+    failures.push({ exchangeId: child.id, error });
+    groupFailures.set(group, failures);
+    queue.push({ exchange: child, steps: remaining.slice(join), failed: true });
+  };
 
   // Snapshot existing split parent keys so cleanup only touches groups
   // created during THIS invocation, not groups from concurrent handlers.
-  const parentMap = deps.context.getStore(SPLIT_PARENT_STORE) as
-    Map<string, Exchange> | undefined;
-  const preExistingGroups = parentMap
-    ? new Set(parentMap.keys())
-    : new Set<string>();
+  // Read at each use: the first split on a context is what creates the store.
+  const splitParents = () =>
+    deps.context.getStore(SPLIT_PARENT_STORE) as
+      Map<string, Exchange> | undefined;
+  const preExistingGroups = new Set(splitParents()?.keys());
 
   // Snapshotted by `captureDownstream` so debounce can release a held
   // exchange through its continuation later.
@@ -371,7 +390,8 @@ export async function runPipeline(
     takePending(predicate: (candidate: Exchange) => boolean): Exchange[] {
       const taken: Exchange[] = [];
       for (let i = 0; i < queue.length;) {
-        if (predicate(queue[i].exchange)) {
+        // A child that already ended (recovered by a handler) is not pending.
+        if (queue[i].steps.length > 0 && predicate(queue[i].exchange)) {
           taken.push(queue[i].exchange);
           queue.splice(i, 1);
         } else {
@@ -481,6 +501,60 @@ export async function runPipeline(
     const [step, ...remainingSteps] = steps;
     currentRemaining = remainingSteps;
 
+    let childFailure: RoutecraftError | undefined;
+    const joined =
+      step.operation === OperationType.AGGREGATE
+        ? splitGroupOf(exchange)
+        : undefined;
+    const failures =
+      joined !== undefined ? groupFailures.get(joined) : undefined;
+    if (joined !== undefined && failures !== undefined) {
+      // Siblings still on their way to the join finish their own steps first.
+      const stillRunning = queue.some(
+        (entry) =>
+          !entry.failed &&
+          entry.steps[0] !== step &&
+          splitHierarchyOf(entry.exchange).includes(joined),
+      );
+      if (stillRunning) {
+        queue.push(popped);
+        continue;
+      }
+      const arrived = popped.failed ? [] : [exchange];
+      for (let i = 0; i < queue.length;) {
+        if (splitGroupOf(queue[i].exchange) === joined) {
+          if (!queue[i].failed) arrived.push(queue[i].exchange);
+          queue.splice(i, 1);
+        } else {
+          i++;
+        }
+      }
+      for (const child of arrived) {
+        emitExchangeCompleted(
+          deps.context,
+          deps.routeId,
+          child,
+          Date.now() - (childStartTimes.get(child.id) ?? startTime),
+        );
+      }
+      groupFailures.delete(joined);
+      childFailure = rcError("RC5001", failures[0].error, {
+        message:
+          failures.length +
+          " of the children of a split failed, so the aggregate after it did not run",
+        suggestion:
+          "Read the cause for the first child's error. To accept a partial result, handle the failure on the child's path with .error().",
+      });
+      failedChildrenOf.set(
+        childFailure,
+        failures.map((failure) => failure.exchangeId),
+      );
+      // The failure is the parent's: its error path and its caller see it.
+      const parents = splitParents();
+      exchange = parents?.get(joined) ?? exchange;
+      parents?.delete(joined);
+    }
+
     // Prefer the DSL label (e.g., "log") over the raw OperationType (e.g., "tap")
     const stepLabel = step.label ?? step.operation;
 
@@ -515,6 +589,7 @@ export async function runPipeline(
     }
 
     try {
+      if (childFailure) throw childFailure;
       const stepExchange = exchange;
       // Resolved by the walk for a built route; a hand-assembled one is asked directly.
       const declared = resolvedSites
@@ -752,7 +827,7 @@ export async function runPipeline(
           } else {
             announceFailure(deps, exchange, handlerErr, duration);
             if (exchange.id !== parentExchangeId) {
-              failedChildExchanges.add(exchange.id);
+              noteChildFailure(exchange, handlerErr, remainingSteps);
             } else {
               failed = true;
               stepError = handlerErr;
@@ -809,7 +884,7 @@ export async function runPipeline(
       );
       announceFailure(deps, exchange, err, duration);
       if (exchange.id !== parentExchangeId) {
-        failedChildExchanges.add(exchange.id);
+        noteChildFailure(exchange, err, remainingSteps);
       } else {
         failed = true;
         stepError = err;
@@ -820,6 +895,7 @@ export async function runPipeline(
   }
 
   // Pre-existing groups belong to concurrent handlers on the same context.
+  const parentMap = splitParents();
   if (parentMap && parentMap.size > 0) {
     for (const groupId of Array.from(parentMap.keys())) {
       if (preExistingGroups.has(groupId)) continue;
@@ -847,6 +923,43 @@ export async function runPipeline(
     deferred: isDeferredRun(exchange),
     error: stepError,
   };
+}
+
+interface QueueEntry {
+  exchange: Exchange;
+  steps: Step<Adapter>[];
+  /** A failed split child, parked at the join that follows it. */
+  failed?: true;
+}
+
+interface ChildFailure {
+  exchangeId: string;
+  error: RoutecraftError;
+}
+
+/** The children behind a join's failure, keyed by the error the join raised. */
+const failedChildrenOf = new WeakMap<RoutecraftError, readonly string[]>();
+
+function splitHierarchyOf(exchange: Exchange): readonly string[] {
+  return (
+    (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[] | undefined) ??
+    []
+  );
+}
+
+function splitGroupOf(exchange: Exchange): string | undefined {
+  return splitHierarchyOf(exchange).at(-1);
+}
+
+/** Where the join of the innermost open split sits in `steps`, or -1. */
+function joinIndex(steps: readonly Step<Adapter>[]): number {
+  let depth = 0;
+  for (let i = 0; i < steps.length; i++) {
+    const operation = steps[i].operation;
+    if (operation === OperationType.SPLIT) depth++;
+    else if (operation === OperationType.AGGREGATE && depth-- === 0) return i;
+  }
+  return -1;
 }
 
 /**
@@ -1718,7 +1831,14 @@ function announceFailure(
     { error, route: deps.route, exchangeId: exchange.id },
     exchange,
   );
-  emitExchangeFailed(deps.context, deps.routeId, exchange, duration, error);
+  emitExchangeFailed(
+    deps.context,
+    deps.routeId,
+    exchange,
+    duration,
+    error,
+    failedChildrenOf.get(error),
+  );
 }
 
 /**

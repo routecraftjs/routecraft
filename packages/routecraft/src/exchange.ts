@@ -768,6 +768,7 @@ export function emitExchangeFailed(
   exchange: Exchange,
   duration: number,
   error: unknown,
+  failedChildren?: readonly string[],
 ): void {
   context?.emit(
     "route:exchange:failed",
@@ -777,6 +778,7 @@ export function emitExchangeFailed(
       correlationId: correlationOf(exchange),
       duration,
       error,
+      ...(failedChildren ? { failedChildren } : {}),
     },
     exchange,
   );
