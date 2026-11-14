@@ -10,6 +10,66 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ---
 
+## v0.8.0 <Badge color="gray">In development</Badge>
+
+This section covers every change since the v0.7.2 release. 0.8.0 is the plugin release: everything Routecraft ships beyond the route grammar is a plugin built on the same sockets a third party uses, direct endpoints, retries, caching, authentication and deferral included. Routes built from the DSL are unchanged. The [migration guide](/docs/next/migrating/0.7-to-0.8) lists every breaking change with its fix.
+
+### Core <Badge color="red">Breaking</Badge>
+
+- **Plugins are descriptors** -- `CraftPlugin`, `apply(ctx)` and `teardown(ctx, info)` are removed. A plugin is `definePlugin({ id, bind, start, stop })` and never receives the `CraftContext`; one still shaped with `apply` is refused with `RC1117`. See [plugins](/docs/next/migrating/0.7-to-0.8#1-plugins).
+- **`craft.config.ts` default-exports `defineProject(...)`** -- `defineConfig`, a plain default-exported object and the `craftConfig` named export are refused with `RC1120`. `telemetry()` is the `telemetry` key or `telemetryPlugin()`. See [the project export](/docs/next/migrating/0.7-to-0.8#19-project-export).
+- **`ex.principal` is `ex.auth.principal`** -- the principal is the auth plugin's facet; code holding a plain `Exchange` reads `principalOf(exchange)`. See [principal](/docs/next/migrating/0.7-to-0.8#2-principal).
+- **`registerDsl` is removed, and shared store keys are ports** -- route methods come from a plugin's `steps`, and state one plugin hands another is a typed `port<T>()`. See [steps](/docs/next/migrating/0.7-to-0.8#4-steps) and [ports](/docs/next/migrating/0.7-to-0.8#5-ports).
+- **Logging** -- `.log()` takes a level and a message, the `logger` export and `log()` / `debug()` are removed, and `defineProject({ logger })` sets the logger. See [logging](/docs/next/migrating/0.7-to-0.8#17-logging).
+- **The defer contract** -- `.defer({ schema })` is `.defer({ input })`, a resume request is `{ token, input }`, and `ex.deferral.result` is `ex.deferral.input`. A step or adapter that defers declares it. See [the defer contract](/docs/next/migrating/0.7-to-0.8#18-defer-contract).
+- **Parked deferrals are re-asked once** -- the continuation digest covers more of the route and no longer moves with Routecraft's own source, so a deferral parked on 0.7 is refused with `RC5048` on its first resume. A custom `DeferralStore` fences its claims. See [step identity](/docs/next/migrating/0.7-to-0.8#16-step-identity) and [deferral stores](/docs/next/migrating/0.7-to-0.8#6-deferral-store).
+- **Events carry ids, and bodies only on request** -- `details.exchange` is gone from every event; read `details.exchangeId`, and subscribe with `{ snapshots: true }` to read `details._snapshot`. See [event bodies](/docs/next/migrating/0.7-to-0.8#20-event-bodies).
+- **A failed split child fails the aggregate** -- a child that fails with nothing handling it fails the parent at `.aggregate()` instead of being left out of a shorter result. See [split child failure](/docs/next/migrating/0.7-to-0.8#22-split-child-failure).
+- **The correlation id is engine-owned** -- `.header()` refuses `routecraft.correlation_id`, `.correlate()` re-stamps it, and `event()` continues the causing journey. See [journeys](/docs/next/migrating/0.7-to-0.8#10-journeys).
+
+### Core
+
+- **Ports, hooks and facets** -- plugins share values through versioned ports, add hooks to the slots of the fixed chain, declare typed builder steps, and expose a facet on the exchange. A plugin can replace what fills `.authorize()`, the resilience operations and the cache store. See [plugins](/docs/next/advanced/plugins).
+- **Journeys** -- every exchange a hand-off produces records the exchange that caused it, events and log lines carry it, and W3C trace context crosses the `http()`, ops and MCP doors. See [what is new](/docs/next/migrating/0.7-to-0.8#25-what-is-new-in-080).
+- **`auth:rejected` says why** -- the event carries a bounded `code` and `claim` for a refused JWT, never the token or the verifier's message. See [events](/docs/next/reference/events).
+- **`isTransient(error)`** -- the rule `.retry()` and `.circuitBreaker()` apply by default is exported, and `route:retry:stopped` says why a retry stopped.
+
+### AI & MCP <Badge color="red">Breaking</Badge>
+
+- **`agent()` and `mcp()` need their plugin** -- an inline `agent({ ... })` needs `agent: {}` and a call to a remote tool by URL needs `mcp: {}`. See [required plugins](/docs/next/migrating/0.7-to-0.8#21-required-plugins).
+- **A cut-off model call fails** -- a call the provider ends on its output limit or content filter before the model produced anything fails with `AI1020` instead of returning an empty answer, and the default `maxTokens` of 1024 is not sent when `reasoning` asks the model to think. See [model outcomes](/docs/next/migrating/0.7-to-0.8#23-model-outcomes).
+- **`llm()` sends an empty `user:` as given** -- the body is used only when `user` is absent, as `agent()` already does.
+- **A route proxies a remote MCP server** -- `mcpPlugin({ proxy })` and its `guard` are removed; `.from(mcp({ proxy: 'server:*' }))` re-exposes a client's tools behind the chain every route has. See [MCP proxy routes](/docs/next/migrating/0.7-to-0.8#8-mcp-proxy-route).
+- **A remote MCP server is reached over `https`** -- a client on plain `http` to a host that is not loopback sets `allowHttp: true`. See [MCP outbound](/docs/next/migrating/0.7-to-0.8#15-mcp-outbound).
+- **An editor turn's body is the prompt text**, and an MCP tool call's arguments ride in `_snapshot`. See [ACP turn body](/docs/next/migrating/0.7-to-0.8#7-acp-turn-body) and [tool call arguments](/docs/next/migrating/0.7-to-0.8#14-mcp-tool-called-args).
+
+### AI & MCP
+
+- **Pinned MCP tools** -- `pins` on an MCP client holds it to the tool definitions in `mcp.lock`, which `craft mcp pin` writes; a new or changed tool is withheld or served as the pins say.
+- **MCP clients behind a login** -- `auth: connect({ clientId, scopes })` on a named client, `craft connect` to log in, and a credential store that refreshes and rotates tokens. See [servers behind a login](/docs/next/advanced/call-an-mcp#servers-behind-a-login).
+- **A record of every call to a remote MCP tool** -- `plugin:mcp:remote:requested` and `plugin:mcp:remote:settled` name the client, the tool, the caller and the outcome.
+
+### CLI <Badge color="red">Breaking</Badge>
+
+- **`craft run` logs to stderr, and `RUNNER_ARGV` is `RUNNER_INVOCATION`** -- a route's result is what stdout carries. See [craft run](/docs/next/migrating/0.7-to-0.8#12-craft-run-argv).
+- **`craft exec` exits `2` for a refused payload** -- input the route's schema refused is a usage error, as it already was under `craft run`. See [exit codes](/docs/next/migrating/0.7-to-0.8#24-exec-exit-codes).
+
+### CLI
+
+- **`argv()`** -- `craft run <file> --field=value`, or JSON on stdin, reaches the route as one exchange, with `--help` from the `.input()` schema. See [argv](/docs/next/reference/adapters/argv).
+- **Plugin tooling** -- a plugin declares commands and logins; `craft <namespace> <command>` and `craft connect` run them without starting the project.
+- **`craft run --config <path>` and `--no-config`** -- a route file run on its own runs in the project it was built with.
+
+### Adapters
+
+- **A mail message's flags are an array**, so a route sourced from `mail()` can defer. See [mail flags](/docs/next/migrating/0.7-to-0.8#9-mail-flags).
+- **`verify: 'strict'` passes long DKIM keys on Bun** -- a key over 255 bytes is split across TXT strings, which Bun's resolver returned as separate records.
+
+### Packages <Badge color="red">Breaking</Badge>
+
+- **`agentBrowser()` is removed** from `@routecraft/os`. See [agentBrowser](/docs/next/migrating/0.7-to-0.8#11-agent-browser).
+- **Two optional peers need a newer major** -- `mailauth` is `^8.0.6` and `@ai-sdk/openai-compatible` is `^2.0.0`. See [optional peers](/docs/next/migrating/0.7-to-0.8#13-optional-peers).
+
 ## [v0.7.2](https://github.com/routecraftjs/routecraft/releases/tag/v0.7.2) <Badge color="yellow">Pre-release</Badge>
 
 *October 2026*

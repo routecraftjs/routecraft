@@ -91,6 +91,26 @@ export default craft()
 
 Tools are an allowlist of capabilities, never a blacklist. An agent can also be a markdown file under `agents/` with frontmatter for its model and tools, which `craft start` discovers with everything else in the project. Because the agent is a step in a route, `.authorize()`, `.throttle()`, `.retry()`, `.timeout()` and `.circuitBreaker()` apply to the model call exactly as to any other step.
 
+## A project declares what it installs
+
+`craft.config.ts` default-exports a project. It names the plugins the project installs and their configuration, and the command line reads nothing else.
+
+```ts
+// craft.config.ts
+import { defineProject } from '@routecraft/routecraft'
+import '@routecraft/ai'
+
+export default defineProject({
+  llm: { providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } } },
+  agent: {}, // agent() needs the agent plugin
+  mcp: {}, // mcp() needs the MCP plugin
+})
+```
+
+Everything Routecraft ships beyond the route grammar is a plugin: direct endpoints, retries, caching, authentication, deferral, agents and MCP. A config key such as `agent` or `mcp` installs the plugin behind it, and `plugins: [...]` installs your own. A step whose plugin is not installed refuses with an error that names the key to add, so nothing runs on state it invented.
+
+`defineProject` returns `{ craft, config, plugins }`. A capability that uses only what Routecraft ships imports `craft` from `@routecraft/routecraft`, as above. One that uses a step or a facet of your own plugin builds its route with the project's `craft()`, which is typed by exactly the plugins installed. [Plugins](https://routecraft.dev/docs/advanced/plugins), [configuration reference](https://routecraft.dev/docs/reference/configuration).
+
 ## What you get
 
 - **Work that survives a restart.** [`.defer()`](https://routecraft.dev/docs/reference/operations/defer) defers an exchange in a store, and [`.resume()`](https://routecraft.dev/docs/reference/operations/resume) revives it by token, hours or days later, from any transport. [Durable agents](https://routecraft.dev/docs/advanced/durable-agents) defer mid-conversation the same way.
@@ -110,7 +130,7 @@ cd my-app
 bun add @routecraft/ai nodemailer
 ```
 
-The capability above uses `mcp()` from `@routecraft/ai` and sends through `mail()`, which needs `nodemailer`. An adapter that is missing its package names it when it runs.
+The capability above uses `mcp()` from `@routecraft/ai` and sends through `mail()`, which needs `nodemailer`. An adapter that is missing its package names it when it runs. Add `mcp: {}` and a `mail` account to the project's `craft.config.ts`, as shown in [a project declares what it installs](#a-project-declares-what-it-installs).
 
 Expose a capability to Claude Desktop by adding it to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
