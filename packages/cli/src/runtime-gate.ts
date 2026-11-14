@@ -16,7 +16,7 @@ import {
   compareRuntimeVersion,
   parseRuntimeVersion,
   type RuntimeVersion,
-} from "@routecraft/routecraft";
+} from "@routecraft/routecraft/internal";
 import { INSTALL_URL, MISSING_BUN_MESSAGE } from "./bun-requirement.js";
 
 const MIN_BUN_VERSION: RuntimeVersion = { major: 1, minor: 1, patch: 0 };

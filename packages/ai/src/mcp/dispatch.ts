@@ -1,11 +1,11 @@
 import {
-  clipText,
   isRoutecraftError,
   rcError,
   sendsTraceContext,
   type CraftContext,
   type TraceContextCarrier,
 } from "@routecraft/routecraft";
+import { clipText } from "@routecraft/routecraft/internal";
 // Registers AI2003 before any dispatch can throw it.
 import "../errors.ts";
 import { connectMcpHttpClient } from "./sdk.ts";

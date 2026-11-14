@@ -31,6 +31,9 @@
     // Add these
     "types": ["node", "vitest/globals"],
     "paths": {
+      "@routecraft/routecraft/internal": [
+        "packages/routecraft/src/internal.ts"
+      ],
       "@routecraft/testing": ["packages/testing/src/index.ts"],
       "@routecraft/*": ["packages/*/src/index.ts"]
     },
@@ -43,6 +46,7 @@
   "include": [
     "packages/*/src/**/*",
     "packages/*/test/**/*",
+    "packages/*/bench/**/*",
     "tests/**/*",
     "examples/src/**/*"
   ],

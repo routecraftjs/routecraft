@@ -19,7 +19,6 @@ export {
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
 export { refusal as authorizationRefusal } from "./authorization-refusal.ts";
 export { delegate, type DelegateOptions } from "./auth/delegate.ts";
-export { isDevelopmentRuntime } from "./shared/runtime-env.ts";
 export {
   classifyRejectionReason,
   isExpiredTokenError,
@@ -287,11 +286,6 @@ export {
   type OpsHttpClient,
   type OpsHttpClientOptions,
 } from "./plugins/ops/client.ts";
-export {
-  compareRuntimeVersion,
-  parseRuntimeVersion,
-  type RuntimeVersion,
-} from "./shared/runtime-version.ts";
 export { remotesPlugin } from "./plugins/remotes/plugin.ts";
 export { standardSchemaFromJsonSchema } from "./plugins/remotes/schema.ts";
 export {
@@ -611,7 +605,6 @@ export {
 } from "./pipeline/caller-refusal.ts";
 export { isStandardSchema } from "./shared/standard-schema.ts";
 export { parseDuration } from "./shared/duration.ts";
-export { rejectStaleOptions } from "./shared/stale-options.ts";
 export { anySignal } from "./shared/abort.ts";
 export {
   MANUAL_REFRESH,
@@ -650,19 +643,6 @@ export {
 export { logger, logFileDiversion, type LogFileDiversion } from "./logger.ts";
 
 export { shutdownHandler } from "./shutdown.ts";
-
-export {
-  RC_ADAPTER_OVERRIDES,
-  SOURCE_FIXTURE,
-  isSourceFixture,
-  type AdapterOverride,
-  type AdapterSendCall,
-  type AdapterSourceCall,
-  type SendOverrideHandler,
-  type SourceOverrideBehavior,
-  type SourceFixture,
-  type SourceMessage,
-} from "./testing-hooks.ts";
 
 export { tagAdapter, factoryArgs } from "./adapters/shared/factory-tag.ts";
 export { loadOptionalPeer } from "./adapters/shared/optional-peer.ts";
@@ -958,9 +938,7 @@ export {
   // two, scopes its own events about a deferral with the third, revives a
   // stored stepState before rewriting a deferred thread with the fourth and
   // a stored outcome at boot with the fifth; a package cannot reach a deep
-  // import of core. clipText below is re-exported for the same reason: the
-  // MCP proxy bounds a remote's error text with the one rule core uses for
-  // a refused payload's issues and a recorded failure's message.
+  // import of core.
   deferAside,
   deferralScope,
   reviveDeferral,
@@ -1084,6 +1062,3 @@ export {
 export { NESTED_STEPS, AUTHENTICATES } from "./dsl-symbol.ts";
 export type { NestedSteps, NestingStep } from "./kernel/continuation/sites.ts";
 export { principalRef } from "./kernel/continuation/principal-ref.ts";
-
-// @internal and re-exported on purpose, see the deferral block above.
-export { clipText } from "./shared/text.ts";

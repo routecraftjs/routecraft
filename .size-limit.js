@@ -51,6 +51,14 @@ export default [
     "200 kb",
     "packages/routecraft/package.json",
   ),
+  // A second bundle of the modules it reaches, nearly all of it the error
+  // table. Growth here means a heavier module was re-exported.
+  makeNodeEsmConfig(
+    "@routecraft/routecraft/internal",
+    "packages/routecraft/dist/internal.js",
+    "15 kb",
+    "packages/routecraft/package.json",
+  ),
   // Most of this budget is the Vercel `ai` SDK and the zod it requires, not
   // framework code: zod 4.6 alone added 22 kB over 4.4.
   makeNodeEsmConfig(

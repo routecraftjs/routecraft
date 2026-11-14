@@ -64,6 +64,60 @@ const ENTRIES = { esm: "dist/index.js", cjs: "dist/index.cjs" };
 const mode = process.argv[2] ?? "esm";
 
 /**
+ * The `./internal` subpath is a second bundle, so the package `exports` map
+ * and both of its outputs are checked against the shipped artifacts: a
+ * sibling package resolves it by package name and gets nothing if either
+ * is missing.
+ */
+if (mode === "internal") {
+  const { createRequire } = await import("node:module");
+  const esm = await import("@routecraft/routecraft/internal");
+  const cjs = createRequire(import.meta.url)("@routecraft/routecraft/internal");
+  const expected = Object.keys(
+    await import(pathToFileURL(join(pkgRoot, "src/internal.ts")).href),
+  ).sort();
+  for (const [format, built] of [
+    ["esm", esm],
+    ["cjs", cjs],
+  ]) {
+    const actual = Object.keys(built).sort();
+    if (expected.length === 0 || expected.join() !== actual.join()) {
+      console.error(
+        `verify-dist: the ${format} build of ./internal exports [${actual.join(", ")}]; src/internal.ts names [${expected.join(", ")}].`,
+      );
+      process.exit(1);
+    }
+  }
+  const mains = [
+    ["esm", await import("@routecraft/routecraft")],
+    ["cjs", createRequire(import.meta.url)("@routecraft/routecraft")],
+  ];
+  for (const [format, built] of [
+    ["esm", esm],
+    ["cjs", cjs],
+  ]) {
+    let raised;
+    try {
+      built.rejectStaleOptions({ intervalMs: 1 }, "verifyDist");
+    } catch (error) {
+      raised = error;
+    }
+    for (const [mainFormat, main] of mains) {
+      if (!main.isRoutecraftError(raised) || raised.rc !== "RC5003") {
+        console.error(
+          `verify-dist: an error raised through the ${format} build of ./internal is not recognised by the ${mainFormat} main entry.`,
+        );
+        process.exit(1);
+      }
+    }
+  }
+  console.log(
+    `verify-dist: ./internal resolves in ESM and CJS with ${expected.length} runtime exports.`,
+  );
+  process.exit(0);
+}
+
+/**
  * The two builds composed in one process: what a dependency graph that
  * resolves the package once as ESM and once as CJS gets. Both are supported
  * only one at a time, but the guards that keep a caller out must not read a
@@ -140,7 +194,7 @@ if (mode === "mixed") {
 const entry = ENTRIES[mode];
 if (entry === undefined) {
   console.error(
-    `verify-dist: unknown mode "${mode}"; expected one of ${Object.keys(ENTRIES).join(", ")}.`,
+    `verify-dist: unknown mode "${mode}"; expected one of ${[...Object.keys(ENTRIES), "mixed", "internal"].join(", ")}.`,
   );
   process.exit(1);
 }

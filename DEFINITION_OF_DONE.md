@@ -108,7 +108,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 > Error reference is at `apps/routecraft.dev/app/content/docs/reference/errors/index.mdx`.
 
 - [ ] Add the error code with description, cause, and suggested fix
-- [ ] Use the code format of the namespace you are adding to: `RC****` for core, or your ecosystem package's registered namespace (`AI****`). Every code is its namespace followed by exactly four digits. Take the next number in the range your subsystem owns, per the range-allocation table on the error reference page, and claim a new range there before using one
+- [ ] Use the code format of the namespace you are adding to: `RC****` for core, or your ecosystem package's registered namespace (`AI****`). Every code is its namespace followed by exactly four digits. An ecosystem code takes the next number in the range its subsystem owns, per the range-allocation table on the error reference page, and claims a new range there before using one. An `RC` code has no subsystem range: it is the next number in its series and is reserved in [the `RC` code ledger](.standards/error-and-logging-policy.md#the-rc-code-ledger) before any code uses it; its reserved row leaves the ledger in the change that registers it, and a removed code moves to the retired rows, never back into use
 - [ ] Add a row to `apps/routecraft.dev/app/content/docs/_data/errors.json` so the code appears in the interactive table, not only in the page prose. The row is checked against the page: a code with no `## RC****` heading fails the build
 
 ## When you add or modify a plugin

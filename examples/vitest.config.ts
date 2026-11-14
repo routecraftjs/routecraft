@@ -21,6 +21,10 @@ export default defineConfig({
         "../packages/testing/src/index.ts",
         import.meta.url,
       ).pathname,
+      "@routecraft/routecraft/internal": new URL(
+        "../packages/routecraft/src/internal.ts",
+        import.meta.url,
+      ).pathname,
       "@routecraft/routecraft": new URL(
         "../packages/routecraft/src/index.ts",
         import.meta.url,

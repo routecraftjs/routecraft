@@ -5,10 +5,10 @@ import type {
   EventName,
   EventHandler,
   RoutesArgument,
-  AdapterOverride,
   DeferralConfig,
   Duration,
 } from "@routecraft/routecraft";
+import type { AdapterOverride } from "@routecraft/routecraft/internal";
 import {
   ContextBuilder,
   CraftClient,
@@ -16,10 +16,12 @@ import {
   RoutecraftError,
   rcError,
   logger,
-  RC_ADAPTER_OVERRIDES,
   parseDuration,
-  rejectStaleOptions,
 } from "@routecraft/routecraft";
+import {
+  RC_ADAPTER_OVERRIDES,
+  rejectStaleOptions,
+} from "@routecraft/routecraft/internal";
 import type { SpyFactory, SpyLogger } from "./spy-logger";
 import {
   createSpyFn,

@@ -16,13 +16,13 @@ import {
   HeadersKeys,
   isRoutecraftError,
   isDeferred,
-  isDevelopmentRuntime,
   type Authority,
   rcError,
   requireWebIngress,
   type CallerRefusalOrigin,
   type ProtectedResourceMetadata,
 } from "@routecraft/routecraft";
+import { isDevelopmentRuntime } from "@routecraft/routecraft/internal";
 import type { PathClaim, WebIngress } from "@routecraft/routecraft";
 import type {
   AuthInfo,

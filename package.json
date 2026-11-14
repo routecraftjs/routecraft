@@ -41,7 +41,8 @@
     "docs": "bun run --filter routecraft.dev dev",
     "check:links": "bun run --filter routecraft.dev check:links",
     "check:examples": "bun run --filter routecraft.dev check:examples",
-    "all": "bun run lint --fix && bun run format:write && bun run typecheck && bun run build && bun run test && bun run check:links && bun run check:examples"
+    "all": "bun run lint --fix && bun run format:write && bun run typecheck && bun run build && bun run test && bun run check:links && bun run check:examples",
+    "bench": "bun packages/routecraft/bench/run.ts"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",

@@ -9,7 +9,11 @@
  * unparseable.
  */
 
-/** A SemVer core, with prerelease and build metadata already dropped. */
+/**
+ * A SemVer core, with prerelease and build metadata already dropped.
+ *
+ * @internal
+ */
 export interface RuntimeVersion {
   readonly major: number;
   readonly minor: number;

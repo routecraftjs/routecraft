@@ -11,13 +11,18 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js",
+      "require": "./dist/internal.cjs"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup && bun scripts/verify-dist.mjs esm && bun scripts/verify-dist.mjs cjs && bun scripts/verify-dist.mjs mixed",
+    "build": "tsup && bun scripts/verify-dist.mjs esm && bun scripts/verify-dist.mjs cjs && bun scripts/verify-dist.mjs mixed && bun scripts/verify-dist.mjs internal",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "prepublishOnly": "bun run build"

@@ -13,6 +13,7 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce, wha
 
   build  ─┬─►  scaffolder-smoke
           ├─►  embedding-smoke
+          ├─►  outsider-tarballs
           ├─►  adapter-cross-runtime (bun + node)
           └─►  security
 
@@ -48,6 +49,7 @@ Every ci.yml job below must pass before merge, or be skipped by the `changes` pa
 | `docs-site` | The site's own `typecheck` and `lint`, `check-examples`, a build, `check-links`, then the Playwright acceptance suite against that build | The site's checks are not in the root `validate` job, which typechecks the packages only. Catches broken app types, an example naming an option, symbol or literal that does not exist, dead internal links and anchors, and the URL space, channel, metadata and rendering contracts the migration was held to. `check-examples` runs before the build because it needs neither the build nor the browser. Runs on the `docs` paths filter in ci.yml: `apps/routecraft.dev/**`, `packages/**` (the reference catalogues are generated from them), `bun.lock` and `.github/workflows/**`. |
 | `scaffolder-smoke` | `log-flags.bun.test.ts` and `relaunch.bun.test.ts` against the built CLI (`CRAFT_CLI_ENTRY=packages/cli/dist/index.js`), then `bun run test:integration` twice (`TEST_PACKAGE_MANAGER=bun`, then `=npm`) | The built CLI honours `--log-level` and `--log-file` (the bundle can load core ahead of the flags with no source change; 0.7.0 shipped that way), and `craft run` on a file outside any project runs on the CLI's own core (the lone-file cases need core's `dist/`, which the `test` job never builds, so they skip there). End-to-end scaffolder flow: `create-routecraft` -> install -> `bunx tsc --noEmit` -> `bunx craft run` (npm arm skips the run since `craft` is Bun-only). Catches CLI binary regressions, scaffolder template drift, package-manager-specific install failures. |
 | `embedding-smoke` | `node .github/scripts/smoke-test-embedding.mjs` | Library embeds into a plain Node app: `npm pack` + `npm install` + `node --experimental-strip-types runner.ts`. Includes a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed. Catches Node compatibility regressions in the core library and the optional-peer contract. |
+| `outsider-tarballs` | `bun .github/scripts/outsider-tarballs.mjs` | The outsider suites (`packages/routecraft/test/outsider/`) in an empty project that installs the packed tarballs of core, testing, ai and os. `test` runs the same files against the workspace sources; only here does a dropped export or a missing `exports` entry fail, and only for an export a suite imports: today that is core and testing, while ai and os are installed and not yet imported. It runs the suites and does not type-check them. |
 | `adapter-cross-runtime (bun)` | `bun run test:cross-runtime` (matches `**/test/cross-runtime/**/*.test.ts`) | Adapter tests that must produce identical observable behaviour under Bun and Node. Bun arm runs the suite under Bun. |
 | `adapter-cross-runtime (node)` | `npm run test:cross-runtime:node` (resolves to `node node_modules/vitest/vitest.mjs run --passWithNoTests test/cross-runtime/`) | Same suite as above, run under Node. New adapters with a runtime-specific code path (`Bun.sql` vs `pg`, `Bun.s3` vs `@aws-sdk/client-s3`, etc.) drop a sibling test in `packages/<pkg>/test/cross-runtime/*.test.ts` and both arms must pass. |
 | `isolation-smoke` | `bun run test:isolation`, after enabling unprivileged user namespaces and checking for a Docker daemon | `shell()`'s isolation tiers (`unshare`, `docker`) against a real runner, which unit tests mock. |
@@ -233,9 +235,10 @@ The publish goes through `changeset publish` (npm under the hood) even though th
 
 ### After the tag
 
-Two things are part of every release and are not owned by the pipeline, so they are written down here and checked off in the release's own tracking issue.
+Three things are part of every release and are not owned by the pipeline, so they are written down here and checked off in the release's own tracking issue.
 
 - **The README is refreshed every release.** It is the page most readers see first and the one nothing regenerates. It went stale enough once to show a DSL that never existed (#766). Before the Version Packages PR merges, read it as a first-time visitor: the quick start runs, the feature list names what the release adds, the package table is true.
+- **The benchmark is run against the last stable tag before the Version Packages PR merges.** Build a checkout of that tag (`bun install && bun run build`), then `bun run bench --base <that checkout>/packages/routecraft/dist/index.js`, on a quiet machine, with the table pasted into the tracking issue. A scenario over its budget ([Testing § 15](./testing.md#15-benchmarks)) holds the release until it is explained or fixed.
 - **Every supporting repository is bumped off the pre-release after the tag, never before.** craft-harness and the other starters pin a canary or the previous release while a release is in flight; a person following any of their READMEs must land on the version just tagged. Bumping before the tag points them at a version that does not exist. One issue per release, one checkbox per repository (#798 is the 0.7.0 instance).
 
 ---
