@@ -73,6 +73,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
+| `TeardownInfo` | `StopInfo` |
 | `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 25](#25-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
@@ -141,7 +142,7 @@ State one plugin hands another, or hands an adapter, is a port: a typed token de
 
 | 0.7 store key | 0.8 port |
 | --- | --- |
-| `ADAPTER_DIRECT_REGISTRY`, `DIRECT_DEFAULTS` | `DIRECT`; list capabilities with `ctx.capabilities()` |
+| `ADAPTER_DIRECT_STORE`, `ADAPTER_DIRECT_OPTIONS` | `DIRECT`; list capabilities with `ctx.capabilities()` |
 | `OPS_HEALTH_STATE`, `OPS_RESOURCES` | `OPS` |
 | `DEFERRAL_RUNTIME` | `CONTINUATIONS` |
 | `CARDDAV_CLIENT_MANAGER` | `CARDDAV` |
@@ -290,8 +291,8 @@ A log line is now a step in the flow, and the logger is something a project is g
 | `.log((ex) => value)`, `.tap(log((ex) => value))` | `.log('info', 'Message', (ex) => ({ value }))` |
 | `.debug()`, `.tap(debug())`, `log(fn, { level: 'debug' })` | `.log('debug', 'Message', ...)` |
 | `log(fn, { level: 'error' })` | no step equivalent: a failure is logged once, at the boundary. Add context in `.error()` |
-| `import { logger } from '@routecraft/routecraft'` | `ex.logger`, `context.logger` or a plugin's `host.logger`; `defaultLogger()` where there is no context |
-| `PluginLogger`, `LogOptions`, `LogDestinationAdapter` | `Logger` |
+| `import { logger } from '@routecraft/routecraft'` | `ex.logger`, `context.logger` or a plugin's `c.logger`; `defaultLogger()` where there is no context |
+| `LogOptions`, `LogDestinationAdapter` | `Logger` |
 | a pino options object in `craft.log.js` | `level`, `file` and `redact` only; anything else through `defineProject({ logger })` |
 
 - **A `.log()` line is ordered and attributed.** It used to run as a detached tap on a copy of the exchange with an id of its own. It now runs in the flow on the exchange itself, so it carries that exchange's `exchangeId` and lands where it is written. The old default line, `LogAdapter output` with the whole exchange, is gone: a line says what its message says and carries the fields its bindings return.
@@ -365,6 +366,7 @@ deferralStoreConformance('my store', () => openMyStore(), {
 - **A deferral parks the exchange it was raised for, once.** A step that keeps the signal `ctx.defer()` rejected with and throws it on another exchange, or a second time, is [`RC5032`](/docs/reference/errors#rc-5032).
 - **`restrict-continuation-minting` is an error in both lint presets.** It flags `continuations.mintToken()`, `resume()` and `rewriteStepState()`; see [linting](/docs/advanced/linting#continuation-acts-are-a-sanctioned-exception).
 - **Six more names leave the entry**, none of which a route needs: `ResolvedSampleOptions`, `ResolvedDedupeOptions`, `ResolvedThrottleOptions`, `ResolvedCircuitBreakerOptions`, `RouteEnablement` and `hashExchangeBody`.
+- **The names only `@routecraft/*` packages used leave the entry too.** They sit on `@routecraft/routecraft/internal`, which carries no compatibility promise and is unsupported outside the `@routecraft` scope: the adapter-override hooks behind `@routecraft/testing` (`RC_ADAPTER_OVERRIDES`, `SOURCE_FIXTURE`, `isSourceFixture` and the types `AdapterOverride`, `AdapterSendCall`, `AdapterSourceCall`, `SendOverrideHandler`, `SourceOverrideBehavior`, `SourceFixture`, `SourceMessage`), the runtime-version helpers (`RuntimeVersion`, `parseRuntimeVersion`, `compareRuntimeVersion`, `isDevelopmentRuntime`) and `rejectStaleOptions`. Override an adapter through `@routecraft/testing`; nothing else here has a public replacement because nothing outside the framework had a use for it.
 
 ## 19. The command line reads a project, and only a project \{#19-project-export}
 

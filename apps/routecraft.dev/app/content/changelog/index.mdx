@@ -62,7 +62,7 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 
 ### Adapters
 
-- **A mail message's flags are an array**, so a route sourced from `mail()` can defer. See [mail flags](/docs/next/migrating/0.7-to-0.8#9-mail-flags).
+- **A mail message's flags are an array** <Badge color="red">Breaking</Badge> -- `flags` was a `Set`, which cannot be stored, so a route sourced from `mail()` could not defer. Code that calls `flags.has()` uses `flags.includes()`. See [mail flags](/docs/next/migrating/0.7-to-0.8#9-mail-flags).
 - **`verify: 'strict'` passes long DKIM keys on Bun** -- a key over 255 bytes is split across TXT strings, which Bun's resolver returned as separate records.
 
 ### Packages <Badge color="red">Breaking</Badge>

@@ -60,7 +60,7 @@ export default craft()
   .id('send-team-email')
   .description('Send an email to a team member')
   .input({ body: SendTeamEmail })
-  .from(mcp())
+  .from(direct(), mcp())
   .transform(({ to, subject, message }) => ({ to, subject, text: message }))
   .to(mail()) // the account comes from craft.config.ts
 ```
