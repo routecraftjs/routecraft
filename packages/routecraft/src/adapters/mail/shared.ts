@@ -559,6 +559,12 @@ export function buildSearchCriteriaSets(
   return combinations;
 }
 
+/** One address of an IMAP envelope, as imapflow 1 and 2 both type it. */
+interface EnvelopeAddress {
+  address?: string | undefined;
+  name?: string | undefined;
+}
+
 /**
  * Convert an imapflow message object to a MailMessage.
  *
@@ -571,14 +577,14 @@ export function toMailMessage(
     uid: number;
     flags: ReadonlySet<string> | readonly string[];
     envelope: {
-      messageId?: string;
-      from?: Array<{ address?: string; name?: string }>;
-      to?: Array<{ address?: string; name?: string }>;
-      cc?: Array<{ address?: string; name?: string }>;
-      bcc?: Array<{ address?: string; name?: string }>;
-      replyTo?: Array<{ address?: string; name?: string }>;
-      subject?: string;
-      date?: Date;
+      messageId?: string | undefined;
+      from?: EnvelopeAddress[] | undefined;
+      to?: EnvelopeAddress[] | undefined;
+      cc?: EnvelopeAddress[] | undefined;
+      bcc?: EnvelopeAddress[] | undefined;
+      replyTo?: EnvelopeAddress[] | undefined;
+      subject?: string | undefined;
+      date?: Date | string | undefined;
     };
   },
   folder: string,
@@ -615,7 +621,8 @@ export function toMailMessage(
     from: fromAddrs[0]?.address ?? "",
     to: toList.length === 1 ? toList[0] : toList,
     subject: envelope.subject ?? "",
-    date: envelope.date ?? new Date(),
+    // imapflow hands back the raw header text when it cannot parse the Date.
+    date: envelope.date instanceof Date ? envelope.date : new Date(),
     body,
     cc: ccAddrs
       .map((a) => a.address)
