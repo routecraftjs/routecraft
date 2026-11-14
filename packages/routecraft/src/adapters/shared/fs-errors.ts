@@ -1,20 +1,21 @@
 /**
  * Shared filesystem error mapping for adapters that read files or scan
- * directories. Maps the common errno codes to clear, adapter-prefixed
- * messages so `file`, `csv`, `jsonl`, and `directory` report the same
- * underlying failure the same way.
+ * directories, so `file`, `csv`, `jsonl`, and `directory` report the same
+ * underlying failure the same way: a missing path is `RC5014`, a path the
+ * process may not read is `RC5015`, and anything else is a plain error. The
+ * errno error is always the `cause`, so its `code` survives.
  *
  * @internal Not exported from the package public API.
  */
+import { rcError } from "../../error.ts";
 
 /** The filesystem noun the error message speaks about. */
 type FsNoun = "file" | "directory";
 
 /**
- * Shared errno-to-message mapping. ENOTDIR is only meaningful for
- * directory targets (a path component that is not a directory); file
- * adapters keep their historical messages for that code via the generic
- * fallback.
+ * ENOTDIR means a component of the path is not a directory: for a file
+ * target the file cannot exist, for a directory target the path names
+ * something else. Both are `RC5014`.
  */
 function throwFsError(
   adapter: string,
@@ -23,24 +24,33 @@ function throwFsError(
   err: unknown,
 ): never {
   const code = (err as NodeJS.ErrnoException).code;
-  if (code === "ENOENT") {
-    throw new Error(`${adapter} adapter: ${noun} not found: ${target}`);
+  if (code === "ENOENT" || (noun === "file" && code === "ENOTDIR")) {
+    throw rcError("RC5014", err, {
+      message: `${adapter} adapter: ${noun} not found: ${target}`,
+      suggestion: `Check the path, and that the ${noun} exists when the route runs.`,
+    });
   }
-  if (noun === "directory" && code === "ENOTDIR") {
-    throw new Error(`${adapter} adapter: not a directory: ${target}`);
+  if (code === "ENOTDIR") {
+    throw rcError("RC5014", err, {
+      message: `${adapter} adapter: not a directory: ${target}`,
+      suggestion: "Point the adapter at a directory.",
+    });
   }
   if (code === "EACCES") {
-    throw new Error(
-      `${adapter} adapter: permission denied reading ${noun}: ${target}`,
-    );
+    throw rcError("RC5015", err, {
+      message: `${adapter} adapter: permission denied reading ${noun}: ${target}`,
+      suggestion: `Give the process read access to the ${noun}.`,
+    });
   }
   const message = err instanceof Error ? err.message : String(err);
-  throw new Error(`${adapter} adapter: failed to read ${noun}: ${message}`);
+  throw new Error(`${adapter} adapter: failed to read ${noun}: ${message}`, {
+    cause: err,
+  });
 }
 
 /**
  * Throws a standardized file-related error for an adapter.
- * Handles ENOENT, EACCES, and generic errors.
+ * A missing file is `RC5014`, an unreadable one `RC5015`.
  *
  * @param adapter - Adapter name for the error prefix (e.g. 'file', 'csv', 'jsonl')
  * @param filePath - The file path that caused the error
@@ -56,7 +66,7 @@ export function throwFileError(
 
 /**
  * Throws a standardized directory-related error for an adapter.
- * Handles ENOENT, ENOTDIR, EACCES, and generic errors.
+ * A missing directory or a non-directory is `RC5014`, an unreadable one `RC5015`.
  *
  * @param adapter - Adapter name for the error prefix (e.g. 'directory')
  * @param dir - The directory path that caused the error

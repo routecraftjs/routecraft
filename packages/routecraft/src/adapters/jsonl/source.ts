@@ -92,9 +92,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
         );
       } catch (err) {
         if (sub.signal.aborted) return;
-        // Preserve framework error codes (e.g. RC5016 from `'abort'` mode).
-        // `throwFileError` wraps as `RC5010` which would mask the original
-        // parse-error code, so re-throw RC-bearing errors as-is.
+        // A coded error (RC5016 from `'abort'` mode) is not a filesystem failure.
         if (isRoutecraftError(err)) throw err;
         throwFileError("jsonl", filePath, err);
       }

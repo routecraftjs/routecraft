@@ -125,4 +125,6 @@ Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 | `JsonlHeaders.LINE` (`routecraft.jsonl.line`) | `number` | 1-based line number in the source file |
 | `JsonlHeaders.PATH` (`routecraft.jsonl.path`) | `string` | Path of the source file |
 
+**A missing path:** Reading a path that does not exist throws [`RC5014`](/docs/reference/errors#rc-5014), and a path the process may not read throws [`RC5015`](/docs/reference/errors#rc-5015). Both keep the errno error as `cause`, so a route's `.error()` handler can treat a missing file as empty by testing `error.rc`.
+
 **Exported symbols:** `JsonlHeaders` (chunked-mode header keys, `JsonlHeaders.LINE` / `JsonlHeaders.PATH`); types `JsonlAdapter`, `JsonlChunkedAdapter`, `JsonlFileOptions`, `JsonlTransformerOptions`, `JsonlOptions`
