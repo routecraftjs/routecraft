@@ -41,53 +41,55 @@ function run(command, args, cwd) {
   execFileSync(command, args, { cwd, stdio: "inherit" });
 }
 
-mkdirSync(packDir, { recursive: true });
-mkdirSync(projectDir, { recursive: true });
+try {
+  mkdirSync(packDir, { recursive: true });
+  mkdirSync(projectDir, { recursive: true });
 
-const PACKAGES = ["routecraft", "testing", "ai", "os"];
-const dependencies = {};
-for (const name of PACKAGES) {
-  const before = new Set(readdirSync(packDir));
-  run(
-    "bun",
-    ["pm", "pack", "--destination", packDir],
-    join(rootDir, "packages", name),
-  );
-  const packed = readdirSync(packDir).filter((file) => !before.has(file));
-  if (packed.length !== 1) {
-    console.error(
-      `outsider-tarballs: expected one tarball for ${name}, got: ${packed.join(", ") || "none"}`,
+  const PACKAGES = ["routecraft", "testing", "ai", "os"];
+  const dependencies = {};
+  for (const name of PACKAGES) {
+    const before = new Set(readdirSync(packDir));
+    run(
+      "bun",
+      ["pm", "pack", "--destination", packDir],
+      join(rootDir, "packages", name),
     );
-    process.exit(1);
+    const packed = readdirSync(packDir).filter((file) => !before.has(file));
+    if (packed.length !== 1) {
+      throw new Error(
+        `outsider-tarballs: expected one tarball for ${name}, got: ${packed.join(", ") || "none"}`,
+      );
+    }
+    dependencies[`@routecraft/${name}`] = `file:${join(packDir, packed[0])}`;
   }
-  dependencies[`@routecraft/${name}`] = `file:${join(packDir, packed[0])}`;
-}
 
-writeFileSync(
-  join(projectDir, "package.json"),
-  JSON.stringify(
-    {
-      name: "outsider",
-      private: true,
-      type: "module",
-      dependencies,
-      // A sibling's peer range would otherwise fetch core from the registry.
-      overrides: {
-        "@routecraft/routecraft": dependencies["@routecraft/routecraft"],
+  writeFileSync(
+    join(projectDir, "package.json"),
+    JSON.stringify(
+      {
+        name: "outsider",
+        private: true,
+        type: "module",
+        dependencies,
+        // A sibling's peer range would otherwise fetch core from the registry.
+        overrides: {
+          "@routecraft/routecraft": dependencies["@routecraft/routecraft"],
+        },
       },
-    },
-    null,
-    2,
-  ) + "\n",
-);
-run("bun", ["install"], projectDir);
+      null,
+      2,
+    ) + "\n",
+  );
+  run("bun", ["install"], projectDir);
 
-cpSync(
-  join(rootDir, "packages/routecraft/test/outsider"),
-  join(projectDir, "outsider"),
-  { recursive: true },
-);
-run("bun", ["test", "./outsider"], projectDir);
-rmSync(workDir, { recursive: true, force: true });
+  cpSync(
+    join(rootDir, "packages/routecraft/test/outsider"),
+    join(projectDir, "outsider"),
+    { recursive: true },
+  );
+  run("bun", ["test", "./outsider"], projectDir);
+} finally {
+  rmSync(workDir, { recursive: true, force: true });
+}
 
 console.log("outsider-tarballs: the outsider suites pass on the tarballs.");
