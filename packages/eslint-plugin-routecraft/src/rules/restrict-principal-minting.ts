@@ -7,6 +7,8 @@ import {
 } from "./shared/ast.ts";
 import {
   ROUTECRAFT_MODULE,
+  importSource,
+  isProjectModule,
   isRoutecraftExport as routecraftExport,
   memberPropertyName,
   resolveBinding,
@@ -45,7 +47,11 @@ function chainRootCallee(call: unknown): unknown {
  * Detection is intentionally precise over exhaustive (lint is advisory,
  * not a sandbox): flagged are `.authenticate(...)` on chains originating
  * from `craft()` (bare, aliased, or via a routecraft namespace import,
- * with dotted or computed string-literal member access), and calls to
+ * with dotted or computed string-literal member access), from a project's
+ * `craft()` (`defineProject(...).craft()`, a `const` holding the project, or
+ * a project imported from one of the codebase's own modules, however deep
+ * the member path), and from a `craft` one of the codebase's own modules
+ * re-exports or a `const` taken off a project; and calls to
  * `authenticate` reached through a routecraft import (named, aliased,
  * namespace member, or computed member with a string literal), and `mint()`
  * / `brand()` on an authority: `authorityOf(...)`, `require(AUTHORITY)`,
@@ -53,9 +59,11 @@ function chainRootCallee(call: unknown): unknown {
  * one of them. Bindings are resolved through scope, so a same-named function
  * from another module, or a shadowing local, is not flagged. Knowingly
  * uncovered laundering forms, all of which require code that is itself
- * review-visible: re-exporting the helpers from a local module,
+ * review-visible: re-exporting `authenticate` or a renamed `craft` from a
+ * local module, a project or `craft` re-exported by a bare package,
  * `export *`, destructuring a namespace import, and assigning the helper
- * to another variable.
+ * to another variable. A module of the codebase's own is a relative path or
+ * an alias prefix (`@/`, `~/`, `#`).
  */
 const rule: Rule.RuleModule = {
   meta: {
@@ -83,25 +91,85 @@ const rule: Rule.RuleModule = {
      * does not.
      */
     const originatesFromRoutecraftCraft = (node: Rule.Node): boolean => {
+      const chain = collectChainBackwards(node);
+      // defineProject(...).craft(): the chain starts one call before craft().
+      const second: unknown = chain[1];
+      if (
+        isProject(node, chain[0]) &&
+        isCallExpression(second) &&
+        isMemberExpression(second.callee) &&
+        memberPropertyName(second.callee) === "craft"
+      ) {
+        return true;
+      }
       const root = chainRootCallee(node);
       if (isIdentifier(root)) {
         const binding = resolveBinding(context, node, root);
         if (binding.kind === "named") {
           return (
-            binding.module === ROUTECRAFT_MODULE && binding.imported === "craft"
+            binding.imported === "craft" &&
+            (binding.module === ROUTECRAFT_MODULE ||
+              isProjectModule(binding.module))
           );
         }
-        return binding.kind === "unresolved" && root.name === "craft";
+        if (binding.kind === "unresolved") return root.name === "craft";
+        // A default import carries no exported name, so the local one decides.
+        if (
+          root.name === "craft" &&
+          isProjectModule(importSource(context, node, root) ?? "")
+        ) {
+          return true;
+        }
+        return isProjectCraft(node, variableInit(context, node, root));
       }
-      if (isMemberExpression(root) && isIdentifier(root.object)) {
+      if (isMemberExpression(root)) {
         if (memberPropertyName(root) !== "craft") return false;
-        const binding = resolveBinding(context, node, root.object);
-        return (
-          binding.kind === "namespace" && binding.module === ROUTECRAFT_MODULE
-        );
+        if (isIdentifier(root.object)) {
+          const binding = resolveBinding(context, node, root.object);
+          if (
+            binding.kind === "namespace" &&
+            binding.module === ROUTECRAFT_MODULE
+          ) {
+            return true;
+          }
+        }
+        return isProject(node, root.object);
       }
       return false;
     };
+
+    /**
+     * Whether an expression yields a project: a `defineProject(...)` call,
+     * a `const` holding one, or anything read off an import from one of the
+     * codebase's own modules, where a project is what has a `craft()`.
+     */
+    const isProject = (node: Rule.Node, expression: unknown): boolean => {
+      if (isCallExpression(expression)) {
+        const callee: unknown = expression.callee;
+        if (isRoutecraftExport(node, callee, "defineProject")) return true;
+        return (
+          isMemberExpression(callee) &&
+          memberPropertyName(callee) === "defineProject" &&
+          isRoutecraftNamespace(node, callee.object)
+        );
+      }
+      if (isMemberExpression(expression)) {
+        return isProject(node, expression.object);
+      }
+      if (!isIdentifier(expression)) return false;
+      const source = importSource(context, node, expression);
+      if (source !== undefined) return isProjectModule(source);
+      const init = variableInit(context, node, expression);
+      if (init === undefined || followed.has(init)) return false;
+      followed.add(init);
+      return isProject(node, init);
+    };
+
+    /** Whether an initialiser is a project's `craft`: `const craft = project.craft`. */
+    const isProjectCraft = (node: Rule.Node, init: unknown): boolean =>
+      isMemberExpression(init) &&
+      memberPropertyName(init) === "craft" &&
+      isProject(node, init.object);
 
     const isRoutecraftExport = (
       node: Rule.Node,

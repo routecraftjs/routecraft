@@ -18,9 +18,9 @@ The simplest way to react to events is via the `on` property in `craft.config.ts
 
 ```ts skip="fragment: alerts is illustrative"
 // craft.config.ts
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
+export default defineProject({
   on: {
     'context:started': ({ ts }) => {
       console.log(`Context ready at ${ts}`)
@@ -32,7 +32,7 @@ export const craftConfig: CraftConfig = {
       alerts.send(routeId, error)
     },
   },
-}
+})
 
 ```
 

@@ -35,11 +35,11 @@ export interface CarddavAccountConfig {
 
 /**
  * Context-level CardDAV configuration. Added to {@link CraftConfig} via
- * `defineConfig({ carddav: {...} })` or `new CraftContext({ carddav: {...} })`.
+ * `defineProject({ carddav: {...} })` or `new CraftContext({ carddav: {...} })`.
  *
  * @example
  * ```typescript
- * defineConfig({
+ * defineProject({
  *   carddav: {
  *     accounts: {
  *       default: {

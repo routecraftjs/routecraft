@@ -11,7 +11,7 @@ import type { OpsRouteDetail } from "../ops/types";
  * JSON Schema renderings passed through rather than re-rendered.
  */
 export interface RemoteRoute {
-  /** The remote's name in `defineConfig({ remotes })`. */
+  /** The remote's name in `defineProject({ remotes })`. */
   remote: string;
   /** The route id on the remote. */
   id: string;

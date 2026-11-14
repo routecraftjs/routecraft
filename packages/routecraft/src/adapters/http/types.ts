@@ -264,7 +264,7 @@ export interface HttpPluginEventOptions {
 }
 
 /**
- * Configuration for `defineConfig({ http: {...} })`. Materialised into a
+ * Configuration for `defineProject({ http: {...} })`. Materialised into a
  * plugin via the registered config applier; users rarely import this type
  * directly.
  *

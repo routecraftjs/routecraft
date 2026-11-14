@@ -16,9 +16,9 @@ Tools discovered from remote MCP servers (stdio clients and HTTP clients) are co
 
 ```ts
 import { mcpPlugin, jwt } from '@routecraft/ai'
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
+export default defineProject({
   servers: {
     default: { port: 3001 },
   },
@@ -47,7 +47,7 @@ export const craftConfig: CraftConfig = {
       restartBackoffMultiplier: 2,
     }),
   ],
-}
+})
 
 ```
 
@@ -63,7 +63,7 @@ export const craftConfig: CraftConfig = {
 | `instructions` | `string` | -- | Server-wide usage guidance on the `initialize` result; pass `''` (or omit) to send none |
 | `icons` | `McpIcon[]` | Routecraft logo | `serverInfo.icons`, inherited by tools that set none of their own; pass `[]` to omit. See [Server identity and branding](#server-identity-and-branding). |
 | `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
-| `server` | `string` | `'default'` | Named entry under `defineConfig({ servers })` to mount the HTTP transport on (http transport only) |
+| `server` | `string` | `'default'` | Named entry under `defineProject({ servers })` to mount the HTTP transport on (http transport only) |
 | `path` | `string` | `'/mcp'` | HTTP path for the MCP endpoint on the shared listener (http transport only); the [mounts](#mounts) sit one segment below it |
 | `auth` | `McpHttpAuthOptions \| false` | inherits `servers.<name>.auth` | Auth for the HTTP endpoint (http transport only; see below). `false` removes the wall while keeping the inherited validator reachable. |
 | `traceContext` | `'authenticated' \| 'always' \| 'never'` | `'authenticated'` | Whether a tool call's W3C trace context, in `_meta.traceparent` and `_meta.tracestate` as MCP carries it (SEP-414), joins the exchange to the caller's [journey](/docs/introduction/exchange#journeys-correlation-and-causation). `'authenticated'` adopts it only from a caller whose token `auth` verified, so over stdio, which carries no credential, only `'always'` adopts it. A client registered under `clients` sends the calling exchange's context unless its config sets `traceContext: false`, or leaves it unset under the config's [`traceContext.outbound: false`](/docs/reference/configuration#trace-context); a call's own `traceContext` wins over both. |
@@ -171,10 +171,10 @@ When a client like Claude adds your server, it renders the server's identity fro
 
 ```ts
 // craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   mcp: {
     name: 'acme-bot',                          // serverInfo.name (machine id)
     title: 'Acme Bot',                         // serverInfo.title (display name)

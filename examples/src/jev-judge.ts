@@ -23,7 +23,7 @@
  * Needs `TYPESAFE_API_KEY` in the environment for the screening stage, and
  * the `gemini` provider configured in craft.config.ts for the escalation.
  */
-export { craftConfig } from "./craft.config.ts";
+export { project } from "./craft.config.ts";
 import {
   craft,
   direct,

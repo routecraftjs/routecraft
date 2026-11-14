@@ -26,12 +26,14 @@ const shipped = new Map<string, ShippedPlugin>();
  *
  * @param factory - Builds a fresh descriptor; called once here to read the
  *   id, steps and facet, and once per application for a default
- * @param options - `default` installs it in every application
+ * @param options - `default` installs it in every application; `remedy`
+ *   is the sentence saying how an application that lacks it installs it,
+ *   given when its facet is read there
  * @internal
  */
 export function registerShippedPlugin(
   factory: () => Plugin,
-  options: { readonly default?: boolean } = {},
+  options: { readonly default?: boolean; readonly remedy?: string } = {},
 ): void {
   const descriptor = factory();
   shipped.set(descriptor.id, {
@@ -43,7 +45,7 @@ export function registerShippedPlugin(
   // root craft() route reading the facet on an application without it gets
   // the kernel's refusal instead of a TypeError on undefined.
   if (descriptor.facet) {
-    installFacet(namespaceOf(descriptor));
+    installFacet(namespaceOf(descriptor), options.remedy);
   }
 }
 

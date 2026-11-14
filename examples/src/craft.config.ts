@@ -1,10 +1,10 @@
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 import { jwt } from "@routecraft/ai";
 import { version } from "../package.json";
 import { env } from "./env";
 import { z } from "zod";
 
-export const craftConfig = defineConfig({
+export const project = defineProject({
   telemetry: { sqlite: { captureSnapshots: true } },
   servers: { default: { port: 3000 } },
   mail: {
@@ -57,3 +57,5 @@ export const craftConfig = defineConfig({
     },
   },
 });
+
+export default project;

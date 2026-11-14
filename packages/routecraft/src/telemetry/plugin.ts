@@ -1,4 +1,5 @@
 import { parseDuration } from "../shared/duration.ts";
+import { rejectStaleOptions } from "../shared/stale-options.ts";
 import {
   context as otelContext,
   trace,
@@ -8,7 +9,12 @@ import {
   SpanStatusCode,
 } from "@opentelemetry/api";
 import { TRACE_SPANS, parseTraceparent } from "../trace-context.ts";
-import type { Plugin, PluginContext } from "../kernel/plugin.ts";
+import type { ApplicationKey } from "../kernel/application.ts";
+import {
+  definePlugin,
+  type Plugin,
+  type PluginContext,
+} from "../kernel/plugin.ts";
 import { safeStringify } from "../shared/safe-json.ts";
 import type { EventName, EventHandler } from "../types.ts";
 import type { TelemetryOptions, TelemetryEvent } from "./types.ts";
@@ -38,34 +44,56 @@ const DEFAULT_MAX_EXCHANGES = 50_000;
 const DEFAULT_MAX_EVENTS = 100_000;
 
 /**
- * Telemetry plugin that instruments the framework with OpenTelemetry traces
- * and persists data to SQLite for the TUI.
+ * Default maximum snapshot body size in bytes.
+ */
+const DEFAULT_MAX_SNAPSHOT_BYTES = 65_536;
+
+/** The options every application of one descriptor shares, resolved once. */
+interface TelemetrySettings {
+  readonly batchSize: number;
+  readonly flushIntervalMs: number;
+  readonly captureSnapshots: boolean;
+  readonly maxSnapshotBytes: number;
+}
+
+/**
+ * @throws RC5003 on a pre-0.7 `Ms`-suffixed name, or a duration that does
+ *   not parse
+ */
+function resolveSettings(options: TelemetryOptions): TelemetrySettings {
+  rejectStaleOptions(options.sqlite, "telemetry.sqlite");
+  const sqlite = options.sqlite ?? {};
+  const batchSize = Math.trunc(sqlite.eventBatchSize ?? DEFAULT_BATCH_SIZE);
+  const flushIntervalMs = Math.trunc(
+    sqlite.eventFlushInterval === undefined
+      ? DEFAULT_FLUSH_INTERVAL_MS
+      : parseDuration(
+          sqlite.eventFlushInterval,
+          "telemetry.sqlite.eventFlushInterval",
+        ),
+  );
+  return {
+    batchSize: batchSize > 0 ? batchSize : DEFAULT_BATCH_SIZE,
+    flushIntervalMs:
+      flushIntervalMs > 0 ? flushIntervalMs : DEFAULT_FLUSH_INTERVAL_MS,
+    captureSnapshots: sqlite.captureSnapshots === true,
+    maxSnapshotBytes: Math.trunc(
+      sqlite.maxSnapshotBytes ?? DEFAULT_MAX_SNAPSHOT_BYTES,
+    ),
+  };
+}
+
+/**
+ * One application's telemetry: its SQLite handles, its tracer and the spans
+ * it has open. The descriptor holds one per application it is bound in.
  *
  * Fan-out architecture:
  * - SQLite path: `SqliteSpanProcessor` (routes/exchanges) + `SqliteEventWriter` (events)
  * - External path: user's `TracerProvider` creates real OTel spans
  *
  * Both paths receive identical data.
- *
- * @example
- * ```typescript
- * import { telemetry } from "@routecraft/routecraft";
- *
- * // Default SQLite sink
- * telemetry()
- *
- * // External provider (e.g. Better Stack)
- * telemetry({ tracerProvider: myTracerProvider })
- * ```
  */
-/**
- * Default maximum snapshot body size in bytes.
- */
-const DEFAULT_MAX_SNAPSHOT_BYTES = 65_536;
-
-class TelemetryPlugin implements Plugin {
-  readonly id = "routecraft.telemetry";
-  readonly provides = [TRACE_SPANS];
+class TelemetryRun {
   private readonly options: TelemetryOptions;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
@@ -86,25 +114,12 @@ class TelemetryPlugin implements Plugin {
   // (exchange ids are UUIDs, so they never collide across contexts)
   private liveSpans = new Map<string, Span>();
 
-  constructor(options?: TelemetryOptions) {
-    this.options = options ?? {};
-    const sqlite = this.options.sqlite ?? {};
-    const batchSize = Math.trunc(sqlite.eventBatchSize ?? DEFAULT_BATCH_SIZE);
-    const flushIntervalMs = Math.trunc(
-      sqlite.eventFlushInterval === undefined
-        ? DEFAULT_FLUSH_INTERVAL_MS
-        : parseDuration(
-            sqlite.eventFlushInterval,
-            "telemetry.sqlite.eventFlushInterval",
-          ),
-    );
-    this.batchSize = batchSize > 0 ? batchSize : DEFAULT_BATCH_SIZE;
-    this.flushIntervalMs =
-      flushIntervalMs > 0 ? flushIntervalMs : DEFAULT_FLUSH_INTERVAL_MS;
-    this.captureSnapshots = sqlite.captureSnapshots === true;
-    this.maxSnapshotBytes = Math.trunc(
-      sqlite.maxSnapshotBytes ?? DEFAULT_MAX_SNAPSHOT_BYTES,
-    );
+  constructor(options: TelemetryOptions, settings: TelemetrySettings) {
+    this.options = options;
+    this.batchSize = settings.batchSize;
+    this.flushIntervalMs = settings.flushIntervalMs;
+    this.captureSnapshots = settings.captureSnapshots;
+    this.maxSnapshotBytes = settings.maxSnapshotBytes;
   }
 
   async bind(ctx: PluginContext): Promise<void> {
@@ -131,8 +146,8 @@ class TelemetryPlugin implements Plugin {
         ctx.logger.warn(
           {},
           "Telemetry SQLite backend requires Bun. Disabled under this runtime. " +
-            "Pass `telemetry({ tracerProvider })` to export traces via OTLP, or " +
-            "`telemetry({ disableSqlite: true })` to silence this warning.",
+            "Pass `telemetryPlugin({ tracerProvider })` to export traces via OTLP, or " +
+            "`telemetryPlugin({ disableSqlite: true })` to silence this warning.",
         );
       }
     }
@@ -602,25 +617,52 @@ class TelemetryPlugin implements Plugin {
  * When no `tracerProvider` is given and `disableSqlite` is false (default),
  * events are persisted to a local SQLite database for the TUI to read.
  *
+ * The descriptor holds no state of its own: what one application opens
+ * lives under that application, so one descriptor listed by two
+ * applications keeps their databases, tracers and spans apart.
+ *
  * @param options - TracerProvider, SQLite path, and buffer configuration
  * @returns The telemetry plugin
  *
  * @example
  * ```typescript
- * import { telemetry } from "@routecraft/routecraft";
+ * import { telemetryPlugin } from "@routecraft/routecraft";
  *
  * // Default SQLite backend
- * telemetry()
+ * telemetryPlugin()
  *
  * // Export to Better Stack via OTLP
- * telemetry({ tracerProvider: myTracerProvider })
+ * telemetryPlugin({ tracerProvider: myTracerProvider })
  *
  * // External only, no SQLite
- * telemetry({ tracerProvider, disableSqlite: true })
+ * telemetryPlugin({ tracerProvider, disableSqlite: true })
  * ```
  */
-export function telemetry(options?: TelemetryOptions): Plugin {
-  return new TelemetryPlugin(options);
+export function telemetryPlugin(options: TelemetryOptions = {}): Plugin {
+  const settings = resolveSettings(options);
+  const runs = new WeakMap<ApplicationKey, TelemetryRun>();
+  return definePlugin({
+    id: "routecraft.telemetry",
+    provides: [TRACE_SPANS],
+    async bind(c) {
+      const run = new TelemetryRun(options, settings);
+      runs.set(c.application, run);
+      try {
+        await run.bind(c);
+      } catch (error) {
+        // A plugin whose bind threw is never stopped, and the run may
+        // already hold the database open.
+        runs.delete(c.application);
+        await run.stop().catch(() => undefined);
+        throw error;
+      }
+    },
+    async stop(c) {
+      const run = runs.get(c.application);
+      runs.delete(c.application);
+      await run?.stop();
+    },
+  });
 }
 
 /**

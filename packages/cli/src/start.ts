@@ -7,6 +7,8 @@ import {
   isRouteDefinition,
   defaultLogger,
   mergeProjectConfig,
+  rcCodeOf,
+  rcError,
   shutdownHandler,
   type CraftConfig,
   type CraftContext,
@@ -17,6 +19,7 @@ import {
 } from "@routecraft/routecraft";
 import { collectRoutes, type CommandOutcome } from "./run.js";
 import { messageOf } from "./util.js";
+import { toolingOf } from "./tooling.js";
 import {
   CONFIG_STEM,
   discoverCapabilityModules,
@@ -103,9 +106,7 @@ export async function startCommand(
   try {
     config = await loadConfig(configPath);
   } catch (error: unknown) {
-    return fail(
-      `Failed to load ${displayPath(root, configPath)}: ${messageOf(error)}`,
-    );
+    return fail(loadFailure(root, configPath, error));
   }
 
   // The application's own logger from here on, so its startup lines land
@@ -123,6 +124,8 @@ export async function startCommand(
     config = await withFolderPlugins(root, contentRoot, config);
 
     config = await applyDiscoverers(root, contentRoot, config);
+    // Refuses a plugin whose commands or logins the command line could not serve.
+    await toolingOf(config);
 
     const builder = new ContextBuilder().with(config);
 
@@ -235,36 +238,65 @@ export function projectContentRoot(root: string, log?: Logger): string {
 }
 
 /**
- * Read the project configuration from its module: a default-exported
- * `defineProject(...)`, or a plain config as the default export or as the
- * named `craftConfig` export.
+ * Read the project configuration from its module: the configuration of the
+ * project it default-exports.
+ *
+ * @throws RC1120 when the default export is not a `defineProject(...)`
+ *   result, saying which pre-0.8 shape was found and what to write instead
  */
 export async function loadConfig(configPath: string): Promise<CraftConfig> {
   const module = (await import(configPath)) as {
-    craftConfig?: CraftConfig;
+    craftConfig?: unknown;
     default?: unknown;
   };
   if (isProject(module.default)) {
     return module.default.config;
   }
-  if (module.craftConfig !== undefined) return module.craftConfig;
-  if (isConfigObject(module.default)) return module.default;
-  throw new Error(
-    `exports neither a project nor a config. Add \`export default defineProject({ ... })\`; without it no plugin or ecosystem package this project needs is in the module graph.`,
-  );
+  throw rcError("RC1120", undefined, {
+    message: `its default export is ${describeExport(module)}, not a project. ${migration(module)}`,
+  });
 }
 
-function isConfigObject(value: unknown): value is CraftConfig {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    // Brand guards rather than duck-typing `build`: a route default
-    // export is the realistic mistake here, and core already exports
-    // the means to recognise one.
-    !isRouteBuilder(value) &&
-    !isRouteDefinition(value)
-  );
+/** Why a config file could not be read, with the fault's code when it has one. */
+export function loadFailure(
+  root: string,
+  configPath: string,
+  error: unknown,
+): string {
+  const code = rcCodeOf(error);
+  return `Failed to load ${displayPath(root, configPath)}${code === undefined ? "" : ` (${code})`}: ${messageOf(error)}`;
+}
+
+function describeExport(module: {
+  craftConfig?: unknown;
+  default?: unknown;
+}): string {
+  const exported = module.default;
+  if (isRouteBuilder(exported) || isRouteDefinition(exported)) return "a route";
+  if (exported === undefined) {
+    return module.craftConfig === undefined
+      ? "missing"
+      : "missing (the file exports craftConfig instead)";
+  }
+  return typeof exported === "object" && exported !== null
+    ? Array.isArray(exported)
+      ? "an array"
+      : "a plain object"
+    : typeof exported;
+}
+
+/** The sentence that takes a pre-0.8 config file to a project. */
+function migration(module: {
+  craftConfig?: unknown;
+  default?: unknown;
+}): string {
+  if (module.default === undefined && module.craftConfig !== undefined) {
+    return "Replace `export const craftConfig = defineConfig({ ... })` with `export default defineProject({ ... })`; the keys stay as they are.";
+  }
+  if (isRouteBuilder(module.default) || isRouteDefinition(module.default)) {
+    return "A config file default-exports `defineProject({ ... })`; routes live under capabilities/, or run one file with `craft run <file>`.";
+  }
+  return "Write `export default defineProject({ ... })` with the same keys: a plain object and `defineConfig` are the pre-0.8 shapes and are no longer read.";
 }
 
 /** Resolve to `"timeout"` after `ms`, without holding the event loop open. */

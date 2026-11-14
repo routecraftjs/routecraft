@@ -122,7 +122,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     if (!mounts) {
       throw rcError("RC5003", undefined, {
         message:
-          "http() source requires the http plugin. Add `servers: { default: { port: 8080 } }, http: {}` to defineConfig({...}).",
+          "http() source requires the http plugin. Add `servers: { default: { port: 8080 } }, http: {}` to defineProject({...}).",
       });
     }
 

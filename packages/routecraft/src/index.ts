@@ -135,7 +135,6 @@ export {
   registerCapability,
   registerInternalEndpoint,
 } from "./capabilities.ts";
-export { defineConfig } from "./define-config.ts";
 export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
 export {
   getProjectDiscoverers,
@@ -149,7 +148,7 @@ export {
 export { type HttpConfig } from "./adapters/http/types.ts";
 
 // Side-effect: register the config appliers for first-class config keys
-// (`http`, `cron`, `direct`, `mail`, `telemetry`) so `defineConfig({...})`
+// (`http`, `cron`, `direct`, `mail`, `telemetry`) so `defineProject({...})`
 // materialises the wiring without users importing plugins manually. Each
 // module also augments CraftConfig with its key; the core context has no
 // adapter knowledge.
@@ -553,7 +552,12 @@ export type {
 } from "./kernel/steps.ts";
 export type { AuthFacet, AuthPlugin } from "./plugins/auth/index.ts";
 export type { DeferralPlugin } from "./plugins/deferral/index.ts";
-export { defineProject, type Project } from "./project.ts";
+export {
+  defineProject,
+  installedPluginIds,
+  projectOf,
+  type Project,
+} from "./project.ts";
 export type { NextRouteState, RootState } from "./builder.ts";
 export type { DeferralStepMethods } from "./plugins/deferral/steps.ts";
 // The deferral plugin's method and facet types are declared there.
@@ -808,14 +812,7 @@ export {
   type EventSourceOptions,
 } from "./adapters/sources/event/index.ts";
 
-export { telemetry } from "./telemetry/index.ts";
-export {
-  SqliteSpanProcessor,
-  SqliteConnection,
-  SqliteEventWriter,
-  ATTR,
-  SPAN_KIND,
-} from "./telemetry/index.ts";
+export { telemetryPlugin } from "./telemetry/index.ts";
 export type {
   TelemetryOptions,
   TelemetrySqliteOptions,
@@ -877,20 +874,21 @@ export {
   type CredentialStoreConfig,
 } from "./plugins/credentials/index.ts";
 export {
-  registerCredentialLogins,
-  collectCredentialLogins,
   type CredentialLogin,
-  type CredentialLoginCollector,
   type CredentialLoginIO,
-} from "./plugins/credentials/login.ts";
+} from "./kernel/tooling.ts";
 export { MemoryCredentialStore } from "./plugins/credentials/memory-store.ts";
 export {
-  registerProjectCommand,
-  projectCommand,
-  type ProjectCommand,
-  type ProjectCommandIO,
-  type ProjectCommandResult,
-} from "./project-command.ts";
+  type PluginTooling,
+  type ToolingCommand,
+  type ToolingContext,
+  type ToolingResult,
+} from "./kernel/tooling.ts";
+export {
+  pluginTooling,
+  scopedCredentialStore,
+  type InstalledTooling,
+} from "./tooling.ts";
 export {
   SqliteCredentialStore,
   DEFAULT_CREDENTIALS_DB_PATH,

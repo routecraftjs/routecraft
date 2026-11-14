@@ -1,4 +1,4 @@
-import type { Rule } from "eslint";
+import type { Rule, Scope } from "eslint";
 import { isIdentifier, isLiteral, isObject } from "./ast.ts";
 
 export const ROUTECRAFT_MODULE = "@routecraft/routecraft";
@@ -14,6 +14,21 @@ export type Resolution =
   | { kind: "other" }
   | { kind: "unresolved" };
 
+/** The first definition of the variable an identifier names, nearest scope first. */
+function definitionOf(
+  context: Rule.RuleContext,
+  node: Rule.Node,
+  identifier: { name: string },
+): { found: boolean; def: Scope.Definition | undefined } {
+  let scope: Scope.Scope | null = context.sourceCode.getScope(node);
+  while (scope) {
+    const variable = scope.variables.find((v) => v.name === identifier.name);
+    if (variable) return { found: true, def: variable.defs[0] };
+    scope = scope.upper;
+  }
+  return { found: false, def: undefined };
+}
+
 /**
  * Resolve an identifier reference through the scope chain. Scope-based
  * (not name-based) so a shadowing parameter or local is never confused
@@ -25,30 +40,51 @@ export function resolveBinding(
   node: Rule.Node,
   identifier: { name: string },
 ): Resolution {
-  let scope: ReturnType<typeof context.sourceCode.getScope> | null =
-    context.sourceCode.getScope(node);
-  while (scope) {
-    const variable = scope.variables.find((v) => v.name === identifier.name);
-    if (variable) {
-      const def = variable.defs[0];
-      if (!def || def.type !== "ImportBinding") return { kind: "other" };
-      const source = def.parent.source.value;
-      if (typeof source !== "string") return { kind: "other" };
-      if (def.node.type === "ImportSpecifier") {
-        const imported =
-          def.node.imported.type === "Identifier"
-            ? def.node.imported.name
-            : String(def.node.imported.value);
-        return { module: source, imported, kind: "named" };
-      }
-      if (def.node.type === "ImportNamespaceSpecifier") {
-        return { module: source, imported: "*", kind: "namespace" };
-      }
-      return { kind: "other" };
-    }
-    scope = scope.upper;
+  const { found, def } = definitionOf(context, node, identifier);
+  if (!found) return { kind: "unresolved" };
+  if (!def || def.type !== "ImportBinding") return { kind: "other" };
+  const source = def.parent.source.value;
+  if (typeof source !== "string") return { kind: "other" };
+  if (def.node.type === "ImportSpecifier") {
+    const imported =
+      def.node.imported.type === "Identifier"
+        ? def.node.imported.name
+        : String(def.node.imported.value);
+    return { module: source, imported, kind: "named" };
   }
-  return { kind: "unresolved" };
+  if (def.node.type === "ImportNamespaceSpecifier") {
+    return { module: source, imported: "*", kind: "namespace" };
+  }
+  return { kind: "other" };
+}
+
+/**
+ * The module an identifier is imported from, whichever form the import
+ * takes (named, default or namespace); `undefined` for any other binding.
+ */
+export function importSource(
+  context: Rule.RuleContext,
+  node: Rule.Node,
+  identifier: { name: string },
+): string | undefined {
+  const { def } = definitionOf(context, node, identifier);
+  if (def?.type !== "ImportBinding") return undefined;
+  const source = def.parent.source.value;
+  return typeof source === "string" ? source : undefined;
+}
+
+/**
+ * Whether a module specifier names a file of the project itself: a relative
+ * path, or one of the alias prefixes projects map onto their own source
+ * (`@/`, `~/`, `#`). A bare package name is somebody else's code.
+ */
+export function isProjectModule(source: string): boolean {
+  return (
+    source.startsWith(".") ||
+    source.startsWith("@/") ||
+    source.startsWith("~/") ||
+    source.startsWith("#")
+  );
 }
 
 /**
@@ -81,20 +117,11 @@ export function variableInit(
   node: Rule.Node,
   identifier: { name: string },
 ): unknown {
-  let scope: ReturnType<typeof context.sourceCode.getScope> | null =
-    context.sourceCode.getScope(node);
-  while (scope) {
-    const variable = scope.variables.find((v) => v.name === identifier.name);
-    if (variable) {
-      const def = variable.defs[0];
-      if (def?.type !== "Variable" || def.node.id.type !== "Identifier") {
-        return undefined;
-      }
-      return def.node.init ?? undefined;
-    }
-    scope = scope.upper;
+  const { def } = definitionOf(context, node, identifier);
+  if (def?.type !== "Variable" || def.node.id.type !== "Identifier") {
+    return undefined;
   }
-  return undefined;
+  return def.node.init ?? undefined;
 }
 
 /**

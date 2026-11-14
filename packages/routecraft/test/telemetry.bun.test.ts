@@ -5,13 +5,8 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  simple,
-  telemetry,
-  SqliteConnection,
-  noop,
-} from "@routecraft/routecraft";
+import { craft, simple, telemetryPlugin, noop } from "@routecraft/routecraft";
+import { SqliteConnection } from "../src/telemetry/sqlite-connection.ts";
 import { SqliteEventWriter } from "../src/telemetry/sqlite-event-writer.ts";
 import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
 import type { SqliteDatabaseConstructor } from "../src/shared/sqlite/types.ts";
@@ -21,13 +16,13 @@ import type {
 } from "../src/telemetry/types.ts";
 
 /**
- * Helper: create a telemetry() plugin wired to a specific SQLite database.
+ * Helper: create a telemetryPlugin() plugin wired to a specific SQLite database.
  */
 function sqliteTelemetry(
   dbPath: string,
   sqliteOpts?: Omit<NonNullable<TelemetryOptions["sqlite"]>, "dbPath">,
 ) {
-  return telemetry({ sqlite: { dbPath, ...sqliteOpts } });
+  return telemetryPlugin({ sqlite: { dbPath, ...sqliteOpts } });
 }
 
 describe("TelemetryPlugin", () => {
@@ -51,7 +46,7 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() with SQLite creates the database file
+   * @case telemetryPlugin() with SQLite creates the database file
    * @preconditions Fresh temp directory, no existing database
    * @expectedResult Database file exists after context starts
    */
@@ -74,7 +69,7 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() with SQLite creates all required tables
+   * @case telemetryPlugin() with SQLite creates all required tables
    * @preconditions Fresh database
    * @expectedResult events, routes, and exchanges tables exist
    */
@@ -108,7 +103,7 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() with SQLite enables WAL mode by default
+   * @case telemetryPlugin() with SQLite enables WAL mode by default
    * @preconditions Fresh database with default options
    * @expectedResult SQLite journal_mode is wal
    */
@@ -137,7 +132,7 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() records route registrations via SqliteSpanProcessor
+   * @case telemetryPlugin() records route registrations via SqliteSpanProcessor
    * @preconditions Context with one route and telemetry plugin
    * @expectedResult Route appears in the routes table after context starts
    */
@@ -172,7 +167,7 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() records exchange lifecycle via SqliteSpanProcessor
+   * @case telemetryPlugin() records exchange lifecycle via SqliteSpanProcessor
    * @preconditions Context with simple source producing 3 messages
    * @expectedResult Exchange records appear in the exchanges table with correct status
    */
@@ -213,7 +208,7 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() records events in the events table via SqliteEventWriter
+   * @case telemetryPlugin() records events in the events table via SqliteEventWriter
    * @preconditions Context with simple source
    * @expectedResult Events table contains entries after context runs
    */
@@ -336,7 +331,7 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() with custom dbPath creates database at specified location
+   * @case telemetryPlugin() with custom dbPath creates database at specified location
    * @preconditions Custom path in a nested temp directory
    * @expectedResult Database is created at the specified custom path
    */
@@ -360,7 +355,7 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() teardown flushes buffered events
+   * @case telemetryPlugin() teardown flushes buffered events
    * @preconditions Context with telemetry that has buffered events
    * @expectedResult All buffered events are flushed before close
    */
@@ -394,12 +389,12 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case telemetry() with disableSqlite does not create database
+   * @case telemetryPlugin() with disableSqlite does not create database
    * @preconditions disableSqlite: true, no tracerProvider
    * @expectedResult No database file created
    */
   test("disableSqlite prevents database creation", async () => {
-    const plugin = telemetry({ disableSqlite: true });
+    const plugin = telemetryPlugin({ disableSqlite: true });
 
     const route = craft()
       .id("no-sqlite")

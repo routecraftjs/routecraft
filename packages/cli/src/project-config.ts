@@ -1,8 +1,5 @@
 import type { CraftConfig } from "@routecraft/routecraft";
-import { displayPath, findConfigFile } from "./project.js";
-import { messageOf } from "./util.js";
-
-export { displayPath };
+import { findConfigFile } from "./project.js";
 
 /**
  * The configuration of the project in the current directory, for a
@@ -26,7 +23,7 @@ export async function loadProjectConfig(
       `No craft.config.ts found in "${root}". ${command} reads ${reads} from it.`,
     );
   }
-  const { loadConfig, projectContentRoot, withFolderPlugins } =
+  const { loadConfig, loadFailure, projectContentRoot, withFolderPlugins } =
     await import("./start.js");
   try {
     // Loaded first: the content root depends on the folders the config's imports register.
@@ -38,9 +35,6 @@ export async function loadProjectConfig(
     );
     return { root, configPath, config };
   } catch (error: unknown) {
-    throw new Error(
-      `Failed to load ${displayPath(root, configPath)}: ${messageOf(error)}`,
-      { cause: error },
-    );
+    throw new Error(loadFailure(root, configPath, error), { cause: error });
   }
 }

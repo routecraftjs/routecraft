@@ -105,7 +105,7 @@ function qualified(remote: string, id: string): string {
 
 /**
  * Validate the config key once, at construction, so a typo fails
- * `defineConfig` rather than the first refresh.
+ * `defineProject` rather than the first refresh.
  */
 function validate(options: RemotesPluginOptions): void {
   if (
@@ -184,7 +184,7 @@ function validate(options: RemotesPluginOptions): void {
  * Another instance's dispatchable routes as direct endpoints here.
  *
  * Materialised by the config applier, so apps normally write
- * `defineConfig({ remotes: { default: { url, auth } } })` rather than
+ * `defineProject({ remotes: { default: { url, auth } } })` rather than
  * pushing it onto `config.plugins`.
  *
  * `bind` validates, builds a client per remote and contributes an

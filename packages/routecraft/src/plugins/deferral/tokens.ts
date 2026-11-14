@@ -180,7 +180,7 @@ export function resolveSigningSecret(
   }
 
   throw rcError("RC5040", undefined, {
-    message: `No resume-token signing secret is configured. Set ${DEFERRAL_SECRET_ENV}, or pass deferral: { secret } to defineConfig.`,
+    message: `No resume-token signing secret is configured. Set ${DEFERRAL_SECRET_ENV}, or pass deferral: { secret } to defineProject.`,
   });
 }
 

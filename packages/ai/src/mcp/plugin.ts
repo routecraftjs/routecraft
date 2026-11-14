@@ -3,7 +3,6 @@ import {
   CREDENTIALS,
   ENFORCEMENT,
   evaluateEnablementOnce,
-  type CraftConfig,
   type Plugin,
   type PluginContext,
   type EventName,
@@ -24,10 +23,7 @@ import type {
   McpPluginOptions,
 } from "./types.ts";
 import { validateMcpPluginOptions } from "./validate-options.ts";
-import {
-  StdioClientManager,
-  type StdioClientManagerOptions,
-} from "./stdio-client-manager.ts";
+import { StdioClientManager } from "./stdio-client-manager.ts";
 import type { AuthProvider } from "@modelcontextprotocol/client";
 import {
   connectHint,
@@ -39,81 +35,13 @@ import { assertRemoteUrl } from "./sdk.ts";
 import { createMcpHttpConnections } from "./http-connections.ts";
 import { declaredExactProxies, proxyCoverage } from "./proxy.ts";
 import { McpToolRegistry } from "./tool-registry.ts";
+import { mcpTooling } from "./tooling.ts";
+import { isStdioConfig, stdioManagerOptions } from "./client-config.ts";
 import {
   readLockfile,
   type McpLockfile,
   type McpPinTransition,
 } from "./pins.ts";
-
-type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
-
-/**
- * Where an `mcpPlugin()` descriptor carries its options, for `craft
- * connect`. Enumerable and keyed by a registered symbol, so a spread
- * descriptor or a second copy of the package still carries them.
- */
-const PLUGIN_OPTIONS = Symbol.for("routecraft.ai.mcp.options");
-
-/**
- * The options an `mcpPlugin()` descriptor was built with, or `undefined`
- * for any other plugin.
- *
- * @internal
- */
-export function mcpPluginOptions(
-  plugin: unknown,
-): McpPluginOptions | undefined {
-  return typeof plugin === "object" && plugin !== null
-    ? ((plugin as Record<symbol, unknown>)[PLUGIN_OPTIONS] as
-        McpPluginOptions | undefined)
-    : undefined;
-}
-
-/** @internal */
-export function isStdioConfig(
-  config: ClientConfig,
-): config is McpClientStdioConfig {
-  return "transport" in config && config.transport === "stdio";
-}
-
-/**
- * Every set of `mcpPlugin` options a configuration carries, in order: the
- * `mcp` key, then each `mcpPlugin()` in `plugins`. The one reading of
- * where MCP clients are declared, for the commands that act on them.
- *
- * @internal
- */
-export function configuredMcpOptions(config: CraftConfig): McpPluginOptions[] {
-  return [
-    config.mcp,
-    ...(config.plugins ?? []).map((plugin) => mcpPluginOptions(plugin)),
-  ].filter((options) => options !== undefined);
-}
-
-/**
- * What a stdio client's subprocess is started with, under the given
- * restart policy. Shared by the application and `craft mcp pin`, so both
- * run the server the same way.
- *
- * @internal
- */
-export function stdioManagerOptions(
-  serverId: string,
-  config: McpClientStdioConfig,
-  restart: Pick<
-    StdioClientManagerOptions,
-    "maxRestarts" | "restartDelayMs" | "restartBackoffMultiplier"
-  >,
-): StdioClientManagerOptions {
-  return {
-    serverId,
-    command: config.command,
-    args: config.args ?? [],
-    ...(config.env !== undefined ? { env: config.env } : {}),
-    ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
-    ...restart,
-  };
-}
 
 /**
  * MCP plugin: one plugin per adapter. Exposes mcp() routes to external MCP clients.
@@ -135,8 +63,9 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
   const servers = new WeakMap<PluginContext, McpServer>();
   const services = new WeakMap<PluginContext, McpService>();
 
-  const plugin: Plugin = {
+  return {
     id: "routecraft.ai.mcp",
+    tooling: mcpTooling(options),
     provides: [MCP],
     requires: [AUTHORITY],
     optional: [WEB_INGRESS, ENFORCEMENT, CREDENTIALS],
@@ -288,7 +217,6 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       reportProxyCoverage(c);
     },
   };
-  return Object.assign(plugin, { [PLUGIN_OPTIONS]: options });
 
   /**
    * The lockfile, when a client is pinned. Read once, as the plugin binds:

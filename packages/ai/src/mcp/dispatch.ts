@@ -362,7 +362,7 @@ function resolveHttpConfig(
   }
   if (!service || !config) {
     throw rcError("RC5003", undefined, {
-      message: `mcp dispatch: server "${serverId}" is not registered. Register it via defineConfig.mcp / mcpPlugin({ clients }).`,
+      message: `mcp dispatch: server "${serverId}" is not registered. Register it via defineProject({ mcp }) / mcpPlugin({ clients }).`,
     });
   }
   if (typeof config !== "object" || config === null) {

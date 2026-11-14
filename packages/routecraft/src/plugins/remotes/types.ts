@@ -11,7 +11,7 @@
 import type { Duration } from "../../shared/duration.ts";
 import type { OpsBearerToken } from "../ops/client.ts";
 
-/** One remote instance, keyed by name in `defineConfig({ remotes })`. */
+/** One remote instance, keyed by name in `defineProject({ remotes })`. */
 export interface RemoteDefinition {
   /**
    * The instance's base URL, the origin its ops surface is mounted on.

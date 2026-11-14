@@ -79,9 +79,9 @@ The subscription ends when the application stops, with nothing to release by han
 Logs and events tell you what happened. An orchestrator needs a different thing: an answer, right now, to whether this instance should be restarted, sent traffic, or paged about. That is the [ops plugin](/docs/reference/plugins/opsplugin).
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: { ops: { host: '0.0.0.0', port: 9090 } },
   ops: { server: 'ops' },
 })
@@ -110,21 +110,21 @@ Indicators are the deliberate exception: an [indicator](/docs/reference/plugins/
 The `telemetry` config key instruments the framework with [OpenTelemetry](https://opentelemetry.io/) traces and persists data to a local SQLite database for `craft tui`.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   telemetry: {},
 })
 ```
 
-The database is written to `.routecraft/telemetry.db` in the current working directory. The SQLite sink uses Bun's built-in [`bun:sqlite`](https://bun.com/docs/api/sqlite) under Bun and the optional peer `better-sqlite3` under Node. On Node without that peer, the sink disables itself with a warn log and only the OpenTelemetry path runs; configure a `tracerProvider` with an OTLP exporter for production telemetry.
+The key installs the telemetry plugin; `plugins: [telemetryPlugin({ ... })]` with the same options is equivalent. The database is written to `.routecraft/telemetry.db` in the current working directory. The SQLite sink uses Bun's built-in [`bun:sqlite`](https://bun.com/docs/api/sqlite) under Bun and the optional peer `better-sqlite3` under Node. On Node without that peer, the sink disables itself with a warn log and only the OpenTelemetry path runs; configure a `tracerProvider` with an OTLP exporter for production telemetry.
 
 ### Configuration
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   telemetry: {
     sqlite: {
       dbPath: './logs/telemetry.db', // custom path (default .routecraft/telemetry.db)
@@ -148,7 +148,7 @@ bun add @opentelemetry/sdk-trace-base @opentelemetry/exporter-trace-otlp-http
 Then configure a `TracerProvider` and pass it as `tracerProvider`. Here is an example using [Better Stack](https://betterstack.com/):
 
 ```ts skip="third-party: @opentelemetry/sdk-trace-base is not a dependency of the docs site"
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import { BasicTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 
@@ -163,7 +163,7 @@ tracerProvider.addSpanProcessor(
 )
 tracerProvider.register()
 
-export const craftConfig = defineConfig({
+export default defineProject({
   telemetry: { tracerProvider },
 })
 ```
@@ -173,7 +173,7 @@ This sends OTel traces to Better Stack while keeping the local SQLite database f
 To disable the SQLite backend entirely (external only):
 
 ```ts skip="fragment: tracerProvider is illustrative"
-defineConfig({ telemetry: { tracerProvider, disableSqlite: true } })
+defineProject({ telemetry: { tracerProvider, disableSqlite: true } })
 ```
 
 ### What gets traced

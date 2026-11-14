@@ -22,12 +22,12 @@ export default defineProject({
 
 `defineProject` returns `{ craft, config, plugins }`: `config` is the `CraftConfig` below, and `craft()` is a route builder typed by the installed plugins. See [`defineProject`](/docs/reference/plugins#defineproject).
 
-For a single file run with `craft run`, export the configuration as `craftConfig` (named export) alongside your capabilities. `defineConfig` is an identity helper that types the object as `CraftConfig`, so every key autocompletes (including [ecosystem keys](#ecosystem-keys-added-by)) and a key `CraftConfig` does not declare is a compile error. `defineProject` checks keys the same way.
+`craft.config.ts` default-exports the project; the command line reads nothing else there ([`RC1120`](/docs/reference/errors#rc-1120)). A single file run with [`craft run`](/docs/reference/cli#run) uses that project, or one the file exports itself as `project`. `defineProject` types the object as `CraftConfig`, so every key autocompletes (including [ecosystem keys](#ecosystem-keys-added-by)) and a key `CraftConfig` does not declare is a compile error.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   store: new Map([
     ['my.adapter.config', { apiKey: 'xyz' }]
   ]),
@@ -37,7 +37,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-`defineConfig` is a no-op at runtime; it returns the input unchanged. The checking is the same as annotating `const craftConfig: CraftConfig = {...}` or writing `{...} satisfies CraftConfig`: an unknown or misspelled key is an error at any depth, so a key a release removed (such as the 0.6 `http: { host, port }`, now under [`servers`](#servers-and-http)) fails to compile rather than at boot.
+`defineProject` resolves the plugin list when it is called, so options a plugin refuses fail where the project is declared. An unknown or misspelled key is a compile error at the top level and inside each config block, so a key a release removed (such as the 0.6 `http: { host, port }`, now under [`servers`](#servers-and-http)) fails to compile rather than at boot. A key nested deeper, such as one inside a named server, is not checked by the compiler.
 
 ## Durations
 
@@ -117,10 +117,10 @@ When `@routecraft/ai` is imported (anywhere in the project), `CraftConfig` is au
 | `acp` | `AcpPluginOptions` | `acpPlugin(options)`; see [acp](#acp) |
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent/sessions/acp
 
-export const craftConfig = defineConfig({
+export default defineProject({
   llm: {
     providers: { openai: { apiKey: process.env.OPENAI_API_KEY! } },
   },
@@ -136,7 +136,7 @@ The legacy `plugins: [llmPlugin(...)]` form continues to work and is the right e
 
 <Callout type="note">
 
-**Troubleshooting:** if TypeScript reports `Object literal may only specify known properties, and 'llm' does not exist in type 'CraftConfig'` (or the same for `mcp`, `embedding`, `agent`, `sessions`, `acp`), the augmentation has not been loaded. Add `import '@routecraft/ai'` to a file that's part of your project's compilation, usually next to `defineConfig` in `craft.config.ts`. The side-effect import is what merges the AI keys into `CraftConfig`.
+**Troubleshooting:** if TypeScript reports `Object literal may only specify known properties, and 'llm' does not exist in type 'CraftConfig'` (or the same for `mcp`, `embedding`, `agent`, `sessions`, `acp`), the augmentation has not been loaded. Add `import '@routecraft/ai'` to a file that's part of your project's compilation, usually next to `defineProject` in `craft.config.ts`. The side-effect import is what merges the AI keys into `CraftConfig`.
 
 </Callout>
 
@@ -187,9 +187,9 @@ When omitted, direct endpoints use the built-in in-memory channel (single-consum
 Named servers own listeners. HTTP, MCP, health endpoints, and custom plugins can mount different paths on the same listener. Give a surface its own named server when it needs an isolated port.
 
 ```ts
-import { defineConfig, jwt } from '@routecraft/routecraft'
+import { defineProject, jwt } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     public: { port: 8080, host: '0.0.0.0' },
   },
@@ -217,7 +217,7 @@ Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (cur
 Configures the operational surface: liveness, readiness, and operational health over HTTP, mounted on a [named server](#servers-and-http). See [opsPlugin](/docs/reference/plugins/opsplugin) for the full behaviour and the response shapes.
 
 ```ts
-import { defineConfig, defineIndicator } from '@routecraft/routecraft'
+import { defineProject, defineIndicator } from '@routecraft/routecraft'
 
 export const mailHealth = defineIndicator({
   name: 'mail',
@@ -225,7 +225,7 @@ export const mailHealth = defineIndicator({
   route: 'probe-mail',
 })
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: { ops: { port: 9090 } },
   ops: {
     server: 'ops',
@@ -252,9 +252,9 @@ Route lifecycle, circuit-breaker position, and the serving state are derived fro
 Names other running instances, and every dispatchable route they expose through their [ops management API](/docs/reference/plugins/opsplugin#management-api) becomes a direct endpoint in this context. See [remotesPlugin](/docs/reference/plugins/remotesplugin) for the naming rule, the shadow rule, credentials, refresh and the outcome mapping.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   remotes: {
     default: {
       url: 'https://routecraft.example.internal',
@@ -289,9 +289,9 @@ Configures where deferred exchanges are persisted, and the secret used to sign t
 It is deliberately not implicit. This setting decides whether a deployment survives a restart and whether resume tokens outlive the process, and defaulting it silently would hand a route that promises durability an in-memory store nobody chose.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   deferral: {
     // A mounted volume in a container deployment, so deferred exchanges
     // outlive the container that deferred them.
@@ -329,9 +329,9 @@ An explicit config value wins over the environment.
 Where the credentials for upstream servers live: the tokens a [`craft connect`](/docs/reference/cli#connect) login obtains for a client declared with [`connect()`](/docs/advanced/call-an-mcp#servers-behind-a-login), refreshed in place by the application. Optional: without it the SQLite backend at `.routecraft/credentials.db` is used, opened the first time a client reads its credential, so an application with no such client and no `ROUTECRAFT_CREDENTIALS_SEED` never creates the file. `craft connect` opens the store from the same configuration, so a login writes where the application reads.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   credentials: {
     // A mounted volume, so a refreshed token survives a redeploy.
     store: { path: '/data/credentials.db' },
@@ -356,10 +356,10 @@ Under Node the SQLite backend needs `better-sqlite3`, as the [deferral store](#d
 Added by `@routecraft/ai`. Configures where [agent sessions](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) keep their records: the transcript, the inbox and the background calls a conversation is waiting on. Optional: without it the SQLite backend at `.routecraft/sessions.db` is used, and the file is created by the first session written rather than at boot, so a context whose agents never hold a conversation never grows a database. The continuation a turn stores between turns is a deferred exchange and lives in the [deferral](#deferral) store, which `session` therefore still needs.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   deferral: { store: { path: '/data/deferrals.db' } },
   sessions: { store: { path: '/data/sessions.db' } },
 })
@@ -388,10 +388,10 @@ Records have no retention: nothing expires a session, so a deployment that opens
 Added by `@routecraft/ai`. Serves the [Agent Client Protocol](/docs/introduction/talk-from-your-editor) so a person can talk to this instance's agents from their editor, the way `mcp` serves MCP. Takes exactly the options [`acpPlugin()`](/docs/reference/plugins/acpplugin) takes, and none of them is required: an empty object serves every agent the context holds at `/acp` on the `default` server, behind that server's wall.
 
 ```ts
-import { defineConfig, jwt } from '@routecraft/routecraft'
+import { defineProject, jwt } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: { default: { port: 8080 } },
   acp: {
     auth: jwt({
@@ -429,7 +429,7 @@ work.
 fires. It defaults to 30 seconds.
 
 ```ts
-export const craftConfig = defineConfig({
+export default defineProject({
   shutdown: { timeout: 20_000 },
 })
 ```
@@ -495,7 +495,7 @@ specific says. It defaults to `true`. Set it to `false` once when journey
 ids must not reach third parties, and opt the calls you trust back in:
 
 ```ts
-export const craftConfig = defineConfig({
+export default defineProject({
   traceContext: { outbound: false },
 })
 ```
@@ -601,9 +601,9 @@ A log file that cannot be opened for appending is handled differently by the two
 Set `name` on the context to tag every log line with a `service.name` field (the OpenTelemetry semantic convention). This identifies the originating application when shipping logs to an aggregator, and lines up with OTel resource mappings such as BetterStack's `resources.service.name`.
 
 ```ts
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 
-export const craftConfig = defineConfig({
+export default defineProject({
   name: "eywa",
 });
 ```
@@ -614,7 +614,7 @@ Every log emitted through the context, its routes, and their exchanges then carr
 { "level": "info", "service.name": "eywa", "route": "zoe-mail", "msg": "..." }
 ```
 
-When `name` is omitted, no `service.name` field is added. The value is a per-context log binding; it does not configure OpenTelemetry trace resources. If you also export traces via `telemetry({ tracerProvider })`, set the matching `service.name` on that provider's `Resource` so logs and spans agree.
+When `name` is omitted, no `service.name` field is added. The value is a per-context log binding; it does not configure OpenTelemetry trace resources. If you also export traces via `telemetry: { tracerProvider }`, set the matching `service.name` on that provider's `Resource` so logs and spans agree.
 
 ## Environment variables
 

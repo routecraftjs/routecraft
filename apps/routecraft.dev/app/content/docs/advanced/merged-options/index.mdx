@@ -24,11 +24,11 @@ Core adapters (`cron`, `direct`) have dedicated fields on `CraftConfig`. Set the
 
 ```ts
 // craft.config.ts
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
+export default defineProject({
   cron: { timezone: 'UTC', maxJitter: 2000 },
-}
+})
 
 ```
 
@@ -47,10 +47,10 @@ Now every `cron()` source inherits `timezone: 'UTC'` and `maxJitter: 2000` unles
 Adapters from other packages (like `@routecraft/ai`) use the plugin pattern. Register a companion plugin in `craft.config.ts`:
 
 ```ts
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import { llmPlugin, embeddingPlugin } from '@routecraft/ai'
 
-export const craftConfig: CraftConfig = {
+export default defineProject({
   plugins: [
     llmPlugin({
       providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
@@ -60,7 +60,7 @@ export const craftConfig: CraftConfig = {
       providers: { openai: { apiKey: process.env.OPENAI_API_KEY! } },
     }),
   ],
-}
+})
 ```
 
 Plugins that manage additional concerns (like `llmPlugin` which also registers provider credentials) wrap `defaultOptions` inside a larger configuration object. See the [Plugins reference](/docs/reference/plugins) for the full options of each plugin.

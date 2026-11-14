@@ -11,14 +11,12 @@ import {
   definePlugin,
   direct,
   noop,
-  collectCredentialLogins,
   createSealer,
   decodeCredentialSeed,
   encodeCredentialSeed,
   importCredentialSeed,
   MemoryCredentialStore,
   openCredentialStore,
-  registerCredentialLogins,
   SqliteCredentialStore,
   type CredentialStore,
 } from "../src/index.ts";
@@ -545,37 +543,5 @@ describe("credential store fallback and resolution", () => {
     expect(() => credentialsConfigOf({ plugins: [vault] })).toThrow(
       expect.objectContaining({ rc: "RC5070" }),
     );
-  });
-});
-
-describe("credential logins", () => {
-  const REGISTRY_KEY = Symbol.for("routecraft.credential-login-collectors");
-  type Registry = Map<string, unknown>;
-  const g = globalThis as typeof globalThis & { [REGISTRY_KEY]?: Registry };
-
-  /**
-   * @case Two collectors declaring one login id, or one store owner
-   * @preconditions Collectors "x" and "y" each return a login named "mail"; then "y" returns another name kept under x's owner
-   * @expectedResult Collecting throws naming the id, then the owner
-   */
-  test("refuses a duplicate id", () => {
-    const saved = new Map(g[REGISTRY_KEY] ?? []);
-    try {
-      g[REGISTRY_KEY] = new Map();
-      const login = {
-        id: "mail",
-        owner: "x:mail",
-        description: "",
-        login: async () => undefined,
-      };
-      registerCredentialLogins("x", () => [login]);
-      expect(collectCredentialLogins({})).toHaveLength(1);
-      registerCredentialLogins("y", () => [{ ...login, owner: "y:mail" }]);
-      expect(() => collectCredentialLogins({})).toThrow(/"mail"/);
-      registerCredentialLogins("y", () => [{ ...login, id: "post" }]);
-      expect(() => collectCredentialLogins({})).toThrow(/"x:mail"/);
-    } finally {
-      g[REGISTRY_KEY] = saved;
-    }
   });
 });

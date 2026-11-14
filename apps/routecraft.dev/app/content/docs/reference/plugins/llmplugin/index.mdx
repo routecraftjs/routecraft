@@ -14,9 +14,9 @@ Provides the LLM service that `llm()` reads its provider credentials from. Requi
 
 ```ts
 import { llmPlugin } from '@routecraft/ai'
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
+export default defineProject({
   plugins: [
     llmPlugin({
       providers: {
@@ -25,7 +25,7 @@ export const craftConfig: CraftConfig = {
       },
     }),
   ],
-}
+})
 
 ```
 

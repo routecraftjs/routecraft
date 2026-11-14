@@ -12,10 +12,10 @@ A server is a listener you declare under `servers`, by name. Every surface that 
 
 ```ts
 // craft.config.ts
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 import "@routecraft/ai";
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: { port: 8080, allowedHostnames: ["mcp.example.com"] },
   },
@@ -47,10 +47,10 @@ Declare a second server and point the surface at it by name. The common split ke
 
 ```ts
 // craft.config.ts
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 import "@routecraft/ai";
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: {
       host: "0.0.0.0",

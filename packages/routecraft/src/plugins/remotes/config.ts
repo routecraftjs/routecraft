@@ -10,8 +10,8 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Register the `remotes` config key so `defineConfig({ remotes: {...} })`
- * is equivalent to `defineConfig({ plugins: [remotesPlugin({...})] })`.
+ * Register the `remotes` config key so `defineProject({ remotes: {...} })`
+ * is equivalent to `defineProject({ plugins: [remotesPlugin({...})] })`.
  * Loaded as a side-effect import from `packages/routecraft/src/index.ts`,
  * after the `ops` key, so an imported route's indicator has a ledger to
  * report into when the app carries an ops surface.

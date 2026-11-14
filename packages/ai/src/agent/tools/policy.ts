@@ -19,7 +19,7 @@ export type AgentToolSource =
       readonly routeId: string;
       /**
        * The remote the capability was imported from through
-       * `defineConfig({ remotes })`, absent for a local route. Still
+       * `defineProject({ remotes })`, absent for a local route. Still
        * `direct`, because the tool reaches a capability in the capability
        * registry exactly as a local one does; the field is what lets a
        * rule keep an agent local-only, or admit one remote and not

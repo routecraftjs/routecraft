@@ -76,7 +76,7 @@ export default project
 
 Here `withTax` is a step the project's `pricing` plugin adds; [Steps](#steps) shows how it is declared.
 
-The root `craft()` export is typed by the plugins `@routecraft/routecraft` ships. It is the right builder for a route that uses only those, and for a single file run with `craft run`, where `export const craftConfig = defineConfig({ ... })` beside the route still works.
+The root `craft()` export is typed by the plugins `@routecraft/routecraft` ships. It is the right builder for a route that uses only those, and for a single file run with `craft run` outside any project.
 
 Every key the config accepts is documented in the [Configuration reference](/docs/reference/configuration). A config key such as `deferral: {}` or `http: {...}` installs the matching plugin with its options, so `plugins` lists only what has no key.
 

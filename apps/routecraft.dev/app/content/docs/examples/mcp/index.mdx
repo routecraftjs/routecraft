@@ -43,10 +43,10 @@ over stdio. A new project already has it:
 
 ```ts
 // craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   mcp: {},
 })
 ```
@@ -72,10 +72,10 @@ Register the remote servers under the same `mcp` key's `clients`, then call any 
 
 ```ts
 // craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   mcp: {
     clients: {
       search: { url: 'http://127.0.0.1:9000/mcp' },

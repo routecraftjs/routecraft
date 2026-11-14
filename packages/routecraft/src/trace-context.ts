@@ -168,7 +168,7 @@ export interface TraceSpans {
 
 /**
  * Port a telemetry plugin provides so an outbound `traceparent` names the
- * span of the exchange making the call. The shipped `telemetry()` plugin
+ * span of the exchange making the call. The shipped telemetry plugin
  * provides it; a replacement OpenTelemetry plugin provides it the same way.
  * With no provider the `traceparent` derives from the journey's ids.
  */

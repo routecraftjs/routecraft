@@ -8,7 +8,7 @@ title: http
 
 `http()` is overloaded by option shape:
 
-- `http({ path, method?, mount? })` returns a **Source**. Use with `.from(...)` to expose a route over HTTP. Requires `defineConfig({ servers: {...}, http: {...} })`: the named server owns the listener (host, port), the `http` key owns routing and authentication. Bun runtimes bind via `Bun.serve` natively; Node 22+ uses a thin `node:http` shim. Zero runtime dependencies.
+- `http({ path, method?, mount? })` returns a **Source**. Use with `.from(...)` to expose a route over HTTP. Requires `defineProject({ servers: {...}, http: {...} })`: the named server owns the listener (host, port), the `http` key owns routing and authentication. Bun runtimes bind via `Bun.serve` natively; Node 22+ uses a thin `node:http` shim. Zero runtime dependencies.
 - `http({ url, ... })` returns an **Enricher** (a pull-in). Use with `.to()` / `.enrich()` / `.tap()` to call a remote HTTP endpoint.
 
 The discriminator is the presence of `path` (source) vs `url` (client).
@@ -19,13 +19,13 @@ The discriminator is the presence of `path` (source) vs `url` (client).
 http(options: HttpServerOptions): Source<HttpRequestBody>
 ```
 
-The listener (host, port) lives on [`defineConfig({ servers })`](/docs/reference/configuration#servers-and-http) and authentication on the server and its mounts, not on the source. Routes only declare which request they want and which mount they live on. This example walls `/api` behind the server's JWT validator and keeps the catch-all mount public:
+The listener (host, port) lives on [`defineProject({ servers })`](/docs/reference/configuration#servers-and-http) and authentication on the server and its mounts, not on the source. Routes only declare which request they want and which mount they live on. This example walls `/api` behind the server's JWT validator and keeps the catch-all mount public:
 
 ```ts
 // craft.config.ts
-import { defineConfig, jwt } from '@routecraft/routecraft'
+import { defineProject, jwt } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: {
       port: 8080,
@@ -428,7 +428,7 @@ These two never fail, so neither can tell an orchestrator to restart or derotate
 Every built-in takes the same `{ enabled?, requireAuth? }` shape under `http: { builtins }`. Inspired by Spring Boot Actuator's `management.endpoint.<name>.enabled` plus `show-details: when-authorized`, compressed to a single boolean for the auth gate.
 
 ```ts skip="fragment: '...' is a placeholder, not valid syntax"
-defineConfig({
+defineProject({
   servers: { default: { port: 8080 } },
   http: {
     auth: jwt({ ... }),
@@ -501,7 +501,7 @@ OAuth 2.1 is reserved in the auth union for a future release.
 The mount, not the route, decides authentication. `http.mounts` declares named path-scoped surfaces, each a complete self-description (`path`, `server`, `auth`); each is a wall or public, and routes belong to exactly one:
 
 ```typescript skip="fragment: '...' is a placeholder, not valid syntax"
-defineConfig({
+defineProject({
   servers: { default: { port: 8080, auth: jwks({ ... }) } },
   http: {
     mounts: {
@@ -535,7 +535,7 @@ The identity-when-present personalisation pattern (formerly `auth: "optional"`) 
 Each mount also names its listener: `server` defaults to `'default'`, so an app with one listener names it `default` and never writes the key. A mount on another listener says so itself; there is no plugin-level default to override, the same rule the single-mount shorthand follows (with no `mounts`, the top level of `http` is the one mount, and `server` there is its key).
 
 ```typescript
-defineConfig({
+defineProject({
   servers: {
     default:  { port: 8080, host: '0.0.0.0' },
     internal: { port: 9090 },

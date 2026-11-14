@@ -1,11 +1,17 @@
-import { resolve, extname } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, extname, join, resolve } from "node:path";
 import {
   ContextBuilder,
   type CraftConfig,
   type Logger,
+  installedPluginIds,
+  isProject,
   isRouteBuilder,
   isRouteDefinition,
   defaultLogger,
+  projectOf,
+  rcCodeOf,
+  rcError,
   shutdownHandler,
   RUNNER_INVOCATION,
   argvRouteIds,
@@ -16,7 +22,7 @@ import {
   type RunnerInvocation,
   type RunnerOutcome,
 } from "@routecraft/routecraft";
-import { MODULE_EXTENSIONS } from "./project.js";
+import { MODULE_EXTENSIONS, displayPath, findConfigFile } from "./project.js";
 import { messageOf } from "./util.js";
 import { dispatchResult, EXEC_EXIT, type ExecResult } from "./exec.js";
 import { renderArgvHelp, renderArgvRoutes, renderRefusal } from "./format.js";
@@ -62,10 +68,22 @@ export interface RunOptions extends Pick<
 > {
   /** Reads piped stdin; only called when an `argv()` route needs input. */
   readStdin?: () => Promise<string | undefined>;
+  /**
+   * `--config <path>`: the project file to run the routes in. `false`
+   * (`--no-config`) skips the `craft.config` beside the nearest
+   * `package.json`.
+   */
+  config?: string | false;
 }
 
 /**
  * Load a routecraft file, build a context, and start it.
+ *
+ * The file runs in a project, the first of these that exists: the one
+ * `--config` names; the file's own `export const project`; the
+ * `craft.config` beside the nearest `package.json`, when it installs every
+ * plugin of the project the routes were built with; that project itself;
+ * the defaults.
  *
  * Adapter-agnostic: the runner hands the command line to the context under
  * `RUNNER_INVOCATION` and knows nothing about which route reads it. When a
@@ -95,18 +113,20 @@ export async function runCommand(
 
   let log: Logger | undefined;
   try {
-    // The file's own logger takes the run's lines when it exports one; the default logger otherwise.
-    const module = await import(absFilePath);
-    const craftConfig = module.craftConfig as CraftConfig | undefined;
+    const module = (await import(absFilePath)) as {
+      default?: unknown;
+      project?: unknown;
+      craftConfig?: unknown;
+    };
+    const project = await runProject(absFilePath, module, options.config);
 
-    log = craftConfig?.logger ?? defaultLogger();
-    log.info({ file: absFilePath }, "Loading file");
+    // The project's own logger takes the run's lines when it has one; the default logger otherwise.
+    log = project.config?.logger ?? defaultLogger();
+    log.info({ file: absFilePath, project: project.from }, "Loading file");
+    for (const note of project.notes) log.warn(note);
 
     const contextBuilder = new ContextBuilder();
-    if (craftConfig) {
-      log.info("Found craftConfig export, applying configuration");
-      contextBuilder.with(craftConfig);
-    }
+    if (project.config) contextBuilder.with(project.config);
 
     const configured = configureRoutes(contextBuilder, module.default, log);
     if (!configured.success) {
@@ -169,9 +189,125 @@ export async function runCommand(
     }
     return { reply: renderOutcome(outcome, routeId, line.format) };
   } catch (error: unknown) {
-    const message = messageOf(error);
+    const code = rcCodeOf(error);
+    const message = `${code === undefined ? "" : `${code}: `}${messageOf(error)}`;
     (log ?? defaultLogger()).error(`Failed to run ${absFilePath}: ${message}`);
     return { success: false, code: 1, message };
+  }
+}
+
+/** The project a single file runs in, and where it came from. */
+interface RunProject {
+  config?: CraftConfig;
+  /** Where the project was found, for the log. */
+  from: string;
+  /** What the reader should know about a project that was passed over. */
+  notes: string[];
+}
+
+/**
+ * Choose the project a file's routes run in. First match wins.
+ *
+ * @throws RC1120 when a project file that is read does not default-export a
+ *   project, or the file itself still exports a lone `craftConfig`
+ * @throws when the file's routes were built with more than one project
+ */
+async function runProject(
+  file: string,
+  module: { default?: unknown; project?: unknown; craftConfig?: unknown },
+  flag: string | false | undefined,
+): Promise<RunProject> {
+  const { loadConfig } = await import("./start.js");
+  const read = async (path: string): Promise<CraftConfig> => {
+    try {
+      return await loadConfig(path);
+    } catch (error: unknown) {
+      if (rcCodeOf(error) !== "RC1120") throw error;
+      throw rcError("RC1120", error, {
+        message: `${displayPath(process.cwd(), path)}: ${messageOf(error)}`,
+      });
+    }
+  };
+
+  if (typeof flag === "string") {
+    const path = resolve(process.cwd(), flag);
+    return { config: await read(path), from: `--config ${path}`, notes: [] };
+  }
+  if (isProject(module.project)) {
+    return {
+      config: module.project.config,
+      from: "the file's project export",
+      notes: [],
+    };
+  }
+  if (module.project !== undefined) {
+    throw rcError("RC1120", undefined, {
+      message: `${file} exports project, but it is not a project. Write \`export const project = defineProject({ ... })\`.`,
+    });
+  }
+  if (module.craftConfig !== undefined) {
+    throw rcError("RC1120", undefined, {
+      message: `${file} exports craftConfig, the pre-0.8 shape, which is no longer read. Write \`export const project = defineProject({ ... })\` with the same keys, and build the routes with project.craft().`,
+    });
+  }
+
+  const exported = Array.isArray(module.default)
+    ? module.default
+    : [module.default];
+  const own = [...new Set(exported.flatMap((route) => projectOf(route) ?? []))];
+  if (own.length > 1) {
+    throw new Error(
+      `The routes in ${file} were built with ${own.length} different projects, and one run has one. Name the project to run them in with --config <path>.`,
+    );
+  }
+  const routesProject = own[0];
+  const notes: string[] = [];
+
+  const beside = flag === false ? undefined : nearestConfigFile(dirname(file));
+  if (beside !== undefined) {
+    const shown = displayPath(process.cwd(), beside);
+    const fallback =
+      "Running with the routes' own project; pass --config to choose another.";
+    let config: CraftConfig | undefined;
+    try {
+      config = await read(beside);
+    } catch (error: unknown) {
+      if (routesProject === undefined) throw error;
+      notes.push(`Ignoring ${shown}: ${messageOf(error)} ${fallback}`);
+    }
+    if (config !== undefined) {
+      const missing = routesProject
+        ? missingPlugins(config, routesProject.config)
+        : [];
+      if (missing.length === 0) return { config, from: beside, notes };
+      notes.push(
+        `Ignoring ${shown}: it does not install ${missing.map((id) => `"${id}"`).join(", ")}, which the project these routes were built with does. ${fallback}`,
+      );
+    }
+  }
+  if (routesProject !== undefined) {
+    return {
+      config: routesProject.config,
+      from: "the routes' own project",
+      notes,
+    };
+  }
+  return { from: "the defaults", notes };
+}
+
+/** The plugin ids `needed` installs that `config` does not. */
+function missingPlugins(config: CraftConfig, needed: CraftConfig): string[] {
+  const installed = new Set(installedPluginIds(config));
+  return [...new Set(installedPluginIds(needed))].filter(
+    (id) => !installed.has(id),
+  );
+}
+
+/** The `craft.config` beside the nearest `package.json` at or above `from`. */
+function nearestConfigFile(from: string): string | undefined {
+  for (let dir = from; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, "package.json"))) return findConfigFile(dir);
+    if (dirname(dir) === dir) return undefined;
   }
 }
 

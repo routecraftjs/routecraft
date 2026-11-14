@@ -294,6 +294,12 @@
     "retryable": false
   },
   {
+    "code": "RC5072",
+    "category": "Adapter",
+    "message": "Credential outside a plugin's tooling scope",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",
@@ -423,6 +429,12 @@
     "code": "RC1119",
     "category": "Definition",
     "message": "Port replacement targets another version",
+    "retryable": false
+  },
+  {
+    "code": "RC1120",
+    "category": "Definition",
+    "message": "No project export",
     "retryable": false
   },
   {

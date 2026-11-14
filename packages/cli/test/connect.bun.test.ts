@@ -5,19 +5,15 @@ import { join } from "node:path";
 const { connectCommand, disconnectCommand } = await import("../src/connect");
 const core = await import("@routecraft/routecraft");
 
-const REGISTRY_KEY = Symbol.for("routecraft.credential-login-collectors");
-type Registry = Map<string, unknown>;
-const g = globalThis as typeof globalThis & { [REGISTRY_KEY]?: Registry };
-
 /**
- * A project whose config declares one login, `demo`, without any protocol:
+ * A project whose plugin declares one login, `demo`, without any protocol:
  * it plays the browser by requesting the loopback redirect itself, and
  * stores what came back. That drives the CLI's listener end to end.
  */
 const CONFIG = (dbPath: string) => `
-import { registerCredentialLogins } from "@routecraft/routecraft";
+import { defineProject, definePlugin } from "@routecraft/routecraft";
 
-registerCredentialLogins("test-connect", () => [
+const logins = () => [
   {
     id: "demo",
     owner: "test:demo",
@@ -36,9 +32,12 @@ registerCredentialLogins("test-connect", () => [
       });
     },
   },
-]);
+];
 
-export const craftConfig = { credentials: { store: ${JSON.stringify(dbPath)} } };
+export default defineProject({
+  credentials: { store: ${JSON.stringify(dbPath)} },
+  plugins: [definePlugin({ id: "test.connect", tooling: { logins } })],
+});
 `;
 
 /** Swallows the login instructions instead of touching process.stderr. */
@@ -47,7 +46,6 @@ const quiet = (): void => undefined;
 describe("craft connect", () => {
   let root: string;
   let cwd: string;
-  let saved: Registry | undefined;
   let savedKey: string | undefined;
   let counter = 0;
 
@@ -61,7 +59,6 @@ describe("craft connect", () => {
     );
     cwd = process.cwd();
     process.chdir(root);
-    saved = new Map(g[REGISTRY_KEY] ?? []);
     savedKey = process.env[core.CREDENTIALS_KEY_ENV];
     delete process.env[core.CREDENTIALS_KEY_ENV];
   });
@@ -69,7 +66,6 @@ describe("craft connect", () => {
   afterEach(() => {
     process.chdir(cwd);
     rmSync(root, { recursive: true, force: true });
-    g[REGISTRY_KEY] = saved ?? new Map();
     if (savedKey === undefined) delete process.env[core.CREDENTIALS_KEY_ENV];
     else process.env[core.CREDENTIALS_KEY_ENV] = savedKey;
   });
@@ -261,8 +257,8 @@ describe("craft connect", () => {
     writeFileSync(
       join(root, "craft.config.ts"),
       CONFIG(join(root, "creds.db")).replace(
-        /export const craftConfig = .*/,
-        'export const craftConfig = { credentials: { store: "memory" } };',
+        /credentials: \{ store: .* \},/,
+        'credentials: { store: "memory" },',
       ),
     );
     const result = await connectCommand("demo", { open: false, stderr: quiet });

@@ -12,7 +12,7 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Register the `mail` config key so `defineConfig({ mail: {...} })`
+ * Register the `mail` config key so `defineProject({ mail: {...} })`
  * constructs the shared {@link MailClientManager} during `initPlugins()`
  * and drains it during plugin teardown (reverse plugin order, so user
  * plugins tear down first). Loaded as a side-effect import from

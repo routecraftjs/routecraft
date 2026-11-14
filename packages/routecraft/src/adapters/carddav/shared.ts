@@ -129,7 +129,7 @@ export function requireClientManager(
     throw rcError("RC5003", undefined, {
       message:
         "CardDAV adapter requires carddav configuration. Add it via " +
-        "defineConfig({ carddav: { accounts: { default: { username, appPassword } } } }).",
+        "defineProject({ carddav: { accounts: { default: { username, appPassword } } } }).",
     });
   }
   return manager;

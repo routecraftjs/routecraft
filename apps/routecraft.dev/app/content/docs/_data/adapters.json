@@ -55,7 +55,7 @@
       "Source",
       "Enricher"
     ],
-    "description": "HTTP client for outbound requests and an HTTP server (via defineConfig({ http })) for exposing routes."
+    "description": "HTTP client for outbound requests and an HTTP server (via defineProject({ http })) for exposing routes."
   },
   {
     "name": "noop",

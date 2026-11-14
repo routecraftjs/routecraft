@@ -11,7 +11,7 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Register the `cron` config key so `defineConfig({ cron: {...} })` installs
+ * Register the `cron` config key so `defineProject({ cron: {...} })` installs
  * a plugin providing default cron options through `CRON_DEFAULTS`. Loaded as a side-effect
  * import from `packages/routecraft/src/index.ts` so users do not have to
  * wire it manually. Keeps the core context free of cron adapter knowledge.

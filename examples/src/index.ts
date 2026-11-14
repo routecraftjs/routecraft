@@ -1,4 +1,4 @@
-export { craftConfig } from "./craft.config";
+export { project } from "./craft.config";
 import { default as helloWorld } from "./hello-world";
 import { default as jevJudge } from "./jev-judge";
 import { default as mcpGreet } from "./mcp-greet";

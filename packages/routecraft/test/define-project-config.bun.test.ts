@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, test } from "bun:test";
 import {
   type CraftConfig,
-  defineConfig,
+  defineProject,
   type EventName,
   type EventPayload,
 } from "../src/index.ts";
@@ -9,7 +9,7 @@ import {
 /**
  * Stands in for an ecosystem package (such as `@routecraft/ai`) that adds a
  * first-class key. It targets the published specifier so it merges into the
- * same `CraftConfig` identity that define-config.ts imports.
+ * same `CraftConfig` identity that project.ts imports.
  */
 declare module "@routecraft/routecraft" {
   interface CraftConfig {
@@ -17,16 +17,16 @@ declare module "@routecraft/routecraft" {
   }
 }
 
-describe("defineConfig", () => {
+describe("the configuration a project is defined with", () => {
   /**
-   * @case defineConfig is an identity function at runtime
-   * @preconditions A valid config object is passed in
-   * @expectedResult Returns the same reference, unchanged
+   * @case A project carries the configuration it was defined with
+   * @preconditions A definition with one core key and no plugins
+   * @expectedResult The project's config holds the key as written, with an empty plugin list
    */
-  test("returns the input unchanged", () => {
-    const input: CraftConfig = { cron: { timezone: "UTC" } };
+  test("carries the definition as its config", () => {
+    const project = defineProject({ cron: { timezone: "UTC" } });
 
-    expect(defineConfig(input)).toBe(input);
+    expect(project.config).toEqual({ cron: { timezone: "UTC" }, plugins: [] });
   });
 
   /**
@@ -34,17 +34,19 @@ describe("defineConfig", () => {
    *   even beside a valid key
    * @preconditions A config literal with a valid `name` and a misspelled
    *   `shutdwon` key
-   * @expectedResult TS2353 (excess property) on the typo, so the
-   *   `@ts-expect-error` is used. Under a generic `<T extends CraftConfig>`
-   *   parameter the valid `name` satisfied the constraint, the typo was
-   *   never checked, and the directive would fail as unused.
+   * @expectedResult A compile error on the typo, so the `@ts-expect-error`
+   *   is used. A bare generic parameter would let the valid `name` satisfy
+   *   the constraint and never check the typo; the definition's mapped
+   *   `never` is what keeps the check.
    */
   test("rejects an unknown top-level key", () => {
-    defineConfig({
-      name: "app",
-      // @ts-expect-error shutdwon is not a CraftConfig key
-      shutdwon: { timeout: "10s" },
-    });
+    const compiled = (): unknown =>
+      defineProject({
+        name: "app",
+        // @ts-expect-error shutdwon is not a CraftConfig key
+        shutdwon: { timeout: "10s" },
+      });
+    expect(compiled).toBeFunction();
   });
 
   /**
@@ -57,10 +59,12 @@ describe("defineConfig", () => {
    *   until the config failed at boot.
    */
   test("rejects the 0.6 http listener shape", () => {
-    defineConfig({
-      // @ts-expect-error host and port moved to servers in 0.7
-      http: { host: "0.0.0.0", port: 8080, auth: false },
-    });
+    const compiled = (): unknown =>
+      defineProject({
+        // @ts-expect-error host and port moved to servers in 0.7
+        http: { host: "0.0.0.0", port: 8080, auth: false },
+      });
+    expect(compiled).toBeFunction();
   });
 
   /**
@@ -71,10 +75,12 @@ describe("defineConfig", () => {
    *   `const c: CraftConfig = {...}` annotation reports
    */
   test("rejects an unknown nested key", () => {
-    defineConfig({
-      // @ts-expect-error timeoutMs was renamed to timeout in 0.7
-      shutdown: { timeout: "10s", timeoutMs: 10_000 },
-    });
+    const compiled = (): unknown =>
+      defineProject({
+        // @ts-expect-error timeoutMs was renamed to timeout in 0.7
+        shutdown: { timeout: "10s", timeoutMs: 10_000 },
+      });
+    expect(compiled).toBeFunction();
   });
 
   /**
@@ -87,7 +93,7 @@ describe("defineConfig", () => {
    *   declared type, and the handler parameter is contextually typed
    */
   test("accepts a valid config with an augmented key", () => {
-    const cfg = defineConfig({
+    const cfg = defineProject({
       name: "app",
       shutdown: { timeout: "10s" },
       on: {
@@ -96,7 +102,7 @@ describe("defineConfig", () => {
         },
       },
       __defineConfigTest: { endpoint: "https://example.test", retries: 2 },
-    });
+    }).config;
 
     expectTypeOf(cfg).toEqualTypeOf<CraftConfig>();
     expectTypeOf(cfg.__defineConfigTest).toEqualTypeOf<
@@ -112,9 +118,11 @@ describe("defineConfig", () => {
    *   same exactness as core keys
    */
   test("rejects an unknown key inside an augmented block", () => {
-    defineConfig({
-      // @ts-expect-error timeout is not part of the augmented shape
-      __defineConfigTest: { endpoint: "https://example.test", timeout: 5 },
-    });
+    const compiled = (): unknown =>
+      defineProject({
+        // @ts-expect-error timeout is not part of the augmented shape
+        __defineConfigTest: { endpoint: "https://example.test", timeout: 5 },
+      });
+    expect(compiled).toBeFunction();
   });
 });

@@ -89,7 +89,9 @@ privilege-escalation vector. Minting is legitimate at channel boundaries (a mail
 minting from a DKIM-verified sender), so instead of banning it the rule makes every
 mint site an explicit, reviewable exception: sanction it with a scoped disable comment
 carrying a justification, or a per-file override in the ESLint config. Adding a mint
-site is then always a visible act in review.
+site is then always a visible act in review. A route built with a project's `craft()`
+(`defineProject(...).craft()`, or a `craft` or project imported from the codebase's own
+modules) is covered as the root `craft()` is.
 
 ```ts
 // ✅ Good: a sanctioned channel authenticator

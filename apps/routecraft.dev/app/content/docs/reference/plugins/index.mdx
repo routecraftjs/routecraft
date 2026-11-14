@@ -56,9 +56,9 @@ export default defineProject({
 | `config` | `CraftConfig` | The configuration to start the application with, `plugins` included. Pass it to `ContextBuilder.with()` or `testContext().with()`. |
 | `plugins` | `readonly Plugin[]` | The plugins the project lists, as given. |
 
-A misspelled config key is a compile error, as it is with `defineConfig`. A config key that installs a plugin with steps or a facet (`deferral`) types the project's routes when it is set: the package registering the key merges its plugin type into `ConfigKeyPlugins`, so a third-party key gets the same typing as a first-party one. The root `craft()` export is typed by the plugins `@routecraft/routecraft` ships; a route that uses an uninstalled plugin's step refuses to start with [`RC1111`](/docs/reference/errors#rc-1111), and reading an uninstalled plugin's facet fails with the same code.
+A misspelled config key is a compile error, at the top level and inside each config block. A config key that installs a plugin with steps or a facet (`deferral`) types the project's routes when it is set: the package registering the key merges its plugin type into `ConfigKeyPlugins`, so a third-party key gets the same typing as a first-party one. The root `craft()` export is typed by the plugins `@routecraft/routecraft` ships; a route that uses an uninstalled plugin's step refuses to start with [`RC1111`](/docs/reference/errors#rc-1111), and reading an uninstalled plugin's facet fails with the same code.
 
-A plain config object still loads: `craft start` accepts a default-exported `defineProject(...)`, a named `craftConfig` export, or a default-exported config object, in that order. `craft run <file>` reads the file's named `craftConfig` export.
+The command line reads a project and nothing else: `craft.config.ts` default-exports `defineProject(...)`, and a plain object or a named `craftConfig` export is refused with [`RC1120`](/docs/reference/errors#rc-1120). [`craft run <file>`](/docs/reference/cli#run) runs the file's routes in the project they were built with, or in the `craft.config` that extends it. A context built in code takes a plain `CraftConfig`, and `project.config` is one.
 
 ## Plugin descriptor
 
@@ -79,6 +79,7 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `points` | `{ name: string }[]` | Moments this plugin declares and invokes from its own steps, where other plugins add hooks. |
 | `steps` | `Record<string, StepFactory>` | Route methods this plugin adds, by name. See [steps](#steps). |
 | `facet` | `(exchange) => view` | What `ex.<namespace>` reads. See [facets](#facets). |
+| `tooling` | `{ commands?, logins? }` | What the plugin gives the tools around an application: commands for `craft`, and logins for `craft connect`. Read without binding. See [tooling](#tooling). |
 | `bind(c)` | `(c: PluginContext) => void \| Promise<void>` | Require, provide, observe, register routes. Runs in dependency order. |
 | `start(c)` | `(c: PluginContext) => void \| Promise<void>` | Begin work that needs running routes. Awaited. |
 | `stop(c, info)` | `(c: PluginContext, info: StopInfo) => void \| Promise<void>` | Release what `bind` and `start` acquired. Reverse order. |
@@ -423,7 +424,63 @@ A plugin's `facet` is readable as `ex.<namespace>` in route callables, typed in 
 
 Code that holds a plain `Exchange` rather than a route's typed one (an adapter, a hook, a helper) uses the library function.
 
+## Tooling \{#tooling}
+
+`tooling` is read from the project's resolved plugin list by tools that run beside the application, the command line first among them. Nothing is bound or started, so a command or login works from the options the plugin's factory closed over.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `commands` | `Record<string, ToolingCommand>` | `craft <namespace> <key>`. A key is one word of letters, digits, `-` and `_` that starts with a letter or digit, and so is the namespace of a plugin that declares commands. A repeatable plugin may not declare commands (`RC1117`): its installs share one namespace. |
+| `logins` | `() => CredentialLogin[]` | The logins the plugin's configuration declares, run by `craft connect <id>`. Pure: called by every tool that reads it, never by the application. Two logins with one `id` or one `owner` across the application are `RC5003`. |
+
+A `ToolingCommand` is `{ summary, usage?, run(args, context) }`, and `run` resolves to `{ code, output?, error? }`: the exit code, and what to print on standard output and standard error. Its `context` carries:
+
+| Member | Meaning |
+| --- | --- |
+| `root` | The project root: the directory holding `craft.config.ts`. |
+| `logger` | The project's logger. |
+| `credentials()` | The project's credential store, narrowed to the owners this plugin's own `logins` declare. Any other owner is refused with [`RC5072`](/docs/reference/errors#rc-5072), and a listing shows only those owners. |
+
+```ts
+import { definePlugin } from '@routecraft/routecraft'
+
+export const warehouse = definePlugin({
+  id: 'acme.warehouse',
+  namespace: 'warehouse',
+  tooling: {
+    commands: {
+      whoami: {
+        summary: 'Print the account the warehouse login is connected as',
+        async run(_args, context) {
+          const held = await (await context.credentials()).get('acme:warehouse')
+          return held === undefined
+            ? { code: 1, error: 'Not connected. Run craft connect warehouse.' }
+            : { code: 0, output: JSON.stringify(held.value) }
+        },
+      },
+    },
+    logins: () => [
+      {
+        id: 'warehouse',
+        owner: 'acme:warehouse',
+        description: 'https://warehouse.example.com',
+        async login(store, io) {
+          await io.openUrl(new URL('https://warehouse.example.com/authorize'))
+          const callback = await io.waitForCallback()
+          await store.put('acme:warehouse', { code: callback.get('code') }, { ifVersion: null })
+        },
+      },
+    ],
+  },
+})
+```
+
+The verbs `craft` keeps, and the ones it shares with a first-party plugin, are listed under [plugin commands](/docs/reference/cli#plugin-commands). `pluginTooling(config)` returns the same list for a tool of your own, and `scopedCredentialStore(store, owners, plugin)` the narrowed store.
+
+A third party reaches every position a default plugin fills through `replaces`. It cannot be a default plugin itself: the defaults are the set `@routecraft/routecraft` ships.
+
 ---
+
 
 ## Related
 

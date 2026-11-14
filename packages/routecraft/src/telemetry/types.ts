@@ -82,7 +82,7 @@ export interface TelemetryOptions {
    * )
    * tracerProvider.register()
    *
-   * telemetry({ tracerProvider })
+   * telemetryPlugin({ tracerProvider })
    * ```
    */
   tracerProvider?: TracerProvider;

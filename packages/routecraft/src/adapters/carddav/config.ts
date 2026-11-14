@@ -12,7 +12,7 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Register the `carddav` config key so `defineConfig({ carddav: {...} })`
+ * Register the `carddav` config key so `defineProject({ carddav: {...} })`
  * constructs the shared {@link CarddavClientManager} during `initPlugins()`
  * and drains it during plugin teardown (reverse plugin order, so user
  * plugins tear down first). Loaded as a side-effect import from

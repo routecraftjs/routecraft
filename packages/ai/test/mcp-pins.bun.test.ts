@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   craft,
+  createLogger,
   direct,
+  pluginTooling,
   rcCodeOf,
   type AnyRouteBuilder,
   type CraftConfig,
@@ -833,10 +835,8 @@ describe("craft mcp pin over the configured clients", () => {
     try {
       await pinMcpClients(
         {
-          mcp: {
-            lockfile: path,
-            clients: { remote: { url: "https://remote.test/mcp", pins: {} } },
-          },
+          lockfile: path,
+          clients: { remote: { url: "https://remote.test/mcp", pins: {} } },
         },
         { credentials: noStore },
       );
@@ -857,13 +857,11 @@ describe("craft mcp pin over the configured clients", () => {
     dir = await mkdtemp(join(tmpdir(), "mcp-pin-"));
     const path = join(dir, "mcp.lock");
     const config = {
-      mcp: {
-        lockfile: path,
-        clients: {
-          remote: { url: "https://remote.test/mcp", pins: {} },
-          down: { url: "https://down.test/mcp", pins: {} },
-          unpinned: { url: "https://unpinned.test/mcp" },
-        },
+      lockfile: path,
+      clients: {
+        remote: { url: "https://remote.test/mcp", pins: {} },
+        down: { url: "https://down.test/mcp", pins: {} },
+        unpinned: { url: "https://unpinned.test/mcp" },
       },
     };
 
@@ -905,6 +903,25 @@ describe("craft mcp pin over the configured clients", () => {
   });
 
   /**
+   * @case craft mcp pin is the mcp plugin's own tooling command
+   * @preconditions A configuration with the mcp key and one with mcpPlugin() listed, read with pluginTooling; neither is started
+   * @expectedResult Each lists one plugin in the mcp namespace declaring the command "pin" with its usage, so the command line needs no knowledge of MCP to offer it
+   */
+  test("the mcp plugin declares pin in its tooling", () => {
+    for (const config of [
+      { mcp: { clients: {} } },
+      { plugins: [mcpPlugin({ clients: {} })] },
+    ] satisfies CraftConfig[]) {
+      const owners = pluginTooling(config).filter(
+        (each) => each.namespace === "mcp",
+      );
+      expect(owners).toHaveLength(1);
+      expect(Object.keys(owners[0]!.commands)).toEqual(["pin"]);
+      expect(owners[0]!.commands["pin"]!.usage).toBe("[client]");
+    }
+  });
+
+  /**
    * @case The command prints the comparison, with everything a remote chose made safe to print
    * @preconditions A pinned stdio client whose command does not exist, and a pinned client over a remote listing echo and slow; the command runs twice, then with two arguments
    * @expectedResult First run: exit 1 for the failed client, the two tools listed as added with their proposed class, and the file named for review and commit; second run: the file is up to date; neither output nor error carries a character outside printable ASCII and line breaks; two arguments are refused
@@ -912,22 +929,24 @@ describe("craft mcp pin over the configured clients", () => {
   test("the command reports what changed and escapes remote text", async () => {
     remote = statefulRemote("https://remote.test/mcp");
     dir = await mkdtemp(join(tmpdir(), "mcp-pin-"));
-    const config = {
-      mcp: {
-        lockfile: join(dir, "mcp.lock"),
-        clients: {
-          remote: { url: "https://remote.test/mcp", pins: {} },
-          gone: {
-            transport: "stdio" as const,
-            command: join(dir, "no-such-server\u001b[2K"),
-            pins: {},
-          },
+    const pin = mcpPinCommand({
+      lockfile: join(dir, "mcp.lock"),
+      clients: {
+        remote: { url: "https://remote.test/mcp", pins: {} },
+        gone: {
+          transport: "stdio" as const,
+          command: join(dir, "no-such-server\u001b[2K"),
+          pins: {},
         },
       },
+    });
+    const io = {
+      root: dir,
+      logger: createLogger({ level: "silent" }),
+      credentials: noStore,
     };
-    const io = { args: [], root: dir, credentials: noStore };
 
-    const first = await mcpPinCommand(config, io);
+    const first = await pin.run([], io);
     expect(first.code).toBe(1);
     expect(first.output).toBe(
       [
@@ -942,13 +961,11 @@ describe("craft mcp pin over the configured clients", () => {
     );
     expect(`${first.output}${first.error}`).toMatch(/^[\x20-\x7e\n]*$/);
 
-    const second = await mcpPinCommand(config, io);
+    const second = await pin.run([], io);
     expect(second.output).toBe(
       "remote: 2 tools, 0 added, 0 changed, 0 removed\nmcp.lock is up to date.",
     );
 
-    expect(
-      (await mcpPinCommand(config, { ...io, args: ["a", "b"] })).code,
-    ).toBe(1);
+    expect((await pin.run(["a", "b"], io)).code).toBe(1);
   });
 });

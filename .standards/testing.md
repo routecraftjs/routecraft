@@ -112,14 +112,14 @@ through the compiler and is then dropped on the floor at runtime:
 
 ```ts
 // WRONG: a hand-copied shape. After `eventFlushIntervalMs` was renamed to
-// `eventFlushInterval`, this still compiled, and `telemetry()` silently
+// `eventFlushInterval`, this still compiled, and `telemetryPlugin()` silently
 // ignored the option. Seven call sites went on asserting flush behaviour
 // against the 1000ms default instead of the 100ms they asked for.
 function sqliteTelemetry(
   dbPath: string,
   sqliteOpts?: { eventBatchSize?: number; eventFlushIntervalMs?: number },
 ) {
-  return telemetry({ sqlite: { dbPath, ...sqliteOpts } });
+  return telemetryPlugin({ sqlite: { dbPath, ...sqliteOpts } });
 }
 
 // RIGHT: derive from the real type, so a rename breaks the build here.
@@ -127,7 +127,7 @@ function sqliteTelemetry(
   dbPath: string,
   sqliteOpts?: Omit<NonNullable<TelemetryOptions["sqlite"]>, "dbPath">,
 ) {
-  return telemetry({ sqlite: { dbPath, ...sqliteOpts } });
+  return telemetryPlugin({ sqlite: { dbPath, ...sqliteOpts } });
 }
 ```
 

@@ -14,12 +14,12 @@ Names other running instances, and every dispatchable route they expose through 
 
 The shape it exists for: one constrained instance hosts approved capabilities behind its own door, with its own service credentials and its own `.authorize()`, and every engineer runs a local instance with their own agents and their own routes. The local instance names the server, calls its routes as if they were local, and promotes a route to the server when it proves useful. The ops API is plain HTTPS and JSON, which is what makes it reachable where richer protocols are not.
 
-`remotes` is a first-class core config key, so the common path is `defineConfig({ remotes: {...} })` rather than `plugins: [remotesPlugin(...)]`. The factory is exported for programmatic composition.
+`remotes` is a first-class core config key, so the common path is `defineProject({ remotes: {...} })` rather than `plugins: [remotesPlugin(...)]`. The factory is exported for programmatic composition.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   remotes: {
     default: {
       url: 'https://routecraft.example.internal',

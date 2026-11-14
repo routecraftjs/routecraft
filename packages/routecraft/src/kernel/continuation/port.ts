@@ -137,7 +137,7 @@ export interface DeferralRuntime {
 
 /** How a missing continuations provider is remedied, in every refusal. */
 export const CONTINUATIONS_REMEDY =
-  "Add deferral: {} to defineProject (or defineConfig) to take the defaults, or deferral: { store, secret } to be explicit.";
+  "Add deferral: {} to defineProject to take the defaults, or deferral: { store, secret } to be explicit.";
 
 /**
  * The application's continuations provider, for a caller that cannot go

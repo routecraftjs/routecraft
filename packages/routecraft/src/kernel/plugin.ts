@@ -8,6 +8,7 @@ import type { Continuations } from "./continuation/facade.ts";
 import type { AnyPort, Port } from "./port.ts";
 import type { Hooks, PointDeclaration, RouteHookView } from "./hooks.ts";
 import type { StepFactory } from "./steps.ts";
+import type { PluginTooling } from "./tooling.ts";
 
 /**
  * How far the application got, handed to every {@link Plugin.stop}.
@@ -264,6 +265,12 @@ export interface Plugin {
    * never disagree with the body and headers it derives from.
    */
   readonly facet?: (exchange: Exchange) => unknown;
+  /**
+   * Commands and logins for the tools around the application, such as the
+   * `craft` command line. Read off the descriptor without binding, so it
+   * works from the plugin's options alone.
+   */
+  readonly tooling?: PluginTooling;
   /** Require, provide, observe, register routes. Runs in dependency order. */
   bind?(context: PluginContext): void | Promise<void>;
   /**

@@ -223,7 +223,7 @@ Remove one of the plugins, or rename the step. Build a new step on every call of
 Invalid plugin descriptor
 
 **Why it happens**  
-Something installed as a plugin is not a valid descriptor: it has no dotted `id`, it still has the pre-0.8 `apply(ctx)` shape, a `requires`, `optional`, `provides` or `replaces` list holds something other than ports, a hook or lifecycle field is not a function, a hook has no `id`, or a `repeatable` plugin declares what only one install may (a port it provides or replaces, hooks, points, steps or a facet). Raised before any plugin binds.
+Something installed as a plugin is not a valid descriptor: it has no dotted `id`, it still has the pre-0.8 `apply(ctx)` shape, a `requires`, `optional`, `provides` or `replaces` list holds something other than ports, a hook or lifecycle field is not a function, a hook has no `id`, a `repeatable` plugin declares what only one install may (a port it provides or replaces, hooks, points, steps, a facet or tooling commands), or its `tooling` is malformed: a command key that is not one word of letters, digits, `-` and `_`, or `logins` that does not return login objects. Raised before any plugin binds. The command line raises it too, for a plugin that declares commands under a verb `craft` keeps or under the name of a subcommand `craft` ships (see [plugin commands](/docs/reference/cli#plugin-commands)).
 
 **Suggestion**  
 Build the plugin with `definePlugin({ id, ... })`. The message names the plugin's position, or the plugin that brought it, and the field at fault. Every hook names itself with `id`, because `hooks.order` and `hooks.disable` address it as `pluginId/id` and a name that followed the function or its position would move under that config. A pre-0.8 plugin moves `apply` into `bind(c)` and `teardown` into `stop(c, info)`; see the [0.7 to 0.8 migration guide](/docs/migrating/0.7-to-0.8).
@@ -245,6 +245,15 @@ A plugin declares `replaces` for a port that no installed plugin provides, while
 
 **Suggestion**  
 Build the replacement against the version that is installed, or upgrade the plugin that provides the other one. A port's version changes whenever the shape of its value changes, so the two versions are different contracts and the replacement has to be written for the one in use.
+
+## RC1120
+No project export
+
+**Why it happens**  
+The command line read a `craft.config` file whose default export is not a project, or `craft run` was given a file that still exports `craftConfig`. A plain default-exported object, a `defineConfig(...)` result and the named `craftConfig` export are the pre-0.8 shapes; none of them is read. The message names the file and the shape it found.
+
+**Suggestion**  
+Write `export default defineProject({ ... })` in `craft.config.ts` with the same keys. In a file run with `craft run`, write `export const project = defineProject({ ... })`, or remove the export and let `craft run` find the project's `craft.config`. See [the migration guide](/docs/migrating/0.7-to-0.8#19-project-export).
 
 ## RC2001
 Invalid operation type
@@ -338,10 +347,10 @@ Adjust the schema or coerce input; check data shapes. For Zod: use `z.object()`,
 Adapter misconfigured
 
 **Why it happens**  
-Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage. Also raised at `context.start()` when a `directTool` names a route declared [`direct({ internal: true })`](/docs/reference/adapters/direct), and when one endpoint declares itself both internal and a discoverable capability (e.g. two direct sources on one route, one internal and one not). Also raised at start when a surface mounts HTTP on a server `servers` does not declare, or when two surfaces claim the same path on one server; see [Mounts and claims](/docs/reference/plugins/serversplugin#mounts-and-claims). Also raised when `.header()` names an engine-owned key, `routecraft.correlation_id` and `routecraft.causation_id` among them, and when a source, `CraftClient` or [`.correlate()`](/docs/reference/operations/correlate) supplies a correlation or causation id that is not 1 to 128 characters from `[A-Za-z0-9._~:-]`.
+Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage. Also raised at `context.start()` when a `directTool` names a route declared [`direct({ internal: true })`](/docs/reference/adapters/direct), and when one endpoint declares itself both internal and a discoverable capability (e.g. two direct sources on one route, one internal and one not). Also raised at start when a surface mounts HTTP on a server `servers` does not declare, or when two surfaces claim the same path on one server; see [Mounts and claims](/docs/reference/plugins/serversplugin#mounts-and-claims). Also raised when `.header()` names an engine-owned key, `routecraft.correlation_id` and `routecraft.causation_id` among them, and when a source, `CraftClient` or [`.correlate()`](/docs/reference/operations/correlate) supplies a correlation or causation id that is not 1 to 128 characters from `[A-Za-z0-9._~:-]`. Also raised when two plugin [logins](/docs/reference/plugins#tooling) share an `id`, which `craft connect <id>` could not tell apart, or an `owner`, whose credential they would share.
 
 **Suggestion**  
-Check required options and correct role usage (`.from()` vs `.to()`). To join an exchange to another journey, use `.correlate()` rather than `.header()`, and hash an id longer than 128 characters before supplying it. Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`). For a `directTool` naming an internal route, expose a boundary route carrying `.input()`, `.description()` and `.authorize()`, and point the tool at that.
+Check required options and correct role usage (`.from()` vs `.to()`). To join an exchange to another journey, use `.correlate()` rather than `.header()`, and hash an id longer than 128 characters before supplying it. Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`). For a `directTool` naming an internal route, expose a boundary route carrying `.input()`, `.description()` and `.authorize()`, and point the tool at that. Give each client or login its own name.
 
 ## RC5004
 No handler available
@@ -455,7 +464,7 @@ The error message names the adapter (`cron`, `html`, ...) and the missing packag
 HTTP source request rejected
 
 **Why it happens**  
-The HTTP source (`http({ path, method })` via `defineConfig({ http })`) could not service a request at the adapter boundary. It covers an oversized request body (returned to the client as `413 Payload Too Large`) and a body that cannot be parsed for its declared `Content-Type` (`400 Bad Request`, e.g. malformed JSON or multipart).
+The HTTP source (`http({ path, method })` via `defineProject({ http })`) could not service a request at the adapter boundary. It covers an oversized request body (returned to the client as `413 Payload Too Large`) and a body that cannot be parsed for its declared `Content-Type` (`400 Bad Request`, e.g. malformed JSON or multipart).
 
 **Suggestion**  
 For 413, raise `http: { maxBodySize }` or have the client send a smaller payload. For 400, fix the request body so it matches the `Content-Type`.
@@ -464,7 +473,7 @@ For 413, raise `http: { maxBodySize }` or have the client send a smaller payload
 HTTP server bind failed
 
 **Why it happens**  
-A named server (`defineConfig({ servers })`) could not bind its configured port/host during context start. The message names the server (`servers.<name>: bind failed on host:port`). The usual cause is `EADDRINUSE` (another process, or another listener in the same process, already owns the port) or `EADDRNOTAVAIL` (the host is not one this machine can bind). Declared duplicate binds are caught earlier at build time; RC5019 is the runtime authority for conflicts the build-time check cannot see (wildcard vs specific addresses, other processes).
+A named server (`defineProject({ servers })`) could not bind its configured port/host during context start. The message names the server (`servers.<name>: bind failed on host:port`). The usual cause is `EADDRINUSE` (another process, or another listener in the same process, already owns the port) or `EADDRNOTAVAIL` (the host is not one this machine can bind). Declared duplicate binds are caught earlier at build time; RC5019 is the runtime authority for conflicts the build-time check cannot see (wildcard vs specific addresses, other processes).
 
 **Suggestion**  
 Free the port or choose another via `servers: { <name>: { port } }` (use `0` to let the OS assign one), and check that `host` is an address this machine can bind. Surfaces that should share one listener mount on the same named server instead of declaring their own.
@@ -725,7 +734,7 @@ Resume-token signing secret not configured
 A context whose routes can reach a durable `.defer()` was built without a way to sign resume tokens. Resume tokens are the capability a deferred exchange hands its approver, so a context that cannot sign them cannot defer anything. The check runs while the context is being built, not on the first defer, so this surfaces at startup rather than on the first large payout.
 
 **Suggestion**  
-Set the `ROUTECRAFT_DEFERRAL_SECRET` environment variable, or pass `deferral: { secret }` to `defineConfig`. Prefer the environment variable: a secret in a config file is a secret in version control. Generate one with `openssl rand -base64 32`.
+Set the `ROUTECRAFT_DEFERRAL_SECRET` environment variable, or pass `deferral: { secret }` to `defineProject`. Prefer the environment variable: a secret in a config file is a secret in version control. Generate one with `openssl rand -base64 32`.
 
 At least 32 bytes are required, and a shorter secret raises this same code. A resume token is a bearer capability, so any holder of one token can guess the secret offline with no rate limit and no server involvement; a dictionary-strength value falls in seconds, after which an attacker can mint a token for any deferral.
 
@@ -849,7 +858,7 @@ Deferral runtime not configured
 A route in this context can reach a durable `.defer()`, but nothing configured where deferred exchanges are stored or how resume tokens are signed.
 
 **Suggestion**  
-Add `deferral: {}` to `defineConfig` to take the defaults, or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently defers into memory loses everything it promised on the next restart.
+Add `deferral: {}` to `defineProject` to take the defaults, or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently defers into memory loses everything it promised on the next restart.
 
 `deferral: {}` applies defaults; it does not supply a signing secret. In production, set `secret` or the `ROUTECRAFT_DEFERRAL_SECRET` environment variable, or startup fails with [`RC5040`](#rc-5040) instead. An ephemeral key is minted only for tests and development, because a key that dies with the process makes every outstanding resume token unverifiable across exactly the restart deferral exists to survive.
 
@@ -968,7 +977,7 @@ Raise the ceiling on the call when the endpoint legitimately returns more than 1
 Remote instance unreachable
 
 **Why it happens**  
-A dispatch to a route imported through [`defineConfig({ remotes })`](/docs/reference/plugins/remotesplugin) never got an answer from the remote instance. The connection was refused or the name did not resolve, the connection was lost after the request was sent, or the request timed out. The message names the remote and the route, and says which it was.
+A dispatch to a route imported through [`defineProject({ remotes })`](/docs/reference/plugins/remotesplugin) never got an answer from the remote instance. The connection was refused or the name did not resolve, the connection was lost after the request was sent, or the request timed out. The message names the remote and the route, and says which it was.
 
 **Suggestion**  
 Check the remote's `url` and that the instance is running and serving its ops surface. Only a connection that never opened is safe to retry, and the code is marked retryable for it. A connection lost after the request was sent, or a timeout, is not: the remote may still be running the work it accepted, so a retry could run a non-idempotent route twice, and those carry `retryable: false` on the error itself.
@@ -1083,6 +1092,15 @@ A warning logged when a route starts, never thrown. The route compares a digest 
 
 **Suggestion**  
 Pass plain data where you can: strings, numbers, arrays, plain objects, `Date`, `URL`, `RegExp`, functions. For a value that cannot be plain, have the step or adapter that holds it state its identity with `[IDENTITY]()`, using `versioned(value, id)` for a value whose author knows when it changed and `secret(value)` for one that configures without defining. See [step identity](/docs/advanced/plugins#step-identity).
+
+## RC5072
+Credential outside a plugin's tooling scope
+
+**Why it happens**  
+A plugin's [tooling command](/docs/reference/plugins#tooling) asked the credential store for an owner that none of that plugin's own `tooling.logins` declares. The store a command is handed reaches only its own plugin's credentials, so another plugin's token is not read or overwritten by accident. The message names the plugin and the owner; no credential is read.
+
+**Suggestion**  
+Declare the login on the plugin whose command needs the credential, or move the command to the plugin that owns it. The narrowing is a guard on the tooling surface, not a sandbox: code in the process can open the store itself.
 
 ## RC9901
 Unknown error
