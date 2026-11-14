@@ -40,7 +40,7 @@ export {
   type InferredNode,
   type StepsDescription,
 } from "./kernel/continuation/identity.ts";
-export { getExchangeContext, getExchangeRoute } from "./exchange.ts";
+export { getExchangeContext, getExchangeRoute } from "./internal-accessors.ts";
 export { clipText } from "./shared/text.ts";
 export { rejectStaleOptions } from "./shared/stale-options.ts";
 export { isDevelopmentRuntime } from "./shared/runtime-env.ts";
