@@ -102,8 +102,8 @@ import '@routecraft/ai'
 
 export default defineProject({
   llm: { providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } } },
-  agent: {}, // .to(agent(...)) needs the agent plugin
-  mcp: {}, // .from(mcp()) needs the MCP plugin
+  agent: {}, // agent() needs the agent plugin
+  mcp: {}, // mcp() needs the MCP plugin
 })
 ```
 
