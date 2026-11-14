@@ -421,7 +421,7 @@ A step's identity is `{ kind, version?, options? }`:
 | What | Where its identity comes from |
 | --- | --- |
 | A core step or wrapper | It states it: `[IDENTITY]()` on the step, `wrapperKind` and `identityOptions()` on a wrapper. Kinds are `routecraft.<method>`. |
-| A plugin's catalogue step | Derived: kind `<pluginId>.<stepName>`, options the arguments the method was called with and the callback given to `step()`. `step(fn, { identity: { version, options } })` adds a version or replaces the derived options. |
+| A plugin's catalogue step | Derived: kind `<pluginId>.<stepName>`, options the arguments the method was called with and the callback given to `step()`. `step(impl, { identity: { version, options } })` lays a version over that, and `options` in place of the arguments: an author who states options restates every argument that defines the step, as `secret()` or `versioned()` where the digest should not read it. The callback stays. On a raw step that states `[IDENTITY]()` the same option replaces its version and its options. |
 | A raw step implementing `[IDENTITY]()` | What it returns. |
 | Any other raw step | Kind `step.<operation>`, options its adapter. |
 | An adapter | `[IDENTITY]()` when it has one, else the factory arguments `tagAdapter` recorded, else its own enumerable properties. |
@@ -434,17 +434,20 @@ Options are encoded canonically, each value under its own tag:
 | `Date`, `URL`, `RegExp` | ISO time, href, source and flags |
 | Array, `Map`, `Set` | Members in order |
 | Plain object | Own enumerable string keys, sorted; an accessor is not invoked |
-| Standard Schema | Its JSON Schema rendering, else vendor and `degraded` |
+| Standard Schema | Its JSON Schema rendering (draft 2020-12, pinned apart from the dialect a route is described in), else its vendor and version, reported as inferred. A refinement or transform callback is not in a rendering: `versioned(schema, id)` pins a schema whose checks live there |
 | A function that states an identity (every core helper that returns one) | That identity, never its source |
 | Any other function | Its source as the runtime reports it |
-| `secret(value)` | A constant: rotation moves nothing |
+| `secret(value)` | A constant: rotation moves nothing. For a value that configures without deciding the result; a credential that selects whose data comes back is `versioned(value, accountId)`, or two accounts share one cache key |
 | `versioned(value, id)` | `id` alone |
 | A class instance, a native or bound function, a symbol-keyed or accessor property, a cycle, anything nested more than five deep | A placeholder, and the value is reported as inferred |
 
 Three rules follow. Core never lets its own source text into a digest, so a
 release, a minifier and the ESM or CJS build do not move it; a helper that
-returns a closure wraps it with `identified()`, because the closure reads
-the same whatever it was given. A user's function is digested verbatim:
+returns a closure wraps it with `identified()` (public, for a third
+party's helper as for core's), because the closure reads the same whatever
+it was given. A core step or wrapper digests its options as they were
+given, never with its defaults filled in, and bumps `version` when a
+default or its own behaviour changes. A user's function is digested verbatim:
 normalising it could fold two behaviours onto one digest, and a missed
 change resumes an approval into behaviour nobody approved, while a spurious
 one costs a re-ask. And the digest never covers what a function captured,
@@ -452,8 +455,12 @@ what a `direct()` target or a registered resource (a named agent) does, or
 an environment variable: anything that changes what a step does belongs in
 its arguments or on its adapter.
 
-A route that defers logs `RC5071` once at start for every inferred value in
-what a resume would run. `.log()` and `.debug()` are exempt from the
+A route logs `RC5071` once at start for every inferred value in a digest
+it compares: what a resume would run after each defer site, the whole
+pipeline when the error path declares a park (`.error(handler, { schema })`
+or a hook with `mayDefer`), and the pipeline a default cache key stands
+for at either scope. Each entry says which (`affects: "resume" | "cache"`).
+An `.error()` handler that parks without declaring a schema is not walked. `.log()` and `.debug()` are exempt from the
 digest. The stored `continuationHash` is `d2:<sha256>/<per-step digests>`;
 a record in an older format is refused with `RC5048`. The deferral plugin provides
 that port over the memory or SQLite store, mints and verifies resume tokens,

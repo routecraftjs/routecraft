@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Adapter, Step } from "../../types.ts";
 import {
@@ -9,6 +8,8 @@ import type { SerializedExchange, DeferralSchema } from "./types.ts";
 import {
   describeSteps,
   DIGEST_PREFIX,
+  DIGEST_SCHEMA_TARGET,
+  sha256,
   type StepsDescription,
 } from "./identity.ts";
 
@@ -78,6 +79,15 @@ export function continuationTailHash(
   return `${described.digest}/${described.stepDigests.join(".")}`;
 }
 
+/** The parts of a string {@link continuationTailHash} wrote, or nothing for any other. */
+function parseContinuationHash(
+  stored: string,
+): { digest: string; stepDigests: string[] } | undefined {
+  if (!stored.startsWith(DIGEST_PREFIX)) return undefined;
+  const [digest = "", steps = ""] = stored.split("/");
+  return { digest, stepDigests: steps.split(".").filter(Boolean) };
+}
+
 /**
  * Whether a stored continuation hash is in the current format. One that
  * is not was written before steps stated their identity and cannot be
@@ -86,7 +96,7 @@ export function continuationTailHash(
  * @internal
  */
 export function isCurrentContinuationHash(stored: string): boolean {
-  return stored.startsWith(DIGEST_PREFIX);
+  return parseContinuationHash(stored) !== undefined;
 }
 
 /**
@@ -107,22 +117,19 @@ export function continuationDifference(
   errorPath?: string,
 ): string {
   const live = describeContinuation(tail, schema, errorPath);
-  const slash = stored.indexOf("/");
-  const before =
-    slash < 0
-      ? []
-      : stored
-          .slice(slash + 1)
-          .split(".")
-          .filter(Boolean);
-  const index = live.stepDigests.findIndex((digest, i) => digest !== before[i]);
+  const before = parseContinuationHash(stored)?.stepDigests ?? [];
+  const now = live.stepDigests;
+  const index = now.findIndex((digest, i) => digest !== before[i]);
+  if (index >= 0 && index < before.length) {
+    return `step ${live.positions[index]! + 1} of what would run (${live.kinds[index]}) differs`;
+  }
   if (index >= 0) {
-    return `step ${index + 1} of what would run (${live.kinds[index]}) differs`;
+    return `${now.length - before.length} step(s) were added at the end, from step ${live.positions[index]! + 1} (${live.kinds[index]})`;
   }
-  if (before.length > live.stepDigests.length) {
-    return `${before.length - live.stepDigests.length} step(s) were removed from the end`;
+  if (before.length > now.length) {
+    return `${before.length - now.length} step(s) were removed from the end`;
   }
-  return "the schema the resume payload is validated against differs";
+  return "the schema the resume payload is validated against, or the error path the deferral was parked from, differs";
 }
 
 /**
@@ -166,7 +173,7 @@ export function describeSchema(schema?: StandardSchemaV1): DeferralSchema {
   const jsonSchema = renderDirectedJsonSchema(
     schema,
     "output",
-    JSON_SCHEMA_TARGET,
+    DIGEST_SCHEMA_TARGET,
   );
   // Without a rendering there is nothing schema-specific to hash, so the
   // descriptor falls back to vendor and version. That fallback is identical
@@ -194,18 +201,6 @@ export function describeSchema(schema?: StandardSchemaV1): DeferralSchema {
     ...(degraded ? { degraded: true } : {}),
   };
 }
-
-/**
- * JSON Schema dialect asked of a producer.
- *
- * Standard JSON Schema types both arms as `(options: { target }) => …`, so
- * the argument is required rather than optional: an implementation is
- * entitled to read `options.target` and throw without it. Zod 4 tolerates
- * the omission, which is why calling with no argument looked correct.
- * Pinned rather than configurable, because the value is folded into
- * `continuationHash`: letting it vary would change every stored digest.
- */
-const JSON_SCHEMA_TARGET = "draft-2020-12";
 
 /**
  * Bind an approval to the operation it authorized.
@@ -263,11 +258,6 @@ function canonical(value: unknown): string {
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`);
   return `{${entries.join(",")}}`;
-}
-
-/** @internal */
-function sha256(input: string): string {
-  return createHash("sha256").update(input, "utf8").digest("hex");
 }
 
 /**

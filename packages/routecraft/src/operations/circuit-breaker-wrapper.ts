@@ -554,17 +554,19 @@ export class CircuitBreakerWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedCircuitBreakerOptions;
+  readonly #given: unknown;
   readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, options: CircuitBreakerOptions) {
     super(inner);
     this.#options = resolveCircuitBreakerOptions(options);
+    this.#given = options;
   }
 
   protected override readonly wrapperKind = "routecraft.circuitBreaker";
 
   protected override identityOptions(): Omit<Identity, "kind"> {
-    return { options: this.#options };
+    return { options: this.#given };
   }
 
   override get requiredPosition(): RequiredPosition {

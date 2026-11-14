@@ -76,7 +76,10 @@ import type {
   ErrorPathSite,
 } from "./kernel/continuation/sites.ts";
 import { nestedStepsOf } from "./kernel/continuation/sites.ts";
-import { describeSteps } from "./kernel/continuation/identity.ts";
+import {
+  describeSteps,
+  type InferredNode,
+} from "./kernel/continuation/identity.ts";
 import { STEP_PLUGIN } from "./dsl-symbol.ts";
 import type { WrapperStep } from "./operations/wrapper.ts";
 import { DeferralHeaders } from "./kernel/continuation/exchange-state.ts";
@@ -438,6 +441,14 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   cachePipeline?: string;
+
+  /**
+   * What the digests behind this route's default-keyed step-scope caches
+   * could not see into, for the `RC5071` warning at start.
+   *
+   * @internal
+   */
+  cacheInferred?: ReadonlyArray<InferredNode>;
 
   /**
    * Where an error-path park would land, per step of this route.
@@ -923,33 +934,58 @@ export class DefaultRoute implements Route {
   private warnedInferred = false;
 
   /**
-   * Warn (`RC5071`) when a resume of this route would run a step whose
-   * definition the continuation digest cannot fully see, so an edit there
-   * would not refuse a parked approval.
+   * Warn (`RC5071`) when this route compares a digest of its steps that
+   * cannot see all of them: the continuation of a park (a defer site, or
+   * the whole pipeline when the error path declares one) and the pipeline
+   * a default cache key stands for. An edit to such a value refuses no
+   * parked approval and misses no cached entry.
    */
   private warnInferredContinuations(): void {
-    const sites = [
-      ...(this.definition.deferSteps ?? []).map((step) => step.site),
-      ...(this.definition.reentrantDeferSteps ?? []).map(
-        (step) => step.deferSite,
-      ),
-    ];
-    const inferred = new Map<string, string>();
-    for (const site of sites) {
-      if (!site) continue;
-      const base = site.position;
-      for (const node of describeSteps(site.continuation).inferred) {
-        inferred.set(`after position ${base}: ${node.path}`, node.reason);
+    const { definition } = this;
+    const inferred = new Map<string, { reason: string; affects: string }>();
+    const walk = (
+      steps: ReadonlyArray<Step<Adapter>>,
+      affects: string,
+      where: string,
+    ): void => {
+      for (const node of describeSteps(steps).inferred) {
+        inferred.set(`${where}: ${node.path}`, {
+          reason: node.reason,
+          affects,
+        });
       }
+    };
+    const sites = [
+      ...(definition.deferSteps ?? []).map((step) => step.site),
+      ...(definition.reentrantDeferSteps ?? []).map((step) => step.deferSite),
+    ];
+    for (const site of sites) {
+      if (site)
+        walk(site.continuation, "resume", `after position ${site.position}`);
+    }
+    if (
+      definition.errorPathSchema !== undefined ||
+      this.context.hasDeferringErrorHook(definition)
+    ) {
+      walk(definition.steps, "resume", "on the error path");
+    }
+    if (definition.cache !== undefined) {
+      walk(definition.steps, "cache", "under the route's cache");
+    }
+    for (const node of definition.cacheInferred ?? []) {
+      inferred.set(`under a step's cache: ${node.path}`, {
+        reason: node.reason,
+        affects: "cache",
+      });
     }
     if (inferred.size === 0) return;
     this.logger.warn(
       {
         rc: "RC5071",
-        route: this.definition.id,
-        inferred: [...inferred].map(([path, reason]) => ({ path, reason })),
+        route: definition.id,
+        inferred: [...inferred].map(([path, entry]) => ({ path, ...entry })),
       },
-      `Route "${this.definition.id}" defers, and ${inferred.size} value(s) in what a resume would run are invisible to the continuation digest. Editing one will not refuse a parked approval.`,
+      "A route holds values its step digest cannot see. Editing one refuses no parked approval and misses no cached entry.",
     );
   }
 

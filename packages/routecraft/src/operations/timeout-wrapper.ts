@@ -112,17 +112,19 @@ export class TimeoutWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedTimeoutOptions;
+  readonly #given: unknown;
   readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, duration: Duration) {
     super(inner);
     this.#options = resolveTimeoutOptions(duration);
+    this.#given = { duration };
   }
 
   protected override readonly wrapperKind = "routecraft.timeout";
 
   protected override identityOptions(): Omit<Identity, "kind"> {
-    return { options: this.#options };
+    return { options: this.#given };
   }
 
   override get requiredPosition(): RequiredPosition {

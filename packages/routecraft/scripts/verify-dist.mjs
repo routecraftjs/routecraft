@@ -64,12 +64,6 @@ const ENTRIES = { esm: "dist/index.js", cjs: "dist/index.cjs" };
 const mode = process.argv[2] ?? "esm";
 
 /**
- * The `./internal` subpath is a second bundle, so the package `exports` map
- * and both of its outputs are checked against the shipped artifacts: a
- * sibling package resolves it by package name and gets nothing if either
- * is missing.
- */
-/**
  * One route over every wrapper, the nesting steps and the helpers that
  * return functions, built by the given main entry.
  */
@@ -121,6 +115,12 @@ function identityCorpus(m) {
     .build()[0].steps;
 }
 
+/**
+ * The `./internal` subpath is a second bundle, so the package `exports` map
+ * and both of its outputs are checked against the shipped artifacts: a
+ * sibling package resolves it by package name and gets nothing if either
+ * is missing.
+ */
 if (mode === "internal") {
   const { createRequire } = await import("node:module");
   const esm = await import("@routecraft/routecraft/internal");

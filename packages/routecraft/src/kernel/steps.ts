@@ -110,11 +110,11 @@ export function step<In, Out>(
 
 /** Options of {@link step}. */
 export interface StepOptions {
-  /** Adds to the identity the builder derives from the factory arguments. */
+  /** Laid over the identity the builder derives from the factory arguments, or the one a raw step states. */
   readonly identity?: {
     /** Bumped when the step's behaviour changes in a way its arguments do not show. */
     readonly version?: string | number;
-    /** A value that defines the step and is not among its factory arguments. */
+    /** What defines the step, replacing the derived arguments: restate each argument that matters, `secret()` or `versioned()` the ones the digest should not read. */
     readonly options?: IdentityValue;
   };
 }

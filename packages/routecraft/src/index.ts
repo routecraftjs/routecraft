@@ -1064,6 +1064,7 @@ export { NESTED_STEPS, AUTHENTICATES } from "./dsl-symbol.ts";
 export type { NestedSteps, NestingStep } from "./kernel/continuation/sites.ts";
 export {
   IDENTITY,
+  identified,
   secret,
   versioned,
   type Identity,

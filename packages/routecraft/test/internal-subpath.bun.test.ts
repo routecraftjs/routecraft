@@ -13,7 +13,6 @@ const INTERNAL_NAMES = [
   "clipText",
   "compareRuntimeVersion",
   "describeSteps",
-  "identified",
   "isDevelopmentRuntime",
   "isSourceFixture",
   "parseRuntimeVersion",

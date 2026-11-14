@@ -5,6 +5,7 @@ import {
   definePlugin,
   defineProject,
   direct,
+  identified,
   secret,
   step,
   versioned,
@@ -111,5 +112,36 @@ describe("step identity from the published packages", () => {
     expect(describeIdentity([blind]).inferred).toEqual([
       { path: "steps[0].options.client", reason: "a class instance" },
     ]);
+  });
+
+  /**
+   * @case A third party's helper returns a function and states what it was given
+   * @preconditions A catalogue step taking a predicate; a helper `atLeast(min)` returning one closure text for every `min`, wrapped with `identified()`
+   * @expectedResult Two thresholds digest differently and nothing is inferred, using published names only
+   */
+  test("a helper identifies the function it returns", () => {
+    const atLeast = (min: number) =>
+      identified((value: number) => value >= min, {
+        kind: "acme.atLeast",
+        options: { min },
+      });
+    const gate = definePlugin({
+      id: "acme.gate",
+      steps: {
+        gate: (allow: (value: number) => boolean) =>
+          step<number, number>((ex) => (allow(ex.body) ? ex.body : 0)),
+      },
+    });
+    const steps = (min: number) =>
+      defineProject({ plugins: [gate] })
+        .craft()
+        .id("gate")
+        .from(direct<number>())
+        .gate(atLeast(min))
+        .build()[0]!.steps;
+    expect(describeIdentity(steps(1)).inferred).toEqual([]);
+    expect(describeIdentity(steps(1)).digest).not.toBe(
+      describeIdentity(steps(2)).digest,
+    );
   });
 });

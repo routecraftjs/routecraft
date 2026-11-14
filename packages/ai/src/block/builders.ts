@@ -1,10 +1,10 @@
-import { identified } from "@routecraft/routecraft/internal";
 import { readFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import {
   rcError,
   type CraftContext,
   type Exchange,
+  identified,
 } from "@routecraft/routecraft";
 import { readMarkdownSource, requireString } from "./markdown.ts";
 import type {

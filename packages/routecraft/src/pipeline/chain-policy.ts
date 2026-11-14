@@ -45,6 +45,8 @@ type NonChainField =
   // An input to the cache-check filter's key, not a position: the filter
   // itself answers under `cache`.
   | "cachePipeline"
+  // A start-time diagnostic (`RC5071`), read once.
+  | "cacheInferred"
   // Per-route LIFECYCLE, not per-exchange admission: it decides whether the
   // route runs at all, and is evaluated when the route starts rather than
   // when an exchange arrives. A detached run only happens inside a route

@@ -1894,7 +1894,9 @@ export class RouteBuilder<
       // cache check, which reads what it resolved.
       applyResolvedSites(route);
       assertRouteScopeCacheCompatibility(route);
-      const stepScopeDefaultKey = assignCacheSites(route);
+      const { usesDefaultKey: stepScopeDefaultKey, inferred } =
+        assignCacheSites(route);
+      if (inferred.length > 0) route.cacheInferred = inferred;
       if (route.cache !== undefined) {
         route.cachePipeline = stepsDigest(route.steps);
       }

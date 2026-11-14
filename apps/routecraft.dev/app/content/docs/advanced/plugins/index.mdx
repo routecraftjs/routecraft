@@ -505,7 +505,7 @@ export const pricing = definePlugin({
 })
 ```
 
-The second is an argument that is not plain data. A class instance, a bound function or a schema with no JSON Schema rendering digests as a placeholder, and a route that defers warns at start with [`RC5071`](/docs/reference/errors#rc-5071), naming where the value sits. State what defines the step in `identity.options`, which replaces the derived arguments:
+The second is an argument that is not plain data. A class instance, a bound function or a schema with no JSON Schema rendering digests as a placeholder, and a route that defers, or caches under the default key, warns at start with [`RC5071`](/docs/reference/errors#rc-5071), naming where the value sits. State what defines the step in `identity.options`, which replaces the method's recorded arguments, so restate every one that matters:
 
 ```ts
 import { definePlugin, secret, step, versioned } from '@routecraft/routecraft'
@@ -538,9 +538,9 @@ export const books = definePlugin({
 })
 ```
 
-`versioned(value, id)` digests `id` and never looks at the value. `secret(value)` digests as a constant, so rotating a credential re-asks no parked approval and misses no cache entry. A step or adapter written by hand states the same thing by implementing `[IDENTITY]()`; the [reference](/docs/reference/plugins#step-identity) lists the protocol and how each kind of value is encoded.
+`versioned(value, id)` digests `id` and never looks at the value. `secret(value)` digests as a constant, so rotating a credential re-asks no parked approval and misses no cache entry. That is right for a token that only authenticates. A credential that selects whose data comes back (one key per tenant) defines the result: state the account beside it, as `account` is here, or two tenants share a cache entry. A step or adapter written by hand states the same thing by implementing `[IDENTITY]()`; the [reference](/docs/reference/plugins#step-identity) lists the protocol and how each kind of value is encoded.
 
-The digest reads a function's source and never what it captured. A value your callback closes over is invisible to it, so anything that changes what the step does belongs in the method's arguments.
+The digest reads a function's source and never what it captured. A value your callback closes over is invisible to it, so anything that changes what the step does belongs in the method's arguments. The same holds for a helper you export that returns a function: `atLeast(5)` and `atLeast(9)` return one source text, so wrap what it returns with `identified(fn, { kind: 'acme.atLeast', options: { min } })`.
 
 To check a step you ship, `describeIdentity` from `@routecraft/testing` returns the digest and the values it could not see:
 

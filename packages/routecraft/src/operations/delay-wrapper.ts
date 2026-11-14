@@ -32,16 +32,18 @@ export class DelayWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #delayMs: number;
+  readonly #given: Duration;
 
   constructor(inner: Step<T>, duration: Duration) {
     super(inner);
     this.#delayMs = parseDuration(duration, "delay(duration)", 0);
+    this.#given = duration;
   }
 
   protected override readonly wrapperKind = "routecraft.delay";
 
   protected override identityOptions(): Omit<Identity, "kind"> {
-    return { options: { delayMs: this.#delayMs } };
+    return { options: { duration: this.#given } };
   }
 
   protected override async runInner(

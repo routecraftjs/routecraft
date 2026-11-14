@@ -13,7 +13,6 @@ import {
 import {
   isStandardSchema,
   renderDirectedJsonSchema,
-  ROUTE_SCHEMA_TARGET,
   standardExtensionOf,
 } from "../../shared/standard-schema.ts";
 import type { Adapter, Step } from "../../types.ts";
@@ -51,7 +50,9 @@ export interface Identity {
  * A value an identity may hold. The canonical encoding gives each carrier
  * its own tag; anything else (a class instance, a native function, a
  * symbol-keyed property) digests as a placeholder and marks the step as
- * inferred, which `RC5071` reports on a route that defers.
+ * inferred, which `RC5071` reports on a route that defers. Deliberately
+ * `unknown`: a class instance is a plain object to the type system, so a
+ * narrower type would reject nothing the encoding does not already report.
  */
 export type IdentityValue = unknown;
 
@@ -76,6 +77,8 @@ export interface SecretMarker {
   readonly [SECRET]: true;
 }
 
+const SECRET_MARKER: SecretMarker = Object.freeze({ [SECRET]: true as const });
+
 /** A value marked by {@link versioned}. */
 export interface VersionedMarker {
   readonly [VERSIONED]: string;
@@ -92,7 +95,6 @@ export function secret(value: unknown): SecretMarker {
   void value;
   return SECRET_MARKER;
 }
-const SECRET_MARKER: SecretMarker = Object.freeze({ [SECRET]: true as const });
 
 /**
  * State a value's identity by hand. `id` is digested and the value is not,
@@ -106,14 +108,15 @@ export function versioned(_value: unknown, id: string): VersionedMarker {
 /**
  * Give a function or an object an identity, so the digest reads that and
  * never the source of a function it holds. Every core export that returns
- * a function uses it: core's emitted text differs between the ESM and the
- * CJS build, and what such a function captured is invisible in its source
- * anyway.
- *
- * @internal
+ * a function uses it, and so should any helper that returns one: what a
+ * closure captured is invisible in its source, so `guard({ roles })` reads
+ * the same for every `roles` until it is identified.
  */
 export function identified<T extends object>(target: T, identity: Identity): T {
-  Object.defineProperty(target, IDENTITY, { value: () => identity });
+  Object.defineProperty(target, IDENTITY, {
+    value: () => identity,
+    configurable: true,
+  });
   return target;
 }
 
@@ -199,14 +202,14 @@ function encodeAdapter(adapter: object, path: string, walk: Walk): unknown {
 
 function encodeFunction(fn: object, path: string, walk: Walk): unknown {
   const stated = identityOf(fn);
-  if (stated) return encodeIdentity(stated, path, walk);
+  if (stated) {
+    return inside(fn, path, walk, () => encodeIdentity(stated, path, walk));
+  }
   const source = Function.prototype.toString.call(fn);
   if (source.includes("[native code]")) {
     note(walk, path, "a native or bound function");
     return ["fn", "[native]"];
   }
-  // Verbatim. Normalising can only fold two sources onto one digest, and a
-  // missed change resumes an approval into behaviour nobody authorized.
   return ["fn", source];
 }
 
@@ -218,14 +221,14 @@ function encodeSchema(
   const rendered = renderDirectedJsonSchema(
     schema,
     "output",
-    ROUTE_SCHEMA_TARGET,
+    DIGEST_SCHEMA_TARGET,
   );
   if (rendered !== undefined) {
     return ["schema", encodeJson(rendered)];
   }
   const standard = standardExtensionOf(schema);
   note(walk, path, "a schema with no JSON Schema rendering");
-  return ["schema", standard?.vendor ?? "unknown", "degraded"];
+  return ["schema", standard?.vendor ?? "unknown", standard?.version ?? 0];
 }
 
 /** A JSON Schema rendering is plain JSON, of any depth. */
@@ -289,8 +292,9 @@ function encode(
   if (object instanceof URL) return ["url", object.href];
   if (object instanceof RegExp) return ["re", object.source, object.flags];
   const stated = identityOf(object);
-  if (stated && !isAdapterLike(object))
-    return encodeIdentity(stated, path, walk);
+  if (stated && !isAdapterLike(object)) {
+    return inside(object, path, walk, () => encodeIdentity(stated, path, walk));
+  }
   if (isStandardSchema(object)) return encodeSchema(object, path, walk);
   if (walk.ancestors.includes(object)) {
     note(walk, path, "a value that contains itself");
@@ -374,74 +378,157 @@ interface StampedStep {
   [WRAPPER_IDENTITY]?: () => Identity & { readonly inner: Step<Adapter> };
 }
 
-/**
- * The identity a step has when it states none. A step a plugin's
- * catalogue built is its plugin, its name and the arguments the builder
- * recorded, with its adapter, so nothing the author passed can fall out of
- * the digest by not being restated. Any other step is its operation and
- * its adapter.
- */
-function defaultIdentity(step: Step<Adapter> & StampedStep): Identity {
+/** The kind of a step that states none: its plugin and name when a catalogue built it, its operation otherwise. */
+function defaultKind(step: Step<Adapter> & StampedStep): string {
   const plugin = step[STEP_PLUGIN];
-  const extra = step[STEP_IDENTITY];
-  if (plugin !== undefined) {
-    return {
-      kind: `${plugin}.${step[STEP_NAME] ?? step.label ?? step.operation}`,
-      ...(extra?.version !== undefined ? { version: extra.version } : {}),
-      options: {
-        args: step[STEP_ARGS] ?? [],
-        adapter: step.adapter,
-        ...(extra?.options !== undefined ? { extra: extra.options } : {}),
-      },
-    };
+  return plugin === undefined
+    ? `step.${step.operation}`
+    : `${plugin}.${step[STEP_NAME] ?? step.label ?? step.operation}`;
+}
+
+/**
+ * Run `encodeInside` with `holder` on the ancestor stack, so an identity
+ * whose options lead back to the value that states it ends as a cycle. The
+ * holder is what repeats: `[IDENTITY]()` builds a fresh options object on
+ * every call.
+ */
+function inside(
+  holder: object,
+  path: string,
+  walk: Walk,
+  encodeInside: () => unknown,
+): unknown {
+  if (walk.ancestors.includes(holder)) {
+    note(walk, path, "a value that contains itself");
+    return ["cycle"];
   }
-  return { kind: `step.${step.operation}`, options: { adapter: step.adapter } };
+  walk.ancestors.push(holder);
+  try {
+    return encodeInside();
+  } finally {
+    walk.ancestors.pop();
+  }
+}
+
+/**
+ * A step's kind, version and encoded options. A step that states no
+ * identity is its adapter, and for one a plugin's catalogue built also the
+ * arguments the builder recorded, so nothing the author passed falls out
+ * of the digest by not being restated. Over either lies what
+ * `step(impl, { identity })` stated: the version replaces
+ * the version, and the options replace the derived arguments (or the
+ * options the step stated itself). The adapter of a derived identity
+ * stays, so the callback is never restated.
+ *
+ * Each argument starts its own depth budget: the levels this function adds
+ * around the author's values are not the author's nesting.
+ */
+function encodeStepIdentity(
+  step: Step<Adapter> & StampedStep,
+  path: string,
+  walk: Walk,
+): { kind: string; version: string | null; options: unknown } {
+  const stated = identityOf(step);
+  const over = step[STEP_IDENTITY];
+  const version = over?.version ?? stated?.version;
+  const at = `${path}.options`;
+  let options: unknown;
+  if (stated) {
+    options = encode(over?.options ?? stated.options, at, 1, walk);
+  } else {
+    const derived: Record<string, unknown> = Object.create(null);
+    derived["adapter"] = encode(step.adapter, `${at}.adapter`, 1, walk);
+    if (over?.options !== undefined) {
+      derived["stated"] = encode(over.options, `${at}.stated`, 1, walk);
+    } else if (step[STEP_PLUGIN] !== undefined) {
+      derived["args"] = [
+        "a",
+        (step[STEP_ARGS] ?? []).map((arg, index) =>
+          encode(arg, `${at}.args[${index}]`, 1, walk),
+        ),
+      ];
+    }
+    options = ["o", derived];
+  }
+  return {
+    kind: stated?.kind ?? defaultKind(step),
+    version: version === undefined ? null : String(version),
+    options,
+  };
+}
+
+interface EncodedStep {
+  readonly kind: string;
+  readonly node: unknown;
 }
 
 function encodeStep(
   step: Step<Adapter> & StampedStep,
   path: string,
   walk: Walk,
-): unknown {
+): EncodedStep {
   const wrapper = step[WRAPPER_IDENTITY]?.call(step);
   if (wrapper) {
-    return [
-      "wrap",
-      wrapper.kind,
-      wrapper.version === undefined ? null : String(wrapper.version),
-      encode(wrapper.options, `${path}.${wrapper.kind}`, 1, walk),
-      encodeStep(wrapper.inner, path, walk),
-    ];
+    return {
+      kind: wrapper.kind,
+      node: inside(step, path, walk, () => [
+        "wrap",
+        wrapper.kind,
+        wrapper.version === undefined ? null : String(wrapper.version),
+        encode(wrapper.options, `${path}.${wrapper.kind}`, 1, walk),
+        encodeStep(wrapper.inner, path, walk).node,
+      ]),
+    };
   }
-  const identity = identityOf(step) ?? defaultIdentity(step);
-  const nested = step[NESTED_STEPS]?.call(step) ?? [];
-  return [
-    "step",
-    identity.kind,
-    identity.version === undefined ? null : String(identity.version),
-    step.label ?? null,
-    encode(identity.options, `${path}.options`, 1, walk),
-    nested.map((branch, index) => [
-      encode(branch.selector, `${path}.branch[${index}].selector`, 1, walk),
-      encodeSteps(branch.steps, `${path}.branch[${index}]`, walk),
-    ]),
-  ];
+  let kind = `step.${step.operation}`;
+  const node = inside(step, path, walk, () => {
+    const identity = encodeStepIdentity(step, path, walk);
+    kind = identity.kind;
+    const nested = step[NESTED_STEPS]?.call(step) ?? [];
+    return [
+      "step",
+      identity.kind,
+      identity.version,
+      step.label ?? null,
+      identity.options,
+      nested.map((branch, index) => [
+        encode(branch.selector, `${path}.branch[${index}].selector`, 1, walk),
+        encodeSteps(branch.steps, `${path}.branch[${index}]`, walk).map(
+          (encoded) => encoded.node,
+        ),
+      ]),
+    ];
+  });
+  return { kind, node };
 }
 
 function encodeSteps(
   steps: ReadonlyArray<Step<Adapter>>,
   path: string,
   walk: Walk,
-): unknown[] {
-  const nodes: unknown[] = [];
+): Array<EncodedStep & { readonly position: number }> {
+  const encoded: Array<EncodedStep & { readonly position: number }> = [];
   steps.forEach((step, index) => {
     if ((step as StampedStep)[DIGEST_EXEMPT] === true) return;
-    nodes.push(encodeStep(step, `${path}[${index}]`, walk));
+    encoded.push({
+      ...encodeStep(step, `${path}[${index}]`, walk),
+      position: index,
+    });
   });
-  return nodes;
+  return encoded;
 }
 
-function sha256(input: string): string {
+/**
+ * The JSON Schema dialect a schema is rendered in before it is digested.
+ * Pinned: it is folded into stored digests, so it never follows the
+ * dialect the ops surface or `craft run --help` describes a route in.
+ *
+ * @internal
+ */
+export const DIGEST_SCHEMA_TARGET = "draft-2020-12";
+
+/** @internal */
+export function sha256(input: string): string {
   return createHash("sha256").update(input, "utf8").digest("hex");
 }
 
@@ -456,6 +543,8 @@ export interface StepsDescription {
   readonly stepDigests: readonly string[];
   /** The kind of each of those steps, for a message that names the one that moved. */
   readonly kinds: readonly string[];
+  /** Where each of those steps sits in the list given, exempt steps counted. */
+  readonly positions: readonly number[];
   /** Every value the digest could not see into. Empty when the digest covers the whole definition. */
   readonly inferred: readonly InferredNode[];
 }
@@ -475,7 +564,8 @@ export function describeSteps(
   extra?: Readonly<Record<string, string | undefined>>,
 ): StepsDescription {
   const walk: Walk = { inferred: [], ancestors: [] };
-  const nodes = encodeSteps(steps, "steps", walk);
+  const encoded = encodeSteps(steps, "steps", walk);
+  const nodes = encoded.map((step) => step.node);
   const bound: Record<string, string> = Object.create(null);
   for (const key of Object.keys(extra ?? {}).sort()) {
     const value = extra![key];
@@ -484,7 +574,8 @@ export function describeSteps(
   return {
     digest: DIGEST_PREFIX + sha256(JSON.stringify([nodes, bound])),
     stepDigests: nodes.map((node) => sha256(JSON.stringify(node)).slice(0, 8)),
-    kinds: nodes.map((node) => String((node as unknown[])[1])),
+    kinds: encoded.map((step) => step.kind),
+    positions: encoded.map((step) => step.position),
     inferred: walk.inferred,
   };
 }
@@ -527,6 +618,8 @@ export function encodeStepsCanonical(
   steps: ReadonlyArray<Step<Adapter>>,
 ): string {
   return JSON.stringify(
-    encodeSteps(steps, "steps", { inferred: [], ancestors: [] }),
+    encodeSteps(steps, "steps", { inferred: [], ancestors: [] }).map(
+      (step) => step.node,
+    ),
   );
 }

@@ -277,17 +277,19 @@ export class RetryWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedRetryOptions;
+  readonly #given: unknown;
   readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, options: RetryOptions = {}) {
     super(inner);
     this.#options = resolveRetryOptions(options);
+    this.#given = options;
   }
 
   protected override readonly wrapperKind = "routecraft.retry";
 
   protected override identityOptions(): Omit<Identity, "kind"> {
-    return { options: this.#options };
+    return { options: this.#given };
   }
 
   override get requiredPosition(): RequiredPosition {

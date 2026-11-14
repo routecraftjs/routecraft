@@ -290,7 +290,7 @@
   {
     "code": "RC5071",
     "category": "Runtime",
-    "message": "Continuation digest does not cover a value",
+    "message": "Step digest does not cover a value",
     "retryable": false
   },
   {

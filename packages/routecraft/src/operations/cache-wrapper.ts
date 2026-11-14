@@ -17,9 +17,12 @@ import { principalIdentity } from "./principal-identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
 import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
-import type { Identity } from "../kernel/continuation/identity.ts";
+import type {
+  Identity,
+  InferredNode,
+} from "../kernel/continuation/identity.ts";
 import { nestedStepsOf } from "../kernel/continuation/sites.ts";
-import { stepsDigest } from "../kernel/continuation/identity.ts";
+import { describeSteps } from "../kernel/continuation/identity.ts";
 import { type CacheProvider } from "./cache-provider.ts";
 import { positionFor } from "./position-run.ts";
 import { CACHE } from "../kernel/positions.ts";
@@ -37,7 +40,7 @@ export interface CacheOptions<Current = unknown> {
    * identity used by the provider's `get` / `set`.
    *
    * When omitted, the key is a SHA-256 over the route id (plus, at step
-   * scope, the cache's site, and at route scope, a fingerprint of the
+   * scope, the cache's site, and at route scope, the identity digest of the
    * cached pipeline: see `CacheKeyScope`), the principal's
    * `issuer` and `subject` plus those of every `actor` hop when the
    * exchange carries one, and a SHA-256 of `JSON.stringify(body)`. Two routes, two cached steps, or two
@@ -107,12 +110,11 @@ export interface CacheOptions<Current = unknown> {
 /**
  * Where a cache sits, which the default key namespaces its entries by.
  *
- * `site` is the JSON of `[index, stackIndex, below, fingerprint]`: the
- * step's pre-order index in the route's step tree, the cache's index in
- * that step's full wrapper stack, `[kind, optionsFingerprint]` for each
- * wrapper between the cache and the innermost step, and a fingerprint of
- * the innermost step's definition (operation, label, adapter id and
- * options, callable source). It derives from the route definition alone,
+ * `site` is the JSON of `[index, stackIndex, digest]`: the step's
+ * pre-order index in the route's step tree, the cache's index in that
+ * step's full wrapper stack, and the identity digest of everything the
+ * cache wraps (the wrappers below it and the innermost step). It derives
+ * from the route definition alone,
  * so every process running the same route source computes the same site
  * and shares entries in an external provider. Moving a step, reordering
  * its wrappers, or changing its definition or the options of a wrapper
@@ -123,7 +125,7 @@ export interface CacheOptions<Current = unknown> {
  * Wrappers above the cache contribute their count (through `stackIndex`)
  * but not their options: they run outside the cached computation and none
  * rewrites the exchange it passes inward, so they cannot change what is
- * stored for a key. The fingerprints do not cover what a callable closes
+ * stored for a key. The digest does not cover what a callable closes
  * over or config read at run time; put those in an explicit key when they
  * change the output.
  *
@@ -335,12 +337,17 @@ export function defaultCacheKey(
  * step tree in pre-order and looking through wrapper stacks, so a cache
  * inside a `.choice()` branch or under an outer `.retry()` is found too.
  *
- * @returns Whether any step-scope cache in the route uses the default key.
+ * @returns Whether any step-scope cache in the route uses the default key,
+ *   and what the digests behind those keys could not see into.
  * @internal
  */
-export function assignCacheSites(route: RouteDefinition): boolean {
+export function assignCacheSites(route: RouteDefinition): {
+  usesDefaultKey: boolean;
+  inferred: InferredNode[];
+} {
   let next = 0;
   let usesDefaultKey = false;
+  const inferred: InferredNode[] = [];
   const visit = (steps: ReadonlyArray<Step<Adapter>>): void => {
     for (const step of steps) {
       const position = next++;
@@ -352,10 +359,10 @@ export function assignCacheSites(route: RouteDefinition): boolean {
       ) {
         if (current instanceof CacheWrapperStep) {
           // What a hit skips: every wrapper below the cache, and the step.
-          current.assignSite(
-            JSON.stringify([position, index, stepsDigest([current.wrapped])]),
-          );
+          const below = describeSteps([current.wrapped]);
+          current.assignSite(JSON.stringify([position, index, below.digest]));
           usesDefaultKey ||= current.usesDefaultKey;
+          if (current.usesDefaultKey) inferred.push(...below.inferred);
         }
         index++;
       }
@@ -363,7 +370,7 @@ export function assignCacheSites(route: RouteDefinition): boolean {
     }
   };
   visit(route.steps);
-  return usesDefaultKey;
+  return { usesDefaultKey, inferred };
 }
 
 /**
@@ -426,8 +433,7 @@ export class CacheWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedCacheOptions;
-  // The resolved `key` wraps a custom key in one adapter lambda whose
-  // source is the same for every cache, so fingerprint the original.
+  // The resolved `key` is one adapter lambda for every cache; the identity states the original.
   readonly #customKey: CacheOptions["key"];
   readonly #customWhen: CacheOptions["when"];
   #site: string | undefined;

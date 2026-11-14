@@ -512,17 +512,19 @@ export class ConcurrencyWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedConcurrencyOptions;
+  readonly #given: unknown;
   readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, options: ConcurrencyOptions) {
     super(inner);
     this.#options = resolveConcurrencyOptions(options);
+    this.#given = options;
   }
 
   protected override readonly wrapperKind = "routecraft.concurrency";
 
   protected override identityOptions(): Omit<Identity, "kind"> {
-    return { options: this.#options };
+    return { options: this.#given };
   }
 
   override get requiredPosition(): RequiredPosition {

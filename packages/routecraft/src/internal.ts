@@ -34,7 +34,6 @@ export {
 } from "./testing-hooks.ts";
 export {
   describeSteps,
-  identified,
   type InferredNode,
   type StepsDescription,
 } from "./kernel/continuation/identity.ts";

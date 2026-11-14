@@ -12,6 +12,7 @@ import {
   direct,
   group,
   http,
+  identified,
   jwt,
   IDENTITY,
   keep,
@@ -312,7 +313,7 @@ describe("step identity: the canonical encoding", () => {
       },
     };
     const result = encodeIdentityValue(bare);
-    expect(result.encoded).toBe('["schema","acme","degraded"]');
+    expect(result.encoded).toBe('["schema","acme",1]');
     expect(result.inferred).toHaveLength(1);
   });
 
@@ -463,6 +464,178 @@ describe("step identity: steps and adapters", () => {
         .build()[0]!.steps;
     };
     expect(stepsDigest(route(1))).not.toBe(stepsDigest(route(2)));
+  });
+
+  /**
+   * @case A plugin step states what defines it in place of its arguments
+   * @preconditions A catalogue step called with a class instance, an account and a token, whose `identity.options` restates them as `versioned`, plain and `secret`
+   * @expectedResult Nothing is inferred; a new client instance or a rotated token keeps the digest; another account or another client version moves it
+   */
+  test("stated options replace the recorded arguments", () => {
+    class LedgerClient {}
+    const route = (account: string, token: string, clientVersion: string) => {
+      const books = definePlugin({
+        id: "acme.books",
+        steps: {
+          post: (client: LedgerClient, acct: string, tok: string) =>
+            typedStep<unknown, unknown>(
+              (ex) => (tok && client ? ex.body : acct),
+              {
+                identity: {
+                  options: {
+                    client: versioned(client, clientVersion),
+                    account: acct,
+                    token: secret(tok),
+                  },
+                },
+              },
+            ),
+        },
+      });
+      return defineProject({ plugins: [books] })
+        .craft()
+        .id("books")
+        .from(direct())
+        .post(new LedgerClient(), account, token)
+        .build()[0]!.steps;
+    };
+    const base = describeSteps(route("eu", "old", "v1"));
+    expect(base.inferred).toEqual([]);
+    expect(base.digest).toBe(describeSteps(route("eu", "new", "v1")).digest);
+    expect(base.digest).not.toBe(
+      describeSteps(route("us", "old", "v1")).digest,
+    );
+    expect(base.digest).not.toBe(
+      describeSteps(route("eu", "old", "v2")).digest,
+    );
+  });
+
+  /**
+   * @case `step(impl, { identity })` outside a catalogue and over a step that states its own identity
+   * @preconditions A callback step handed to `.process`-style raw use at two versions; a raw step implementing `[IDENTITY]` wrapped with `step(raw, { identity })` at two versions and with replaced options
+   * @expectedResult Each stated version and each stated options value moves the digest: the option is never accepted and dropped
+   */
+  test("the identity option applies to every step it is given", () => {
+    const callback = (version: number) => [
+      typedStep<unknown, unknown>((ex) => ex.body, { identity: { version } }),
+    ];
+    expect(stepsDigest(callback(1))).not.toBe(stepsDigest(callback(2)));
+
+    const raw = (): IdentifiedStep => ({
+      operation: OperationType.PROCESS,
+      adapter: {},
+      execute: async (exchange) => ({ kind: "continue", exchange }),
+      [IDENTITY]: (): Identity => ({ kind: "acme.raw", options: { a: 1 } }),
+    });
+    const bare = stepsDigest([raw()]);
+    expect(
+      stepsDigest([typedStep(raw(), { identity: { version: 2 } })]),
+    ).not.toBe(bare);
+    expect(
+      stepsDigest([typedStep(raw(), { identity: { options: { a: 2 } } })]),
+    ).not.toBe(bare);
+    expect(
+      describeSteps([typedStep(raw(), { identity: { version: 2 } })]).kinds,
+    ).toEqual(["acme.raw"]);
+  });
+
+  /**
+   * @case How deep a plugin step's argument is digested
+   * @preconditions A catalogue step called with an object nested five deep, edited at its innermost value; the same with a sixth level
+   * @expectedResult The edit at five levels moves the digest and nothing is inferred; the sixth level is reported as too deep, so the levels the encoding adds around an argument are not counted against it
+   */
+  test("an argument gets the whole depth budget", () => {
+    const pricing = definePlugin({
+      id: "acme.deep",
+      steps: {
+        configure: (config: unknown) =>
+          typedStep<unknown, unknown>((ex) => ex.body ?? config),
+      },
+    });
+    const route = (config: unknown) =>
+      defineProject({ plugins: [pricing] })
+        .craft()
+        .id("deep")
+        .from(direct())
+        .configure(config)
+        .build()[0]!.steps;
+    const five = (leaf: number) => ({ a: { b: { c: { d: { e: leaf } } } } });
+    expect(describeSteps(route(five(1))).inferred).toEqual([]);
+    expect(stepsDigest(route(five(1)))).not.toBe(stepsDigest(route(five(2))));
+    expect(
+      describeSteps(route({ a: { b: { c: { d: { e: { f: 1 } } } } } }))
+        .inferred,
+    ).toEqual([
+      {
+        path: "steps[0].options.args[0].a.b.c.d.e",
+        reason: "nested more than 5 deep",
+      },
+    ]);
+  });
+
+  /**
+   * @case An identity whose options lead back to the value that states it
+   * @preconditions A raw step whose `[IDENTITY]` returns a fresh options object holding the step itself; two identified objects that hold each other
+   * @expectedResult Both walks end, reporting a value that contains itself: a fresh object per call cannot defeat the cycle guard
+   */
+  test("a self-referencing identity ends as a cycle", () => {
+    const self: IdentifiedStep = {
+      operation: OperationType.PROCESS,
+      adapter: {},
+      execute: async (exchange) => ({ kind: "continue", exchange }),
+      [IDENTITY]: (): Identity => ({ kind: "acme.self", options: { self } }),
+    };
+    expect(describeSteps([self]).inferred).toEqual([
+      { path: "steps[0].options.self", reason: "a value that contains itself" },
+    ]);
+
+    const a: { [IDENTITY]: () => Identity } = {
+      [IDENTITY]: () => ({ kind: "acme.a", options: { other: b } }),
+    };
+    const b: { [IDENTITY]: () => Identity } = {
+      [IDENTITY]: () => ({ kind: "acme.b", options: { other: a } }),
+    };
+    expect(encodeIdentityValue(a).inferred).toEqual([
+      {
+        path: "value.options.other.options.other",
+        reason: "a value that contains itself",
+      },
+    ]);
+  });
+
+  /**
+   * @case A helper that returns a closure states what it was given
+   * @preconditions One helper returning the same closure text for every argument, bare and wrapped with `identified()`; `identified()` applied twice to one target
+   * @expectedResult Bare, two arguments digest the same; identified, they differ; the second call replaces the first identity instead of throwing
+   */
+  test("identified() gives a returned closure its arguments", () => {
+    const bare = (min: number) => (value: number) => value >= min;
+    const stated = (min: number) =>
+      identified(bare(min), { kind: "acme.atLeast", options: { min } });
+    expect(encoded(bare(1))).toBe(encoded(bare(2)));
+    expect(encoded(stated(1))).not.toBe(encoded(stated(2)));
+
+    const twice = identified(stated(1), {
+      kind: "acme.atLeast",
+      options: { min: 9 },
+    });
+    expect(encoded(twice)).toBe(encoded(stated(9)));
+  });
+
+  /**
+   * @case A wrapper is digested by the options it was given
+   * @preconditions `.retry()` with no options against `.retry({ maxAttempts })` at two values, and `.timeout()` at two durations
+   * @expectedResult A stated option moves the digest and an identical call keeps it
+   */
+  test("a wrapper's given options are its identity", () => {
+    const retry = (options?: { maxAttempts: number }) =>
+      digestOf((r) => (options ? r.retry(options) : r.retry()).to(noop()));
+    expect(retry()).toBe(retry());
+    expect(retry({ maxAttempts: 2 })).not.toBe(retry({ maxAttempts: 4 }));
+    expect(retry()).not.toBe(retry({ maxAttempts: 4 }));
+    expect(digestOf((r) => r.timeout("1s").to(noop()))).not.toBe(
+      digestOf((r) => r.timeout("2s").to(noop())),
+    );
   });
 
   /**
@@ -697,7 +870,9 @@ describe("step identity: the stored continuation hash", () => {
         before,
         describeSchema(z.object({ ok: z.boolean() })),
       ),
-    ).toBe("the schema the resume payload is validated against differs");
+    ).toBe(
+      "the schema the resume payload is validated against, or the error path the deferral was parked from, differs",
+    );
     expect(
       continuationDifference(
         stored,
@@ -705,6 +880,29 @@ describe("step identity: the stored continuation hash", () => {
         schema,
       ),
     ).toBe("1 step(s) were removed from the end");
+  });
+
+  /**
+   * @case The refusal counts the steps a reader sees
+   * @preconditions A tail with a `.log()` ahead of the edited step, and a tail that gained a step at its end
+   * @expectedResult The edited step is numbered by its place in the tail, the log step counted; the longer tail is reported as a step added, never as a step that differs
+   */
+  test("numbers a step by its place and tells an addition from an edit", () => {
+    const logged = (tier: string) =>
+      stepsOf((r) => r.log().header("tier", tier).to(noop()));
+    expect(
+      continuationDifference(
+        continuationTailHash(logged("gold"), schema),
+        logged("silver"),
+        schema,
+      ),
+    ).toBe("step 2 of what would run (routecraft.header) differs");
+
+    const short = stepsOf((r) => r.header("a", "1"));
+    const long = stepsOf((r) => r.header("a", "1").to(noop()));
+    expect(
+      continuationDifference(continuationTailHash(short, schema), long, schema),
+    ).toBe("1 step(s) were added at the end, from step 2 (routecraft.to)");
   });
 
   /**
@@ -794,6 +992,88 @@ describe("step identity: a running route", () => {
         },
       ],
     });
+  });
+
+  /**
+   * @case The other digests a route compares: an error-path park and a default cache key
+   * @preconditions Routes that never `.defer()` and hold a class instance: one whose `.error()` declares a resume schema, one cached at route scope, one with a default-keyed step-scope cache over a class adapter, one with none of these
+   * @expectedResult The first three each warn once, saying which comparison is blind (`resume`, `cache`); the last stays silent; the message is the same fixed string for both
+   */
+  test("warns for an error-path park and for a cached pipeline", async () => {
+    class Ledger {}
+    class Sink {
+      async send(): Promise<void> {}
+    }
+    const opaque = (): IdentifiedStep => ({
+      operation: OperationType.PROCESS,
+      adapter: {},
+      execute: async (exchange) => ({ kind: "continue", exchange }),
+      [IDENTITY]: (): Identity => ({
+        kind: "acme.post",
+        options: { ledger: new Ledger() },
+      }),
+    });
+    const withOpaque = <
+      T extends { build(): Array<{ steps: Step<Adapter>[] }> },
+    >(
+      route: T,
+    ): T => {
+      route.build()[0]!.steps.push(opaque());
+      return route;
+    };
+
+    t = await testContext()
+      .with(deferring())
+      .routes([
+        withOpaque(
+          craft()
+            .id("asks-again")
+            .error(() => null, { schema: z.object({ ok: z.boolean() }) })
+            .from(direct())
+            .to(noop()),
+        ),
+        withOpaque(
+          craft().id("cached").cache({ ttl: "1m" }).from(direct()).to(noop()),
+        ),
+        craft()
+          .id("cached-step")
+          .from(direct())
+          .cache({ ttl: "1m" })
+          .to(new Sink()),
+        withOpaque(craft().id("plain").from(direct()).to(noop())),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const said = t.logger.warn.mock.calls.filter(
+      (call) => (call[0] as { rc?: string })?.rc === "RC5071",
+    );
+    const byRoute = new Map(
+      said.map((call) => {
+        const bindings = call[0] as {
+          route: string;
+          inferred: Array<{ affects: string }>;
+        };
+        return [bindings.route, bindings.inferred.map((node) => node.affects)];
+      }),
+    );
+    expect(Object.fromEntries(byRoute)).toEqual({
+      "asks-again": ["resume"],
+      cached: ["cache"],
+      "cached-step": ["cache"],
+    });
+    expect(said[0]![0]).toMatchObject({
+      inferred: [
+        {
+          path: "on the error path: steps[1].options.ledger",
+          reason: "a class instance",
+          affects: "resume",
+        },
+      ],
+    });
+    expect(said[0]![1]).toBe(
+      "A route holds values its step digest cannot see. Editing one refuses no parked approval and misses no cached entry.",
+    );
   });
 
   /**

@@ -1,4 +1,3 @@
-import { identified } from "@routecraft/routecraft/internal";
 import { randomUUID } from "node:crypto";
 import {
   rcError,
@@ -6,6 +5,7 @@ import {
   type ExchangeHeaders,
   type Principal,
   type Tag,
+  identified,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
