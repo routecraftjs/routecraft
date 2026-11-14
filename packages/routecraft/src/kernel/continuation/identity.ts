@@ -524,15 +524,19 @@ function encodeStep(
   return { kind, node };
 }
 
-const digestExempt = new WeakSet<object>();
+const DIGEST_EXEMPT_SLOT = Symbol.for("routecraft.kernel.digestExempt");
+const shared = globalThis as { [DIGEST_EXEMPT_SLOT]?: WeakSet<object> };
+// One set per process, not per bundle: `./internal` is built apart from the
+// main entry, and the digest it describes must be the one the kernel compares.
+const digestExempt = (shared[DIGEST_EXEMPT_SLOT] ??= new WeakSet<object>());
 
 /**
  * Leave a step out of every digest: `.log()`, which changes nothing a
  * resumed exchange or a cached result depends on, so a log line can be added
  * or reworded while exchanges are parked.
  *
- * Membership of a set only the kernel holds, never a property a step can
- * carry: a step that could exempt itself could change what runs after an
+ * Membership of a set, never a property a step carries: a step that could
+ * exempt itself by declaring something could change what runs after an
  * approval without the digest moving.
  *
  * @internal
