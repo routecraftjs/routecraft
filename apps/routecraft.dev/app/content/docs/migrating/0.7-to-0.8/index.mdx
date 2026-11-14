@@ -422,7 +422,7 @@ In 0.7 an inline `agent({ ... })` and an `mcp({ url, tool })` call ran in an app
 | 0.7 | 0.8 |
 | --- | --- |
 | `.to(agent({ model, system }))` with no `agent` key | add `agent: {}` to `defineProject({ ... })`, or `agentPlugin()` to the plugins of a context built by hand |
-| `.to(mcp({ url, tool }))` with no `mcp` key | add `mcp: {}`, or `mcpPlugin()`. It starts no server: the server starts only when `transport` is set or a route is exposed with `.from(mcp())` |
+| `.to(mcp({ url, tool }))` with no `mcp` key | add `mcp: {}`, or `mcpPlugin()`. It starts no server until `transport` is set or a route is exposed with `.from(mcp())` |
 | `agent({ session })` with no sessions plugin, on a session store resolved at the first turn | the agent plugin brings the sessions plugin, which resolves the same store when the application binds |
 | a block resolver `(exchange, context) => ...` reading the `CraftContext` | `context` is a `BlockContext`: `context.lookup(PORT)` and `context.logger` |
 | `mcp: { clients }` with no tool route starting a stdio server | no server starts; set `transport: 'stdio'` to keep one |

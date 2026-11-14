@@ -260,6 +260,7 @@ describe("tool builders - directTool dispatch", () => {
   test("dispatchDirect sanitizes the endpoint before send", async () => {
     const inputSchema = z.object({ orderId: z.string() });
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("orders/fetch")
@@ -302,6 +303,7 @@ describe("tool builders - directTool dispatch", () => {
     const inputSchema = z.object({ orderId: z.string() });
     let downstreamPrincipal: unknown;
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("orders/fetch-with-auth")
@@ -355,6 +357,7 @@ describe("tool builders - directTool dispatch", () => {
   test("dispatchDirect forwards the calling correlation id", async () => {
     let downstream: unknown;
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("orders/fetch-correlated")
@@ -398,6 +401,7 @@ describe("tool builders - directTool dispatch", () => {
   test("dispatchDirect records the calling exchange as the cause", async () => {
     let cause: unknown;
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("orders/fetch-caused")
@@ -442,6 +446,7 @@ describe("tool builders - directTool dispatch", () => {
   test("dispatchDirect forwards authenticity only for authentic principals", async () => {
     let downstreamAuthentic: boolean | undefined;
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("guarded/echo")
@@ -508,6 +513,7 @@ describe("tool builders - directTool dispatch", () => {
    */
   test("guarded route reached through directTool rejects a self-asserted principal (RC5023)", async () => {
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("guarded-admin")

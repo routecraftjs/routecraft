@@ -13,6 +13,7 @@ import { MCP, createMcpService } from "../src/mcp/port.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
 import { agentHostOf } from "./helpers/hosts.ts";
+import { mcpRuntime, mcpRuntimeFor } from "../src/mcp/runtime.ts";
 
 /** Collect the warning messages a context logs, keeping the bound fields. */
 function captureWarnings(
@@ -313,6 +314,7 @@ async function contextWithClients(seed: {
                 disabledClients: new Map(Object.entries(seed.disabled ?? {})),
               }),
             );
+            mcpRuntime.set(c.application, mcpRuntimeFor(c));
           },
         },
       ],
@@ -468,6 +470,7 @@ describe("mcpPlugin({ clients: { enabled } })", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           mcpPlugin({
             clients: {
               vendor: { url: "http://127.0.0.1:9/mcp", enabled: () => true },

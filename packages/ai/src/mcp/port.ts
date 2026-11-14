@@ -1,10 +1,4 @@
-import {
-  port,
-  rcError,
-  type EventDetailsMap,
-  type EventName,
-  type PluginContext,
-} from "@routecraft/routecraft";
+import { port, rcError } from "@routecraft/routecraft";
 import { McpToolRegistry } from "./tool-registry.ts";
 import type {
   McpClientHttpConfig,
@@ -12,9 +6,8 @@ import type {
   McpLocalToolEntry,
   McpProxyRegistration,
   McpStdioToolCaller,
-  McpToolRegistryEntry,
 } from "./types.ts";
-import { declaredProxy, proxyRegistrationKey } from "./proxy.ts";
+import { proxyRegistrationKey } from "./proxy.ts";
 import {
   createMcpHttpConnections,
   type McpHttpConnections,
@@ -73,23 +66,6 @@ export interface McpService {
    */
   isProxyDeclared(serverId: string, tool: string): boolean;
   /**
-   * The route whose source declares a proxy over a remote tool, live or
-   * not: an exact declaration first, else a star over its client, with
-   * `excluded` set when the star leaves the tool out. A tool with a
-   * declared route that is not live, or one a star excludes, is withheld
-   * rather than offered ungoverned.
-   */
-  declaredProxy(
-    remote: McpToolRegistryEntry,
-  ): { routeId: string; tool: string; excluded: boolean } | undefined;
-  /**
-   * Emit an event on the application's bus. The `mcp()` client records
-   * each remote call through it.
-   *
-   * @internal
-   */
-  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
-  /**
    * Run `listener` after every change to {@link local} or {@link proxies},
    * so a transport can tell its clients the advertised tools changed.
    * Returns the function that stops it.
@@ -137,9 +113,6 @@ export function createMcpService(
      * plugin builds the service.
      */
     readonly declaredProxies?: () => ReadonlySet<string>;
-    /** The application's routes, read for {@link McpService.declaredProxy}. */
-    readonly routes?: Pick<PluginContext, "routes">;
-    readonly emit?: McpService["emit"];
   } = {},
 ): McpService {
   const local = new Map<string, McpLocalToolEntry>();
@@ -197,14 +170,6 @@ export function createMcpService(
         seed.declaredProxies?.().has(proxyRegistrationKey(serverId, tool)) ??
         false
       );
-    },
-    declaredProxy(remote) {
-      return seed.routes === undefined
-        ? undefined
-        : declaredProxy(seed.routes, remote);
-    },
-    emit(event, details) {
-      seed.emit?.(event, details);
     },
     onChange(listener) {
       listeners.add(listener);

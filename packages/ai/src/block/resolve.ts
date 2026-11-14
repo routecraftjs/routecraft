@@ -1,8 +1,13 @@
-import { rcError, type Exchange, type ForwardFn } from "@routecraft/routecraft";
+import {
+  rcError,
+  type ApplicationKey,
+  type Exchange,
+  type ForwardFn,
+} from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FnOptions } from "../fn/types.ts";
 import type { ResolvedTool } from "../agent/tools/selection.ts";
-import type { AgentHost } from "../agent/tools/types.ts";
+import type { AgentHost } from "../agent/host.ts";
 import { TOOL_NAME_CHARSET, TOOL_NAME_SEPARATOR } from "../tool-name.ts";
 import { makeBlockClient } from "./client.ts";
 import type {
@@ -283,7 +288,10 @@ function walkBlocks(
  *
  * @internal
  */
-const LIFETIME_CACHE = new WeakMap<object, Map<BlockBody, Promise<string>>>();
+const LIFETIME_CACHE = new WeakMap<
+  ApplicationKey,
+  Map<BlockBody, Promise<string>>
+>();
 
 /**
  * Run a block's resolver, honouring `lifetime`. For

@@ -71,6 +71,7 @@ describe("tools() resolver - bare references", () => {
   test("Direct(routeId) ref resolves via the direct registry", async () => {
     const inputSchema = z.object({ orderId: z.string() });
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("fetch-order")
@@ -406,6 +407,7 @@ describe("tools() resolver - builder form", () => {
    */
   test("builder maps catalog.routes to Direct(...) references", async () => {
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("read-thing")

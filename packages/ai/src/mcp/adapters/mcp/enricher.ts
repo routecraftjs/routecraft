@@ -13,6 +13,7 @@ import type {
   McpClientAuthOptions,
 } from "../../types.ts";
 import { MCP, type McpService } from "../../port.ts";
+import { mcpRuntime } from "../../runtime.ts";
 import { McpHeadersKeys } from "../../types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
 import { assertRemoteUrl } from "../../sdk.ts";
@@ -118,7 +119,8 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     toolName: string,
   ): Promise<unknown> {
     const service = lookupOf(exchange, MCP);
-    if (service === undefined) {
+    const runtime = mcpRuntime.of(exchange);
+    if (service === undefined || runtime === undefined) {
       throw rcError("RC5003", undefined, {
         message:
           "mcp(): the MCP plugin is not installed in the application this exchange runs in.",
@@ -156,7 +158,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
       } else {
         // Read inside the record, so a remote `isError` settles as one.
         result = await recordRemoteCall(
-          service,
+          runtime,
           { ...this.bypassedCall(exchange, toolName), serverId },
           async () => toolResultBody(await dispatch(), where),
           directSettlement,
@@ -188,7 +190,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     const answer = async (): Promise<unknown> =>
       toolResultBody(await send(), `"${toolName}"`);
     const result = await recordRemoteCall(
-      service,
+      runtime,
       {
         ...this.bypassedCall(exchange, toolName),
         origin: new URL(url).origin,

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   rcError,
+  type ApplicationKey,
   type ExchangeHeaders,
   type Principal,
   type Tag,
@@ -24,6 +25,8 @@ import {
 } from "../../mcp/remote-call.ts";
 import { MCP, type McpService } from "../../mcp/port.ts";
 import { coveringProxy, proxiedEntry } from "../../mcp/proxy.ts";
+import { mcpRuntime } from "../../mcp/runtime.ts";
+import type { AgentHost } from "../host.ts";
 import {
   McpHeadersKeys,
   type McpProxyRegistration,
@@ -44,7 +47,6 @@ import {
   isLazyFn,
   resolveFnOptions,
   withheldRouteReason,
-  type AgentHost,
   type FnEntry,
   type RegisteredFn,
 } from "./types.ts";
@@ -852,7 +854,7 @@ function resolveRemoteRefs(
  * by reason, so a route disabled again for a different reason, or again
  * after it came back, is reported again.
  */
-const reportedDisabledRefs = new WeakMap<object, Map<string, string>>();
+const reportedDisabledRefs = new WeakMap<ApplicationKey, Map<string, string>>();
 
 /**
  * Whether the tool `ref` names is left out of this dispatch because its
@@ -893,7 +895,7 @@ function withheldByEnablement(
 }
 
 /** Unusable remote route names already warned about, per context. */
-const reportedRemoteNames = new WeakMap<object, Set<string>>();
+const reportedRemoteNames = new WeakMap<ApplicationKey, Set<string>>();
 
 function record(out: Map<string, ResolvedTool>, tool: ResolvedTool): void {
   const existing = out.get(tool.name);
@@ -1294,7 +1296,15 @@ function mcpEntryToResolvedTool(
   // `.enabled()`, or not yet started), or a star route that leaves the
   // tool out, withholds it: the policy the operator wrote for it is off,
   // and off is closed, not open.
-  const declared = service?.declaredProxy(entry);
+  const runtime = mcpRuntime.get(ctx.application);
+  if (runtime === undefined) {
+    throw rcError("RC5003", undefined, {
+      message: `tools(): the MCP port is provided without the MCP plugin's runtime, so whether a route governs "${name}" cannot be read.`,
+      suggestion:
+        "Install mcpPlugin() (or the mcp config key) in the application the agent runs in.",
+    });
+  }
+  const declared = runtime.declaredProxy(entry);
   if (declared !== undefined) {
     return dropOnce(
       `mcp-withheld:${name}`,

@@ -24,6 +24,7 @@ import {
 } from "./run.ts";
 import { applyOverrides, type AdvertisingAgent } from "./advertised.ts";
 import { rehydrateSession } from "./deferral-state.ts";
+import { agentHostFor, agentHosts, type AgentHost } from "./host.ts";
 import { AGENTS, type AgentRegistry } from "./port.ts";
 import { AGENT_DEFAULT_OPTION_KEYS } from "./store.ts";
 import { isGovernableToolKind, policiesAdmit } from "./tools/policy.ts";
@@ -42,7 +43,7 @@ import {
   type LlmService,
 } from "../llm/types.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
-import { backgroundReasonOf, type AgentHost } from "./tools/types.ts";
+import { backgroundReasonOf } from "./tools/types.ts";
 import type {
   AgentOptions,
   AgentPrincipalRenderer,
@@ -184,7 +185,8 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     stepCtx?: StepSignalContext,
   ): Promise<AgentResult | AgentStream> {
     const registry = lookupOf(exchange, AGENTS);
-    if (registry === undefined) {
+    const runtime = agentHosts.of(exchange);
+    if (registry === undefined || runtime === undefined) {
       throw rcError("RC5003", undefined, {
         message:
           "agent(): the agent plugin is not installed in the application this exchange runs in.",
@@ -192,13 +194,12 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
           "Add agent: {} to the config, or agentPlugin() to its plugins. An agent step reads the application through that plugin, so an exchange built by hand outside a route cannot dispatch one.",
       });
     }
-    const context: AgentHost = {
-      ...registry.host,
-      application: registry,
-      lookup: (port) => lookupOf(exchange, port),
-      authority: authorityOf(exchange),
-      outboundTraceContext: sendsTraceContextFor(exchange),
-    };
+    const context: AgentHost = agentHostFor(
+      runtime,
+      { lookup: (port) => lookupOf(exchange, port) },
+      authorityOf(exchange),
+      sendsTraceContextFor(exchange),
+    );
     const baseOptions = this.resolveOptions(registry);
     const merged = mergeWithDefaults(baseOptions, registry);
 

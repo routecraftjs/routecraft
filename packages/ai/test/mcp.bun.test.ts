@@ -11,6 +11,7 @@ import type { McpLocalToolEntry } from "../src/mcp/types.ts";
 import { McpEnricherAdapter } from "../src/mcp/adapters/mcp/enricher.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, direct, DefaultExchange } from "@routecraft/routecraft";
+import { mcpRuntime, mcpRuntimeFor } from "../src/mcp/runtime.ts";
 
 /** Helper: invoke an mcp() route by calling its registered handler directly. */
 async function invokeTool(
@@ -552,6 +553,7 @@ describe("dispatchMcpCall: transport error wrapping", () => {
                 },
               });
               c.provide(MCP, createMcpService({ stdio: managers }));
+              mcpRuntime.set(c.application, mcpRuntimeFor(c));
             },
           },
         ],
@@ -604,6 +606,7 @@ describe("dispatchMcpCall: transport error wrapping", () => {
                 },
               });
               c.provide(MCP, createMcpService({ stdio: managers }));
+              mcpRuntime.set(c.application, mcpRuntimeFor(c));
             },
           },
         ],
@@ -640,6 +643,7 @@ describe("dispatchMcpCall: transport error wrapping", () => {
               const servers = new Map<string, McpClientConfig>();
               servers.set("bad", { url: "not a url" });
               c.provide(MCP, createMcpService({ clients: servers }));
+              mcpRuntime.set(c.application, mcpRuntimeFor(c));
             },
           },
         ],

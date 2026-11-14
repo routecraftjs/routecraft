@@ -310,6 +310,7 @@ export {
   type AgentBlockLoadSummary,
   type BlockBody,
   type BlockClient,
+  type BlockContext,
   type BlockLifetime,
   type BlockMode,
   type BlockResolver,

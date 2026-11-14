@@ -21,12 +21,7 @@ import type {
 } from "./tools/policy.ts";
 import type { ReidentifyHook } from "./session/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
-import {
-  isLazyFn,
-  type AgentRuntimeHost,
-  type FnEntry,
-  type RegisteredFn,
-} from "./tools/types.ts";
+import { isLazyFn, type FnEntry, type RegisteredFn } from "./tools/types.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 
 /**
@@ -51,18 +46,11 @@ export class AgentRegistryImpl implements AgentRegistry {
    * @param frozen - Whether the application froze, read on every contribution
    * @param runtime - The session runtime the application bound, or
    *   `undefined` when it has no continuations store to hold one on
-   * @param hostOf - Builds the dispatch host around this registry, which its
-   *   tools call back into for the session runtime
    */
   constructor(
     private readonly frozen: () => boolean,
     private readonly runtime: AgentSessionRuntime | undefined,
-    hostOf: (registry: AgentRegistryImpl) => AgentRuntimeHost,
-  ) {
-    this.host = hostOf(this);
-  }
-
-  readonly host: AgentRuntimeHost;
+  ) {}
 
   get defaults(): AgentDefaultOptions | undefined {
     return this.#defaults;

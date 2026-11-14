@@ -13,7 +13,7 @@ import {
 } from "./deferral-state.ts";
 import type { AgentDispatchIdentity, AgentRunSession } from "./run.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
-import type { AgentHost } from "./tools/types.ts";
+import type { AgentHost } from "./host.ts";
 
 /**
  * The deferral channel between one agent dispatch and its tools: the

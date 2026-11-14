@@ -17,7 +17,12 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { mcp, tools, type FnHandlerContext } from "../src/index.ts";
+import {
+  agentPlugin,
+  mcp,
+  tools,
+  type FnHandlerContext,
+} from "../src/index.ts";
 import type { McpServer } from "../src/mcp/server.ts";
 import type { McpPluginOptions, McpStdioToolCaller } from "../src/mcp/types.ts";
 import { MCP, createMcpService } from "../src/mcp/port.ts";
@@ -26,6 +31,7 @@ import { validateMcpPluginOptions } from "../src/mcp/validate-options.ts";
 import { dispatchMcpCallRaw } from "../src/mcp/dispatch.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { agentHostOf } from "./helpers/hosts.ts";
+import { mcpRuntime, mcpRuntimeFor } from "../src/mcp/runtime.ts";
 
 const PARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 const CARRIER = {
@@ -159,7 +165,7 @@ describe("MCP trace context", () => {
     plugins: Plugin[] = [],
   ): Promise<Client> {
     t = await testContext()
-      .with({ plugins: [mcpPort(), ...plugins] })
+      .with({ plugins: [agentPlugin(), mcpPort(), ...plugins] })
       .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .routes([
         craft()
@@ -264,6 +270,7 @@ describe("MCP trace context", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           {
             id: "test.mcp-fixture",
             provides: [MCP],
@@ -287,6 +294,7 @@ describe("MCP trace context", () => {
                   ]),
                 }),
               );
+              mcpRuntime.set(c.application, mcpRuntimeFor(c));
             },
           },
         ],
@@ -332,6 +340,7 @@ describe("MCP trace context", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           {
             id: "test.mcp-fixture",
             provides: [MCP],
@@ -356,6 +365,7 @@ describe("MCP trace context", () => {
                   ]),
                 }),
               );
+              mcpRuntime.set(c.application, mcpRuntimeFor(c));
             },
           },
         ],

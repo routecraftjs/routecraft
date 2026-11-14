@@ -26,7 +26,7 @@ import type {
 } from "../llm/types.ts";
 import { toAiOutputSpec } from "../llm/structured-output.ts";
 import type { AgentDeltaListener } from "./events.ts";
-import type { AgentHost } from "./tools/types.ts";
+import type { AgentHost } from "./host.ts";
 import { closeUnansweredToolCalls } from "./session/render.ts";
 import {
   buildVercelTools,

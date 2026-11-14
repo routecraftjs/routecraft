@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { defaultAuthority, type Authority } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
+import { agentPlugin } from "../src/index.ts";
 import { buildVercelTools } from "../src/agent/tool-bridge.ts";
 import { freezePrincipal } from "../src/fn/handler-context.ts";
 import type { ResolvedTool } from "../src/agent/tools/selection.ts";
@@ -10,7 +11,9 @@ import { agentHostOf } from "./helpers/hosts.ts";
 let app: TestContext;
 
 beforeAll(async () => {
-  app = await testContext().build();
+  app = await testContext()
+    .with({ plugins: [agentPlugin()] })
+    .build();
 });
 
 afterAll(async () => {

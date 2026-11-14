@@ -96,7 +96,7 @@ export default defineProject({
 
 ### Client mode: call other MCP servers and local capabilities
 
-Register servers on `mcpPlugin({ clients })`, then call one of their tools with `mcp('server:tool')` (or `mcp({ url, tool })` for an ad-hoc server). Call a capability in the same process by id with `direct()`:
+Register servers on `mcpPlugin({ clients })`, then call one of their tools with `mcp('server:tool')` (or `mcp({ url, tool })` for an ad-hoc server, which still needs the plugin: `mcp: {}` is enough). Call a capability in the same process by id with `direct()`:
 
 ```typescript
 import { craft, direct, timer } from '@routecraft/routecraft';

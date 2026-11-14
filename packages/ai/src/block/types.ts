@@ -1,13 +1,16 @@
-import type { Exchange, ForwardFn, Logger, Port } from "@routecraft/routecraft";
+import type {
+  Exchange,
+  ForwardFn,
+  Logger,
+  PortLookup,
+} from "@routecraft/routecraft";
 
 /**
  * What a block resolver is handed of the application it runs in: a logger,
  * and the provider of any port a plugin provides.
  */
-export interface BlockContext {
+export interface BlockContext extends PortLookup {
   readonly logger: Logger;
-  /** The provider of a port, or `undefined` when no plugin provides it. */
-  lookup<T>(port: Port<T>): T | undefined;
 }
 
 /**

@@ -1,13 +1,4 @@
-import type {
-  Authority,
-  Capability,
-  EventDetailsMap,
-  EventName,
-  ExchangeHeaders,
-  Logger,
-  Port,
-  Tag,
-} from "@routecraft/routecraft";
+import type { Capability, ExchangeHeaders, Tag } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FnHandlerContext } from "../../fn/types.ts";
 import type { AgentSessionRuntime } from "../session/runtime.ts";
@@ -144,38 +135,6 @@ export interface ToolHost {
   ): Promise<unknown>;
   /** The session runtime a background tool reports to. */
   sessions(): AgentSessionRuntime;
-}
-
-/**
- * What the agent runtime holds for every dispatch in the application: its
- * logger, its event bus and the routes its tools reach.
- *
- * @internal
- */
-export interface AgentRuntimeHost {
-  readonly logger: Logger;
-  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
-  readonly tools: ToolHost;
-}
-
-/**
- * What one agent dispatch reads the application through: the runtime's
- * host, and the ports and settings of the application the dispatching
- * exchange runs in. An agent step is handed no context; it finds the agent
- * runtime through the exchange and builds this from it.
- */
-export interface AgentHost extends AgentRuntimeHost {
-  /**
-   * The same object for every dispatch in one application, for a cache or
-   * a report-once set that belongs to the application.
-   */
-  readonly application: object;
-  /** The provider of a port, or `undefined` when no plugin provides it. */
-  lookup<T>(port: Port<T>): T | undefined;
-  /** The application's authority, which reads and stamps principals. */
-  readonly authority: Authority;
-  /** Whether the application sends trace context on outbound calls by default. */
-  readonly outboundTraceContext: boolean;
 }
 
 /**

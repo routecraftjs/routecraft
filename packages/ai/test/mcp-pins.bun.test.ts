@@ -14,7 +14,13 @@ import {
   type Exchange,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { mcp, McpHeadersKeys, mcpPlugin, tools } from "../src/index.ts";
+import {
+  agentPlugin,
+  mcp,
+  McpHeadersKeys,
+  mcpPlugin,
+  tools,
+} from "../src/index.ts";
 import {
   canonicalJson,
   definitionHash,
@@ -413,6 +419,7 @@ describe("pinning on every path to a remote MCP tool", () => {
       .routes(routes)
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: registry,
             stdio: new Map([["docs", manager]]),
@@ -508,6 +515,7 @@ describe("pinning on every path to a remote MCP tool", () => {
       ])
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: registry,
             clients: new Map([
@@ -629,6 +637,7 @@ describe("the MCP plugin with a pinned client", () => {
       .with({
         on,
         plugins: [
+          agentPlugin(),
           mcpPlugin({
             clients: { remote: { url: "https://remote.test/mcp", pins } },
             lockfile: path,
@@ -683,6 +692,7 @@ describe("the MCP plugin with a pinned client", () => {
       .routes([craft().id("echo").from(direct()).to(mcp("remote:echo"))])
       .with({
         plugins: [
+          agentPlugin(),
           mcpPlugin({
             clients: {
               remote: {
@@ -913,7 +923,7 @@ describe("craft mcp pin over the configured clients", () => {
   test("the mcp plugin declares pin in its tooling", () => {
     for (const config of [
       { mcp: { clients: {} } },
-      { plugins: [mcpPlugin({ clients: {} })] },
+      { plugins: [agentPlugin(), mcpPlugin({ clients: {} })] },
     ] satisfies CraftConfig[]) {
       const owners = pluginTooling(config).filter(
         (each) => each.namespace === "mcp",

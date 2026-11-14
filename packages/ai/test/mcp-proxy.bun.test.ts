@@ -158,6 +158,7 @@ describe("a route that proxies a remote MCP server", () => {
       .routes(routes)
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: options.registry ?? buildRegistry(),
             stdio: buildManagers(options.answer),
@@ -981,6 +982,7 @@ describe("a route that proxies a remote MCP server", () => {
         .routes(routes)
         .with({
           plugins: [
+            agentPlugin(),
             mcpPort({
               tools: buildRegistry(),
               stdio: buildManagers(),
@@ -1042,6 +1044,7 @@ describe("a route that proxies a remote MCP server", () => {
       ])
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: buildRegistry(),
             stdio: buildManagers(),
@@ -1109,6 +1112,7 @@ describe("a route that proxies a remote MCP server", () => {
       ])
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: buildRegistry(),
             stdio: buildManagers(),
@@ -1473,6 +1477,7 @@ describe("the record of a call toward a remote MCP tool", () => {
       .routes(routes)
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: buildRegistry(),
             stdio: buildManagers(answer),

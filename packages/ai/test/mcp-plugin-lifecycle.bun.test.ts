@@ -186,6 +186,39 @@ describe("mcpPlugin lifecycle", () => {
   });
 
   /**
+   * @case A route exposed as a tool after start starts the server it was skipped for
+   * @preconditions mcpPlugin() with no transport and no tool route at start; two .from(mcp()) routes are registered on the running context and each switched on by an enablement re-check; the server's start is stubbed and counted
+   * @expectedResult No start before the route exists, exactly one after it, and a second tool route does not start it again
+   */
+  test("starts the server for a tool route registered after start", async () => {
+    const t = await testContext()
+      .with({ plugins: [mcpPlugin()] })
+      .routes([craft().id("idle").from(direct()).to(noop())])
+      .build();
+    contexts.push(t);
+    await t.startAndWaitReady();
+    expect(serverStarts).toBe(0);
+
+    let on = false;
+    for (const id of ["late", "later"]) {
+      t.ctx.registerRoutes(
+        ...craft()
+          .id(id)
+          .description("Echo the input")
+          .enabled(() => on)
+          .from(mcp())
+          .to(noop())
+          .build(),
+      );
+      await t.ctx.reevaluateEnablement(id);
+      on = true;
+      await t.ctx.reevaluateEnablement(id);
+      on = false;
+    }
+    expect(serverStarts).toBe(1);
+  });
+
+  /**
    * @case A call to a remote tool in an application without the MCP plugin is refused
    * @preconditions No mcpPlugin; a route whose .to(mcp({ url, tool })) runs once
    * @expectedResult The exchange fails with RC5003 naming the missing plugin and how to add it

@@ -120,7 +120,7 @@ and identity](/docs/introduction/credentials-and-identity#who-asked) has the mod
 ## Config
 
 Model providers live under the `llm` key, and the inbox the `mail()` source reads under the
-`mail` key. The agent inherits the provider from `llm`.
+`mail` key. The agent inherits the provider from `llm`, and the `agent` key installs the plugin `agent()` runs on.
 
 ```ts
 // craft.config.ts
@@ -131,6 +131,7 @@ export default defineProject({
   llm: {
     providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
   },
+  agent: {},
   mail: {
     accounts: {
       default: {

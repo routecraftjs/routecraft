@@ -204,7 +204,7 @@ describe("MCP client tool-name validation", () => {
    */
   test("drops a remote tool whose wire name is unusable", async () => {
     t = await testContext()
-      .with({ plugins: [mcpPort()] })
+      .with({ plugins: [agentPlugin(), mcpPort()] })
       .build();
     const registry = mcpService(t.ctx).tools;
     registry.setToolsForSource("github", "stdio", [
@@ -234,7 +234,7 @@ describe("MCP client tool-name validation", () => {
    */
   test("dropping applies to an explicit reference too", async () => {
     t = await testContext()
-      .with({ plugins: [mcpPort()] })
+      .with({ plugins: [agentPlugin(), mcpPort()] })
       .build();
     const registry = mcpService(t.ctx).tools;
     registry.setToolsForSource("github", "stdio", [
@@ -256,7 +256,7 @@ describe("MCP client tool-name validation", () => {
    */
   test("warns once per registry version rather than once per resolve", async () => {
     t = await testContext()
-      .with({ plugins: [mcpPort()] })
+      .with({ plugins: [agentPlugin(), mcpPort()] })
       .build();
     const registry = mcpService(t.ctx).tools;
     const bad = {
@@ -304,7 +304,7 @@ describe("MCP client tool-name validation", () => {
    */
   test("drops tools from a client whose name contains the separator", async () => {
     t = await testContext()
-      .with({ plugins: [mcpPort()] })
+      .with({ plugins: [agentPlugin(), mcpPort()] })
       .build();
     const registry = mcpService(t.ctx).tools;
     // `mcp__a__b__c` would read back as server "a", tool "b__c".
@@ -328,7 +328,7 @@ describe("MCP client tool-name validation", () => {
    */
   test("allows the separator inside a remote tool name", async () => {
     t = await testContext()
-      .with({ plugins: [mcpPort()] })
+      .with({ plugins: [agentPlugin(), mcpPort()] })
       .build();
     const registry = mcpService(t.ctx).tools;
     registry.setToolsForSource("github", "stdio", [
@@ -355,7 +355,7 @@ describe("MCP client tool-name validation", () => {
    */
   test("enforces the ceiling on the composed name", async () => {
     t = await testContext()
-      .with({ plugins: [mcpPort()] })
+      .with({ plugins: [agentPlugin(), mcpPort()] })
       .build();
     const registry = mcpService(t.ctx).tools;
     const longTool = "a".repeat(60);

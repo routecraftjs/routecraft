@@ -213,6 +213,7 @@ export type StepOutcome =
 
 /** What step code learns about the route it runs on. */
 export interface StepRouteView {
+  /** The route's id, or the empty string on a step run by hand with no route. */
   readonly id: string;
   readonly tags: readonly string[];
   /**

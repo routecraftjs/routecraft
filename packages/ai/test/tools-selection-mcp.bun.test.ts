@@ -5,6 +5,7 @@ import type { McpTool } from "../src/mcp/types.ts";
 import { MCP, createMcpService } from "../src/mcp/port.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { agentHostOf } from "./helpers/hosts.ts";
+import { mcpRuntime, mcpRuntimeFor } from "../src/mcp/runtime.ts";
 
 // Exercise handlers without real stdio / HTTP clients by registering a
 // recording manager per server in the MCP service: the real
@@ -99,6 +100,7 @@ async function buildCtxWithMcp(
               MCP,
               createMcpService({ tools: registry, stdio: managers }),
             );
+            mcpRuntime.set(c.application, mcpRuntimeFor(c));
           },
         },
       ],
