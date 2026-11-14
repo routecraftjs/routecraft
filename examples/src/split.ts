@@ -1,4 +1,4 @@
-import { craft, simple, direct, noop } from "@routecraft/routecraft";
+import { craft, simple, direct, noop, recovery } from "@routecraft/routecraft";
 import { z } from "zod";
 
 const OrderItemSchema = z.object({
@@ -38,6 +38,8 @@ const priceCheck = craft()
 
 const processOrder = craft()
   .id("process-order")
+  // An item whose pricing fails is left out; unhandled, it would fail the aggregate.
+  .error(() => recovery.drop("price check failed"))
   .from(
     simple({
       orderId: "ORD-2026-001",

@@ -719,6 +719,8 @@ export interface EventDetailsMap {
     ExchangeSnapshotEnvelope & {
       duration: number;
       error: unknown;
+      /** Ids of the split children whose failure failed the aggregate after them. */
+      failedChildren?: readonly string[];
       principal?: PrincipalRef;
     };
   "route:exchange:dropped": ExchangeLifecycle &

@@ -12,10 +12,12 @@ import {
   getExchangeContext,
   getExchangeRoute,
   getStartedAt,
+  splitGroupOf,
   DefaultExchange,
   emitExchangeCompleted,
 } from "../exchange.ts";
-import { rcError } from "../error.ts";
+import { rcError, type RoutecraftError } from "../error.ts";
+import { isRoutecraftError } from "../brand.ts";
 import { SPLIT_PARENT_STORE } from "./split.ts";
 
 /**
@@ -119,6 +121,62 @@ identified(defaultAggregate, {
   version: 1,
 });
 
+/** A split child that failed with nothing handling it. */
+export interface FailedChild {
+  exchangeId: string;
+  error: RoutecraftError;
+}
+
+const FAILED_CHILDREN = "failedChildren";
+
+/**
+ * The failure an aggregate raises on the parent exchange when children of
+ * its split failed unhandled: the join would otherwise answer with part of
+ * the work as if it were all of it.
+ *
+ * Retryable only when every failed child is, so a wrapping `.retry()` does
+ * not repeat a fan-out for a child that will fail the same way again.
+ *
+ * @internal
+ */
+export function joinFailure(failures: readonly FailedChild[]): RoutecraftError {
+  const error = rcError("RC5001", failures[0]!.error, {
+    message:
+      failures.length +
+      " of the children of a split failed, so the aggregate after it did not run",
+    suggestion:
+      "Read the cause for the first child's error. To accept a partial result, handle the failure on the child's path with .error(), or in the route's .error() handler, which can recognise this failure with failedChildrenOf(error).",
+    retryable: failures.every((failure) => failure.error.retryable),
+  });
+  Object.defineProperty(error, FAILED_CHILDREN, {
+    value: Object.freeze(failures.map((failure) => failure.exchangeId)),
+    enumerable: true,
+  });
+  return error;
+}
+
+/**
+ * The ids of the split children whose failure failed an aggregate, when
+ * `error` is that failure; `undefined` for any other error. An `.error()`
+ * handler uses it to tell a failed fan-out from a failure of its own steps.
+ *
+ * @example
+ * ```ts
+ * craft()
+ *   .id("fan")
+ *   .error((error) =>
+ *     failedChildrenOf(error) ? { partial: true } : recovery.rethrow(),
+ *   )
+ * ```
+ */
+export function failedChildrenOf(
+  error: unknown,
+): readonly string[] | undefined {
+  if (!isRoutecraftError(error)) return undefined;
+  const ids = (error as { [FAILED_CHILDREN]?: unknown })[FAILED_CHILDREN];
+  return Array.isArray(ids) ? (ids as readonly string[]) : undefined;
+}
+
 /**
  * Aggregator adapter: combines multiple exchanges (e.g. after a split) into one.
  * Used with `.aggregate()`. Default: collect bodies into an array (with one-level flattening).
@@ -165,7 +223,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     const splitHierarchy = exchange.headers[
       HeadersKeys.SPLIT_HIERARCHY
     ] as string[];
-    const currentGroupId = splitHierarchy?.[splitHierarchy.length - 1];
+    const currentGroupId = splitGroupOf(exchange);
 
     // Look up the parent exchange early so step events use its ID
     const parentMap = context?.getStore(SPLIT_PARENT_STORE) as
@@ -214,12 +272,9 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     // this never waits on children that will not arrive.
     const aggregationGroup: Exchange[] = [
       exchange,
-      ...ctx.takePending((candidate: Exchange) => {
-        const candidateHierarchy = candidate.headers[
-          HeadersKeys.SPLIT_HIERARCHY
-        ] as string[];
-        return candidateHierarchy?.at(-1) === currentGroupId;
-      }),
+      ...ctx.takePending(
+        (candidate: Exchange) => splitGroupOf(candidate) === currentGroupId,
+      ),
     ];
 
     // Emit route:exchange:completed for each child being aggregated

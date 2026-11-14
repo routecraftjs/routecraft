@@ -325,7 +325,7 @@ await ctx.start()
 Step execution failed
 
 **Why it happens**  
-A step in the pipeline threw (process, transform, filter, tap, destination, etc.). The framework wraps plain Errors with this code and preserves the original message.
+A step in the pipeline threw (process, transform, filter, tap, destination, etc.). The framework wraps plain Errors with this code and preserves the original message. Also raised on the parent exchange when a child of a `.split()` failed with nothing handling it and an [`.aggregate()`](/docs/reference/operations/aggregate#children-that-do-not-arrive) follows: the child's error is the `cause`.
 
 **Suggestion**  
 Read the error message and suggestion in the log; check adapter documentation. Use `rcError("RC5010", cause, { message, suggestion })` for connection failures, RC5013 for rate limits, etc., so users get a specific docs page.

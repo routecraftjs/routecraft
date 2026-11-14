@@ -768,6 +768,7 @@ export function emitExchangeFailed(
   exchange: Exchange,
   duration: number,
   error: unknown,
+  failedChildren?: readonly string[],
 ): void {
   context?.emit(
     "route:exchange:failed",
@@ -777,6 +778,7 @@ export function emitExchangeFailed(
       correlationId: correlationOf(exchange),
       duration,
       error,
+      ...(failedChildren ? { failedChildren } : {}),
     },
     exchange,
   );
@@ -942,6 +944,27 @@ export function setStartedAt(exchange: Exchange, ts: number): void {
 
 /**
  * Read the recorded start timestamp for an exchange, if one was set.
+ *
+ * @internal
+ */
+export function splitHierarchyOf(exchange: Exchange): readonly string[] {
+  return (
+    (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[] | undefined) ??
+    []
+  );
+}
+
+/**
+ * The split group an exchange is a child of: the innermost open split.
+ *
+ * @internal
+ */
+export function splitGroupOf(exchange: Exchange): string | undefined {
+  return splitHierarchyOf(exchange).at(-1);
+}
+
+/**
+ * When the exchange started, for a child's duration at its terminal event.
  *
  * @internal
  */

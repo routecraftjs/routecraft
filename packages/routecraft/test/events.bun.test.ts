@@ -890,7 +890,7 @@ describe("Event ordering", () => {
   /**
    * @case Split child throws error
    * @preconditions Split into 2, child 1 throws in transform
-   * @expectedResult Failed child gets step error + route error + context error + exchange:failed
+   * @expectedResult The failed child gets step error + route error + context error + exchange:failed; the surviving child completes; the aggregate does not run and the parent fails the same way, naming the failed child
    */
   test("5. split child error: '1,2' -> split -> transform(throw if 1) -> aggregate -> to", async () => {
     const events = await runAndCollect(
@@ -932,25 +932,29 @@ describe("Event ordering", () => {
       // Aggregate
       "route:step:started", // aggregate
       "route:exchange:completed", // child 2
-      "route:step:completed", // aggregate (meta={inputCount:1})
-      // Parent continues
-      "route:step:started", // to
-      "route:step:completed", // to
-      "route:exchange:completed", // parent
+      // The aggregate does not run: the parent fails for its child
+      "route:step:error",
+      "route:error",
+      "context:error",
+      "route:exchange:failed", // parent
       "route:stopping",
       "route:stopped",
       "context:stopping",
       "context:stopped",
     ]);
-    // Failed child error bubbles up to route + context
+    // The child's three error events, then the parent's.
     const errors = events.filter((e) => e.event.includes("error"));
-    expect(errors).toHaveLength(3); // step, route, context
+    expect(errors).toHaveLength(6);
+    const failed = events.filter((e) => e.event === "route:exchange:failed");
+    expect(failed[1]!.details["failedChildren"]).toEqual([
+      failed[0]!.details["exchangeId"],
+    ]);
   });
 
   /**
    * @case Combined filter + error + success across 3 children
    * @preconditions Split into 3: child 1 filtered, child 2 errors, child 3 succeeds
-   * @expectedResult Each child gets correct terminal event, parent completes
+   * @expectedResult Each child gets its own terminal event, and the parent fails at the aggregate for the child that errored
    */
   test("6. combo: '1,2,3' -> split -> filter(!1) -> transform(throw if 2) -> aggregate -> to", async () => {
     const events = await runAndCollect(
@@ -1004,11 +1008,11 @@ describe("Event ordering", () => {
       // Aggregate
       "route:step:started", // aggregate
       "route:exchange:completed", // child 3
-      "route:step:completed", // aggregate (meta={inputCount:1})
-      // Parent continues
-      "route:step:started", // to
-      "route:step:completed", // to
-      "route:exchange:completed", // parent
+      // The aggregate does not run: the parent fails for its child
+      "route:step:error",
+      "route:error",
+      "context:error",
+      "route:exchange:failed", // parent
       "route:stopping",
       "route:stopped",
       "context:stopping",
@@ -1018,14 +1022,13 @@ describe("Event ordering", () => {
     expect(
       events.filter((e) => e.event === "route:exchange:dropped"),
     ).toHaveLength(1);
+    // Child 2, then the parent it failed.
     expect(
       events.filter((e) => e.event === "route:exchange:failed"),
-    ).toHaveLength(1);
-    // 3 completed: child 2 (non-filtered survivor) + parent + child 3
-    // Actually: child 3 completed + parent completed = 2
-    // Child 2 failed, child 1 dropped
+    ).toHaveLength(2);
+    // Child 3 alone: child 1 was dropped and the parent failed.
     expect(
       events.filter((e) => e.event === "route:exchange:completed"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 });

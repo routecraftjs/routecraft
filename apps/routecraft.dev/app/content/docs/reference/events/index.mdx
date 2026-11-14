@@ -113,7 +113,7 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 | --- | --- | --- |
 | `route:exchange:started` | Exchange enters the pipeline (parent or child) | `{ routeId, exchangeId, correlationId, causationId?, remoteParent?, principal? }` |
 | `route:exchange:completed` | Exchange finished successfully (or consumed by aggregate) | `{ routeId, exchangeId, correlationId, duration, principal? }` |
-| `route:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error, principal? }` |
+| `route:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error, failedChildren?, principal? }` |
 | `route:exchange:dropped` | Exchange intentionally removed from the pipeline | `{ routeId, exchangeId, correlationId, reason, principal? }` |
 | `route:exchange:restored` | Exchange restored from cache, skipping steps | `{ routeId, exchangeId, correlationId, source }` |
 | `route:exchange:deferred` | Exchange deferred at a [`.defer()`](/docs/reference/operations/defer); execution one ends here | `{ routeId, exchangeId, correlationId, deferralId, position, expiresAt?, principal? }` |
@@ -172,7 +172,7 @@ Split and aggregate use standard `route:step:started`/`route:step:completed` eve
 - **Split** `route:step:completed` includes `metadata.childCount`: the number of child exchanges created
 - **Aggregate** `route:step:completed` includes `metadata.inputCount`: the number of exchanges merged
 
-After a split, each child exchange emits its own `route:exchange:started`. When aggregate consumes children, it emits `route:exchange:completed` for each child before continuing on the parent exchange.
+After a split, each child exchange emits its own `route:exchange:started`. When aggregate consumes children, it emits `route:exchange:completed` for each child before continuing on the parent exchange. A child that failed with nothing handling it [fails the aggregate](/docs/reference/operations/aggregate#children-that-do-not-arrive): the parent's `route:exchange:failed` then carries `failedChildren`, the ids of those children.
 
 ### Retry wrapper operations
 
