@@ -2,15 +2,12 @@
  * `@routecraft/routecraft/internal`: the names a sibling `@routecraft/*`
  * package needs and a third party must not build on.
  *
- * Three kinds of thing live here and nothing else: the hooks
- * `@routecraft/testing` uses to override an adapter, build helpers the
- * first-party packages share so they apply one rule rather than a copy of
- * it, and the two exchange accessors the agent tier still reads the
- * application through. The accessors are a debt, not a design: the files
- * allowed to import them are listed in the kernel-boundary test, and the
- * list only shrinks. The subpath carries no compatibility promise: a name may change or go
- * in any release, and an import from outside the `@routecraft` scope is
- * unsupported.
+ * Two kinds of thing live here and nothing else: the hooks
+ * `@routecraft/testing` uses to override an adapter and describe a step's
+ * identity, and build helpers the first-party packages share so they apply
+ * one rule rather than a copy of it. The subpath carries no compatibility
+ * promise: a name may change or go in any release, and an import from
+ * outside the `@routecraft` scope is unsupported.
  *
  * This file is bundled on its own, apart from the main entry, so everything
  * it reaches exists twice at runtime. A module-level registry or cache

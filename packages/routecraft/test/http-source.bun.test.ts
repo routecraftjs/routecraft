@@ -1377,6 +1377,62 @@ describe("HTTP Source Adapter", () => {
   });
 
   /**
+   * @case An API key the mount verified is not on the exchange
+   * @preconditions One mount reading the key from a custom header and one reading it from a query parameter, each with a route that records the headers it was handed
+   * @expectedResult Both requests are admitted; the key is absent from rawHeaders, from the query map and from the url, while the other header and the other query parameter are kept
+   */
+  test("a verified api key is left off the exchange", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const record = (path: string) =>
+      craft()
+        .id(path)
+        .from(http({ path: `/${path}`, method: "GET" }))
+        .tap((ex) => {
+          seen.push(ex.headers as Record<string, unknown>);
+        })
+        .transform(() => ({ ok: true }))
+        .to(noop());
+
+    const byHeader = await bootHttp({
+      routes: record("kh"),
+      http: {
+        port: 0,
+        auth: apiKey({ name: "X-Tenant-Key", keys: ["s3cret"] }),
+      },
+    });
+    t = byHeader.ctx;
+    const first = await fetch(`http://127.0.0.1:${byHeader.port}/kh?page=2`, {
+      headers: { "x-tenant-key": "s3cret", "x-trace": "abc" },
+    });
+    expect(first.status).toBe(200);
+    await t.stop();
+
+    const byQuery = await bootHttp({
+      routes: record("kq"),
+      http: { port: 0, auth: apiKey({ in: "query", keys: ["s3cret"] }) },
+    });
+    t = byQuery.ctx;
+    const second = await fetch(
+      `http://127.0.0.1:${byQuery.port}/kq?api_key=s3cret&page=2`,
+    );
+    expect(second.status).toBe(200);
+
+    expect(seen).toHaveLength(2);
+    expect(JSON.stringify(seen)).not.toContain("s3cret");
+    const [header, query] = seen as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+    expect(header["routecraft.http.rawHeaders"]).toMatchObject({
+      "x-trace": "abc",
+    });
+    expect(query["routecraft.http.query"]).toEqual({ page: "2" });
+    expect(query["routecraft.http.url"]).toBe(
+      `http://127.0.0.1:${byQuery.port}/kq?page=2`,
+    );
+  });
+
+  /**
    * @case Binding a second server to an in-use port fails to start
    * @preconditions One server already bound to a port; a second context targets the same port
    * @expectedResult The second context's start rejects (RC5019 bind failure) rather than silently running

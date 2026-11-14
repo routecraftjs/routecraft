@@ -74,7 +74,8 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 25](#26-what-is-new-in-080)) |
+| `TeardownInfo` | `StopInfo` |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 26](#26-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -142,7 +143,7 @@ State one plugin hands another, or hands an adapter, is a port: a typed token de
 
 | 0.7 store key | 0.8 port |
 | --- | --- |
-| `ADAPTER_DIRECT_REGISTRY`, `DIRECT_DEFAULTS` | `DIRECT`; list capabilities with `ctx.capabilities()` |
+| `ADAPTER_DIRECT_STORE`, `ADAPTER_DIRECT_OPTIONS` | `DIRECT`; list capabilities with `ctx.capabilities()` |
 | `OPS_HEALTH_STATE`, `OPS_RESOURCES` | `OPS` |
 | `DEFERRAL_RUNTIME` | `CONTINUATIONS` |
 | `CARDDAV_CLIENT_MANAGER` | `CARDDAV` |
@@ -291,8 +292,8 @@ A log line is now a step in the flow, and the logger is something a project is g
 | `.log((ex) => value)`, `.tap(log((ex) => value))` | `.log('info', 'Message', (ex) => ({ value }))` |
 | `.debug()`, `.tap(debug())`, `log(fn, { level: 'debug' })` | `.log('debug', 'Message', ...)` |
 | `log(fn, { level: 'error' })` | no step equivalent: a failure is logged once, at the boundary. Add context in `.error()` |
-| `import { logger } from '@routecraft/routecraft'` | `ex.logger`, `context.logger` or a plugin's `host.logger`; `defaultLogger()` where there is no context |
-| `PluginLogger`, `LogOptions`, `LogDestinationAdapter` | `Logger` |
+| `import { logger } from '@routecraft/routecraft'` | `ex.logger`, `context.logger` or a plugin's `c.logger`; `defaultLogger()` where there is no context |
+| `LogOptions`, `LogDestinationAdapter` | `Logger` |
 | a pino options object in `craft.log.js` | `level`, `file` and `redact` only; anything else through `defineProject({ logger })` |
 
 - **A `.log()` line is ordered and attributed.** It used to run as a detached tap on a copy of the exchange with an id of its own. It now runs in the flow on the exchange itself, so it carries that exchange's `exchangeId` and lands where it is written. The old default line, `LogAdapter output` with the whole exchange, is gone: a line says what its message says and carries the fields its bindings return.
@@ -366,6 +367,7 @@ deferralStoreConformance('my store', () => openMyStore(), {
 - **A deferral parks the exchange it was raised for, once.** A step that keeps the signal `ctx.defer()` rejected with and throws it on another exchange, or a second time, is [`RC5032`](/docs/reference/errors#rc-5032).
 - **`restrict-continuation-minting` is an error in both lint presets.** It flags `continuations.mintToken()`, `resume()` and `rewriteStepState()`; see [linting](/docs/advanced/linting#continuation-acts-are-a-sanctioned-exception).
 - **Six more names leave the entry**, none of which a route needs: `ResolvedSampleOptions`, `ResolvedDedupeOptions`, `ResolvedThrottleOptions`, `ResolvedCircuitBreakerOptions`, `RouteEnablement` and `hashExchangeBody`.
+- **The names only `@routecraft/*` packages used leave the entry too.** They sit on `@routecraft/routecraft/internal`, which carries no compatibility promise and is unsupported outside the `@routecraft` scope: the adapter-override hooks behind `@routecraft/testing` (`RC_ADAPTER_OVERRIDES`, `SOURCE_FIXTURE`, `isSourceFixture` and the types `AdapterOverride`, `AdapterSendCall`, `AdapterSourceCall`, `SendOverrideHandler`, `SourceOverrideBehavior`, `SourceFixture`, `SourceMessage`), the runtime-version helpers (`RuntimeVersion`, `parseRuntimeVersion`, `compareRuntimeVersion`, `isDevelopmentRuntime`) and `rejectStaleOptions`. Override an adapter through `@routecraft/testing`; nothing else here has a public replacement because nothing outside the framework had a use for it.
 
 ## 19. The command line reads a project, and only a project \{#19-project-export}
 
@@ -418,7 +420,12 @@ ctx.on(
 )
 ```
 
-The copy is frozen and leaves out `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` and every header a plugin lists in `secretHeaders`, at every depth of a header, so the wire headers the HTTP door keeps under `routecraft.http.rawHeaders` lose theirs too. The principal in it is the reference, without claims or scopes. A subscriber that reads only ids, durations and errors changes nothing. A handler that passed `details.exchange` to `isDropped()` or another exchange helper has no exchange to pass: the event's name already says how the exchange ended. See [snapshots](/docs/reference/events#snapshots).
+The copy is frozen and leaves out `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key` and every header a plugin lists in `secretHeaders`, at every depth of a header, so the wire headers the HTTP door keeps under `routecraft.http.rawHeaders` lose theirs too. The principal in it is the reference, without claims or scopes. A subscriber that reads only ids, durations and errors changes nothing. A handler that passed `details.exchange` to `isDropped()` or another exchange helper has no exchange to pass: the event's name already says how the exchange ended. See [snapshots](/docs/reference/events#snapshots).
+
+Two more places stop holding a credential:
+
+- **An API key the HTTP mount verified is not on the exchange.** With `auth: apiKey(...)`, the key is left out of `routecraft.http.rawHeaders`, or out of `routecraft.http.query` and `routecraft.http.url` for `in: 'query'`. A route that read the key to work out who called returns that from `apiKey({ verify })` as the principal instead.
+- **A parked exchange is stored without its credential headers.** The same names the snapshot leaves out are left out of the record a `.defer()` writes, at every depth, so a bearer token or a session cookie does not sit in the deferral store for as long as the approval takes. Steps after a resume run as the principal the route verified and do not see those headers.
 
 A telemetry store written by 0.7 with `captureSnapshots` on holds the headers as they were then, credentials included, in `exchange_snapshots` and in the `details` of its error events. Delete the store, or those rows, if it should not keep them. From 0.8 the exchange is stored once, in `exchange_snapshots`, and no event row repeats it.
 

@@ -100,8 +100,13 @@ function findInCauseChain(
   for (let depth = 0; depth < 5; depth++) {
     if (typeof current !== "object" || current === null) return undefined;
     const link = current as Record<string, unknown>;
-    if (typeof link["code"] === "string" && match(link["code"])) return link;
-    current = link["cause"];
+    // A verifier's error is foreign code: a getter on it may throw.
+    try {
+      if (typeof link["code"] === "string" && match(link["code"])) return link;
+      current = link["cause"];
+    } catch {
+      return undefined;
+    }
   }
   return undefined;
 }

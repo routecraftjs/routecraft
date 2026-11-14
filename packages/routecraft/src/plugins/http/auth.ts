@@ -217,6 +217,23 @@ function defaultApiKeyName(where: "header" | "query"): string {
   return where === "header" ? "x-api-key" : "api_key";
 }
 
+/**
+ * Where a mount's auth reads an API key from, or `undefined` when it reads
+ * none. The header name is lowercased, as request headers are.
+ *
+ * @internal
+ */
+export function apiKeyLocationOf(
+  auth: HttpAuth | false | undefined,
+): { readonly in: "header" | "query"; readonly name: string } | undefined {
+  if (auth === undefined || auth === false || !isApiKeyAuth(auth)) {
+    return undefined;
+  }
+  const where = auth.in ?? "header";
+  const name = auth.name ?? defaultApiKeyName(where);
+  return { in: where, name: where === "header" ? name.toLowerCase() : name };
+}
+
 function syntheticApiKeyPrincipal(
   key: string,
   scopes: readonly string[] | undefined,

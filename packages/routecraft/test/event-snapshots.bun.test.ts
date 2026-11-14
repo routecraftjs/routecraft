@@ -504,16 +504,28 @@ describe("event body policy", () => {
   /**
    * @case Log lines and snapshots withhold the same credential headers
    * @preconditions The shared list of credential header names
-   * @expectedResult The logger's default redaction has one path per name, in its published spelling
+   * @expectedResult The logger's default redaction names every one of them under `headers`, in lowercase and in title case
    */
   test("the logger redacts every credential header a snapshot leaves out", () => {
-    expect(DEFAULT_REDACT).toEqual([
-      "headers.authorization",
-      "headers.cookie",
-      'headers["set-cookie"]',
-      'headers["proxy-authorization"]',
+    expect(CREDENTIAL_HEADERS).toEqual([
+      "authorization",
+      "cookie",
+      "set-cookie",
+      "proxy-authorization",
+      "x-api-key",
     ]);
-    expect(DEFAULT_REDACT).toHaveLength(CREDENTIAL_HEADERS.length);
+    expect(DEFAULT_REDACT).toEqual(
+      expect.arrayContaining([
+        "headers.authorization",
+        "headers.Authorization",
+        "headers.cookie",
+        'headers["set-cookie"]',
+        'headers["Set-Cookie"]',
+        'headers["proxy-authorization"]',
+        'headers["x-api-key"]',
+        'headers["X-Api-Key"]',
+      ]),
+    );
   });
 
   /**

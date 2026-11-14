@@ -84,6 +84,7 @@ export async function deferExchange(
     routeId,
     request,
     request.expiresInMs ?? runtime.defaultTtlMs,
+    context.secretHeaderNames,
   );
   const schema = record.schema;
 
@@ -242,6 +243,7 @@ function describeRecord(
     "site" | "schema" | "meta" | "callBinding" | "stepState" | "errorPath"
   >,
   ttlMs: number | undefined,
+  secretHeaderNames: ReadonlySet<string>,
 ): { id: string; deferring: Exchange; record: NewDeferral } {
   const floor = asideSequenceOf(exchange);
   const sequence = effectiveSequence(exchange.headers, floor);
@@ -257,7 +259,7 @@ function describeRecord(
   });
 
   const schema = describeSchema(request.schema);
-  const serialized = serializeExchange(deferring);
+  const serialized = serializeExchange(deferring, secretHeaderNames);
   const hash = continuationTailHash(
     request.site.continuation,
     schema,
@@ -355,6 +357,7 @@ export async function deferAside(
     routeId,
     { site, stepState: stepState(id) },
     undefined,
+    context.secretHeaderNames,
   );
   if (announce) await announce(id);
   await runtime.store.create(record);

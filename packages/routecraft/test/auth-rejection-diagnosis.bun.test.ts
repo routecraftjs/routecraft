@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { errors } from "jose";
 import { testContext } from "@routecraft/testing";
-import { diagnoseRejection } from "../src/index.ts";
+import { createHmac } from "node:crypto";
+import { diagnoseRejection, jwt } from "../src/index.ts";
 import { HttpMountRegistry } from "../src/plugins/server/registry.ts";
 import { ingressHostOf } from "./helpers/authority.ts";
 
@@ -159,6 +160,70 @@ describe("auth:rejected diagnosis", () => {
 });
 
 describe("diagnoseRejection", () => {
+  /**
+   * @case The built-in jwt() verifier refuses a token for each reason it can
+   * @preconditions An HS256 jwt() verifier for one issuer and audience; tokens with a wrong issuer, a wrong audience, a bad signature, another algorithm, no exp, an exp in the past, an nbf in the future, and a string that is not a token
+   * @expectedResult Each refusal is diagnosed with the code jose gives the same failure and, for a claim, its name: a wrong issuer and a wrong audience are told apart
+   */
+  test("diagnoses every jwt() refusal", async () => {
+    const secret = "k".repeat(32);
+    const verifier = jwt({
+      secret,
+      issuer: "https://idp.test",
+      audience: "app",
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const good = {
+      iss: "https://idp.test",
+      aud: "app",
+      sub: "a",
+      exp: now + 60,
+    };
+    const sign = (payload: object, alg = "HS256", key = secret): string => {
+      const part = (value: object) =>
+        Buffer.from(JSON.stringify(value)).toString("base64url");
+      const body = `${part({ alg, typ: "JWT" })}.${part(payload)}`;
+      const mac = createHmac(alg === "HS512" ? "sha512" : "sha256", key)
+        .update(body)
+        .digest("base64url");
+      return `${body}.${mac}`;
+    };
+    const diagnosed = async (token: string) => {
+      try {
+        await verifier.validator(token);
+      } catch (err) {
+        return diagnoseRejection(err).fields;
+      }
+      throw new Error("the token was admitted");
+    };
+    const claim = "ERR_JWT_CLAIM_VALIDATION_FAILED";
+
+    expect(
+      await diagnosed(sign({ ...good, iss: "https://other.test" })),
+    ).toEqual({ code: claim, claim: "iss" });
+    expect(await diagnosed(sign({ ...good, aud: "other" }))).toEqual({
+      code: claim,
+      claim: "aud",
+    });
+    expect(await diagnosed(sign(good, "HS256", "x".repeat(32)))).toEqual({
+      code: "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+    });
+    expect(await diagnosed(sign(good, "HS512"))).toEqual({
+      code: "ERR_JOSE_ALG_NOT_ALLOWED",
+    });
+    const noExp = { iss: good.iss, aud: good.aud, sub: good.sub };
+    expect(await diagnosed(sign(noExp))).toEqual({ code: claim, claim: "exp" });
+    expect(await diagnosed(sign({ ...good, exp: now - 60 }))).toEqual({
+      code: "ERR_JWT_EXPIRED",
+      claim: "exp",
+    });
+    expect(await diagnosed(sign({ ...good, nbf: now + 600 }))).toEqual({
+      code: claim,
+      claim: "nbf",
+    });
+    expect(await diagnosed("not-a-token")).toEqual({ code: "ERR_JWT_INVALID" });
+  });
+
   /**
    * @case A jose error nested under a wrapping error is still diagnosed
    * @preconditions A plain Error whose cause is jose's no-matching-key error

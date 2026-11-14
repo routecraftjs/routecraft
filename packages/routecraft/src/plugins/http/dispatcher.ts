@@ -92,6 +92,12 @@ export interface DispatcherOptions {
    * verification individually.
    */
   walled: boolean;
+  /**
+   * Where the mount's auth reads an API key. The key is left off the
+   * exchange: the wall is its only reader, and an exchange is copied into
+   * events and persisted when it defers.
+   */
+  apiKeyAt?: { readonly in: "header" | "query"; readonly name: string };
   maxBodySize: number;
   builtins: BuiltinHandler;
   /** Optional gated built-ins (e.g. /openapi.json under `access: "authenticated"`). */
@@ -369,10 +375,21 @@ export function createDispatcher(
     //    envelope (method, path, url) is promoted to its own dotted keys, with
     //    typed nested maps for params and query; the open-ended pass-through
     //    wire headers go into the single `routecraft.http.rawHeaders` map.
+    const keyAt = opts.apiKeyAt;
+    let requestUrl = req.url;
+    if (keyAt?.in === "query" && url.searchParams.has(keyAt.name)) {
+      const withoutKey = new URL(url);
+      withoutKey.searchParams.delete(keyAt.name);
+      requestUrl = withoutKey.href;
+    }
     const queryObject: Record<string, string> = {};
-    for (const [k, v] of url.searchParams) queryObject[k] = v;
+    for (const [k, v] of url.searchParams) {
+      if (keyAt?.in === "query" && k === keyAt.name) continue;
+      queryObject[k] = v;
+    }
     const reqHeaders: Record<string, string> = {};
     req.headers.forEach((value, key) => {
+      if (keyAt?.in === "header" && key === keyAt.name) return;
       reqHeaders[key] = value;
     });
     const cookies = parseCookies(req.headers.get("cookie"));
@@ -380,7 +397,7 @@ export function createDispatcher(
     const handlerHeaders: ExchangeHeaders = {
       "routecraft.http.method": method,
       "routecraft.http.path": entry.matcher.pattern,
-      "routecraft.http.url": req.url,
+      "routecraft.http.url": requestUrl,
       "routecraft.http.params": params,
       "routecraft.http.query": Object.freeze(queryObject),
       "routecraft.http.rawHeaders": Object.freeze(reqHeaders),
