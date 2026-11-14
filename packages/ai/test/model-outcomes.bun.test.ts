@@ -12,8 +12,9 @@ mock.module("../src/llm/providers/index.ts", () => ({
   streamLlm: mock(async (): Promise<LlmResult> => ({ text: "ok" })),
 }));
 
-const { callLlm } = await import("../src/llm/providers/index.ts");
+const { callLlm, streamLlm } = await import("../src/llm/providers/index.ts");
 const callLlmMock = callLlm as unknown as ReturnType<typeof mock>;
+const streamLlmMock = streamLlm as unknown as ReturnType<typeof mock>;
 const { agent, agentPlugin, llm, llmPlugin } = await import("../src/index.ts");
 const { resolveSampling } = await import("../src/llm/shared.ts");
 const { assertNotCutOffEmpty } = await import("../src/llm/cut-off.ts");
@@ -107,16 +108,30 @@ describe("assertNotCutOffEmpty", () => {
   });
 
   /**
+   * @case Tool calls of earlier steps do not excuse a cut-off last step
+   * @preconditions Empty text, finishReason length, a tool call on the result but not in the last step
+   * @expectedResult AI1020
+   */
+  test("a turn cut off after its tools ran is AI1020", () => {
+    expect(() =>
+      assertNotCutOffEmpty(
+        cutOff({
+          toolCalls: [{ toolCallId: "c1", toolName: "send", input: {} }],
+        }),
+        MODEL,
+      ),
+    ).toThrow(expect.objectContaining({ rc: "AI1020" }));
+  });
+
+  /**
    * @case A call that produced something, or that the model ended itself, passes
-   * @preconditions Cut-off calls carrying text, a tool call, or structured output; an empty call that ended "stop"; one with no finish reason
+   * @preconditions Cut-off calls carrying text, a tool call in the last step, or structured output; an empty call that ended "stop"; one with no finish reason
    * @expectedResult None throws
    */
   test("a partial answer and a deliberate empty answer pass", () => {
     const passing: LlmResult[] = [
       cutOff({ text: "partial" }),
-      cutOff({
-        toolCalls: [{ toolCallId: "c1", toolName: "send", input: {} }],
-      }),
+      cutOff({ endedOnToolCall: true }),
       cutOff({ output: { ok: true } }),
       { text: "", finishReason: "stop" },
       { text: "" },
@@ -177,6 +192,63 @@ describe("a cut-off call fails the exchange", () => {
 
     expect(t.errors[0]?.rc).toBe("AI1020");
     expect(events).toEqual(["error"]);
+  });
+
+  /**
+   * @case The streaming path refuses a cut-off turn the same way
+   * @preconditions agent() with an onDelta listener, so the dispatch takes streamLlm; the stream ends empty with finishReason length
+   * @expectedResult The exchange fails with AI1020
+   */
+  test("agent() with onDelta fails with AI1020", async () => {
+    streamLlmMock.mockResolvedValue({ text: "", finishReason: "length" });
+    t = await testContext()
+      .with({ plugins: plugins() })
+      .routes(
+        craft()
+          .id("cut-off-streamed")
+          .from(simple("hi"))
+          .to(agent({ model: MODEL, system: "be useful", onDelta: () => {} }))
+          .to(noop()),
+      )
+      .build();
+
+    await t.test().catch(() => undefined);
+
+    expect(streamLlmMock).toHaveBeenCalledTimes(1);
+    expect(t.errors[0]?.rc).toBe("AI1020");
+  });
+
+  /**
+   * @case A partial answer is returned with the reason it stopped
+   * @preconditions agent() whose model call returns text with finishReason length
+   * @expectedResult The exchange succeeds and the result carries the text and finishReason "length"
+   */
+  test("agent() returns a partial answer with its finishReason", async () => {
+    callLlmMock.mockResolvedValue({
+      text: "half an ans",
+      finishReason: "length",
+    });
+    const seen: unknown[] = [];
+    t = await testContext()
+      .with({ plugins: plugins() })
+      .routes(
+        craft()
+          .id("partial-agent")
+          .from(simple("hi"))
+          .to(agent({ model: MODEL, system: "be useful" } as SyncAgentOptions))
+          .tap((ex) => {
+            seen.push(ex.body);
+          }),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors).toHaveLength(0);
+    expect(seen[0]).toMatchObject({
+      text: "half an ans",
+      finishReason: "length",
+    });
   });
 
   /**

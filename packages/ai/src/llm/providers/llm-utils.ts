@@ -217,6 +217,18 @@ export function collectToolCalls(result: unknown): LlmToolCallSummary[] {
   return out;
 }
 
+/**
+ * Whether the last entry of an SDK result's `steps` carries a tool call.
+ *
+ * @internal
+ */
+export function lastStepCalledTool(steps: unknown): boolean {
+  if (!Array.isArray(steps)) return false;
+  const calls = (steps.at(-1) as { toolCalls?: unknown } | undefined)
+    ?.toolCalls;
+  return Array.isArray(calls) && calls.length > 0;
+}
+
 /** Per-provider extras forwarded into `generateText` / `streamText`. */
 export interface ProviderExtras {
   output?: unknown;

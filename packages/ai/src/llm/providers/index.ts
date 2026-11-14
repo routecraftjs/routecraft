@@ -3,6 +3,7 @@ import {
   buildExtras,
   buildSdkParams,
   collectToolCalls,
+  lastStepCalledTool,
   getStructuredOutput,
   readReasoning,
   toLlmUsage,
@@ -69,6 +70,7 @@ async function runGenerate(input: SdkParamsInput): Promise<LlmResult> {
   if (toolCalls.length > 0) out.toolCalls = toolCalls;
   const steps = (result as { steps?: unknown }).steps;
   if (Array.isArray(steps)) out.stepsCount = steps.length;
+  if (lastStepCalledTool(steps)) out.endedOnToolCall = true;
   const responseMessages = (result as { response?: { messages?: unknown } })
     .response?.messages;
   if (Array.isArray(responseMessages)) out.responseMessages = responseMessages;

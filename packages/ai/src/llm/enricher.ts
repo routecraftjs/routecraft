@@ -17,11 +17,7 @@ import {
   toPromptInput,
 } from "./shared.ts";
 import { toAiOutputSpec } from "./structured-output.ts";
-import type {
-  LlmOptions,
-  LlmOptionsMerged,
-  LlmResultWithOutput,
-} from "./types.ts";
+import type { LlmOptions, LlmResultWithOutput } from "./types.ts";
 import { LLM } from "./types.ts";
 
 /**
@@ -67,14 +63,14 @@ export class LlmEnricherAdapter<
     private readonly modelId: string,
     options: LlmOptions<T> = {},
   ) {
-    this.options = options as Partial<LlmOptionsMerged<T>>;
+    this.options = options;
   }
 
-  public options: Partial<LlmOptionsMerged<T>>;
+  public options: LlmOptions<T>;
 
   private merged(exchange: Exchange<T>): LlmOptions<T> {
     const store = lookupOf(exchange, LLM)?.defaults;
-    return { ...store, ...this.options } as LlmOptions<T>;
+    return { ...store, ...this.options };
   }
 
   async fetch(exchange: Exchange<T>): Promise<LlmResultWithOutput<S>> {

@@ -333,7 +333,7 @@ export type LlmSamplingOptionsMerged = Required<
 > &
   Omit<LlmSamplingOptions, "temperature">;
 
-/** Internal merged type for adapter and store. */
+/** The shape of the context-level defaults the `llm` plugin holds. */
 export type LlmOptionsMerged<T = unknown> = LlmSamplingOptionsMerged &
   Omit<LlmOptions<T>, keyof LlmSamplingOptions>;
 
@@ -389,6 +389,15 @@ export interface LlmResult {
    * for post-dispatch assertions.
    */
   toolCalls?: LlmToolCallSummary[];
+  /**
+   * Whether the last model step of the call asked for a tool. `text` and
+   * `finishReason` describe that last step while `toolCalls` spans every
+   * step, so this is what says whether the step that ended the call did
+   * anything.
+   *
+   * @internal
+   */
+  endedOnToolCall?: boolean;
   /**
    * Number of model steps the SDK consumed in this call. Mirrors
    * `result.steps.length` and is populated by both the sync and

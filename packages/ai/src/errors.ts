@@ -726,7 +726,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Model call cut off before it produced anything",
       suggestion:
-        "The provider ended the call with finish reason length or content-filter, and the model had produced no text, no tool call and no structured output. For length, the output cap was spent first: thinking tokens count against maxTokens, so raise maxTokens, lower reasoning, or leave maxTokens unset next to a reasoning level so the provider's own maximum applies. For content-filter, the provider refused the content; change the prompt or the model. The same input will be cut off the same way, so a retry does not help.",
+        "The provider ended the call with finish reason length or content-filter, and the last step of the call had produced no text, no tool call and no structured output. Tool calls made in earlier steps of an agent turn have already run. For length, the output cap was spent first: thinking tokens count against maxTokens, so raise maxTokens, lower reasoning, or leave maxTokens unset next to a reasoning level so the provider's own maximum applies. For content-filter, the provider refused the content; change the prompt or the model. The same input will be cut off the same way, so a retry does not help.",
       docs: `${DOCS_BASE}#ai-1020`,
       retryable: false,
     },

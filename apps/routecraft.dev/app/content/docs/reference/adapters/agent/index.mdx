@@ -74,7 +74,7 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `stream` | `boolean` | `false` | No | Produce the token deltas instead of the consolidated `AgentResult`. See [Streaming the reply](#streaming-the-reply). Does not combine with `session` |
 | `onDelta` | `(delta) => void \| Promise<void>` | -- | No | Push form of the same streaming run: each token delta goes to this listener and the consolidated result is still returned. Refused alongside `stream` |
 | `temperature` | `number` | `0` | No | Sampling temperature |
-| `maxTokens` | `number` | `1024`, or none when `reasoning` is `'low'` or above | No | Maximum tokens per model call. Thinking tokens count against it; a turn cut off before any text or tool call fails with [`AI1020`](/docs/reference/errors#ai-1020). See [the output cap](/docs/reference/adapters/llm#the-output-cap) |
+| `maxTokens` | `number` | `1024`, or none when `reasoning` is `'low'` or above | No | Maximum tokens per model call. Thinking tokens count against it; a turn cut off with no text, tool call or structured output in its last step fails with [`AI1020`](/docs/reference/errors#ai-1020). See [the output cap](/docs/reference/adapters/llm#the-output-cap) |
 | `topP` | `number` | -- | No | Top-p sampling |
 | `frequencyPenalty` | `number` | -- | No | Frequency penalty |
 | `presencePenalty` | `number` | -- | No | Presence penalty |
@@ -112,6 +112,7 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 | `usage.inputTokens` | `number` | Input token count (when reported) |
 | `usage.outputTokens` | `number` | Output token count (when reported) |
 | `usage.totalTokens` | `number` | Total token count (when reported) |
+| `finishReason` | `string` | Why the model's last step ended (when reported). `length` beside a non-empty `text` means the answer was cut short at the output cap |
 | `session` | `{ agent, id, status, queued }` | Present only when the dispatch carried `session`. `status` is `replied` (`text` is this message's reply), `queued` (a turn was running; `text` is empty and the reply belongs to the turn that consumes the inbox), `interrupted` (this call's own turn was cancelled by a later message) or `idle` (only on a revived continuation whose inbox another turn consumed first; `text` is empty and no model call was made). `queued` is the inbox depth afterwards |
 
 #### Sessions: an agent that remembers

@@ -6,6 +6,7 @@ import {
   buildExtras,
   buildSdkParams,
   collectToolCalls,
+  lastStepCalledTool,
   toLlmUsage,
   type CallLlmParams,
   type SdkParamsInput,
@@ -140,6 +141,7 @@ export async function runStreamGenerate(
   const toolCalls = collectToolCalls({ steps });
   if (toolCalls.length > 0) out.toolCalls = toolCalls;
   if (Array.isArray(steps)) out.stepsCount = steps.length;
+  if (lastStepCalledTool(steps)) out.endedOnToolCall = true;
   const response = await safeAwait<{ messages?: unknown }>(
     (result as { response?: PromiseLike<{ messages?: unknown }> }).response,
   );

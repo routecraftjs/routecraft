@@ -1034,6 +1034,7 @@ function toAgentResult(
   if (result.output !== undefined) out.output = result.output;
   if (result.reasoning !== undefined) out.reasoning = result.reasoning;
   if (result.usage) out.usage = result.usage;
+  if (result.finishReason !== undefined) out.finishReason = result.finishReason;
   // Cumulative across all validate retries so post-dispatch assertions
   // like "must have called X" see the agent's full tool history rather
   // than only the last call's. Synthetic block-loader invocations are

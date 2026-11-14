@@ -1340,11 +1340,11 @@ A surface update did not match the protocol
 Model call cut off before it produced anything
 
 **Why it happens**  
-The provider ended a model call with finish reason `length` or `content-filter`, and the model had produced nothing by then: no text, no tool call and no structured output. `agent()` and `llm()` both refuse it, because passed on it reads as a model that chose to say nothing.
+The provider ended a model call with finish reason `length` or `content-filter`, and the last step of the call had produced nothing: no text, no tool call and no structured output. `agent()` and `llm()` both refuse it, because passed on it reads as a model that chose to say nothing. An agent turn that called tools and was then cut off while working on their results is refused too; those tools have already run, and the code is not retryable, so `.retry()` does not run them again.
 
 The usual cause is the output cap. On a model that thinks, the thinking tokens count against `maxTokens`, so the cap can be spent before the answer starts. This is why a call that sets a `reasoning` level of `'low'` or above and no `maxTokens` is sent without a cap. A model that thinks by default, with no `reasoning` set, still gets the 1024 default and can still land here.
 
-A call that was cut off after producing something is not refused: a partial answer reaches the route with `finishReason` on the result. For an agent, `route:agent:error` fires and `route:agent:finished` does not.
+A call that was cut off after writing something is not refused: a partial answer reaches the route with `finishReason` on the result. For an agent, `route:agent:error` fires and `route:agent:finished` does not.
 
 **Suggestion**  
 - For `length`: raise `maxTokens`, lower `reasoning`, or set a `reasoning` level and leave `maxTokens` unset so the provider's own maximum applies.

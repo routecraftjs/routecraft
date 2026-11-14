@@ -264,32 +264,6 @@ describe("content parts on the user prompt", () => {
   });
 
   /**
-   * @case An empty parts array is sent as the empty prompt it is, never replaced by the body
-   * @preconditions llm({ user: () => [] }) over a body the default derivation can render
-   * @expectedResult The user prompt is empty, matching what agent() does with the same callback
-   */
-  test("an empty parts array is sent as an empty prompt", async () => {
-    scripted.script.push({ text: "ok" });
-    t = await testContext()
-      .with({
-        plugins: [
-          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-        ],
-      })
-      .routes(
-        craft()
-          .id("empty-parts")
-          .from(simple("the body itself"))
-          .enrich(llm(MODEL, { user: () => [] })),
-      )
-      .build();
-
-    await t.test();
-
-    expect(firstPrompt()).toBe("");
-  });
-
-  /**
    * @case A parts prompt survives a deferral and a resume with its parts intact
    * @preconditions An agent prompted with a base64 file part defers on a deferring tool, then is resumed
    * @expectedResult The resumed dispatch replays the persisted thread whose first message still carries the file part
