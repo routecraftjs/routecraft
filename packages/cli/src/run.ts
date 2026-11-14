@@ -95,8 +95,7 @@ export async function runCommand(
 
   let log: Logger | undefined;
   try {
-    // Load the module (CLI already set LOG_LEVEL / LOG_FILE from argv in index.ts).
-    // Logger uses env first; context will apply craftConfig.log when built (env wins if set).
+    // The file's own logger takes the run's lines when it exports one; the default logger otherwise.
     const module = await import(absFilePath);
     const craftConfig = module.craftConfig as CraftConfig | undefined;
 
