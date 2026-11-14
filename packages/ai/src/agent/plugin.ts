@@ -241,8 +241,8 @@ function createAgentRuntimePlugin(): Plugin {
               {
                 logger: c.logger,
                 emit: (event, details) => c.emit(event, details),
-                observe: (event, handler) => {
-                  c.observe(event, handler);
+                observe: (event, handler, options) => {
+                  c.observe(event, handler, options);
                 },
                 deferrals: () => c.lookup(CONTINUATIONS),
                 continuations: c.continuations,

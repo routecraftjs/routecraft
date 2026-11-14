@@ -136,13 +136,17 @@ export class TapStep<T = unknown> implements Step<Adapter> {
             "Tap errors can be handled in the route-level error() operation.",
         });
         const tapLabel = this.label ?? "tap";
-        context.emit("route:step:error", {
-          routeId: route.definition.id,
-          error: err,
-          route,
-          exchange: snapshot,
-          operation: tapLabel,
-        });
+        context.emit(
+          "route:step:error",
+          {
+            routeId: route.definition.id,
+            error: err,
+            route,
+            exchangeId: snapshot.id,
+            operation: tapLabel,
+          },
+          snapshot,
+        );
         throw err; // Reject for observability
       }
     })();

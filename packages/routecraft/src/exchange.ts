@@ -705,12 +705,92 @@ export function markDropped(exchange: Exchange): void {
 }
 
 /**
+ * Emit `route:exchange:started` for an exchange. With its two siblings and
+ * {@link emitExchangeDropped}, the one way a lifecycle event is emitted: the
+ * exchange is handed over beside the details, which is what `principal` and
+ * the snapshot are built from, so no site can leave it out.
+ *
+ * @internal
+ */
+export function emitExchangeStarted(
+  context: CraftContext | undefined,
+  routeId: string,
+  exchange: Exchange,
+): void {
+  context?.emit(
+    "route:exchange:started",
+    {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId: correlationOf(exchange),
+    },
+    exchange,
+  );
+}
+
+/**
+ * Emit `route:exchange:completed` for an exchange.
+ *
+ * @param exchange - The exchange that ran, whose id the event names
+ * @param ended - The exchange as the pipeline left it, when that is another
+ *   one (a join's output): its correlation id, which a `.correlate()` may
+ *   have re-stamped, and what the snapshot is copied from
+ *
+ * @internal
+ */
+export function emitExchangeCompleted(
+  context: CraftContext | undefined,
+  routeId: string,
+  exchange: Exchange,
+  duration: number,
+  ended: Exchange = exchange,
+): void {
+  context?.emit(
+    "route:exchange:completed",
+    {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId: correlationOf(ended),
+      duration,
+    },
+    ended,
+  );
+}
+
+/**
+ * Emit `route:exchange:failed` for an exchange.
+ *
+ * @internal
+ */
+export function emitExchangeFailed(
+  context: CraftContext | undefined,
+  routeId: string,
+  exchange: Exchange,
+  duration: number,
+  error: unknown,
+): void {
+  context?.emit(
+    "route:exchange:failed",
+    {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId: correlationOf(exchange),
+      duration,
+      error,
+    },
+    exchange,
+  );
+}
+
+function correlationOf(exchange: Exchange): string {
+  return exchange.headers[HeadersKeys.CORRELATION_ID] as string;
+}
+
+/**
  * Drop an exchange: mark it dropped, then emit `route:exchange:dropped`.
  *
  * This is the single sanctioned way to drop an exchange from a step or
- * pipeline site. The mark MUST precede the emission so a subscriber that
- * calls `isDropped(event.details.exchange)` observes the correct state;
- * the runtime engine reads the flag after `runPipeline` to skip
+ * pipeline site. The runtime engine reads the flag after `runPipeline` to skip
  * `route:exchange:completed` (see `pipeline/executor.ts`). The mark is
  * unconditional ({@link markDropped} is idempotent); the emission is
  * skipped when no context is bound, which keeps the drop flag correct
@@ -734,13 +814,16 @@ export function emitExchangeDropped(
 ): void {
   const { routeId, correlationId, reason, exchange } = details;
   markDropped(exchange);
-  context?.emit("route:exchange:dropped", {
-    routeId,
-    exchangeId: exchange.id,
-    correlationId,
-    reason,
+  context?.emit(
+    "route:exchange:dropped",
+    {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId,
+      reason,
+    },
     exchange,
-  });
+  );
 }
 
 /**

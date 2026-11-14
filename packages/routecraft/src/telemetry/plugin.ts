@@ -16,7 +16,7 @@ import {
   type PluginContext,
 } from "../kernel/plugin.ts";
 import { safeStringify } from "../shared/safe-json.ts";
-import type { EventName, EventHandler } from "../types.ts";
+import type { EventName, EventHandler, ExchangeSnapshot } from "../types.ts";
 import type { TelemetryOptions, TelemetryEvent } from "./types.ts";
 import { SqliteConnection } from "./sqlite-connection.ts";
 import { SqliteSpanProcessor, ATTR, SPAN_KIND } from "./sqlite-processor.ts";
@@ -209,45 +209,45 @@ class TelemetryRun {
 
   private subscribeAll(ctx: PluginContext): void {
     this.unsubscribers.push(
-      ctx.observe("*", ((payload: {
-        ts: string;
-        contextId: string;
-        details: unknown;
-        _event?: string;
-      }) => {
-        if (!this.eventWriter) return;
-        const d = payload.details as Record<string, unknown> | null;
-        const exchangeId =
-          d && typeof d["exchangeId"] === "string"
-            ? d["exchangeId"]
-            : undefined;
-        const corrId =
-          d && typeof d["correlationId"] === "string"
-            ? d["correlationId"]
-            : undefined;
-        const causeId =
-          d && typeof d["causationId"] === "string"
-            ? d["causationId"]
-            : undefined;
-        const event: TelemetryEvent = {
-          timestamp: payload.ts,
-          contextId: payload.contextId,
-          eventName: payload._event ?? extractEventName(payload),
-          // Drop the conventional `_snapshot` envelope from event details
-          // unless snapshot capture is enabled. This is a generic,
-          // domain-agnostic redaction: any event author can stash
-          // potentially-sensitive payloads under `_snapshot` (e.g. the AI
-          // package puts agent tool input/output there) and have them
-          // honour the same switch as exchange-body snapshots.
-          details: safeStringify(payload.details, {
-            dropSnapshot: !this.captureSnapshots,
-          }),
-        };
-        if (exchangeId) event.exchangeId = exchangeId;
-        if (corrId) event.correlationId = corrId;
-        if (causeId) event.causationId = causeId;
-        this.eventWriter.write(event);
-      }) as EventHandler<EventName>),
+      ctx.observe(
+        "*",
+        ((payload: {
+          ts: string;
+          contextId: string;
+          details: unknown;
+          _event?: string;
+        }) => {
+          if (!this.eventWriter) return;
+          const d = payload.details as Record<string, unknown> | null;
+          const exchangeId =
+            d && typeof d["exchangeId"] === "string"
+              ? d["exchangeId"]
+              : undefined;
+          const corrId =
+            d && typeof d["correlationId"] === "string"
+              ? d["correlationId"]
+              : undefined;
+          const causeId =
+            d && typeof d["causationId"] === "string"
+              ? d["causationId"]
+              : undefined;
+          const event: TelemetryEvent = {
+            timestamp: payload.ts,
+            contextId: payload.contextId,
+            eventName: payload._event ?? extractEventName(payload),
+            // The subscription is made without snapshots when capture is off;
+            // this is the second layer.
+            details: safeStringify(withoutExchangeCopy(payload.details), {
+              dropSnapshot: !this.captureSnapshots,
+            }),
+          };
+          if (exchangeId) event.exchangeId = exchangeId;
+          if (corrId) event.correlationId = corrId;
+          if (causeId) event.causationId = causeId;
+          this.eventWriter.write(event);
+        }) as EventHandler<EventName>,
+        { snapshots: this.captureSnapshots },
+      ),
     );
   }
 
@@ -336,7 +336,7 @@ class TelemetryRun {
    * Serialize and persist an exchange snapshot when capture is enabled.
    */
   private captureExchangeSnapshot(
-    exchange: { id: string; headers: Record<string, unknown>; body: unknown },
+    exchange: ExchangeSnapshot,
     contextId: string,
   ): void {
     if (!this.captureSnapshots || !this.spanProcessor) return;
@@ -474,138 +474,142 @@ class TelemetryRun {
 
     // Exchange completed
     this.unsubscribers.push(
-      ctx.observe("route:exchange:completed", ((payload: {
-        ts: string;
-        contextId: string;
-        details: {
-          exchangeId: string;
-          duration: number;
-          exchange?: {
-            id: string;
-            headers: Record<string, unknown>;
-            body: unknown;
+      ctx.observe(
+        "route:exchange:completed",
+        ((payload: {
+          ts: string;
+          contextId: string;
+          details: {
+            exchangeId: string;
+            duration: number;
+            _snapshot?: { exchange: ExchangeSnapshot };
           };
-        };
-      }) => {
-        const { exchangeId, duration, exchange } = payload.details;
-        const key = `${exchangeId}:${payload.contextId}`;
+        }) => {
+          const { exchangeId, duration } = payload.details;
+          const exchange = payload.details._snapshot?.exchange;
+          const key = `${exchangeId}:${payload.contextId}`;
 
-        // SQLite
-        this.spanProcessor?.completeExchange(
-          exchangeId,
-          payload.contextId,
-          payload.ts,
-          duration,
-        );
+          // SQLite
+          this.spanProcessor?.completeExchange(
+            exchangeId,
+            payload.contextId,
+            payload.ts,
+            duration,
+          );
 
-        // Snapshot
-        if (exchange) {
-          this.captureExchangeSnapshot(exchange, payload.contextId);
-        }
+          // Snapshot
+          if (exchange) {
+            this.captureExchangeSnapshot(exchange, payload.contextId);
+          }
 
-        // OTel
-        const span = this.exchangeSpans.get(key);
-        if (span) {
-          span.setAttribute(ATTR.DURATION_MS, duration);
-          span.end();
-          this.exchangeSpans.delete(key);
-          this.liveSpans.delete(exchangeId);
-        }
-      }) as EventHandler<EventName>),
+          // OTel
+          const span = this.exchangeSpans.get(key);
+          if (span) {
+            span.setAttribute(ATTR.DURATION_MS, duration);
+            span.end();
+            this.exchangeSpans.delete(key);
+            this.liveSpans.delete(exchangeId);
+          }
+        }) as EventHandler<EventName>,
+        { snapshots: this.captureSnapshots },
+      ),
     );
 
     // Exchange failed
     this.unsubscribers.push(
-      ctx.observe("route:exchange:failed", ((payload: {
-        ts: string;
-        contextId: string;
-        details: {
-          exchangeId: string;
-          duration: number;
-          error: unknown;
-          exchange?: {
-            id: string;
-            headers: Record<string, unknown>;
-            body: unknown;
+      ctx.observe(
+        "route:exchange:failed",
+        ((payload: {
+          ts: string;
+          contextId: string;
+          details: {
+            exchangeId: string;
+            duration: number;
+            error: unknown;
+            _snapshot?: { exchange: ExchangeSnapshot };
           };
-        };
-      }) => {
-        const { exchangeId, duration, error, exchange } = payload.details;
-        const key = `${exchangeId}:${payload.contextId}`;
-        const errorStr = error instanceof Error ? error.message : String(error);
+        }) => {
+          const { exchangeId, duration, error } = payload.details;
+          const exchange = payload.details._snapshot?.exchange;
+          const key = `${exchangeId}:${payload.contextId}`;
+          const errorStr =
+            error instanceof Error ? error.message : String(error);
 
-        // SQLite
-        this.spanProcessor?.failExchange(
-          exchangeId,
-          payload.contextId,
-          payload.ts,
-          duration,
-          errorStr,
-        );
+          // SQLite
+          this.spanProcessor?.failExchange(
+            exchangeId,
+            payload.contextId,
+            payload.ts,
+            duration,
+            errorStr,
+          );
 
-        // Snapshot
-        if (exchange) {
-          this.captureExchangeSnapshot(exchange, payload.contextId);
-        }
+          // Snapshot
+          if (exchange) {
+            this.captureExchangeSnapshot(exchange, payload.contextId);
+          }
 
-        // OTel
-        const span = this.exchangeSpans.get(key);
-        if (span) {
-          span.setAttribute(ATTR.DURATION_MS, duration);
-          span.setAttribute(ATTR.ERROR, errorStr);
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: errorStr,
-          });
-          span.end();
-          this.exchangeSpans.delete(key);
-          this.liveSpans.delete(exchangeId);
-        }
-      }) as EventHandler<EventName>),
+          // OTel
+          const span = this.exchangeSpans.get(key);
+          if (span) {
+            span.setAttribute(ATTR.DURATION_MS, duration);
+            span.setAttribute(ATTR.ERROR, errorStr);
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: errorStr,
+            });
+            span.end();
+            this.exchangeSpans.delete(key);
+            this.liveSpans.delete(exchangeId);
+          }
+        }) as EventHandler<EventName>,
+        { snapshots: this.captureSnapshots },
+      ),
     );
 
     // Exchange dropped
     this.unsubscribers.push(
-      ctx.observe("route:exchange:dropped", ((payload: {
-        ts: string;
-        contextId: string;
-        details: {
-          exchangeId: string;
-          reason?: string;
-          exchange?: {
-            id: string;
-            headers: Record<string, unknown>;
-            body: unknown;
+      ctx.observe(
+        "route:exchange:dropped",
+        ((payload: {
+          ts: string;
+          contextId: string;
+          details: {
+            exchangeId: string;
+            reason?: string;
+            _snapshot?: { exchange: ExchangeSnapshot };
           };
-        };
-      }) => {
-        const { exchangeId, reason, exchange } = payload.details;
-        const key = `${exchangeId}:${payload.contextId}`;
-        const dropReason = reason ?? "dropped";
+        }) => {
+          const { exchangeId, reason } = payload.details;
+          const exchange = payload.details._snapshot?.exchange;
+          const key = `${exchangeId}:${payload.contextId}`;
+          const dropReason = reason ?? "dropped";
 
-        // SQLite
-        this.spanProcessor?.dropExchange(
-          exchangeId,
-          payload.contextId,
-          payload.ts,
-          dropReason,
-        );
+          // SQLite
+          this.spanProcessor?.dropExchange(
+            exchangeId,
+            payload.contextId,
+            payload.ts,
+            dropReason,
+          );
 
-        // Snapshot
-        if (exchange) {
-          this.captureExchangeSnapshot(exchange, payload.contextId);
-        }
+          // Snapshot
+          if (exchange) {
+            this.captureExchangeSnapshot(exchange, payload.contextId);
+          }
 
-        // OTel
-        const span = this.exchangeSpans.get(key);
-        if (span) {
-          span.setAttribute(ATTR.DROPPED, true);
-          span.setAttribute(ATTR.DROP_REASON, dropReason);
-          span.end();
-          this.exchangeSpans.delete(key);
-          this.liveSpans.delete(exchangeId);
-        }
-      }) as EventHandler<EventName>),
+          // OTel
+          const span = this.exchangeSpans.get(key);
+          if (span) {
+            span.setAttribute(ATTR.DROPPED, true);
+            span.setAttribute(ATTR.DROP_REASON, dropReason);
+            span.end();
+            this.exchangeSpans.delete(key);
+            this.liveSpans.delete(exchangeId);
+          }
+        }) as EventHandler<EventName>,
+        { snapshots: this.captureSnapshots },
+      ),
     );
   }
 }
@@ -706,4 +710,23 @@ function extractEventName(payload: { details: unknown }): string {
   if ("error" in d && !("routeId" in d)) return "context:error";
 
   return "context:event";
+}
+
+/**
+ * An event's details without the exchange copy of its snapshot. The copy is
+ * stored once, in `exchange_snapshots`, by the terminal event of the
+ * exchange; every other event row keeps the rest of its snapshot.
+ */
+function withoutExchangeCopy(details: unknown): unknown {
+  if (details === null || typeof details !== "object") return details;
+  const snapshot = (details as { _snapshot?: unknown })._snapshot;
+  if (snapshot === null || typeof snapshot !== "object") return details;
+  if (!("exchange" in snapshot)) return details;
+  const kept: Record<string, unknown> = {};
+  for (const key of Object.keys(snapshot)) {
+    if (key !== "exchange") {
+      kept[key] = (snapshot as Record<string, unknown>)[key];
+    }
+  }
+  return { ...details, _snapshot: kept };
 }

@@ -133,14 +133,18 @@ export async function deferExchange(
   }
 
   markDeferred(deferred);
-  context.emit("route:exchange:deferred", {
-    routeId,
-    exchangeId: deferred.id,
-    correlationId: deferred.headers[HeadersKeys.CORRELATION_ID] as string,
-    deferralId: id,
-    position: request.site.position,
-    ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
-  });
+  context.emit(
+    "route:exchange:deferred",
+    {
+      routeId,
+      exchangeId: deferred.id,
+      correlationId: deferred.headers[HeadersKeys.CORRELATION_ID] as string,
+      deferralId: id,
+      position: request.site.position,
+      ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
+    },
+    deferred,
+  );
   deferred.logger.info(
     { deferralId: id, routeId, position: request.site.position },
     "Exchange deferred",

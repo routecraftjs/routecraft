@@ -287,6 +287,59 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
+   * @case Exchange snapshots are stored only under capture, and never with a credential
+   * @preconditions A route that sets an Authorization header and completes, run once with captureSnapshots off and once with it on
+   * @expectedResult Off: no row in exchange_snapshots and no event row holding the header value. On: one snapshot row whose headers hold the ordinary header and not Authorization, and no event row holding the body, which is stored on that row alone
+   */
+  test("stores exchange snapshots only under capture, without credentials", async () => {
+    const run = async (captureSnapshots: boolean): Promise<void> => {
+      t = await testContext()
+        .with({
+          plugins: [
+            sqliteTelemetry(dbPath, {
+              eventFlushInterval: 50,
+              captureSnapshots,
+            }),
+          ],
+        })
+        .routes(
+          craft()
+            .id("snap-exchange")
+            .from(simple("body-1"))
+            .header("Authorization", "Bearer s3cret")
+            .header("x-kept", "yes")
+            .to(noop()),
+        )
+        .build();
+      await t.test();
+    };
+    const read = (): { snapshots: { headers: string }[]; events: string } => {
+      const db = new Database(dbPath, { readonly: true });
+      const snapshots = db
+        .prepare("SELECT headers FROM exchange_snapshots")
+        .all() as { headers: string }[];
+      const events = JSON.stringify(
+        db.prepare("SELECT details FROM events").all(),
+      );
+      db.close();
+      return { snapshots, events };
+    };
+
+    await run(false);
+    const off = read();
+    expect(off.snapshots).toEqual([]);
+    expect(off.events).not.toContain("s3cret");
+
+    await run(true);
+    const on = read();
+    expect(on.snapshots).toHaveLength(1);
+    expect(on.snapshots[0]!.headers).toContain("x-kept");
+    expect(on.snapshots[0]!.headers).not.toContain("s3cret");
+    expect(on.events).not.toContain("s3cret");
+    expect(on.events).not.toContain("body-1");
+  });
+
+  /**
    * @case The `_snapshot` envelope is persisted when snapshot capture is on
    * @preconditions captureSnapshots: true; an event carrying a
    *   `_snapshot` sub-payload is emitted while the context runs

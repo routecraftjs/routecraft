@@ -51,7 +51,8 @@ import {
 } from "./kernel/host.ts";
 import { applicationPlugins } from "./kernel/defaults.ts";
 import { installFacet } from "./kernel/facets.ts";
-import { HeadersKeys, type Exchange } from "./exchange.ts";
+import { HeadersKeys, principalOf, type Exchange } from "./exchange.ts";
+import { principalRef } from "./kernel/continuation/principal-ref.ts";
 import { existingLineageOf } from "./lineage.ts";
 import type { TraceContextConfig } from "./trace-context.ts";
 import type { RunnerInvocation } from "./adapters/argv/types.ts";
@@ -70,7 +71,7 @@ import type {
   EventDetailsMap,
   EventHandler,
   EventName,
-  EventPayload,
+  SubscribeOptions,
 } from "./types.ts";
 
 /**
@@ -278,14 +279,13 @@ export interface CraftConfig {
   logger?: Logger;
   /** Initial values for the context store */
   store?: Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>;
-  /** Event handlers to register on context creation */
-  on?: Partial<
-    Record<EventName, EventHandler<EventName> | EventHandler<EventName>[]>
-  >;
+  /**
+   * Event handlers to register on context creation. A handler written as
+   * `{ handler, snapshots: true }` receives each event's `_snapshot`.
+   */
+  on?: Partial<Record<EventName, ConfiguredHandler | ConfiguredHandler[]>>;
   /** One-time event handlers to register on context creation (fire once, then auto-unsubscribe) */
-  once?: Partial<
-    Record<EventName, EventHandler<EventName> | EventHandler<EventName>[]>
-  >;
+  once?: Partial<Record<EventName, ConfiguredHandler | ConfiguredHandler[]>>;
   /**
    * Plugins to install. Bound in dependency order after the plugins config
    * keys install, which bind in their registration order.
@@ -536,24 +536,14 @@ export class CraftContext {
       }
 
       // Register event handlers from config
-      if (config.on) {
-        for (const [event, handler] of Object.entries(config.on)) {
-          if (Array.isArray(handler)) {
-            handler.forEach((h) => this.on(event as EventName, h));
-          } else if (handler) {
-            this.on(event as EventName, handler);
-          }
+      for (const [event, given] of Object.entries(config.on ?? {})) {
+        for (const { handler, options } of configuredHandlers(given)) {
+          this.on(event as EventName, handler, options);
         }
       }
-
-      // Register one-time event handlers from config
-      if (config.once) {
-        for (const [event, handler] of Object.entries(config.once)) {
-          if (Array.isArray(handler)) {
-            handler.forEach((h) => this.once(event as EventName, h));
-          } else if (handler) {
-            this.once(event as EventName, handler);
-          }
+      for (const [event, given] of Object.entries(config.once ?? {})) {
+        for (const { handler, options } of configuredHandlers(given)) {
+          this.once(event as EventName, handler, options);
         }
       }
       // Every first-class config key goes through the applier registry, so
@@ -601,6 +591,9 @@ export class CraftContext {
     try {
       this.host = new PluginHost(applicationPlugins(this.pluginList));
       this.reportReplacements(this.host);
+      this.events.addSecretHeaders(
+        this.host.listed.flatMap((entry) => entry.plugin.secretHeaders ?? []),
+      );
     } catch (err) {
       this.logger.error({ err }, "Plugins could not be installed.");
       this.emit("context:error", { error: err });
@@ -800,9 +793,20 @@ export class CraftContext {
       observe: <K extends EventName>(
         event: K | "*",
         handler: EventHandler<K>,
-      ) => this.on(event as EventName, handler as EventHandler<EventName>),
-      emit: <K extends EventName>(event: K, details: EventDetailsMap[K]) =>
-        this.emit(event, details),
+        options?: SubscribeOptions,
+        reader?: string,
+      ) =>
+        this.events.on(
+          event as EventName,
+          handler as EventHandler<EventName>,
+          options,
+          reader,
+        ),
+      emit: <K extends EventName>(
+        event: K,
+        details: EventDetailsMap[K],
+        exchange?: Exchange,
+      ) => this.emit(event, details, exchange),
       routes: {
         register: (...definitions: RouteDefinition[]) =>
           this.registerRoutes(...definitions),
@@ -1103,6 +1107,10 @@ export class CraftContext {
         throw err;
       }
     }
+    const readers = this.events.snapshotReaders();
+    if (readers.length > 0) {
+      this.logger.info({ readers }, "Subscribed to event snapshots");
+    }
   }
 
   /**
@@ -1269,6 +1277,8 @@ export class CraftContext {
    *
    * @param event - Exact event name (e.g. `route:started`) or `"*"`
    * @param handler - Callback receiving `{ ts, contextId, details }`
+   * @param options - `snapshots: true` to receive each event's `_snapshot`
+   *   envelope: a frozen copy of the exchange, credential headers removed
    * @returns Unsubscribe function (call to remove the handler)
    *
    * @example
@@ -1291,10 +1301,22 @@ export class CraftContext {
    * // later: unsubscribe();
    * ```
    */
-  on<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
-  on(event: "*", handler: EventHandler<EventName>): () => void;
-  on(event: EventName | "*", handler: EventHandler<EventName>): () => void {
-    return this.events.on(event as EventName, handler);
+  on<K extends EventName>(
+    event: K,
+    handler: EventHandler<K>,
+    options?: SubscribeOptions,
+  ): () => void;
+  on(
+    event: "*",
+    handler: EventHandler<EventName>,
+    options?: SubscribeOptions,
+  ): () => void;
+  on(
+    event: EventName | "*",
+    handler: EventHandler<EventName>,
+    options?: SubscribeOptions,
+  ): () => void {
+    return this.events.on(event as EventName, handler, options);
   }
 
   /**
@@ -1305,6 +1327,7 @@ export class CraftContext {
    *
    * @param event - Exact event name or `"*"`
    * @param handler - Callback receiving `{ ts, contextId, details }`
+   * @param options - `snapshots: true` to receive the event's `_snapshot`
    * @returns Unsubscribe function (call to remove the handler before it fires)
    *
    * @example
@@ -1320,10 +1343,22 @@ export class CraftContext {
    * });
    * ```
    */
-  once<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
-  once(event: "*", handler: EventHandler<EventName>): () => void;
-  once(event: EventName | "*", handler: EventHandler<EventName>): () => void {
-    return this.events.once(event as EventName, handler);
+  once<K extends EventName>(
+    event: K,
+    handler: EventHandler<K>,
+    options?: SubscribeOptions,
+  ): () => void;
+  once(
+    event: "*",
+    handler: EventHandler<EventName>,
+    options?: SubscribeOptions,
+  ): () => void;
+  once(
+    event: EventName | "*",
+    handler: EventHandler<EventName>,
+    options?: SubscribeOptions,
+  ): () => void {
+    return this.events.once(event as EventName, handler, options);
   }
 
   /**
@@ -1331,13 +1366,21 @@ export class CraftContext {
    *
    * @param event - Event name
    * @param details - Event-specific payload (merged into `EventPayload.details`)
+   * @param exchange - The exchange the event names. It reaches no handler:
+   *   a subscription made with `{ snapshots: true }` receives a frozen copy
+   *   under `details._snapshot.exchange`, credential headers removed
    * @internal Public for use by routes/adapters; prefer subscribing via on()
    */
   emit<K extends EventName>(
     event: K,
-    details: EventPayload<K>["details"],
+    details: EventDetailsMap[K],
+    exchange?: Exchange,
   ): void {
-    this.events.emit(event, withCausation(this, event, details));
+    this.events.emit(
+      event,
+      withExchangeFacts(this, event, details, exchange),
+      FACTS_ONLY_EVENTS.has(event) ? undefined : exchange,
+    );
   }
 
   // onStartup/onShutdown removed in favor of event listeners
@@ -2215,30 +2258,108 @@ export class CraftContext {
  * Fill the journey fields on an exchange's lifecycle event
  * (`route:exchange:*`) that did not set them, so every emission site carries
  * them without spelling them: `causationId` from the in-flight exchange's
- * lineage entry, else from the exchange the event carries (a revived or
- * expired deferral that is not in flight), and on `route:exchange:started`
- * the `remoteParent` a door adopted. A field with no value is left off, so a
- * chain root's events carry no `causationId`.
+ * lineage entry, else from the exchange handed to `emit` beside the details (a
+ * revived or expired deferral that is not in flight); on
+ * `route:exchange:started` the `remoteParent` a door adopted; and on the
+ * events in `PRINCIPAL_EVENTS` the `principal`, as a reference to who that
+ * exchange ran as. A field with no value is left off, so a chain root's events
+ * carry no `causationId`.
  */
-function withCausation<D>(context: CraftContext, event: string, details: D): D {
-  if (!event.startsWith("route:exchange:")) return details;
+function withExchangeFacts<D>(
+  context: CraftContext,
+  event: string,
+  details: D,
+  exchange: Exchange | undefined,
+): D {
+  if (!event.startsWith("route:exchange:")) {
+    return withCorrelation(details, exchange);
+  }
   const scoped = details as {
     exchangeId?: unknown;
     causationId?: unknown;
-    exchange?: { headers?: Record<string, unknown> };
+    principal?: unknown;
   };
-  if (typeof scoped.exchangeId !== "string" || "causationId" in scoped) {
-    return details;
-  }
+  if (typeof scoped.exchangeId !== "string") return details;
   const entry = existingLineageOf(context)?.get(scoped.exchangeId);
   const cause =
-    entry?.causationId ?? scoped.exchange?.headers?.[HeadersKeys.CAUSATION_ID];
+    "causationId" in scoped
+      ? undefined
+      : (entry?.causationId ?? exchange?.headers[HeadersKeys.CAUSATION_ID]);
   const remoteParent =
-    event === "route:exchange:started" ? entry?.remoteParent : undefined;
-  if (typeof cause !== "string" && remoteParent === undefined) return details;
+    event === "route:exchange:started" && !("causationId" in scoped)
+      ? entry?.remoteParent
+      : undefined;
+  const principal =
+    exchange !== undefined &&
+    PRINCIPAL_EVENTS.has(event) &&
+    !("principal" in scoped)
+      ? principalOf(exchange)
+      : undefined;
+  if (
+    typeof cause !== "string" &&
+    remoteParent === undefined &&
+    principal === undefined
+  ) {
+    return details;
+  }
   return {
     ...details,
     ...(typeof cause === "string" ? { causationId: cause } : {}),
     ...(remoteParent !== undefined ? { remoteParent } : {}),
+    ...(principal !== undefined ? { principal: principalRef(principal) } : {}),
   } as D;
+}
+
+/**
+ * An event outside the exchange lifecycle that names an exchange (an error
+ * event) says which journey that exchange belongs to, so an `event()` route
+ * reacting to it continues the journey.
+ */
+function withCorrelation<D>(details: D, exchange: Exchange | undefined): D {
+  const correlationId = exchange?.headers[HeadersKeys.CORRELATION_ID];
+  if (typeof correlationId !== "string") return details;
+  const scoped = details as { exchangeId?: unknown; correlationId?: unknown };
+  if (typeof scoped.exchangeId !== "string" || "correlationId" in scoped) {
+    return details;
+  }
+  return { ...details, correlationId };
+}
+
+/** The lifecycle events that say who the exchange ran as. */
+const PRINCIPAL_EVENTS: ReadonlySet<string> = new Set([
+  "route:exchange:started",
+  "route:exchange:completed",
+  "route:exchange:failed",
+  "route:exchange:dropped",
+  "route:exchange:deferred",
+]);
+
+/**
+ * The events handed an exchange for its facts alone. `started` leaves the
+ * body to the event that ends the exchange, and the body of `deferred` is
+ * the acknowledgment, which carries the resume token.
+ */
+const FACTS_ONLY_EVENTS: ReadonlySet<string> = new Set([
+  "route:exchange:started",
+  "route:exchange:deferred",
+]);
+
+/** A handler in the `on` / `once` config keys, bare or with its options. */
+export type ConfiguredHandler =
+  | EventHandler<EventName>
+  | ({ readonly handler: EventHandler<EventName> } & SubscribeOptions);
+
+/** @internal */
+export function configuredHandlers(
+  given: ConfiguredHandler | ConfiguredHandler[] | undefined,
+): { handler: EventHandler<EventName>; options?: SubscribeOptions }[] {
+  if (given === undefined) return [];
+  return (Array.isArray(given) ? given : [given]).map((entry) =>
+    typeof entry === "function"
+      ? { handler: entry }
+      : {
+          handler: entry.handler,
+          options: { snapshots: entry.snapshots === true },
+        },
+  );
 }

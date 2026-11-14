@@ -21,15 +21,16 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 11. **`agentBrowser()` is removed** from `@routecraft/os`. [Section 11](#11-agent-browser).
 12. **`craft run` logs to stderr, and `RUNNER_ARGV` is `RUNNER_INVOCATION`.** [Section 12](#12-craft-run-argv).
 13. **Two optional peers need a newer major.** `mailauth` is `^8.0.6` and `@ai-sdk/openai-compatible` is `^2.0.0`. [Section 13](#13-optional-peers).
-14. **An MCP tool call's arguments ride in `_snapshot`.** A subscriber to `plugin:mcp:tool:called` reads `details._snapshot.args`. [Section 14](#14-mcp-tool-called-args).
+14. **An MCP tool call's arguments ride in `_snapshot`.** A subscriber to `plugin:mcp:tool:called` reads `details._snapshot?.args`, and asks for snapshots. [Section 14](#14-mcp-tool-called-args).
 15. **A remote MCP server is reached over `https`.** A client on plain `http` to a host that is not loopback sets `allowHttp: true`. [Section 15](#15-mcp-outbound).
 16. **Parked deferrals are re-asked once.** The continuation digest changed format and covers more, so a deferral parked on 0.7 is refused with `RC5048` on its first resume, and a custom `WrapperStep` implements `wrapperKind` and `identityOptions()`. [Section 16](#16-step-identity).
 17. **`.log()` takes a level and a message, and the `logger` export is gone.** `log()`, `debug()` and `.debug()` are removed; `defineProject({ logger })` sets the logger; `craft.log.*` reads only `level`, `file` and `redact`. [Section 17](#17-logging).
 18. **A resume payload is `input`, and deferring is declared.** `.defer({ schema })` is `.defer({ input })`, a resume request is `{ token, input }`, and `ex.deferral.result` is `ex.deferral.input`. A step or adapter that defers declares `DEFERS` and is handed `ctx.defer`; `DeferSignal`, `markDeferCapable`, `getExchangeContext` and `getExchangeRoute` leave the entry. [Section 18](#18-defer-contract).
 
 19. **The command line reads a project, and only a project.** `craft.config.ts` default-exports `defineProject({ ... })`; `defineConfig`, a plain default-exported object and the `craftConfig` named export are refused with `RC1120`. `telemetry()` is the `telemetry` key or `telemetryPlugin()`. [Section 19](#19-project-export).
+20. **Events carry ids, and bodies only on request.** `details.exchange` is gone from every event: read `details.exchangeId`, and subscribe with `{ snapshots: true }` to read `details._snapshot`. [Section 20](#20-event-bodies).
 
-Projects that write no plugin of their own typically need sections 2, 17 and 19 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`, section 14 if they subscribe to `plugin:mcp:tool:called` and read `details.args`, section 15 if an MCP client is reached over plain `http`, section 16 if an approval can be parked across the upgrade, and section 18 if a route defers or resumes. [Section 20](#20-what-is-new-in-080) lists what is new, for context.
+Projects that write no plugin of their own typically need sections 2, 17 and 19 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`, section 14 if they subscribe to `plugin:mcp:tool:called` and read `details.args`, section 15 if an MCP client is reached over plain `http`, section 16 if an approval can be parked across the upgrade, section 18 if a route defers or resumes, and section 20 if a subscriber reads `details.exchange` or `details._snapshot`. [Section 21](#21-what-is-new-in-080) lists what is new, for context.
 
 ---
 
@@ -68,7 +69,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 20](#20-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 21](#21-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -241,14 +242,18 @@ Neither changes how the adapter or the provider behaves.
 
 ## 14. An MCP tool call's arguments ride in `_snapshot` \{#14-mcp-tool-called-args}
 
-`plugin:mcp:tool:called` carried the call's arguments as `args`, a plain field of the event details. The telemetry plugin writes event details to its store and holds back only the `_snapshot` envelope, so a project that had left `captureSnapshots` off was storing every tool call's arguments regardless. The arguments are now `_snapshot: { args }`, the envelope an agent tool's input already uses: the bus always carries them, and the telemetry store keeps them only when `captureSnapshots` is on.
+`plugin:mcp:tool:called` carried the call's arguments as `args`, a plain field of the event details. The telemetry plugin writes event details to its store and holds back only the `_snapshot` envelope, so a project that had left `captureSnapshots` off was storing every tool call's arguments regardless. The arguments are now `_snapshot: { args }`, the envelope an agent tool's input already uses: a subscription receives them only when made with `{ snapshots: true }` ([section 20](#20-event-bodies)), and the telemetry store keeps them only when `captureSnapshots` is on.
 
 ```ts skip="fragment: ctx and record are illustrative, and the first line is the 0.7 shape"
 // Before
 ctx.on('plugin:mcp:tool:called', ({ details }) => record(details.tool, details.args))
 
 // After
-ctx.on('plugin:mcp:tool:called', ({ details }) => record(details.tool, details._snapshot.args))
+ctx.on(
+  'plugin:mcp:tool:called',
+  ({ details }) => record(details.tool, details._snapshot?.args),
+  { snapshots: true },
+)
 ```
 
 The [ops event tail](/docs/reference/plugins/opsplugin) omits `_snapshot` payloads, so it no longer shows a call's arguments either. The debug log line that printed the same arguments (`MCP tool call exchange body`) is removed. Rows the telemetry store wrote before the upgrade keep the arguments they were written with; prune them if they should not be retained.
@@ -380,7 +385,35 @@ Code that builds a context itself is unchanged: `new CraftContext(config)`, `Con
 
 The telemetry plugin's internals left the entry with the factory's old name: `SqliteConnection`, the SQLite span processor and event writer, `ATTR` and `SPAN_KIND` are no longer exported. Configure the sink through the `telemetry` key.
 
-## 20. What is new in 0.8.0 \{#20-what-is-new-in-080}
+## 20. Events carry ids, and bodies only on request \{#20-event-bodies}
+
+Every event that named an exchange handed each subscriber the exchange itself, headers included, so a subscriber that only counted failures also held the caller's `Authorization` header. No event carries an exchange now.
+
+| 0.7 | 0.8 |
+| --- | --- |
+| `details.exchange` on `route:exchange:completed`, `:failed`, `:dropped` | `details._snapshot?.exchange`, for a subscription made with `{ snapshots: true }` |
+| `details.exchange` on `context:error`, `route:error`, `route:error:caught`, `route:step:error` | `details.exchangeId` and `details.correlationId`; the copy is `details._snapshot?.exchange` under the same option |
+| `details.exchange` on `route:stopping`, `route:stopped` | removed; it was never set |
+| `details._snapshot` on the agent tool and block events and on `plugin:mcp:tool:called`, always present | present only for a subscription made with `{ snapshots: true }`, so the type is optional |
+| `principalOf(details.exchange)` | `details.principal` on the lifecycle events (`started`, `completed`, `failed`, `dropped`, `deferred`): `{ subject, issuer?, clientId?, actorSubject? }` |
+
+```ts skip="fragment: ctx and report are illustrative, and the first statement is the 0.7 shape"
+// Before
+ctx.on('route:exchange:failed', ({ details }) => report(details.exchange?.body, details.error))
+
+// After
+ctx.on(
+  'route:exchange:failed',
+  ({ details }) => report(details._snapshot?.exchange.body, details.error),
+  { snapshots: true },
+)
+```
+
+The copy is frozen and leaves out `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` and every header a plugin lists in `secretHeaders`, at every depth of a header, so the wire headers the HTTP door keeps under `routecraft.http.rawHeaders` lose theirs too. The principal in it is the reference, without claims or scopes. A subscriber that reads only ids, durations and errors changes nothing. A handler that passed `details.exchange` to `isDropped()` or another exchange helper has no exchange to pass: the event's name already says how the exchange ended. See [snapshots](/docs/reference/events#snapshots).
+
+A telemetry store written by 0.7 with `captureSnapshots` on holds the headers as they were then, credentials included, in `exchange_snapshots` and in the `details` of its error events. Delete the store, or those rows, if it should not keep them. From 0.8 the exchange is stored once, in `exchange_snapshots`, and no event row repeats it.
+
+## 21. What is new in 0.8.0 \{#21-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()` and the resilience operations are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT` and `RESILIENCE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too. Both ports are provisional in 0.8: they are due to be reshaped, so a replacement pins the minor it was written against.

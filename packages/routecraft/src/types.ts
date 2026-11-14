@@ -505,12 +505,43 @@ export interface ProcessingQueue<T = unknown> {
 
 // Events API
 
-/** Exchange snapshot attached to terminal exchange events. */
-type ExchangeSnapshot = {
-  id: string;
-  headers: Record<string, unknown>;
-  body: unknown;
+/**
+ * A frozen copy of an exchange as it was when an event fired: what a
+ * subscription made with `{ snapshots: true }` reads under
+ * `details._snapshot.exchange`.
+ *
+ * The credential headers (`Authorization`, `Cookie`, `Set-Cookie`,
+ * `Proxy-Authorization`, and every name an installed plugin lists in
+ * `secretHeaders`) are removed before the copy is made, so no subscriber
+ * can read them. A header or body value that cannot be cloned is replaced
+ * with `{ unserializable: true }`.
+ */
+export type ExchangeSnapshot = {
+  readonly id: string;
+  readonly headers: Readonly<Record<string, unknown>>;
+  readonly body: unknown;
 };
+
+/**
+ * The opt-in part of an event that names an exchange: absent unless the
+ * subscription was made with `{ snapshots: true }`, and absent when the
+ * event fired with no exchange.
+ */
+export type ExchangeSnapshotEnvelope = {
+  _snapshot?: { exchange: ExchangeSnapshot };
+};
+
+/** How a subscription is made. */
+export interface SubscribeOptions {
+  /**
+   * Receive the `_snapshot` envelope of each event: the exchange copy on
+   * exchange events, and whatever payload another event keeps there (a tool
+   * call's input and output). Off by default, so a subscriber that only
+   * counts or correlates never holds a body. The context logs, at start,
+   * which plugins subscribed this way.
+   */
+  readonly snapshots?: boolean;
+}
 
 /**
  * Shared identity fields on per-exchange events.
@@ -587,10 +618,13 @@ export interface EventDetailsMap {
    * subscriber can count forced shutdowns without reading exit codes.
    */
   "context:stopped": { forced: boolean; pending: string[] };
-  "context:error": {
+  "context:error": ExchangeSnapshotEnvelope & {
     error: unknown;
     route?: Route;
-    exchange?: Exchange<unknown>;
+    /** The exchange that was running, when the error came from one. */
+    exchangeId?: string;
+    /** That exchange's journey, present with `exchangeId`. */
+    correlationId?: string;
   };
 
   // -- Auth --
@@ -628,17 +662,8 @@ export interface EventDetailsMap {
     | { routeId: string; standby: false };
   "route:starting": { routeId: string; route: Route };
   "route:started": { routeId: string; route: Route };
-  "route:stopping": {
-    routeId: string;
-    route: Route;
-    reason?: unknown;
-    exchange?: Exchange<unknown>;
-  };
-  "route:stopped": {
-    routeId: string;
-    route: Route;
-    exchange?: Exchange<unknown>;
-  };
+  "route:stopping": { routeId: string; route: Route; reason?: unknown };
+  "route:stopped": { routeId: string; route: Route };
   /**
    * A source subscription rejected: the source gave up producing (e.g. a
    * connection-backed source exhausted its reconnect attempts) and the route
@@ -652,17 +677,19 @@ export interface EventDetailsMap {
     adapter?: string;
     error: unknown;
   };
-  "route:error": {
+  "route:error": ExchangeSnapshotEnvelope & {
     routeId: string;
     error: unknown;
     route?: Route;
-    exchange?: Exchange<unknown>;
+    exchangeId?: string;
+    correlationId?: string;
   };
-  "route:error:caught": {
+  "route:error:caught": ExchangeSnapshotEnvelope & {
     routeId: string;
     error: unknown;
     route?: Route;
-    exchange?: Exchange<unknown>;
+    exchangeId?: string;
+    correlationId?: string;
   };
 
   // -- Exchange lifecycle --
@@ -673,20 +700,25 @@ export interface EventDetailsMap {
      * on the exchange the door built, at its ingress.
      */
     remoteParent?: string;
+    /** Who the exchange runs as, when it was admitted with a principal. */
+    principal?: PrincipalRef;
   };
-  "route:exchange:completed": ExchangeLifecycle & {
-    duration: number;
-    exchange?: ExchangeSnapshot;
-  };
-  "route:exchange:failed": ExchangeLifecycle & {
-    duration: number;
-    error: unknown;
-    exchange?: ExchangeSnapshot;
-  };
-  "route:exchange:dropped": ExchangeLifecycle & {
-    reason: string;
-    exchange?: ExchangeSnapshot;
-  };
+  "route:exchange:completed": ExchangeLifecycle &
+    ExchangeSnapshotEnvelope & {
+      duration: number;
+      principal?: PrincipalRef;
+    };
+  "route:exchange:failed": ExchangeLifecycle &
+    ExchangeSnapshotEnvelope & {
+      duration: number;
+      error: unknown;
+      principal?: PrincipalRef;
+    };
+  "route:exchange:dropped": ExchangeLifecycle &
+    ExchangeSnapshotEnvelope & {
+      reason: string;
+      principal?: PrincipalRef;
+    };
   "route:exchange:restored": ExchangeLifecycle & { source: string };
   /**
    * The exchange deferred at a `.defer()` and execution one ended. This is
@@ -700,6 +732,8 @@ export interface EventDetailsMap {
     position: number;
     /** When the deferral stops being resumable, when a `ttl` was declared. */
     expiresAt?: Date;
+    /** Who the exchange ran as, so a parked run is attributable while it waits. */
+    principal?: PrincipalRef;
   };
   /**
    * A deferred exchange was revived and its continuation is about to run.
@@ -777,11 +811,12 @@ export interface EventDetailsMap {
     error: string;
   };
   /** A step threw; `operation` is the step label (was `route:<id>:step:<label>:error`). */
-  "route:step:error": {
+  "route:step:error": ExchangeSnapshotEnvelope & {
     routeId: string;
     error: unknown;
     route?: Route;
-    exchange?: Exchange<unknown>;
+    exchangeId?: string;
+    correlationId?: string;
     operation: string;
   };
   // -- Batch --

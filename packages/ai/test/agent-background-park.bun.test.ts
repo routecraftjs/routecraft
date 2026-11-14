@@ -23,6 +23,7 @@ import {
   type Principal,
   type RouteDefinition,
   type SerializedOutcome,
+  type Exchange,
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
@@ -1419,18 +1420,14 @@ describe("a live settlement follows the park it is about", () => {
       position: 2,
     });
     llm.script.push({ text: "approved, proceeding" });
-    t.ctx.emit("route:exchange:completed", {
-      ...scope,
-      duration: 1,
-      exchange: {
-        id: "fast-resume",
-        headers: {
-          [AgentHeadersKeys.BACKGROUND_HANDLE]: receipt.handle,
-          [AgentHeadersKeys.BACKGROUND_SESSION]: "s",
-        },
-        body: { approved: true },
+    t.ctx.emit("route:exchange:completed", { ...scope, duration: 1 }, {
+      id: "fast-resume",
+      headers: {
+        [AgentHeadersKeys.BACKGROUND_HANDLE]: receipt.handle,
+        [AgentHeadersKeys.BACKGROUND_SESSION]: "s",
       },
-    });
+      body: { approved: true },
+    } as unknown as Exchange);
     await until(() => llm.calls.length === 2);
     await t.ctx.getRouteById("chat")!.drain();
     const text = lastUserOf(llm.calls[1]!)[0]!.text;

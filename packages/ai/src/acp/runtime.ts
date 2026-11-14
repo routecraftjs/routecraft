@@ -197,14 +197,19 @@ export class AcpRuntime {
       ) => SessionUpdate,
     ): void => {
       this.unsubscribes.push(
-        this.plugin.observe(name, ({ details }) => {
-          for (const turn of this.targetsFor(
-            details.correlationId,
-            details.session,
-          )) {
-            this.tell(turn, update(turn, details));
-          }
-        }),
+        this.plugin.observe(
+          name,
+          ({ details }) => {
+            for (const turn of this.targetsFor(
+              details.correlationId,
+              details.session,
+            )) {
+              this.tell(turn, update(turn, details));
+            }
+          },
+          // A tool call is shown to the client with its input and output.
+          { snapshots: true },
+        ),
       );
     };
 

@@ -2,7 +2,12 @@ import type { Capability } from "../capabilities.ts";
 import type { Exchange, ExchangeHeaders } from "../exchange.ts";
 import type { Logger } from "../logger.ts";
 import type { RouteDefinition } from "../route.ts";
-import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
+import type {
+  EventDetailsMap,
+  EventHandler,
+  EventName,
+  SubscribeOptions,
+} from "../types.ts";
 import type { ApplicationKey } from "./application.ts";
 import type { Continuations } from "./continuation/facade.ts";
 import type { AnyPort, Port } from "./port.ts";
@@ -160,9 +165,18 @@ export interface PluginContext {
   observe<K extends EventName>(
     event: K | "*",
     handler: EventHandler<K>,
+    options?: SubscribeOptions,
   ): () => void;
-  /** Emit an event. */
-  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
+  /**
+   * Emit an event. An `exchange` given beside the details reaches no
+   * handler; subscriptions made with `{ snapshots: true }` receive a frozen
+   * copy of it under `details._snapshot.exchange`.
+   */
+  emit<K extends EventName>(
+    event: K,
+    details: EventDetailsMap[K],
+    exchange?: Exchange,
+  ): void;
   /**
    * Release something at stop. Run in reverse registration order, after this
    * plugin's own `stop`, every one even when another throws.
@@ -218,6 +232,12 @@ export interface Plugin {
    * lists only the contributions.
    */
   readonly installs?: readonly Plugin[];
+  /**
+   * Header names that carry a secret this plugin puts on exchanges. They are
+   * left out of every event snapshot, beside `Authorization`, `Cookie`,
+   * `Set-Cookie` and `Proxy-Authorization`. Matched case-insensitively.
+   */
+  readonly secretHeaders?: readonly string[];
   /**
    * Several installs of this plugin may coexist in one application, each
    * contributing through a port another plugin provides. The host names

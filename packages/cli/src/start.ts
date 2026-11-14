@@ -484,15 +484,15 @@ function watchStartupErrors(context: CraftContext): {
       event as {
         details?: {
           route?: { definition?: { id?: string } };
-          exchange?: unknown;
+          exchangeId?: string;
         };
       }
     ).details;
-    // A route-scoped error carrying an exchange is that exchange
+    // A route-scoped error naming an exchange is that exchange
     // failing, not the route failing to come up. The pipeline emits the
     // same event for both, and counting a runtime failure as a boot
     // failure would fail a command whose project started perfectly.
-    if (details?.exchange !== undefined) return;
+    if (details?.exchangeId !== undefined) return;
     const id = details?.route?.definition?.id;
     if (id !== undefined) failed.push(id);
   });

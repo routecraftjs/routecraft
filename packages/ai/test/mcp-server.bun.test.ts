@@ -3309,9 +3309,13 @@ describe("McpServer", () => {
 
       const called: Array<Record<string, unknown>> = [];
       const completed: Array<Record<string, unknown>> = [];
-      t.ctx.on("plugin:mcp:tool:called", (payload) => {
-        called.push(payload.details as Record<string, unknown>);
-      });
+      t.ctx.on(
+        "plugin:mcp:tool:called",
+        (payload) => {
+          called.push(payload.details as Record<string, unknown>);
+        },
+        { snapshots: true },
+      );
       t.ctx.on("plugin:mcp:tool:completed", (payload) => {
         completed.push(payload.details as Record<string, unknown>);
       });

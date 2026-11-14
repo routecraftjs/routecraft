@@ -86,8 +86,8 @@ A disabled route is registered and known to the context, not started, not intaki
 |-------|------|----------|---------|-------------|
 | `name` | `string` | No | -- | Service / application name. Emitted on every log line as `service.name` ([details](#service-name)) |
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | -- | Initial values for the context store |
-| `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | Event handlers to register on context creation |
-| `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | One-time event handlers that fire once then auto-unsubscribe |
+| `on` | `Partial<Record<EventName, Handler \| Handler[]>>` | No | -- | Event handlers to register on context creation. A `Handler` is a function, or `{ handler, snapshots: true }` to receive each event's [`_snapshot`](/docs/reference/events#snapshots) |
+| `once` | `Partial<Record<EventName, Handler \| Handler[]>>` | No | -- | One-time event handlers that fire once then auto-unsubscribe |
 | `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
 | `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
 | `servers` | `Record<string, HttpServerDefinition>` | Only when a surface mounts HTTP | -- | Named HTTP listeners that HTTP, MCP, ops, and custom plugins mount onto ([details](#servers-and-http)) |

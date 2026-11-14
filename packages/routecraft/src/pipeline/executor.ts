@@ -16,6 +16,9 @@ import {
   setRevival,
   getStartedAt,
   setStartedAt,
+  emitExchangeStarted,
+  emitExchangeCompleted,
+  emitExchangeFailed,
 } from "../exchange.ts";
 import {
   isRecovery,
@@ -450,16 +453,12 @@ export async function runPipeline(
         !failedChildExchanges.has(exchange.id)
       ) {
         const childStart = childStartTimes.get(exchange.id) ?? startTime;
-        const correlationId = exchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string;
-        deps.context.emit("route:exchange:completed", {
-          routeId: deps.routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          duration: Date.now() - childStart,
+        emitExchangeCompleted(
+          deps.context,
+          deps.routeId,
           exchange,
-        });
+          Date.now() - childStart,
+        );
       }
       lastProcessedExchange = exchange;
       continue;
@@ -475,14 +474,7 @@ export async function runPipeline(
       childStartTimes.set(exchange.id, childNow);
       // On internals so aggregate can read child duration; they survive rewrap.
       setStartedAt(exchange, childNow);
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      deps.context.emit("route:exchange:started", {
-        routeId: deps.routeId,
-        exchangeId: exchange.id,
-        correlationId,
-      });
+      emitExchangeStarted(deps.context, deps.routeId, exchange);
     }
 
     const [step, ...remainingSteps] = steps;
@@ -651,13 +643,17 @@ export async function runPipeline(
       const duration = Date.now() - startTime;
 
       if (!deps.abortSignal?.aborted) {
-        deps.context.emit("route:step:error", {
-          routeId: deps.routeId,
-          error: err,
-          route: deps.route,
+        deps.context.emit(
+          "route:step:error",
+          {
+            routeId: deps.routeId,
+            error: err,
+            route: deps.route,
+            exchangeId: exchange.id,
+            operation: stepLabel,
+          },
           exchange,
-          operation: stepLabel,
-        });
+        );
       }
 
       noteFailingStep(exchange, err, step);
@@ -753,13 +749,7 @@ export async function runPipeline(
           if (decided) {
             settle(decided);
           } else {
-            announceFailure(
-              deps,
-              exchange,
-              handlerErr,
-              correlationId,
-              duration,
-            );
+            announceFailure(deps, exchange, handlerErr, duration);
             if (exchange.id !== parentExchangeId) {
               failedChildExchanges.add(exchange.id);
             } else {
@@ -816,7 +806,7 @@ export async function runPipeline(
         },
         err.meta.message,
       );
-      announceFailure(deps, exchange, err, correlationId, duration);
+      announceFailure(deps, exchange, err, duration);
       if (exchange.id !== parentExchangeId) {
         failedChildExchanges.add(exchange.id);
       } else {
@@ -1163,12 +1153,16 @@ async function applyErrorDecision(
   const recovered = DefaultExchange.rewrap(args.exchange, {
     body: args.result,
   });
-  deps.context.emit("route:error:caught", {
-    routeId: deps.routeId,
-    error: args.originalError,
-    route: deps.route,
-    exchange: recovered,
-  });
+  deps.context.emit(
+    "route:error:caught",
+    {
+      routeId: deps.routeId,
+      error: args.originalError,
+      route: deps.route,
+      exchangeId: recovered.id,
+    },
+    recovered,
+  );
   deps.context.emit("route:error-handler:recovered", {
     routeId: deps.routeId,
     exchangeId: recovered.id,
@@ -1566,14 +1560,7 @@ export function runDetachedPipeline(
   );
   return (async (): Promise<DetachedResult> => {
     const start = Date.now();
-    const correlationId = releaseExchange.headers[
-      HeadersKeys.CORRELATION_ID
-    ] as string;
-    deps.context.emit("route:exchange:started", {
-      routeId: deps.routeId,
-      exchangeId: releaseExchange.id,
-      correlationId,
-    });
+    emitExchangeStarted(deps.context, deps.routeId, releaseExchange);
     const routeDefinition = deps.route.definition;
     const slots = detachedSlots(deps, kind);
     const runKind: RunKind = kind === "admission" ? "resume" : kind;
@@ -1611,16 +1598,13 @@ export function runDetachedPipeline(
 
     // A deferred run already had its terminal event, `route:exchange:deferred`.
     if (!result.failed && !result.dropped && !result.deferred) {
-      deps.context.emit("route:exchange:completed", {
-        routeId: deps.routeId,
-        exchangeId: releaseExchange.id,
-        // The final exchange's: a `.correlate()` may have re-stamped it.
-        correlationId: result.exchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string,
-        duration: Date.now() - start,
-        exchange: result.exchange,
-      });
+      emitExchangeCompleted(
+        deps.context,
+        deps.routeId,
+        releaseExchange,
+        Date.now() - start,
+        result.exchange,
+      );
     }
     return {
       failed: result.failed,
@@ -1701,7 +1685,6 @@ export async function applyExitSlot<
       deps,
       exchange,
       err,
-      exchange.headers[HeadersKeys.CORRELATION_ID] as string,
       Date.now() - (getStartedAt(exchange) ?? Date.now()),
     );
     return { ...result, failed: true, error: err };
@@ -1717,24 +1700,24 @@ function announceFailure(
   deps: ExecutorDeps,
   exchange: Exchange,
   error: RoutecraftError,
-  correlationId: string,
   duration: number,
 ): void {
-  deps.context.emit("route:error", {
-    routeId: deps.routeId,
-    error,
-    route: deps.route,
+  deps.context.emit(
+    "route:error",
+    {
+      routeId: deps.routeId,
+      error,
+      route: deps.route,
+      exchangeId: exchange.id,
+    },
     exchange,
-  });
-  deps.context.emit("context:error", { error, route: deps.route, exchange });
-  deps.context.emit("route:exchange:failed", {
-    routeId: deps.routeId,
-    exchangeId: exchange.id,
-    correlationId,
-    duration,
-    error,
+  );
+  deps.context.emit(
+    "context:error",
+    { error, route: deps.route, exchangeId: exchange.id },
     exchange,
-  });
+  );
+  emitExchangeFailed(deps.context, deps.routeId, exchange, duration, error);
 }
 
 /**

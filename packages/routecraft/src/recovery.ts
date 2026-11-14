@@ -271,12 +271,16 @@ export function applyDropDirective(args: {
   // Step scope never emitted it, and still does not: a wrapper recovering
   // one step is not the route catching a failure.
   if (scope !== "step" && route) {
-    context.emit("route:error:caught", {
-      routeId,
-      error: originalError,
-      route,
+    context.emit(
+      "route:error:caught",
+      {
+        routeId,
+        error: originalError,
+        route,
+        exchangeId: exchange.id,
+      },
       exchange,
-    });
+    );
   }
 
   context.emit("route:error-handler:recovered", {

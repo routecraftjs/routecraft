@@ -8,6 +8,7 @@ import {
   getExchangeRoute,
   markDropped,
   emitExchangeDropped,
+  emitExchangeFailed,
 } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
@@ -382,14 +383,7 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
         { err, reason },
         "debounce release failed: the held body is not structured-cloneable",
       );
-      context?.emit("route:exchange:failed", {
-        routeId,
-        exchangeId: held.id,
-        correlationId,
-        duration: 0,
-        error: err,
-        exchange: held,
-      });
+      emitExchangeFailed(context, routeId, held, 0, err);
       hold.settle();
       return;
     }
