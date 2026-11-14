@@ -1,5 +1,4 @@
 import {
-  isRoutecraftError,
   rcError,
   sendsTraceContext,
   type CraftContext,
@@ -326,7 +325,6 @@ export async function dispatchMcpCallRaw(
     try {
       return await manager.callToolRaw(toolName, args, meta);
     } catch (cause) {
-      if (isRoutecraftError(cause)) throw cause;
       throw transportFailure(
         cause,
         `mcp dispatch: stdio call to "${serverId}:${toolName}" failed.`,
@@ -338,7 +336,6 @@ export async function dispatchMcpCallRaw(
   try {
     return await connections.callTool(serverId, http, toolName, args, meta);
   } catch (cause) {
-    if (isRoutecraftError(cause)) throw cause;
     throw transportFailure(
       cause,
       `mcp dispatch: failed to call tool "${toolName}" on client "${serverId}".`,
@@ -421,7 +418,6 @@ export async function callRemoteToolRaw(
       ...(meta !== undefined ? { _meta: meta } : {}),
     })) as McpRawToolResult;
   } catch (cause) {
-    if (isRoutecraftError(cause)) throw cause;
     throw transportFailure(
       cause,
       `mcp dispatch: failed to call tool "${toolName}" at "${serverUrl}".`,

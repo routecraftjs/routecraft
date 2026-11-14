@@ -77,7 +77,7 @@ export function compilePositions(
   definition: PositionFields,
   context: PortLookup,
 ): CompiledPositions {
-  const provider = <T>(target: Port<T>, method: string, member = method): T => {
+  const provider = <T>(target: Port<T>, method: string): T => {
     const found = context.lookup(target);
     if (found === undefined) {
       throw rcError("RC1111", undefined, {
@@ -87,7 +87,7 @@ export function compilePositions(
     assertPositionMember(
       found,
       target,
-      member,
+      method,
       context,
       `Route "${definition.id}" uses .${method}()`,
     );
@@ -131,10 +131,18 @@ export function compilePositions(
     ...(cache
       ? {
           cacheCheck: buildCacheCheckStep(
-            bindCacheStore(cache, context, definition),
+            bindCacheStore(
+              cache,
+              context,
+              `Route "${definition.id}" uses .cache()`,
+            ),
           ),
           cacheStore: buildCacheStoreStep(
-            bindCacheStore(cache, context, definition),
+            bindCacheStore(
+              cache,
+              context,
+              `Route "${definition.id}" uses .cache()`,
+            ),
           ),
         }
       : {}),

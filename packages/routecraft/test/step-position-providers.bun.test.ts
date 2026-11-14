@@ -8,6 +8,7 @@ import {
   when,
   otherwise,
   CACHE_STORE,
+  MemoryCacheProvider,
   RESILIENCE,
   type RouteBuilder,
 } from "@routecraft/routecraft";
@@ -71,25 +72,59 @@ describe("step-scope positions are validated at route start", () => {
   });
 
   /**
-   * @case An application with no cache store still caches
+   * @case A missing cache store fails start at both scopes of .cache()
    * @preconditions The default cache plugin is displaced by an empty descriptor, so nothing provides CACHE_STORE; one route places .cache() before .from(), another after it
-   * @expectedResult Both applications start and serve the second call from the cache: the policy is the kernel's, and without a store it keeps the entries in memory per application
+   * @expectedResult Both contexts refuse to start with RC1111 naming .cache() and the cache store port, rather than caching in a store nobody configured
    */
-  test(".cache() at both scopes runs without a provided store", async () => {
+  test(".cache() at both scopes fails start without a store", async () => {
+    const routes: Record<string, RouteBuilder> = {
+      route: craft()
+        .id("work")
+        .cache()
+        .from(direct())
+        .transform(() => "ok"),
+      step: craft()
+        .id("work")
+        .from(direct())
+        .cache()
+        .transform(() => "ok"),
+    };
+    for (const [scope, route] of Object.entries(routes)) {
+      t = await testContext()
+        .with({ plugins: [without("routecraft.cache")] })
+        .routes([route])
+        .build();
+      const failure = await startFailure(t);
+      expect([scope, failure.code]).toEqual([scope, "RC1111"]);
+      expect(failure.message).toContain(".cache()");
+      expect(failure.message).toContain(CACHE_STORE.name);
+      await t.stop().catch(() => undefined);
+      t = undefined;
+    }
+  });
+
+  /**
+   * @case A cache with its own provider needs no store from the application
+   * @preconditions The default cache plugin is displaced; one route places .cache({ provider }) before .from(), another after it
+   * @expectedResult Both applications start and serve the second call from the call site's provider
+   */
+  test(".cache({ provider }) runs without a provided store", async () => {
     let runs = 0;
     const work = () => {
       runs++;
       return "ok";
     };
-    const routes: Record<string, RouteBuilder> = {
-      route: craft().id("work").cache().from(direct()).transform(work),
-      step: craft().id("work").from(direct()).cache().transform(work),
+    const scopes: Record<string, (p: MemoryCacheProvider) => RouteBuilder> = {
+      route: (provider) =>
+        craft().id("work").cache({ provider }).from(direct()).transform(work),
+      step: (provider) =>
+        craft().id("work").from(direct()).cache({ provider }).transform(work),
     };
-    for (const [scope, route] of Object.entries(routes)) {
+    for (const [scope, route] of Object.entries(scopes)) {
       runs = 0;
       t = await testContext()
         .with({ plugins: [without("routecraft.cache")] })
-        .routes([route])
+        .routes([route(new MemoryCacheProvider())])
         .build();
       await t.startAndWaitReady();
       expect(t.ctx.lookup(CACHE_STORE)).toBeUndefined();

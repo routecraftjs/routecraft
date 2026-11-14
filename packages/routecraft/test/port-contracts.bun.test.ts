@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
+import { repoRoot, typeProgram } from "./helpers/type-program.ts";
 
-const repoRoot = new URL("../../../", import.meta.url).pathname;
 const SNAPSHOT = join(
   repoRoot,
   "packages/routecraft/test/port-contracts.snapshot.json",
@@ -36,20 +36,8 @@ const FORMAT =
   ts.TypeFormatFlags.WriteArrowStyleSignature;
 
 function readContracts(): Record<string, PortContract> {
-  const parsed = ts.getParsedCommandLineOfConfigFile(
-    join(repoRoot, "tsconfig.bun-test.json"),
-    {},
-    {
-      ...ts.sys,
-      onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
-        throw new Error(
-          ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
-        );
-      },
-    },
-  );
   const files = ENTRIES.map((entry) => join(repoRoot, entry));
-  const program = ts.createProgram(files, parsed!.options);
+  const program = typeProgram(files);
   const checker = program.getTypeChecker();
   const contracts: Record<string, PortContract> = {};
 
@@ -132,7 +120,8 @@ describe("port contracts", () => {
     }
     expect(existsSync(SNAPSHOT)).toBe(true);
     expect(contracts).toEqual(JSON.parse(readFileSync(SNAPSHOT, "utf8")));
-    expect(Object.keys(contracts).length).toBeGreaterThan(15);
+    // A reader that stops finding ports would regenerate an empty snapshot and pass.
+    expect(Object.keys(contracts)).toContain("routecraft.authority@1");
   }, 120_000);
 
   /**

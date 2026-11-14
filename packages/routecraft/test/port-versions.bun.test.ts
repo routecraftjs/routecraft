@@ -80,6 +80,49 @@ describe("port versions", () => {
   });
 
   /**
+   * @case One plugin ships both versions of its port and replaces both
+   * @preconditions One plugin providing test.rates@1, and a migration plugin providing and replacing test.rates@1 and test.rates@2
+   * @expectedResult The application builds: the old version is displaced, and the plugin's own second version is no sibling of itself
+   */
+  test("a plugin replacing both versions builds", async () => {
+    const error = await refusal([
+      providesV1,
+      definePlugin({
+        id: "test.rates-both",
+        provides: [V1, V2],
+        replaces: [V1, V2],
+        bind(c) {
+          c.provide(V1, "one");
+          c.provide(V2, "two");
+        },
+      }),
+    ]);
+
+    expect(error).toBeUndefined();
+  });
+
+  /**
+   * @case One plugin provides two versions and replaces only the newer
+   * @preconditions A single plugin providing test.rates@1 and test.rates@2 and replacing test.rates@2, with no other provider
+   * @expectedResult The application builds: the plugin's own older version does not make the replacement a mismatch
+   */
+  test("a plugin's own other version is not a sibling", async () => {
+    const error = await refusal([
+      definePlugin({
+        id: "test.rates-both",
+        provides: [V1, V2],
+        replaces: [V2],
+        bind(c) {
+          c.provide(V1, "one");
+          c.provide(V2, "two");
+        },
+      }),
+    ]);
+
+    expect(error).toBeUndefined();
+  });
+
+  /**
    * @case A plugin requires a version nobody provides while another is installed
    * @preconditions One plugin providing test.rates@1, and one requiring test.rates@2
    * @expectedResult RC1104 naming the installed test.rates@1 and its provider

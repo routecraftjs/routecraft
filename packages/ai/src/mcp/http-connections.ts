@@ -5,7 +5,8 @@ import {
 } from "./http-client-cache.ts";
 import type { AuthProvider } from "@modelcontextprotocol/client";
 import { connectHint, isConnectAuth } from "./connect.ts";
-import { connectMcpHttpClient, loadMcpClientSdk } from "./sdk.ts";
+import { connectMcpHttpClient } from "./sdk.ts";
+import { httpStatusOf, isJsonRpcError } from "./transport-failure.ts";
 import type {
   McpClientAuthOptions,
   McpClientHttpConfig,
@@ -192,7 +193,7 @@ export function createMcpHttpConnections(
     } catch (error) {
       const status = httpStatusOf(error);
       const stale = status === 404 && sessionId !== undefined;
-      if (stale || (status === undefined && !(await isJsonRpcError(error)))) {
+      if (stale || (status === undefined && !isJsonRpcError(error))) {
         // The entry leaves the cache at once; closing it, which may wait on
         // the remote for the session DELETE, happens off this call's path.
         void cache.evict(serverId, pending).catch(() => undefined);
@@ -234,18 +235,4 @@ async function bounded(work: Promise<unknown>, ms: number): Promise<void> {
     }),
   ]);
   clearTimeout(timer);
-}
-
-/** Whether the remote answered the request with a JSON-RPC error. */
-async function isJsonRpcError(error: unknown): Promise<boolean> {
-  // The SDK is already loaded: a connection exists only once it was.
-  const { ProtocolError } = await loadMcpClientSdk("mcp (http client)");
-  return error instanceof ProtocolError;
-}
-
-/** The HTTP status the remote answered with, when the failure is one. */
-function httpStatusOf(error: unknown): number | undefined {
-  if (typeof error !== "object" || error === null) return undefined;
-  const status = (error as { status?: unknown }).status;
-  return typeof status === "number" ? status : undefined;
 }

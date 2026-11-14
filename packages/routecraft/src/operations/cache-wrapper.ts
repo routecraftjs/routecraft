@@ -23,14 +23,14 @@ import type {
   StepOutcome,
 } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
-import { WrapperStep } from "./wrapper.ts";
+import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import type {
   Identity,
   InferredNode,
 } from "../kernel/continuation/identity.ts";
 import { nestedStepsOf } from "../kernel/continuation/sites.ts";
 import { describeSteps } from "../kernel/continuation/identity.ts";
-import { MemoryCacheProvider, type CacheProvider } from "./cache-provider.ts";
+import { type CacheProvider } from "./cache-provider.ts";
 import { CACHE_STORE } from "../kernel/positions.ts";
 import type { PositionScope } from "../kernel/positions.ts";
 import type { PortLookup } from "../kernel/port.ts";
@@ -195,40 +195,35 @@ interface CacheStep {
   run(run: CacheRun): Promise<StepOutcome>;
 }
 
-const defaultStores = new WeakMap<object, CacheProvider>();
-
 /**
  * Settle the store a cache runs against: the call site's own `provider`,
- * else the application's `CACHE_STORE`, else an in-memory store kept for
- * `owner`'s application (or for `owner` itself when it runs in none), so
- * two applications in a process never serve each other's entries.
+ * else the application's `CACHE_STORE`. There is no third store: a cache
+ * that names none, in an application that provides none, is refused rather
+ * than served from one nobody configured.
  *
- * @throws RC1111 when the installed `CACHE_STORE` is not a cache provider
+ * @param uses - The site, for the refusal: `Route "orders" uses .cache()`
+ * @throws RC1111 when no store is provided, or the installed one is not a cache provider
  * @internal
  */
 export function bindCacheStore<Current = unknown>(
   options: ResolvedCacheOptions<Current>,
   lookup: PortLookup | undefined,
-  owner: object,
+  uses: string,
 ): BoundCacheOptions<Current> {
   if (options.provider) return options as BoundCacheOptions<Current>;
   const installed = lookup?.lookup(CACHE_STORE);
-  if (installed !== undefined) {
-    if (typeof installed.getOrCompute !== "function") {
-      const by = lookup?.providerOf?.(CACHE_STORE);
-      throw rcError("RC1111", undefined, {
-        message: `.cache() keeps its entries in "${CACHE_STORE.name}", and its provider${by === undefined ? "" : ` (plugin "${by}")`} is not a cache provider: it has no getOrCompute().`,
-      });
-    }
-    return { ...options, provider: installed };
+  if (installed === undefined) {
+    throw rcError("RC1111", undefined, {
+      message: `${uses}, and ${lookup === undefined ? "the exchange belongs to no application" : `no installed plugin provides "${CACHE_STORE.name}"`}. The default routecraft.cache plugin provides it; otherwise pass .cache({ provider }).`,
+    });
   }
-  const key = lookup ?? owner;
-  let store = defaultStores.get(key);
-  if (store === undefined) {
-    store = new MemoryCacheProvider();
-    defaultStores.set(key, store);
+  if (typeof installed.getOrCompute !== "function") {
+    const by = lookup?.providerOf?.(CACHE_STORE);
+    throw rcError("RC1111", undefined, {
+      message: `${uses}, which keeps its entries in "${CACHE_STORE.name}", and its provider${by === undefined ? "" : ` (plugin "${by}")`} is not a cache provider: it has no getOrCompute().`,
+    });
   }
-  return { ...options, provider: store };
+  return { ...options, provider: installed };
 }
 
 /**
@@ -516,6 +511,13 @@ export class CacheWrapperStep<
     return this.#options.usesDefaultKey;
   }
 
+  /** A cache with its own `provider` needs nothing of the application. */
+  override get requiredPosition(): RequiredPosition | undefined {
+    return this.#options.provider
+      ? undefined
+      : { port: CACHE_STORE, method: "cache", member: "getOrCompute" };
+  }
+
   /**
    * Record this wrapper's position in its route. Called by
    * {@link assignCacheSites}; see {@link CacheKeyScope}.
@@ -573,7 +575,13 @@ export class CacheWrapperStep<
     const owner = context ?? this;
     let cache = this.#runs.get(owner);
     if (cache === undefined) {
-      cache = cacheStepRun(bindCacheStore(this.#options, context, this));
+      cache = cacheStepRun(
+        bindCacheStore(
+          this.#options,
+          context,
+          `Step "${stepLabel}" is wrapped in .cache()`,
+        ),
+      );
       this.#runs.set(owner, cache);
     }
     return cache.run({

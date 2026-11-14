@@ -124,8 +124,10 @@ events). `runStepPosition` resolves a `Position` from `RESILIENCE` and
 runs it with a `PositionRun` whose `attempt` is the wrapped step and whose
 `scope` is `"step"`. The cache wrapper is the kernel's own at both scopes:
 it binds its store with `bindCacheStore` (the call site's `provider`, else
-the `CACHE_STORE` port, else an in-memory store per application) and runs
-the policy itself, so it declares no required position. A resilience
+the `CACHE_STORE` port) and runs the policy itself. A cache that names no
+`provider` declares `CACHE_STORE` as its required position, so an
+application with no store refuses to start rather than caching somewhere
+nobody configured. A resilience
 wrapper declares the port it depends on through
 `WrapperStep.requiredPosition`; the route checks at start that a provider
 for it is installed (`RC1111` otherwise, nested sub-pipelines and wrapper

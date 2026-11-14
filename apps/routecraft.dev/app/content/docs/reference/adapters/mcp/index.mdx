@@ -60,7 +60,7 @@ The result the client hands the route is the remote's `structuredContent` when i
 | HTTP 401 | [`RC5012`](/docs/reference/errors#rc-5012) | no |
 | HTTP 403 | [`RC5015`](/docs/reference/errors#rc-5015) | no |
 | HTTP 404 | [`RC5014`](/docs/reference/errors#rc-5014) | no |
-| Any other HTTP 4xx, a JSON-RPC error from the remote, a URL that does not parse, a client that is not registered | [`RC5003`](/docs/reference/errors#rc-5003) | no |
+| Any other HTTP 4xx, a JSON-RPC error from the remote, a URL that does not parse, a client that is not registered, a result the client could not accept (invalid, unsupported, or a version or capability the two sides do not share) | [`RC5003`](/docs/reference/errors#rc-5003) | no |
 
 A remote URL is `https`. Plain `http` is accepted for a loopback host (`localhost`, an address in `127.0.0.0/8`, `[::1]`), and for any other host only with `allowHttp: true` on the call or on the client: the client's credential and every call's arguments travel in that request. A redirect is followed only within the origin that was configured (an `http` URL may also be upgraded to `https` on the same host). A redirect to any other origin fails the call with [`RC5003`](/docs/reference/errors#rc-5003) naming where it points, and the credential is never sent there; set that URL on the client if it is the server you mean.
 

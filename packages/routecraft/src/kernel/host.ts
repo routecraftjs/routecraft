@@ -409,7 +409,7 @@ export class PluginHost {
           .map((entry) => entry.id);
         const sibling =
           displaced.length === 0
-            ? siblingProvider(port, ports, installed)
+            ? siblingProvider(port, ports, installed, replacer)
             : undefined;
         if (sibling) {
           throw rcError("RC1119", undefined, {
@@ -717,15 +717,23 @@ function isOtherVersion(candidate: AnyPort, port: AnyPort): boolean {
   return candidate.key !== port.key && baseName(candidate) === baseName(port);
 }
 
-/** An installed plugin providing another version of a port. */
+/**
+ * An installed plugin providing another version of a port. Asked on behalf
+ * of a replacer, the plugin itself is not a sibling: one plugin shipping two
+ * versions of its contract is the migration the version rule exists for.
+ */
 function siblingProvider(
   port: AnyPort,
   ports: ReadonlyMap<symbol, AnyPort>,
   installed: readonly InstalledPlugin[],
+  replacer?: InstalledPlugin,
 ): SiblingProvider | undefined {
+  const replaced = new Set(replacer?.plugin.replaces?.map((p) => p.key));
   for (const [key, candidate] of ports) {
-    if (!isOtherVersion(candidate, port)) continue;
-    const provider = installed.find((entry) => entry.provides.has(key));
+    if (!isOtherVersion(candidate, port) || replaced.has(key)) continue;
+    const provider = installed.find(
+      (entry) => entry !== replacer && entry.provides.has(key),
+    );
     if (provider) return { id: provider.id, port: candidate };
   }
   return undefined;

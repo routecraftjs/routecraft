@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   craft,
   direct,
@@ -12,20 +12,11 @@ import { MCP } from "../src/mcp/port.ts";
 import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
 import { transportFailure } from "../src/mcp/transport-failure.ts";
 import { statefulRemote } from "./helpers/stateful-remote.ts";
+import { useRealMcpSdk } from "./helpers/real-mcp-sdk.ts";
 
 const URL_ = "https://retry.test/mcp";
 
-// `mock.module` outlives the suite that set it, so the real SDK loader is put
-// back for this suite and the prior one restored after it.
-const sdk = await import("../src/mcp/sdk.ts");
-const prior = { ...sdk };
-mock.module("../src/mcp/sdk.ts", () => ({
-  ...prior,
-  loadMcpClientSdk: async () => import("@modelcontextprotocol/client"),
-}));
-afterAll(() => {
-  mock.module("../src/mcp/sdk.ts", () => prior);
-});
+await useRealMcpSdk();
 
 /** A failure shaped like the SDK's HTTP error: a status beside the message. */
 function httpFailure(status: number): Error {
@@ -35,6 +26,14 @@ function httpFailure(status: number): Error {
       status,
     },
   );
+}
+
+/** A failure shaped like the SDK's own: a string code and no status. */
+function sdkFault(code: string): Error {
+  return Object.assign(new Error(`SDK fault ${code}`), {
+    name: "SdkError",
+    code,
+  });
 }
 
 describe("MCP transport failures and .retry()", () => {
@@ -128,8 +127,8 @@ describe("MCP transport failures and .retry()", () => {
 
   /**
    * @case Each wire failure is named by what went wrong
-   * @preconditions Failures shaped like the SDK's: HTTP statuses, an unauthorized error, timeouts at the top and inside a cause chain, a JSON-RPC error, and an unknown fault
-   * @expectedResult Timeouts, rate limits, server errors and unknown faults are retryable; a refused credential, a missing resource, a JSON-RPC error and other client errors are not
+   * @preconditions Failures shaped like the SDK's: HTTP statuses, an unauthorized error, timeouts at the top and inside a cause chain, a JSON-RPC error, the SDK's own faults, and an unknown fault
+   * @expectedResult Timeouts, rate limits, server errors, lost connections and unknown faults are retryable; a refused credential, a missing resource, a JSON-RPC error, other client errors and a fault the SDK found on its own side are not
    */
   test("classifies a failure by status, timeout and shape", () => {
     const stalled = Object.assign(new Error("Request timed out"), {
@@ -172,6 +171,11 @@ describe("MCP transport failures and .retry()", () => {
       [refused, "RC5010", true],
       [jsonRpc, "RC5003", false],
       [invalidUrl, "RC5003", false],
+      [sdkFault("INVALID_RESULT"), "RC5003", false],
+      [sdkFault("CAPABILITY_NOT_SUPPORTED"), "RC5003", false],
+      [sdkFault("ERA_NEGOTIATION_FAILED"), "RC5003", false],
+      [sdkFault("CONNECTION_CLOSED"), "RC5010", true],
+      [sdkFault("SEND_FAILED"), "RC5010", true],
       [new Error("Error POSTing to endpoint:"), "RC5010", true],
     ];
     for (const [cause, rc, retryable] of cases) {

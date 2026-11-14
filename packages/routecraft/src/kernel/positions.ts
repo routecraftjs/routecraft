@@ -128,7 +128,7 @@ export const RESILIENCE = port<ResiliencePositions>("routecraft.resilience@1");
  * Where a `.cache()` that names no `provider` of its own keeps its
  * entries. The kernel owns the policy at both scopes (`when`, the key,
  * which outcomes are stored, the restore and the events); this is only the
- * storage behind it. Unprovided, each application gets an in-memory store.
+ * storage behind it. Unprovided, a cache that names no `provider` is `RC1111`.
  */
 export const CACHE_STORE = port<CacheProvider>("routecraft.cache-store@1");
 

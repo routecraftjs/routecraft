@@ -460,7 +460,6 @@ export {
   CacheWrapperStep,
   type CacheOptions,
   type ResolvedCacheOptions,
-  type BoundCacheOptions,
 } from "./operations/cache-wrapper.ts";
 export {
   type CacheProvider,
