@@ -78,6 +78,35 @@ Flag values come from outside the route's code. Pass one to [`shell()`](/docs/re
 
 A command line proves no identity, so `argv()` puts no principal on the exchange. A route without `.authorize()` runs. A route with `.authorize()` fails with `RC5012` (exit code 1) unless a plugin supplies a principal on the way in: a `mutate` hook in the `beforeAuth` slot runs before the `authorize` position and can set one through `authorityOf()`. The door admitted no principal, so when `.authorize()` refuses the one a plugin supplied, for example for a missing scope, that is a route failure (exit code 1) and not a refusal of the caller. Token verification on `argv()` itself is not offered yet.
 
+Scope that hook with `sources`, or it supplies the same principal to every other door on the route. With the selector, a route declared `.from(argv(), direct())` runs as the operator from the command line and still refuses a `direct()` call that carries no principal:
+
+```ts
+import { authorityOf, definePlugin, HeadersKeys } from "@routecraft/routecraft";
+
+export const cliOperator = definePlugin({
+  id: "app.cli-operator",
+  hooks: {
+    beforeAuth: {
+      id: "operator",
+      phase: "mutate",
+      sources: ["routecraft.adapter.argv"],
+      run: (exchange) => ({
+        headers: {
+          [HeadersKeys.AUTH_PRINCIPAL]: authorityOf(exchange).mint({
+            kind: "custom",
+            scheme: "local",
+            subject: process.env["USER"] ?? "operator",
+            scopes: ["boards:read"],
+          }),
+        },
+      }),
+    },
+  },
+});
+```
+
+`sources` selects by the door an exchange came through and proves nothing about who is at it: anyone who can run `craft run` on the machine is that operator.
+
 ## Output and exit codes
 
 The final body goes to stdout. Logs go to stderr under `craft run`, so `craft run work-item.ts --id=1 --format raw | jq` reads only the result.

@@ -109,6 +109,12 @@ export const HeadersKeys = {
   ID: "routecraft.id",
   /** The operation type (from, process, to) */
   OPERATION: "routecraft.operation",
+  /**
+   * The `adapterId` of the `.from()` source that admitted this exchange,
+   * `"inline"` for a source that declares none. Stamped at every ingress,
+   * never inherited across one. Read it with {@link sourceOf}.
+   */
+  SOURCE: "routecraft.source",
   /** The route id */
   ROUTE_ID: "routecraft.route",
   /**
@@ -318,6 +324,29 @@ export function principalOf(exchange: {
   readonly headers: ExchangeHeaders;
 }): Principal | undefined {
   return exchange.headers[HeadersKeys.AUTH_PRINCIPAL] as Principal | undefined;
+}
+
+/**
+ * Which `.from()` source admitted the exchange: the source's `adapterId`
+ * (`"routecraft.adapter.argv"`, `"routecraft.adapter.direct"`), or
+ * `"inline"` for a source that declares none.
+ *
+ * It names the first admission. A resumed exchange keeps the source it was
+ * admitted through, whatever door the resume arrived at, and the children of
+ * `.split()`, `.multicast()` and `.dispatch()` carry their parent's. A
+ * hand-off to another route is a new admission there, through that route's
+ * own source.
+ *
+ * A selector, never authentication: code in the process can build an
+ * exchange with any headers.
+ *
+ * @returns `undefined` for an exchange no route's source admitted
+ */
+export function sourceOf(exchange: {
+  readonly headers: ExchangeHeaders;
+}): string | undefined {
+  const source = exchange.headers[HeadersKeys.SOURCE];
+  return typeof source === "string" ? source : undefined;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { engineOwnedHeaderSuggestion } from "../engine-headers.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { rcError } from "../error.ts";
-import { DefaultExchange, type Exchange } from "../exchange.ts";
+import { DefaultExchange, sourceOf, type Exchange } from "../exchange.ts";
 import type { ExchangeHeaders } from "../exchange.ts";
 import { OperationType } from "../exchange.ts";
 import type { ForwardFn } from "../route.ts";
@@ -275,6 +275,17 @@ interface HookBase {
    * at install (`RC1115`).
    */
   readonly runs?: readonly RunKind[];
+  /**
+   * Only exchanges admitted through one of these sources, by `adapterId`
+   * (what {@link sourceOf} returns). Both this and `routes` / `tags` must
+   * match. Not available in `perAttempt`, whose wrappers are placed when the
+   * route is built. A selector, never authentication.
+   *
+   * The source is the exchange's first admission, so in `afterAuth` and
+   * `admitted` a resumed exchange still matches the source it was parked
+   * under, whoever resumed it.
+   */
+  readonly sources?: readonly string[];
 }
 
 /** An `observe` hook: reads, never changes. */
@@ -548,6 +559,22 @@ export class HookTable {
         });
       }
     }
+    if (hook.sources !== undefined) {
+      if (
+        !Array.isArray(hook.sources) ||
+        hook.sources.length === 0 ||
+        hook.sources.some((s) => typeof s !== "string" || s.length === 0)
+      ) {
+        throw rcError("RC1115", undefined, {
+          message: `${where} declares sources that is not a non-empty array of adapter ids (for example ["routecraft.adapter.argv"]). The hook would never run.`,
+        });
+      }
+      if (slot === "perAttempt") {
+        throw rcError("RC1115", undefined, {
+          message: `${where} declares sources, which a perAttempt wrapper cannot take: wrappers are placed when the route is built, before any exchange exists. Branch on sourceOf(exchange) inside wrap().`,
+        });
+      }
+    }
     if (slot === "error" && "schema" in hook) {
       throw rcError("RC1115", undefined, {
         message: `${where} declares "schema", which was renamed: the schema a resume payload must satisfy is declared as "input". Left as it is, the hook would park with no contract.`,
@@ -790,6 +817,21 @@ function appliesTo(
   );
 }
 
+/**
+ * Whether a hook's `sources` selector admits the exchange. A hook that
+ * declares none applies whatever the source.
+ *
+ * @internal
+ */
+export function admittedBy(
+  hook: { sources?: readonly string[] },
+  exchange: Exchange,
+): boolean {
+  if (hook.sources === undefined) return true;
+  const source = sourceOf(exchange);
+  return source !== undefined && hook.sources.includes(source);
+}
+
 const EVERY_RUN: readonly RunKind[] = [
   "normal",
   "resume",
@@ -843,7 +885,7 @@ export async function runExchangeHooks(
   const wroteBy = new Map<string, string>();
   for (const entry of hooks) {
     const hook = entry.hook as ExchangeHook;
-    if (!runsOn(hook, info.kind)) continue;
+    if (!runsOn(hook, info.kind) || !admittedBy(hook, current)) continue;
     const result = await hook.run(current, info);
     if (hook.phase === "observe") {
       if (result !== undefined) {

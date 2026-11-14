@@ -76,10 +76,11 @@ Routecraft sets a number of `routecraft.*` headers automatically on every exchan
 | `routecraft.route` | ID of the capability processing this exchange |
 | `routecraft.correlation_id` | The journey this exchange belongs to: shared by every exchange one request, timer or message led to |
 | `routecraft.causation_id` | The `routecraft.id` of the exchange that caused this one; absent on a chain root |
+| `routecraft.source` | The `adapterId` of the source that admitted the exchange (`sourceOf(exchange)` reads this key), or `inline` for a source without one. Stamped at every ingress, so a hop through `direct()` reads `routecraft.adapter.direct`; a resumed exchange and `.split()` children keep the value they had |
 | `routecraft.split_hierarchy` | Hierarchy of split groups this exchange belongs to (set by `.split()`) |
 | `routecraft.auth.principal` | The authenticated `Principal`, once an identity has been resolved: by a source that verified a credential, by `.authenticate()`, or by `.delegate()` re-minting it as a delegated one (`ex.auth.principal` in a route, and `principalOf(exchange)` elsewhere, read this key) |
 
-These are useful for logging, debugging, and correlating exchanges across capability chains. Six of them are the engine's, and so are `routecraft.trace.parent` and `routecraft.journey.joined`, which mark an exchange that [joined its journey](#journeys-correlation-and-causation) rather than being called into it: `.header()` refuses all eight at build time. Adapter keys in the namespace, such as a mail message's UID, stay settable.
+These are useful for logging, debugging, and correlating exchanges across capability chains. Seven of them are the engine's, and so are `routecraft.trace.parent` and `routecraft.journey.joined`, which mark an exchange that [joined its journey](#journeys-correlation-and-causation) rather than being called into it: `.header()` refuses all nine at build time. Adapter keys in the namespace, such as a mail message's UID, stay settable.
 
 ## Journeys: correlation and causation
 

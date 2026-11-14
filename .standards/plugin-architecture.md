@@ -281,8 +281,8 @@ Two mutate hooks writing the same header in one slot: the later wins and the
 framework warns once per route naming both. A hook that declares `writes`
 moves that warning to start. A mutate hook may not write an engine-owned
 header (`routecraft.id`, `routecraft.route`, `routecraft.operation`,
-`routecraft.split_hierarchy`, `routecraft.correlation_id`,
-`routecraft.causation_id`, `routecraft.trace.parent`,
+`routecraft.source`, `routecraft.split_hierarchy`,
+`routecraft.correlation_id`, `routecraft.causation_id`, `routecraft.trace.parent`,
 `routecraft.journey.joined`): that is `RC1115`, the contract `.header()`
 enforces.
 
@@ -312,6 +312,16 @@ hooks: {
 A name in `order` or `disable` that matches no hook is `RC1112`. A name
 repeated in one `order` list is `RC1112` too: a hook runs once per exchange. `disable`
 applies to slots; a position is never switched off.
+
+### Selecting by source
+
+A hook narrows to the exchanges some sources admitted with `sources`, a
+non-empty list of adapter ids matched against `sourceOf(exchange)`. It is
+ANDed with `routes` / `tags`. `perAttempt` cannot take it (`RC1115`): its
+wrappers are placed when the route is built, before an exchange exists. The
+selector exists so a hook that supplies a principal for one door, the
+command line, does not supply it for every other door on the route. It is
+not authentication: it names a door, not a caller.
 
 ### Survival
 

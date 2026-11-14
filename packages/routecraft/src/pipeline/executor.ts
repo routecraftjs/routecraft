@@ -72,6 +72,7 @@ import type { ForwardFn, Route } from "../route.ts";
 import {
   routeTags,
   runExchangeHooks,
+  admittedBy,
   runsOn,
   type ErrorHook,
   type InstalledHook,
@@ -1106,7 +1107,8 @@ async function runErrorSlot(
   // reported and the rest still hear it.
   for (const entry of observe) {
     const hook = entry.hook as ErrorHook;
-    if (!runsOn(hook, kind, "error")) continue;
+    if (!runsOn(hook, kind, "error") || !admittedBy(hook, args.exchange))
+      continue;
     try {
       const heard = await hook.run(args.originalError, args.exchange, info);
       if (heard !== undefined) {
@@ -1122,8 +1124,10 @@ async function runErrorSlot(
     }
   }
 
-  const handlers = decide.filter((entry) =>
-    runsOn(entry.hook as ErrorHook, kind, "error"),
+  const handlers = decide.filter(
+    (entry) =>
+      runsOn(entry.hook as ErrorHook, kind, "error") &&
+      admittedBy(entry.hook as ErrorHook, args.exchange),
   );
   for (const entry of handlers) {
     const handler = entry.hook as ErrorHook;
