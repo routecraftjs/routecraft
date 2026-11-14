@@ -434,7 +434,7 @@ describe("MCP Plugin Integration", () => {
     /**
      * @case Validation rejects empty command for stdio client
      * @preconditions Stdio client with empty command
-     * @expectedResult TypeError thrown
+     * @expectedResult RC5003 thrown
      */
     test("rejects stdio client with empty command", () => {
       expect(() =>
@@ -449,7 +449,7 @@ describe("MCP Plugin Integration", () => {
     /**
      * @case Validation rejects negative maxRestarts
      * @preconditions maxRestarts set to -1
-     * @expectedResult TypeError thrown
+     * @expectedResult RC5003 thrown
      */
     test("rejects negative maxRestarts", () => {
       expect(() => mcpPlugin({ maxRestarts: -1 })).toThrow(
@@ -460,7 +460,7 @@ describe("MCP Plugin Integration", () => {
     /**
      * @case Validation rejects non-integer maxRestarts
      * @preconditions maxRestarts set to 2.5
-     * @expectedResult TypeError thrown
+     * @expectedResult RC5003 thrown
      */
     test("rejects non-integer maxRestarts", () => {
       expect(() => mcpPlugin({ maxRestarts: 2.5 })).toThrow(
@@ -471,7 +471,7 @@ describe("MCP Plugin Integration", () => {
     /**
      * @case Validation rejects a zero restartDelay
      * @preconditions restartDelay set to 0
-     * @expectedResult TypeError thrown
+     * @expectedResult RC5003 thrown
      */
     test("rejects a zero restartDelay", () => {
       expect(() => mcpPlugin({ restartDelay: 0 })).toThrow(/positive duration/);
@@ -480,7 +480,7 @@ describe("MCP Plugin Integration", () => {
     /**
      * @case Validation rejects restartBackoffMultiplier less than 1
      * @preconditions restartBackoffMultiplier set to 0.5
-     * @expectedResult TypeError thrown
+     * @expectedResult RC5003 thrown
      */
     test("rejects restartBackoffMultiplier less than 1", () => {
       expect(() => mcpPlugin({ restartBackoffMultiplier: 0.5 })).toThrow(
@@ -491,7 +491,7 @@ describe("MCP Plugin Integration", () => {
     /**
      * @case Validation rejects a negative toolRefreshInterval
      * @preconditions toolRefreshInterval set to -100
-     * @expectedResult TypeError thrown
+     * @expectedResult RC5003 thrown
      */
     test("rejects a negative toolRefreshInterval", () => {
       expect(() => mcpPlugin({ toolRefreshInterval: -100 })).toThrow(
@@ -517,7 +517,7 @@ describe("MCP Plugin Integration", () => {
     /**
      * @case Validation rejects an invalid cors.origin shape at plugin creation time
      * @preconditions transport: 'http', cors: { origin: 42 } cast through unknown to bypass TypeScript
-     * @expectedResult TypeError thrown by `validateMcpPluginOptions`, not deferred to server start; surfaces alongside `auth`/`port`/`host` shape errors
+     * @expectedResult RC5003 thrown by `validateMcpPluginOptions`, not deferred to server start; surfaces alongside `auth`/`port`/`host` shape errors
      */
     test("rejects invalid cors.origin shape at creation time", () => {
       expect(() =>
@@ -626,7 +626,7 @@ describe("MCP Plugin Integration", () => {
     /**
      * @case mcpPlugin rejects a non-function validator
      * @preconditions auth.validator is not a function
-     * @expectedResult TypeError thrown
+     * @expectedResult RC5003 thrown
      */
     test("rejects non-function validator", () => {
       const createWithInvalidValidator = () =>
@@ -636,7 +636,9 @@ describe("MCP Plugin Integration", () => {
           auth: { validator: "not-a-function" },
         });
 
-      expect(createWithInvalidValidator).toThrow(TypeError);
+      expect(createWithInvalidValidator).toThrow(
+        expect.objectContaining({ rc: "RC5003" }),
+      );
       expect(createWithInvalidValidator).toThrow(
         /auth\.validator must be a function/,
       );
