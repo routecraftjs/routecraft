@@ -64,6 +64,11 @@ export class EventBus {
     private readonly logger: Pick<Logger, "warn" | "error">,
   ) {}
 
+  /** The header names left out of every snapshot, lowercased. */
+  get secretHeaderNames(): ReadonlySet<string> {
+    return this.secretHeaders;
+  }
+
   /**
    * Add header names to leave out of every snapshot, beside the built-in
    * credential headers. Names are matched case-insensitively.

@@ -414,7 +414,12 @@ ctx.on(
 )
 ```
 
-The copy is frozen and leaves out `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` and every header a plugin lists in `secretHeaders`, at every depth of a header, so the wire headers the HTTP door keeps under `routecraft.http.rawHeaders` lose theirs too. The principal in it is the reference, without claims or scopes. A subscriber that reads only ids, durations and errors changes nothing. A handler that passed `details.exchange` to `isDropped()` or another exchange helper has no exchange to pass: the event's name already says how the exchange ended. See [snapshots](/docs/reference/events#snapshots).
+The copy is frozen and leaves out `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key` and every header a plugin lists in `secretHeaders`, at every depth of a header, so the wire headers the HTTP door keeps under `routecraft.http.rawHeaders` lose theirs too. The principal in it is the reference, without claims or scopes. A subscriber that reads only ids, durations and errors changes nothing. A handler that passed `details.exchange` to `isDropped()` or another exchange helper has no exchange to pass: the event's name already says how the exchange ended. See [snapshots](/docs/reference/events#snapshots).
+
+Two more places stop holding a credential:
+
+- **An API key the HTTP mount verified is not on the exchange.** With `auth: apiKey(...)`, the key is left out of `routecraft.http.rawHeaders`, or out of `routecraft.http.query` and `routecraft.http.url` for `in: 'query'`. A route that read the key to work out who called returns that from `apiKey({ verify })` as the principal instead.
+- **A parked exchange is stored without its credential headers.** The same names the snapshot leaves out are left out of the record a `.defer()` writes, at every depth, so a bearer token or a session cookie does not sit in the deferral store for as long as the approval takes. Steps after a resume run as the principal the route verified and do not see those headers.
 
 A telemetry store written by 0.7 with `captureSnapshots` on holds the headers as they were then, credentials included, in `exchange_snapshots` and in the `details` of its error events. Delete the store, or those rows, if it should not keep them. From 0.8 the exchange is stored once, in `exchange_snapshots`, and no event row repeats it.
 

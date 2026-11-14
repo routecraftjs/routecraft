@@ -103,19 +103,52 @@ const RESERVED_TAGS: ReadonlySet<string> = new Set([
  * The result is a detached deep copy, so the store never holds a reference
  * into an exchange a later step could still mutate.
  *
+ * A credential header is not persisted: a parked record outlives the request
+ * that carried it, and the principal the route verified is what a resumed
+ * exchange runs as. The names are matched at every depth of a header, so the
+ * wire headers an HTTP door keeps under one header lose theirs too.
+ *
  * @param exchange - The exchange being deferred.
+ * @param secret - Lowercased header names to leave out.
  * @returns JSON data safe to hand to any store backend.
  * @throws RC5042 when a value in `body` or `headers` cannot be persisted.
  *
  * @internal
  */
-export function serializeExchange(exchange: Exchange): SerializedExchange {
+export function serializeExchange(
+  exchange: Exchange,
+  secret: ReadonlySet<string> = NO_NAMES,
+): SerializedExchange {
   return {
     body: encode(exchange.body, "body"),
-    headers: encode(exchange.headers, "headers") as Readonly<
-      Record<string, unknown>
-    >,
+    headers: encode(
+      withoutNamed(exchange.headers, secret),
+      "headers",
+    ) as Readonly<Record<string, unknown>>,
   };
+}
+
+const NO_NAMES: ReadonlySet<string> = new Set();
+
+/**
+ * A copy of plain objects and arrays with every entry named in `names` left
+ * out. Anything else is returned as it is, for `encode` to admit or refuse.
+ */
+function withoutNamed(value: unknown, names: ReadonlySet<string>): unknown {
+  if (names.size === 0 || value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => withoutNamed(item, names));
+  }
+  const proto: unknown = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const kept: Record<string, unknown> = {};
+  for (const [name, entry] of Object.entries(value)) {
+    if (names.has(name.toLowerCase())) continue;
+    kept[name] = withoutNamed(entry, names);
+  }
+  return kept;
 }
 
 /**

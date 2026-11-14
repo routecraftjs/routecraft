@@ -565,7 +565,7 @@ Lines are written synchronously, so none is lost when the process exits right af
 
 ### Redaction
 
-Every logger `createLogger` and the default build redacts the headers that carry a credential, on a line that logs `headers`: `headers.authorization`, `headers.cookie`, `headers["set-cookie"]` and `headers["proxy-authorization"]`. A configured `redact` adds to that list and never replaces it. A logger of your own redacts what you tell it to: `DEFAULT_REDACT` exports the same list, so `pino({ redact: [...DEFAULT_REDACT] })` starts from it.
+Every logger `createLogger` and the default build redacts the headers that carry a credential (`authorization`, `cookie`, `set-cookie`, `proxy-authorization`, `x-api-key`), in lowercase and in title case (`Authorization`, `Set-Cookie`), where a line logs them under `headers`, `exchange.headers`, `req.headers`, `request.headers` or the HTTP door's `headers["routecraft.http.rawHeaders"]`, and the parsed `headers["routecraft.http.cookies"]`. Redaction is by exact path, so a credential logged under another key or in another letter case is not caught: name it in `redact`. A configured `redact` adds to that list and never replaces it. A logger of your own redacts what you tell it to: `DEFAULT_REDACT` exports the same list, so `pino({ redact: [...DEFAULT_REDACT] })` starts from it.
 
 ### The default logger
 

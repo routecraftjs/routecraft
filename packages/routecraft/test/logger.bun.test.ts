@@ -317,6 +317,57 @@ describe("createLogger", () => {
         },
       });
     }));
+
+  /**
+   * @case A line logs credentials the way hand-written code spells and nests them
+   * @preconditions A logger built by createLogger; one line carrying title-case credential headers and an API key under `headers`, the HTTP door's wire headers and parsed cookies, and headers nested under `req`, `request` and `exchange`
+   * @expectedResult Every credential is redacted and the ordinary headers beside them are not
+   */
+  test("covers title case, an api key, wire headers and one level of nesting", () =>
+    inTemp(async (dir) => {
+      const file = join(dir, "app.log");
+      const logger = createLogger({ level: "info", file });
+      logger.info(
+        {
+          headers: {
+            Authorization: "Bearer a",
+            "Set-Cookie": "b=1",
+            "x-api-key": "c",
+            "X-Api-Key": "d",
+            "routecraft.http.rawHeaders": {
+              authorization: "Bearer e",
+              accept: "*/*",
+            },
+            "routecraft.http.cookies": { session: "f" },
+            "x-request-id": "r-1",
+          },
+          req: { headers: { authorization: "Bearer g", host: "h" } },
+          request: { headers: { Cookie: "i=1" } },
+          exchange: { headers: { "proxy-authorization": "Basic j" } },
+        },
+        "Seen",
+      );
+      logger.flush?.();
+
+      const line = linesOf(file).find((entry) => entry["msg"] === "Seen");
+      expect(line).toMatchObject({
+        headers: {
+          Authorization: "[Redacted]",
+          "Set-Cookie": "[Redacted]",
+          "x-api-key": "[Redacted]",
+          "X-Api-Key": "[Redacted]",
+          "routecraft.http.rawHeaders": {
+            authorization: "[Redacted]",
+            accept: "*/*",
+          },
+          "routecraft.http.cookies": "[Redacted]",
+          "x-request-id": "r-1",
+        },
+        req: { headers: { authorization: "[Redacted]", host: "h" } },
+        request: { headers: { Cookie: "[Redacted]" } },
+        exchange: { headers: { "proxy-authorization": "[Redacted]" } },
+      });
+    }));
 });
 
 describe("defaultLogger", () => {

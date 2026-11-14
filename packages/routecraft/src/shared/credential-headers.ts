@@ -10,4 +10,5 @@ export const CREDENTIAL_HEADERS: readonly string[] = [
   "cookie",
   "set-cookie",
   "proxy-authorization",
+  "x-api-key",
 ];

@@ -107,13 +107,45 @@ export interface DefaultLoggerOptions {
   pretty?: boolean;
 }
 
+/** Where a line that logs an exchange or a request puts its headers. */
+const HEADER_HOLDERS: readonly string[] = [
+  "headers",
+  'headers["routecraft.http.rawHeaders"]',
+  "exchange.headers",
+  "req.headers",
+  "request.headers",
+];
+
+/** `set-cookie` as `Set-Cookie`, the spelling a hand-built headers object uses. */
+function titleCase(name: string): string {
+  return name.replace(
+    /(^|-)([a-z])/g,
+    (_, dash: string, letter: string) => `${dash}${letter.toUpperCase()}`,
+  );
+}
+
 /**
  * The paths every logger built here redacts: the headers that carry a
- * credential, on a line that logs an exchange's or a request's `headers`.
+ * credential, lowercase and title case, wherever a line that logs an
+ * exchange or a request puts its `headers`, and the cookies the HTTP door
+ * parsed.
+ *
+ * Redaction is by exact path, which is what keeps it off the cost of every
+ * log line: a credential logged under another key, or in another letter
+ * case, is not caught, and `redact` is where a deployment names it.
  */
-export const DEFAULT_REDACT: readonly string[] = CREDENTIAL_HEADERS.map(
-  (name) => (/^[a-z]+$/.test(name) ? `headers.${name}` : `headers["${name}"]`),
-);
+export const DEFAULT_REDACT: readonly string[] = [
+  ...HEADER_HOLDERS.flatMap((holder) =>
+    CREDENTIAL_HEADERS.flatMap((name) =>
+      [name, titleCase(name)].map((spelling) =>
+        /^[A-Za-z]+$/.test(spelling)
+          ? `${holder}.${spelling}`
+          : `${holder}["${spelling}"]`,
+      ),
+    ),
+  ),
+  'headers["routecraft.http.cookies"]',
+];
 
 /**
  * Serialize a logged error, collapsing a cause that only repeats the message.

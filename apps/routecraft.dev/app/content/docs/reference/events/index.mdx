@@ -46,7 +46,7 @@ The `exchange` is a frozen copy, made once per event and shared by the subscript
 
 What the copy leaves out:
 
-- `Authorization`, `Cookie`, `Set-Cookie` and `Proxy-Authorization`, in any letter case, and every header an installed plugin lists in [`secretHeaders`](/docs/reference/plugins#plugin-descriptor). The names are matched at every depth of a header's value, so the credentials inside `routecraft.http.rawHeaders` and `routecraft.mail.rawHeaders` go too, and the HTTP plugin lists `routecraft.http.cookies`.
+- `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization` and `X-Api-Key`, in any letter case, and every header an installed plugin lists in [`secretHeaders`](/docs/reference/plugins#plugin-descriptor). The names are matched at every depth of a header's value, so the credentials inside `routecraft.http.rawHeaders` and `routecraft.mail.rawHeaders` go too, and the HTTP plugin lists `routecraft.http.cookies`.
 - The principal's claims and scopes: `routecraft.auth.principal` is the same reference `details.principal` carries.
 - A value branded a `Secret`, in a header or in the body, which becomes `{ secret: true }`.
 
@@ -445,7 +445,7 @@ Emitted on every auth attempt by every auth-enabled surface: HTTP routes, the MC
 
 `reason` is a bounded vocabulary, never free text. Bearer authentication uses `"expired"`, `"infrastructure"`, `"invalid_token"`, `"missing_header"`, `"unsupported_scheme"`, and `"insufficient_scope"` where applicable (an `"infrastructure"` rejection is answered with a 500, never a 401, so clients keep their cached token during an IdP blip). API-key authentication uses `"missing api key"` and `"invalid api key"`. Webhook signatures use `"missing signature header"`, `"invalid signature"`, and `"signature expired"` with `scheme: "signature"`.
 
-`invalid_token` covers a bad signature, a wrong issuer and a wrong audience, which have different fixes, so a rejection whose verifier error came from `jose` (what `jwks()` uses) also carries `code`, the library's own error code, and `claim`, the name of the claim that failed:
+`invalid_token` covers a bad signature, a wrong issuer and a wrong audience, which have different fixes, so a rejection by a built-in verifier also carries `code` and `claim`, the name of the claim that failed. `jwks()` reports the error code of `jose`, the library it verifies with, and `jwt()` reports the code `jose` gives the same failure:
 
 | `code` | `claim` | What to check |
 | --- | --- | --- |
@@ -453,6 +453,9 @@ Emitted on every auth attempt by every auth-enabled surface: HTTP routes, the MC
 | `ERR_JWT_CLAIM_VALIDATION_FAILED` | `iss` | The token came from another issuer |
 | `ERR_JWS_SIGNATURE_VERIFICATION_FAILED` | | The signature does not match the key in the key set |
 | `ERR_JWKS_NO_MATCHING_KEY` | | The token names a signing key the key set does not hold |
+| `ERR_JOSE_ALG_NOT_ALLOWED` | | The token is signed with another algorithm than the one configured |
+| `ERR_JWT_CLAIM_VALIDATION_FAILED` | `exp`, `nbf` | The token has no expiry, or is not valid yet |
+| `ERR_JWT_INVALID` | | What was presented is not a JWT |
 
 Both fields are absent for any other error, a custom validator's included: its message and its own `code` are text the framework did not write and never copies into an event. `claim` is only ever one of the registered names (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`, `typ`) and never a claim's value. The ingress logs the same rejection at `debug` with the code under `err`. The error's own message is never logged: `jose` quotes the token's header in some of them.
 

@@ -234,8 +234,9 @@ export interface Plugin {
   readonly installs?: readonly Plugin[];
   /**
    * Header names that carry a secret this plugin puts on exchanges. They are
-   * left out of every event snapshot, beside `Authorization`, `Cookie`,
-   * `Set-Cookie` and `Proxy-Authorization`. Matched case-insensitively.
+   * left out of every event snapshot and of the record a deferral writes,
+   * beside `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`
+   * and `X-Api-Key`. Matched case-insensitively.
    */
   readonly secretHeaders?: readonly string[];
   /**

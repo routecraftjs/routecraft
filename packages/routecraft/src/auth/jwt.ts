@@ -8,6 +8,7 @@ import type {
   OAuthValidatorAuthOptions,
 } from "../principal.ts";
 import { assertIssuerAudience, principalFromJwtPayload } from "./jwt-utils.ts";
+import type { DiagnosableClaim, JoseErrorCode } from "../types.ts";
 
 /**
  * Supported HMAC algorithms for JWT signature verification.
@@ -150,39 +151,69 @@ function assertTemporalClaims(
   const now = Math.floor(Date.now() / 1000);
 
   if (typeof payload["exp"] !== "number") {
-    throw new Error("jwt: token is missing the required exp claim");
+    throw refusal(
+      "jwt: token is missing the required exp claim",
+      "ERR_JWT_CLAIM_VALIDATION_FAILED",
+      "exp",
+    );
   }
   // Inclusive, matching jose's `exp <= now - tolerance` and RFC 7519 §4.1.4:
   // the current time must be *before* `exp`, so `now === exp` is expired.
   if (now >= payload["exp"] + clockToleranceSec) {
-    throw Object.assign(new Error("jwt: token has expired"), {
-      code: "ERR_JWT_EXPIRED",
-    });
+    throw refusal("jwt: token has expired", "ERR_JWT_EXPIRED", "exp");
   }
   if (
     typeof payload["nbf"] === "number" &&
     now < payload["nbf"] - clockToleranceSec
   ) {
-    throw new Error("jwt: token is not yet valid (nbf)");
+    throw refusal(
+      "jwt: token is not yet valid (nbf)",
+      "ERR_JWT_CLAIM_VALIDATION_FAILED",
+      "nbf",
+    );
   }
 }
 
 /**
- * Validate the `iss` and `aud` claims against expected values.
+ * A refusal carrying the code `jose` gives the same failure, and the claim
+ * that failed, so `auth:rejected` tells a wrong issuer from a wrong audience
+ * from a bad signature whichever built-in verifier refused the token.
+ */
+function refusal(
+  message: string,
+  code: JoseErrorCode,
+  claim?: DiagnosableClaim,
+): Error {
+  return Object.assign(new Error(message), {
+    code,
+    ...(claim !== undefined ? { claim } : {}),
+  });
+}
+
+/**
+ * Check the `iss` and `aud` claims against expected values.
  * When `expectedAudience` is `"*"` the audience check is skipped entirely.
  */
-function validateIssuerAudience(
+function assertIssuerAudienceClaims(
   payload: Record<string, unknown>,
   expectedIssuer: string | string[],
   expectedAudience: JwtAudience,
-): boolean {
-  if (typeof payload["iss"] !== "string") return false;
+): void {
   const allowedIssuers = Array.isArray(expectedIssuer)
     ? expectedIssuer
     : [expectedIssuer];
-  if (!allowedIssuers.includes(payload["iss"])) return false;
+  if (
+    typeof payload["iss"] !== "string" ||
+    !allowedIssuers.includes(payload["iss"])
+  ) {
+    throw refusal(
+      "jwt: invalid issuer",
+      "ERR_JWT_CLAIM_VALIDATION_FAILED",
+      "iss",
+    );
+  }
 
-  if (expectedAudience === "*") return true;
+  if (expectedAudience === "*") return;
 
   const allowedAudiences = Array.isArray(expectedAudience)
     ? expectedAudience
@@ -193,9 +224,13 @@ function validateIssuerAudience(
     : typeof aud === "string"
       ? [aud]
       : [];
-  if (!tokenAud.some((a) => allowedAudiences.includes(a))) return false;
-
-  return true;
+  if (!tokenAud.some((a) => allowedAudiences.includes(a))) {
+    throw refusal(
+      "jwt: invalid audience",
+      "ERR_JWT_CLAIM_VALIDATION_FAILED",
+      "aud",
+    );
+  }
 }
 
 /** Type guard: options contain `secret` (HMAC). */
@@ -231,24 +266,29 @@ function createHmacValidator(
 
   return async (token: string): Promise<OAuthPrincipal> => {
     const decoded = decodeToken(token);
-    if (!decoded) throw new Error("jwt: malformed token");
+    if (!decoded) throw refusal("jwt: malformed token", "ERR_JWT_INVALID");
 
     const { headerB64, payloadB64, signatureB64, header, payload } = decoded;
 
     if (header["alg"] !== algorithm)
-      throw new Error(`jwt: unexpected algorithm "${String(header["alg"])}"`);
+      throw refusal(
+        `jwt: unexpected algorithm "${String(header["alg"])}"`,
+        "ERR_JOSE_ALG_NOT_ALLOWED",
+      );
 
     const hmac = createHmac(digest, secret);
     hmac.update(`${headerB64}.${payloadB64}`);
     const expectedSig = hmac.digest("base64url");
 
     if (!timingSafeStringEqual(expectedSig, signatureB64)) {
-      throw new Error("jwt: invalid signature");
+      throw refusal(
+        "jwt: invalid signature",
+        "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+      );
     }
 
     assertTemporalClaims(payload, clockToleranceSec);
-    if (!validateIssuerAudience(payload, issuer, audience))
-      throw new Error("jwt: invalid issuer or audience");
+    assertIssuerAudienceClaims(payload, issuer, audience);
 
     return principalFromJwtPayload(payload, {
       kind: "jwt",
@@ -285,23 +325,28 @@ function createRsaValidator(
 
   return async (token: string): Promise<OAuthPrincipal> => {
     const decoded = decodeToken(token);
-    if (!decoded) throw new Error("jwt: malformed token");
+    if (!decoded) throw refusal("jwt: malformed token", "ERR_JWT_INVALID");
 
     const { headerB64, payloadB64, signatureB64, header, payload } = decoded;
 
     if (header["alg"] !== algorithm)
-      throw new Error(`jwt: unexpected algorithm "${String(header["alg"])}"`);
+      throw refusal(
+        `jwt: unexpected algorithm "${String(header["alg"])}"`,
+        "ERR_JOSE_ALG_NOT_ALLOWED",
+      );
 
     const verifier = createVerify(verifyAlgorithm);
     verifier.update(`${headerB64}.${payloadB64}`);
 
     if (!verifier.verify(publicKey, signatureB64, "base64url")) {
-      throw new Error("jwt: invalid signature");
+      throw refusal(
+        "jwt: invalid signature",
+        "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+      );
     }
 
     assertTemporalClaims(payload, clockToleranceSec);
-    if (!validateIssuerAudience(payload, issuer, audience))
-      throw new Error("jwt: invalid issuer or audience");
+    assertIssuerAudienceClaims(payload, issuer, audience);
 
     return principalFromJwtPayload(payload, {
       kind: "jwt",

@@ -5,6 +5,7 @@ import {
   callerRefusalOf,
   MemoryDeferralStore,
   CONTINUATIONS,
+  definePlugin,
   authorize,
   craft,
   direct,
@@ -388,6 +389,57 @@ describe("defer and resume", () => {
     expect((await backing.get(deferred.deferralId))?.outcome?.kind).toBe(
       "resumed",
     );
+  });
+
+  /**
+   * @case An exchange defers while carrying credential headers
+   * @preconditions A payout sent with an Authorization header, a plugin-declared secret header, and wire headers nested under one header that hold a cookie beside an ordinary header
+   * @expectedResult The stored record holds none of the three credentials at any depth and keeps the ordinary header, and the resumed exchange runs without them
+   */
+  test("credential headers are not written to the deferral store", async () => {
+    const store = new MemoryDeferralStore();
+    const resumed: Array<Record<string, unknown>> = [];
+    const vault = definePlugin({
+      id: "acme.vault",
+      secretHeaders: ["acme.session"],
+    });
+    t = await testContext()
+      .with({ deferral: { store, secret: SECRET }, plugins: [vault] })
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ input: Approval })
+          .tap((ex) => {
+            resumed.push(ex.headers as Record<string, unknown>);
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(
+      await t.client.sendDirect("payout", PAYOUT, {
+        Authorization: "Bearer tok-1",
+        "acme.session": "sess-2",
+        "x.wire": { cookie: "sid=3", "x-trace": "abc" },
+      }),
+    );
+    const stored = (await store.get(deferred.deferralId))!.exchange.headers;
+    const written = JSON.stringify(stored);
+    expect(written).not.toContain("tok-1");
+    expect(written).not.toContain("sess-2");
+    expect(written).not.toContain("sid=3");
+    expect(stored["x.wire"]).toEqual({ "x-trace": "abc" });
+
+    await t.client.sendDirect("answers", {
+      token: deferred.token,
+      input: { approved: true },
+    });
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0]!["Authorization"]).toBeUndefined();
+    expect(resumed[0]!["x.wire"]).toEqual({ "x-trace": "abc" });
   });
 
   /**
