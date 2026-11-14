@@ -2,6 +2,7 @@
 import { createRequire } from "node:module";
 import { loadOptionalPeer } from "../../adapters/shared/optional-peer.ts";
 import { rcError } from "../../error.ts";
+import { isBun } from "../runtime-env.ts";
 import type { SqliteDatabaseConstructor } from "./types.ts";
 
 export type {
@@ -160,9 +161,4 @@ function installedBetterSqliteVersion(): string {
   const require = createRequire(import.meta.url);
   return (require("better-sqlite3/package.json") as { version: string })
     .version;
-}
-
-/** @internal */
-export function isBun(): boolean {
-  return typeof process.versions["bun"] === "string";
 }

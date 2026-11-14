@@ -14,3 +14,12 @@ export function isDevelopmentRuntime(): boolean {
   const env = process.env["NODE_ENV"];
   return env === "development" || env === "test";
 }
+
+/**
+ * Whether the process runs under Bun.
+ *
+ * @internal
+ */
+export function isBun(): boolean {
+  return typeof process.versions["bun"] === "string";
+}
