@@ -942,18 +942,7 @@ export {
   DeferralHeaders,
   isDeferSignal,
   isDeferred,
-  // deferAside, reviveDeferral, deferralScope, decodePersistable and
-  // decodeOutcome are @internal and re-exported on purpose: @routecraft/ai
-  // stores and revives an agent session's continuation through the first
-  // two, scopes its own events about a deferral with the third, revives a
-  // stored stepState before rewriting a deferred thread with the fourth and
-  // a stored outcome at boot with the fifth; a package cannot reach a deep
-  // import of core.
-  deferAside,
-  deferralScope,
-  reviveDeferral,
-  decodePersistable,
-  decodeOutcome,
+  continuationsOf,
   deferredPrincipal,
   reidentificationDeviation,
   routeCanDefer,
@@ -976,6 +965,8 @@ export type {
   DeferSite,
   PendingDeferralSummary,
   PrincipalRef,
+  Continuations,
+  ContinuationsView,
   ResumeAcknowledgment,
   ResumeAuthorizer,
   ResumeAuthorizerInput,
@@ -1093,3 +1084,5 @@ export {
   type VersionedMarker,
 } from "./kernel/continuation/identity.ts";
 export { principalRef } from "./kernel/continuation/principal-ref.ts";
+
+export { applicationOf, type ApplicationKey } from "./kernel/application.ts";

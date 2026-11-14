@@ -130,13 +130,8 @@ export type {
   RevivalOptions,
 } from "../../kernel/continuation/resume.ts";
 
-// The in-process halves of deferral and resume, for a tier that stores a
-// continuation beside a completing run and revives it itself (agent
-// sessions). Internal: the public surfaces are `.defer()` / `.resume()`.
-export { deferAside } from "../../kernel/continuation/park.ts";
-export { reviveDeferral } from "../../kernel/continuation/resume.ts";
-// `deferralScope` is @internal and re-exported on purpose: a tier that
-// announces its own events about a deferral scopes them the way core scopes
-// `route:exchange:expired` and `:denied`, and a package cannot reach a deep
-// import.
-export { deferralScope } from "../../kernel/continuation/resume.ts";
+export { continuationsOf } from "../../kernel/continuation/facade.ts";
+export type {
+  Continuations,
+  ContinuationsView,
+} from "../../kernel/continuation/facade.ts";

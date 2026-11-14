@@ -3,11 +3,8 @@ import type { Exchange, ExchangeHeaders } from "../exchange.ts";
 import type { Logger } from "../logger.ts";
 import type { RouteDefinition } from "../route.ts";
 import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
-import type {
-  ResumeAcknowledgment,
-  ResumeRequest,
-  RevivalOptions,
-} from "./continuation/resume.ts";
+import type { ApplicationKey } from "./application.ts";
+import type { Continuations } from "./continuation/facade.ts";
 import type { AnyPort, Port } from "./port.ts";
 import type { Hooks, PointDeclaration, RouteHookView } from "./hooks.ts";
 import type { StepFactory } from "./steps.ts";
@@ -106,31 +103,14 @@ export interface Execution {
     headers?: ExchangeHeaders,
   ): Promise<unknown>;
   /**
-   * Resume a parked exchange by its token, on the plugin's own behalf: no
-   * ingress door, so no door policy and no live principal, unless the
-   * plugin re-verified the parked identity itself and hands it over as
-   * `options.reidentified`.
-   *
-   * @throws RC5052 when no plugin provides continuations
-   * @throws RC5056 when `reidentified` is restored or is not the parked identity
+   * Background work the application waits for when it drains. Name the
+   * route it belongs to and that route drains it before it stops; a
+   * rejection is logged, never thrown.
    */
-  resume(
-    request: ResumeRequest,
-    options?: RevivalOptions,
-  ): Promise<ResumeAcknowledgment>;
-  /**
-   * Run one pass of the kernel's sweep over parked exchanges: heal claims
-   * whose deliverer died, purge settled records past retention, and retire
-   * what is overdue through each route's error channel. The plugin that
-   * provides continuations calls it on its cadence; the pass is the
-   * kernel's. A pass already running is joined, not repeated.
-   *
-   * @param options - `boot` also reports what the store holds and any
-   *   continuation a crash stranded, once, at start
-   * @returns How many parked exchanges this pass retired; zero when no
-   *   plugin provides continuations or the application is stopping
-   */
-  sweep(options?: { readonly boot?: boolean }): Promise<number>;
+  trackTask(
+    task: Promise<unknown>,
+    options?: { readonly route?: string },
+  ): void;
   /** Discoverable capabilities of the enabled routes. */
   capabilities(): Capability[];
   /**
@@ -189,6 +169,13 @@ export interface PluginContext {
   onDispose(dispose: () => void | Promise<void>): void;
   readonly routes: PluginRoutes;
   readonly execution: Execution;
+  /**
+   * The application this plugin is installed in, as a key for the plugin's
+   * own state. An adapter reads the same key with `applicationOf(exchange)`.
+   */
+  readonly application: ApplicationKey;
+  /** Parked exchanges: the reads and the acts. */
+  readonly continuations: Continuations;
   /**
    * True once the last `bind` returned. A provider that collects
    * contributions through its port refuses them from then on (`RC1110`),

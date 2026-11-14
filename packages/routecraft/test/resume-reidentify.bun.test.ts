@@ -11,12 +11,12 @@ import {
   deferredPrincipal,
   direct,
   noop,
-  reviveDeferral,
-  type Execution,
+  type Continuations,
   type PluginRoutes,
   type Principal,
 } from "../src/index.ts";
 import { isAuthentic } from "../src/auth/authentic.ts";
+import { reviveDeferral } from "../src/kernel/continuation/resume.ts";
 import { asDeferred } from "./helpers/deferral.ts";
 
 const SECRET = "resume-reidentify-test-secret-0123456789";
@@ -42,16 +42,16 @@ function member(
  */
 function reviver(): {
   plugin: ReturnType<typeof definePlugin>;
-  execution: () => Execution;
+  execution: () => Continuations;
   routes: () => PluginRoutes;
 } {
-  let execution: Execution | undefined;
+  let execution: Continuations | undefined;
   let routes: PluginRoutes | undefined;
   return {
     plugin: definePlugin({
       id: "test.reviver",
       bind(c) {
-        execution = c.execution;
+        execution = c.continuations;
         routes = c.routes;
       },
     }),
@@ -61,7 +61,7 @@ function reviver(): {
 }
 
 /**
- * `execution.resume(request, { reidentified })`: a plugin revives a parked
+ * `c.continuations.resume(request, { reidentified })`: a plugin revives a parked
  * exchange under the identity it parked with, re-verified live, and nothing
  * else.
  */
@@ -107,7 +107,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
 
   /**
    * @case Anything but the parked identity verified live is refused, non-destructively
-   * @preconditions Four parks, revived through execution.resume with the parked principal read back restored, the same subject with a different role, with an added scope, and with a dropped scope
+   * @preconditions Four parks, revived through c.continuations.resume with the parked principal read back restored, the same subject with a different role, with an added scope, and with a dropped scope
    * @expectedResult Each revival is RC5056 with the re-identification message, no continuation runs, and every record is left waiting, unclaimed and unsettled
    */
   test("a restored, re-roled, widened or narrowed principal is refused", async () => {
@@ -151,7 +151,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
 
   /**
    * @case The parked identity, verified live again, revives the continuation
-   * @preconditions A park under a member principal, revived through execution.resume with a freshly authenticated principal carrying the same subject, roles and scopes
+   * @preconditions A park under a member principal, revived through c.continuations.resume with a freshly authenticated principal carrying the same subject, roles and scopes
    * @expectedResult The revival completes, the continuation sees that exact principal and it is authentic rather than restored, and the record settles as resumed
    */
   test("the same identity verified live runs the continuation as itself", async () => {

@@ -977,7 +977,7 @@ describe("the kernel host: installs and repeatable", () => {
 
   /**
    * @case A plugin resumes a parked exchange through execution
-   * @preconditions No deferral plugin installed, and a plugin calling c.execution.resume in start
+   * @preconditions No deferral plugin installed, and a plugin calling c.continuations.resume in start
    * @expectedResult The resume rejects with RC5052, the same refusal the kernel's resume gives every caller without continuations
    */
   test("resumes through execution with the kernel's refusals", async () => {
@@ -988,7 +988,7 @@ describe("the kernel host: installs and repeatable", () => {
           definePlugin({
             id: "test.resumer",
             async start(c) {
-              refused = await c.execution
+              refused = await c.continuations
                 .resume({ token: "nope", input: undefined })
                 .catch((error: unknown) => error);
             },

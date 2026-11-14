@@ -61,11 +61,24 @@ export default [
   },
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,
-  // Routecraft rules only for examples
+  {
+    plugins: { "@routecraft/routecraft": routecraftPlugin },
+  },
+  // The whole recommended set for examples, which are route code.
   {
     files: ["examples/**/*.{js,mjs}"],
-    plugins: { "@routecraft/routecraft": routecraftPlugin },
     ...routecraftPlugin.configs.recommended,
+  },
+  // First-party code outside the kernel acts on a parked exchange through
+  // the same facade an outsider has, so each act is sanctioned where it sits.
+  {
+    files: [
+      "packages/routecraft/src/{adapters,plugins}/**/*.{ts,tsx}",
+      "packages/{ai,os,cli,testing}/src/**/*.{ts,tsx}",
+    ],
+    rules: {
+      "@routecraft/routecraft/restrict-continuation-minting": "error",
+    },
   },
   // One home for repo-local rules. Registering the namespace twice is a
   // config error rather than a merge, so a file matching both scoped blocks

@@ -1,3 +1,5 @@
+import type { ApplicationKey } from "./application.ts";
+import type { Continuations } from "./continuation/facade.ts";
 import type { Logger } from "../logger.ts";
 import { isReservedFacet } from "./facets.ts";
 import { rcError } from "../error.ts";
@@ -21,6 +23,8 @@ export interface HostEnvironment {
   readonly logger: Logger;
   readonly routes: PluginRoutes;
   readonly execution: Execution;
+  readonly application: ApplicationKey;
+  readonly continuations: Continuations;
   observe<K extends EventName>(
     event: K | "*",
     handler: EventHandler<K>,
@@ -672,6 +676,8 @@ export class PluginHost {
         canDefer: (routeId) => env.routes.canDefer(routeId),
       },
       execution: env.execution,
+      application: env.application,
+      continuations: env.continuations,
       get frozen() {
         return isFrozen();
       },

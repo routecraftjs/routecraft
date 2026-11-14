@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { rcError } from "../../error.ts";
 import { compareCodeUnits } from "../../shared/compare.ts";
 import { stepStateFingerprint } from "../../kernel/continuation/hash.ts";
-import { encodePersistable } from "../../kernel/continuation/serialize.ts";
 import {
   claimed,
   claimedBy,
@@ -76,33 +75,31 @@ export class MemoryDeferralStore implements DeferralStore {
     // invariants rather than trusting the caller's compiler.
     this.#records.set(
       record.id,
-      clone(
-        normalise({
-          id: record.id,
-          routeId: record.routeId,
-          position: record.position,
-          continuationHash: record.continuationHash,
-          actionFingerprint: record.actionFingerprint,
-          exchange: record.exchange,
-          schema: record.schema,
-          ...(record.callBinding !== undefined
-            ? { callBinding: record.callBinding }
-            : {}),
-          ...(record.meta !== undefined ? { meta: record.meta } : {}),
-          ...(record.errorPath !== undefined
-            ? { errorPath: record.errorPath }
-            : {}),
-          ...(record.stepState !== undefined
-            ? { stepState: record.stepState }
-            : {}),
-          deferredAt: record.deferredAt,
-          ...(record.expiresAt !== undefined
-            ? { expiresAt: record.expiresAt }
-            : {}),
-          state: "waiting",
-          waitingFor: record.waitingFor,
-        }),
-      ),
+      clone({
+        id: record.id,
+        routeId: record.routeId,
+        position: record.position,
+        continuationHash: record.continuationHash,
+        actionFingerprint: record.actionFingerprint,
+        exchange: record.exchange,
+        schema: record.schema,
+        ...(record.callBinding !== undefined
+          ? { callBinding: record.callBinding }
+          : {}),
+        ...(record.meta !== undefined ? { meta: record.meta } : {}),
+        ...(record.errorPath !== undefined
+          ? { errorPath: record.errorPath }
+          : {}),
+        ...(record.stepState !== undefined
+          ? { stepState: record.stepState }
+          : {}),
+        deferredAt: record.deferredAt,
+        ...(record.expiresAt !== undefined
+          ? { expiresAt: record.expiresAt }
+          : {}),
+        state: "waiting",
+        waitingFor: record.waitingFor,
+      }),
     );
   }
 
@@ -189,12 +186,6 @@ export class MemoryDeferralStore implements DeferralStore {
     expected: string,
     stepState: unknown,
   ): Promise<DeferralCasResult> {
-    // Before the compare, matching the sqlite backend, so an unpersistable
-    // replacement is RC5042 on both rather than RC5042 on one and a quiet
-    // `won: false` on the other. The slot is free-form, so a caller can hand
-    // back a value the durable backend would refuse, and finding that out
-    // only after a failover is the bug this avoids.
-    const encoded = encodePersistable(stepState, "stepState");
     const record = this.#records.get(id);
     if (!record) return { won: false, deferral: undefined };
     if (
@@ -206,8 +197,8 @@ export class MemoryDeferralStore implements DeferralStore {
     // Deleted rather than held as an undefined-valued key, so a cleared slot
     // reads back the same way it does from the durable backend, where the
     // column is NULL.
-    const next = { ...record, stepState: encoded };
-    if (encoded === undefined) delete next.stepState;
+    const next = { ...record, stepState };
+    if (stepState === undefined) delete next.stepState;
     const stored = clone(next);
     this.#records.set(id, stored);
     return { won: true, deferral: clone(stored) };
@@ -447,27 +438,6 @@ export function assertListCursor(after: DeferralListCursor | undefined): void {
         "list() cursor must carry a valid deferredAt Date and a non-empty id.",
     });
   }
-}
-
-/**
- * Put the record's free-form slots through the same JSON-data rules the
- * durable backend applies, so a deployment that fell back to memory sees
- * identical values to one that did not. `structuredClone` alone would keep
- * shapes sqlite cannot store, and the divergence would only appear once a
- * driver was installed.
- *
- * @internal
- */
-function normalise(record: Deferral): Deferral {
-  return {
-    ...record,
-    ...(record.stepState !== undefined
-      ? { stepState: encodePersistable(record.stepState, "stepState") }
-      : {}),
-    ...(record.meta !== undefined
-      ? { meta: encodePersistable(record.meta, "meta") }
-      : {}),
-  };
 }
 
 /**

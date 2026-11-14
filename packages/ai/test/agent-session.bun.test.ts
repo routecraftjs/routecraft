@@ -1,15 +1,21 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
+  CraftClient,
+  DEFERS,
   DefaultExchange,
   HeadersKeys,
   MemoryDeferralStore,
   craft,
   direct,
   noop,
-  deferAside,
+  type CraftContext,
+  type DeferAsideRequest,
+  type DeferringAdapter,
+  type Enricher,
   type Principal,
   type RouteDefinition,
+  type StepSignalContext,
   principalOf,
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
@@ -149,7 +155,37 @@ function routes(sink: ReturnType<typeof spy>): RouteDefinition[] {
       )
       .to(sink)
       .build(),
+    ...craft().id(ASIDE_ROUTE).from(direct()).enrich(asideProbe).build(),
   ];
+}
+
+const ASIDE_ROUTE = "aside-probe";
+let asideRequest: DeferAsideRequest | undefined;
+
+/**
+ * Stores what {@link deferAside} asks for through `ctx.defer.aside`, the
+ * way the agent step does. Revived, it hands the state back and does nothing.
+ */
+const asideProbe: Enricher<unknown, unknown> & DeferringAdapter = {
+  [DEFERS]: () => ({ revival: "this-step" }),
+  fetch: async (_ex, ctx?: StepSignalContext) => {
+    const request = asideRequest;
+    asideRequest = undefined;
+    if (ctx?.defer?.revived !== undefined || request === undefined) return {};
+    return ctx!.defer!.aside(request);
+  },
+};
+
+/** A continuation stored aside by a real run, for a test that needs the record. */
+async function deferAside(
+  ctx: CraftContext,
+  stepState: (deferralId: string) => unknown,
+  announce?: (deferralId: string) => Promise<void>,
+): Promise<{ deferralId: string }> {
+  asideRequest = { stepState, ...(announce ? { announce } : {}) };
+  return (await new CraftClient(ctx).sendDirect(ASIDE_ROUTE, {})) as {
+    deferralId: string;
+  };
 }
 
 function contextWith(
@@ -1097,19 +1133,12 @@ describe("agent sessions", () => {
     const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const { deferralId } = await deferAside(
-      t.ctx,
-      exchange,
-      { position: 0, continuation: [] },
-      "chat",
-      (id) => ({
-        kind: "agent-session-deferral",
-        agent: "max",
-        session: "finished",
-        deferralId: id,
-      }),
-    );
+    const { deferralId } = await deferAside(t.ctx, (id) => ({
+      kind: "agent-session-deferral",
+      agent: "max",
+      session: "finished",
+      deferralId: id,
+    }));
     const sessions = new AgentSessionStore(recordsFor(store), store);
     await updateRecord(sessions, "finished", "max", (r) => ({
       ...r,
@@ -1133,19 +1162,12 @@ describe("agent sessions", () => {
     const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const { deferralId } = await deferAside(
-      t.ctx,
-      exchange,
-      { position: 0, continuation: [] },
-      "chat",
-      (id) => ({
-        kind: "agent-session-deferral",
-        agent: "max",
-        session: "s",
-        deferralId: id,
-      }),
-    );
+    const { deferralId } = await deferAside(t.ctx, (id) => ({
+      kind: "agent-session-deferral",
+      agent: "max",
+      session: "s",
+      deferralId: id,
+    }));
     expect((await store.get(deferralId))?.state).toBe("waiting");
     const sessions = new AgentSessionStore(recordsFor(store), store);
     await sessions.releaseDeferral(deferralId, "test");
@@ -1193,9 +1215,6 @@ describe("agent sessions", () => {
       defer: async (announce) => {
         const { deferralId } = await deferAside(
           t!.ctx,
-          exchange,
-          { position: 0, continuation: [] },
-          "chat",
           (id) => ({
             kind: "agent-session-deferral",
             agent: "max",
@@ -1267,9 +1286,6 @@ describe("agent sessions", () => {
       defer: async (announce) => {
         await deferAside(
           t!.ctx,
-          exchange,
-          { position: 0, continuation: [] },
-          "chat",
           (id) => ({
             kind: "agent-session-deferral",
             agent: "max",
@@ -1324,20 +1340,13 @@ describe("agent sessions", () => {
     t = await contextWith(store, sink).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const exchange = new DefaultExchange(t.ctx, { body: {} });
     const key = "unreleasable";
-    const { deferralId } = await deferAside(
-      t.ctx,
-      exchange,
-      { position: 0, continuation: [] },
-      "chat",
-      (id) => ({
-        kind: "agent-session-deferral",
-        agent: "max",
-        session: key,
-        deferralId: id,
-      }),
-    );
+    const { deferralId } = await deferAside(t.ctx, (id) => ({
+      kind: "agent-session-deferral",
+      agent: "max",
+      session: key,
+      deferralId: id,
+    }));
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
       deferring: { deferralId, routeId: "chat" },
@@ -1361,20 +1370,13 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const exchange = new DefaultExchange(t.ctx, { body: {} });
     const key = "raced";
-    const { deferralId } = await deferAside(
-      t.ctx,
-      exchange,
-      { position: 0, continuation: [] },
-      "chat",
-      (id) => ({
-        kind: "agent-session-deferral",
-        agent: "max",
-        session: key,
-        deferralId: id,
-      }),
-    );
+    const { deferralId } = await deferAside(t.ctx, (id) => ({
+      kind: "agent-session-deferral",
+      agent: "max",
+      session: key,
+      deferralId: id,
+    }));
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
       deferring: { deferralId, routeId: "chat" },
@@ -1429,9 +1431,6 @@ describe("agent sessions", () => {
       defer: async (announce) => {
         await deferAside(
           t!.ctx,
-          exchange,
-          { position: 0, continuation: [] },
-          "chat",
           (id) => ({
             kind: "agent-session-deferral",
             agent: "max",
@@ -1465,20 +1464,13 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const exchange = new DefaultExchange(t.ctx, { body: {} });
     const orphan = "orphan";
-    const { deferralId } = await deferAside(
-      t.ctx,
-      exchange,
-      { position: 0, continuation: [] },
-      "chat",
-      (id) => ({
-        kind: "agent-session-deferral",
-        agent: "max",
-        session: orphan,
-        deferralId: id,
-      }),
-    );
+    const { deferralId } = await deferAside(t.ctx, (id) => ({
+      kind: "agent-session-deferral",
+      agent: "max",
+      session: orphan,
+      deferralId: id,
+    }));
     await updateRecord(sessions, orphan, "max", (r) => ({
       ...r,
       deferring: { deferralId, routeId: "chat" },

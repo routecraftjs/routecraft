@@ -661,6 +661,10 @@ export interface DeferralStore {
    * a deferral id is minted per defer and a collision means a bug, not
    * a retry. The stored record is `waiting` and unclaimed; only the
    * transitions below move it.
+   *
+   * Every free-form slot (`exchange`, `stepState`, `meta`) arrives as plain
+   * JSON data, encoded by the kernel. A store persists it as it is and
+   * hands the same JSON back; it never encodes or revives a value.
    */
   create(record: NewDeferral): Promise<void>;
 
@@ -799,9 +803,8 @@ export interface DeferralStore {
    * @param id - Deferral whose step state is being replaced
    * @param expected - Fingerprint of the step state the caller based its
    *   replacement on, from `stepStateFingerprint`
-   * @param stepState - The replacement. Subject to the same plain-JSON rule
-   *   as every other free-form slot (`RC5042`). `undefined` clears the slot
-   *   on every backend.
+   * @param stepState - The replacement, already plain JSON data as on
+   *   `create`. `undefined` clears the slot on every backend.
    */
   replaceStepState(
     id: string,
@@ -819,8 +822,8 @@ export interface DeferralStore {
    * encoded by the kernel as the exchange is before `create`, so a backend
    * persists it as the plain JSON it is and hands it back unchanged from
    * `get`; the kernel revives it before a duplicate or a boot reconciliation
-   * sees it. Unlike `stepState` and `meta`, which arrive live, nothing here
-   * is the store's to encode.
+   * sees it. As with every other slot, nothing here is the store's to
+   * encode.
    *
    * Unconditional by design: only the caller that won `markResumed` ever
    * writes a continuation, so there is no competing writer for this row and

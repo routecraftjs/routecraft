@@ -3,7 +3,6 @@ import {
   CONTINUATIONS,
   OPS,
   REMOTES,
-  authorityOf,
   parsePageQuery,
   type Plugin,
   type PluginContext,
@@ -245,11 +244,14 @@ function createAgentRuntimePlugin(): Plugin {
                 observe: (event, handler) => {
                   c.observe(event, handler);
                 },
-                continuations: () => c.lookup(CONTINUATIONS),
-                resume: (request, options) =>
-                  c.execution.resume(request, options),
+                deferrals: () => c.lookup(CONTINUATIONS),
+                continuations: c.continuations,
+                trackTask: (task, route) =>
+                  c.execution.trackTask(
+                    task,
+                    route === undefined ? undefined : { route },
+                  ),
                 agent: (name) => registry.agents.get(name),
-                authority: () => authorityOf(c),
                 reidentify: () => registry.reidentify,
               },
               c.require(SESSION_STORE),

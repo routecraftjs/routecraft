@@ -1,10 +1,7 @@
 import {
-  decodePersistable,
   rcError,
-  resumable,
-  stepStateFingerprint,
+  type Continuations,
   type DeferralCasResult,
-  type DeferralStore,
 } from "@routecraft/routecraft";
 import {
   contentPartsOf,
@@ -205,16 +202,17 @@ export function assertResumableThread(
  * Rewrite the message thread of a deferred agent run, in place, without
  * disturbing anything else about the record.
  *
- * The rewrite is applied to the thread as it stands in the store, checked
- * with {@link assertResumableThread}, and written back through the store's
- * compare-and-swap. Losing that swap is an ordinary outcome, not an error:
+ * The rewrite is applied to the thread as the agent ran it (a `Date` or a
+ * file part's bytes revived), checked with {@link assertResumableThread},
+ * and written back through the store's compare-and-swap. It is not called
+ * at all for a run that already resumed. Losing that swap is an ordinary outcome, not an error:
  * a resume, a sweep, or another rewrite got there first, and the returned
  * record says which.
  *
  * Nothing but `messages` changes. `turnsUsed` in particular is left alone:
  * shrinking the conversation does not give the run its budget back.
  *
- * @param store - The deferral store holding the deferred run
+ * @param continuations - The application's continuations, `c.continuations` in a plugin
  * @param deferralId - The deferred run
  * @param rewrite - Given the stored thread, returns the replacement
  * @returns Whether this caller performed the replacement, and the record as
@@ -224,42 +222,17 @@ export function assertResumableThread(
  * @throws RC5042 when a stored envelope in the thread cannot be revived
  */
 export async function replaceDeferredThread(
-  store: DeferralStore,
+  continuations: Pick<Continuations, "rewriteStepState">,
   deferralId: string,
   rewrite: (
     messages: readonly ThreadMessage[],
   ) => readonly ThreadMessage[] | Promise<readonly ThreadMessage[]>,
 ): Promise<DeferralCasResult> {
-  const record = await store.get(deferralId);
-  if (!record) return { won: false, deferral: undefined };
-  if (!resumable(record)) {
-    // Reported without attempting the swap. The store would refuse it too,
-    // but calling a rewrite (an LLM call, in the compaction case) on a run
-    // that has already resumed is work with no possible outcome.
-    return { won: false, deferral: record };
-  }
-
-  // Revived first: the store hands back the persisted form, in which a
-  // Date or a file part's bytes sit inside the framework's envelope. The
-  // rewrite sees the thread as the agent ran it, and the store's own
-  // re-encode on the write back refuses an envelope it did not write, so
-  // handing the rewrite the raw form would make every such thread
-  // uncompactable.
-  const state = parseStepState(
-    decodePersistable(record.stepState, "stepState"),
-  );
-  // Taken from the stored form, before the rewrite runs: that is what the
-  // store compares on the write back, and a rewrite that edits the thread
-  // in place (a splice is the obvious way to drop old turns) must not be
-  // fingerprinted after its own edit.
-  const expected = stepStateFingerprint(record.stepState);
-  // No copy here: the revival above already builds a detached thread, so a
-  // rewrite that edits in place and then fails validation, or loses the
-  // swap, touches nothing the store holds. A structuredClone would also
-  // turn a revived Buffer into a plain Uint8Array, so a file part would
-  // change kind on the write back.
-  const messages = await rewrite(state.messages);
-  assertResumableThread(messages, state.deferredToolCallId);
-
-  return store.replaceStepState(deferralId, expected, { ...state, messages });
+  // eslint-disable-next-line @routecraft/routecraft/restrict-continuation-minting -- compaction is the act this helper exists for
+  return continuations.rewriteStepState(deferralId, async (stepState) => {
+    const state = parseStepState(stepState);
+    const messages = await rewrite(state.messages);
+    assertResumableThread(messages, state.deferredToolCallId);
+    return { ...state, messages };
+  });
 }

@@ -55,13 +55,6 @@ function record(overrides: Partial<NewDeferral> = {}): NewDeferral {
   };
 }
 
-/** A self-referential value, which the plain-JSON rule must refuse. */
-function circular(): Record<string, unknown> {
-  const node: Record<string, unknown> = {};
-  node["self"] = node;
-  return node;
-}
-
 /**
  * Take the delivery claim on `id` and hand back its identity, failing the
  * test if the store refused it: every finalize below presents this id, and
@@ -96,18 +89,6 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     afterEach(async () => {
       if (store) await store.close();
       store = undefined;
-    });
-
-    /**
-     * @case A meta the plain-JSON rule refuses is refused by every backend
-     * @preconditions An open store; meta carrying a value encodePersistable rejects
-     * @expectedResult RC5042 naming the meta path, so the rule lives at the same boundary on both backends rather than only in whichever caller happened to encode first
-     */
-    test("refuses a meta that breaks the plain-JSON rule", async () => {
-      store = await open();
-      await expect(
-        store.create(record({ meta: { cycle: circular() } })),
-      ).rejects.toMatchObject({ rc: "RC5042" });
     });
 
     /**
@@ -1394,26 +1375,6 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       store = await open();
       const result = await store.replaceStepState("nope", "whatever", {});
       expect(result).toEqual({ won: false, deferral: undefined });
-    });
-
-    /**
-     * @case A replacement that breaks the plain-JSON rule is refused
-     * @preconditions A deferred record and a replacement holding a circular reference
-     * @expectedResult RC5042 on both backends, so an unpersistable value cannot be written on one and refused on the other
-     */
-    test("replaceStepState refuses a replacement the store cannot persist", async () => {
-      store = await open();
-      const written = record({ stepState: { messages: [], turnsUsed: 0 } });
-      await store.create(written);
-
-      await expect(
-        store.replaceStepState(
-          "def-1",
-          stepStateFingerprint(written.stepState),
-          { cycle: circular() },
-        ),
-      ).rejects.toMatchObject({ rc: "RC5042" });
-      expect((await store.get("def-1"))?.stepState).toEqual(written.stepState);
     });
   });
 }

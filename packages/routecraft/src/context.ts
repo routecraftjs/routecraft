@@ -35,10 +35,10 @@ import {
   usesResume,
 } from "./kernel/continuation/sites.ts";
 import {
-  reviveDeferral,
-  type ResumeRequest,
-  type RevivalOptions,
-} from "./kernel/continuation/resume.ts";
+  type Continuations,
+  continuationsFacade,
+} from "./kernel/continuation/facade.ts";
+import { applicationKeyFor } from "./kernel/application.ts";
 import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
 import {
@@ -674,6 +674,39 @@ export class CraftContext {
 
   private continuationSweeper: ContinuationSweeper | undefined;
 
+  #continuations: Continuations | undefined;
+
+  /**
+   * Parked exchanges: the reads, and the acts (resume, sweep, mint a
+   * token, rewrite step state). Route code reads through
+   * `continuationsOf(exchange)`, which carries no act.
+   */
+  get continuations(): Continuations {
+    this.#continuations ??= continuationsFacade(this, (options) =>
+      this.sweepContinuations(options),
+    );
+    return this.#continuations;
+  }
+
+  private readonly backgroundTasks = new Set<Promise<void>>();
+
+  private trackTask(task: Promise<unknown>, routeId?: string): void {
+    const route =
+      routeId === undefined ? undefined : this.getRouteById(routeId);
+    if (route) {
+      route.trackTask(task);
+      return;
+    }
+    const handled = task.then(
+      () => undefined,
+      (err: unknown) => {
+        this.logger.error({ err }, "Background task failed");
+      },
+    );
+    this.backgroundTasks.add(handled);
+    void handled.finally(() => this.backgroundTasks.delete(handled));
+  }
+
   /**
    * One pass of the kernel's sweep, against the store `CONTINUATIONS`
    * provides. The sweeper is the application's, built on first use and
@@ -771,16 +804,18 @@ export class CraftContext {
           return route !== undefined && routeCanDefer(route.definition, this);
         },
       },
+      application: applicationKeyFor(this),
+      continuations: this.continuations,
       execution: {
         deliver: (
           endpoint: string,
           body: unknown,
           headers?: Parameters<CraftClient["sendDirect"]>[2],
         ) => client.sendDirect(endpoint, body, headers),
-        resume: (request: ResumeRequest, options?: RevivalOptions) =>
-          reviveDeferral(this, request, options),
-        sweep: (options?: { readonly boot?: boolean }) =>
-          this.sweepContinuations(options),
+        trackTask: (
+          task: Promise<unknown>,
+          options?: { readonly route?: string },
+        ) => this.trackTask(task, options?.route),
         capabilities: () => this.capabilities(),
         whenStarted: () =>
           this.lifecycleHooksRunning === 0
@@ -1738,6 +1773,7 @@ export class CraftContext {
       "Draining context: waiting for all route handlers and tasks",
     );
     await Promise.all(this.routes.map((r) => r.drain()));
+    await Promise.all(this.backgroundTasks);
     this.logger.debug({}, "Context drained");
   }
 

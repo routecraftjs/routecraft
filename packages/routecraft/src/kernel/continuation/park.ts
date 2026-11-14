@@ -21,7 +21,7 @@ import {
   deferralIdOf,
 } from "./exchange-state.ts";
 import { CONTINUATIONS, requireContinuations } from "./port.ts";
-import { serializeExchange } from "./serialize.ts";
+import { encodePersistable, serializeExchange } from "./serialize.ts";
 import { deferralScope } from "./resume.ts";
 import { type Deferred, createDeferred } from "./deferred.ts";
 import type { NewDeferral } from "./types.ts";
@@ -259,8 +259,9 @@ function describeRecord(
     schema,
     request.errorPath?.origin,
   );
-  // Raw: the store encodes it, and encoding twice double-wraps the Date envelope.
-  const stepState = request.stepState;
+  // Encoded here, once: a store persists what it is handed and never encodes.
+  const stepState = encodePersistable(request.stepState, "stepState");
+  const meta = encodePersistable(request.meta, "meta");
   const deferredAt = new Date();
   const record: NewDeferral = {
     id,
@@ -269,7 +270,7 @@ function describeRecord(
     continuationHash: hash,
     exchange: serialized,
     schema,
-    ...(request.meta !== undefined ? { meta: request.meta } : {}),
+    ...(meta !== undefined ? { meta } : {}),
     ...(request.callBinding !== undefined
       ? { callBinding: request.callBinding }
       : {}),
