@@ -31,8 +31,9 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 20. **Events carry ids, and bodies only on request.** `details.exchange` is gone from every event: read `details.exchangeId`, and subscribe with `{ snapshots: true }` to read `details._snapshot`. [Section 20](#20-event-bodies).
 21. **`agent()` and `mcp()` need their plugin.** An inline `agent({ ... })` needs `agent: {}`, and a call to a remote tool by URL needs `mcp: {}`. A block resolver's second argument is a `BlockContext`. [Section 21](#21-required-plugins).
 22. **A failed split child fails the aggregate.** A child that fails with no handler deciding otherwise no longer drops out of the join silently. [Section 22](#22-split-child-failure).
+23. **A model call that was cut off before it produced anything fails.** `llm()` and `agent()` fail with `AI1020` where they returned an empty answer, the default output cap is lifted when `reasoning` is set, and `llm()` sends an empty `user:` as it is. [Section 23](#23-model-outcomes).
 
-Projects that write no plugin of their own typically need sections 2, 17 and 19 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`, section 14 if they subscribe to `plugin:mcp:tool:called` and read `details.args`, section 15 if an MCP client is reached over plain `http`, section 16 if an approval can be parked across the upgrade, section 18 if a route defers or resumes, section 20 if a subscriber reads `details.exchange` or `details._snapshot`, section 21 if a route dispatches an inline agent or calls a remote MCP tool by URL, and section 22 if a route splits and aggregates. [Section 23](#23-what-is-new-in-080) lists what is new, for context.
+Projects that write no plugin of their own typically need sections 2, 17 and 19 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`, section 14 if they subscribe to `plugin:mcp:tool:called` and read `details.args`, section 15 if an MCP client is reached over plain `http`, section 16 if an approval can be parked across the upgrade, section 18 if a route defers or resumes, section 20 if a subscriber reads `details.exchange` or `details._snapshot`, section 21 if a route dispatches an inline agent or calls a remote MCP tool by URL, section 22 if a route splits and aggregates, and section 23 if a route calls a model. [Section 24](#24-what-is-new-in-080) lists what is new, for context.
 
 ---
 
@@ -71,7 +72,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 23](#23-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 24](#24-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -466,7 +467,42 @@ export default craft()
 
 A handler that should answer for the whole order instead reads the parent's failure with `failedChildrenOf`, shown under [Children that do not arrive](/docs/reference/operations/aggregate#children-that-do-not-arrive).
 
-## 23. What is new in 0.8.0 \{#23-what-is-new-in-080}
+## 23. A model call cut off with nothing fails \{#23-model-outcomes}
+
+In 0.7 a call that ran into its output cap before the model wrote anything came back as a success with an empty `text`, and the route carried the empty string on. The usual cause was the framework's own default: `maxTokens` was 1024 on every call, and a model asked to think spends that on thinking. Both ends changed.
+
+| 0.7 | 0.8 |
+| --- | --- |
+| `llm()` or `agent()` ends on `length` or `content-filter` with no text, no structured output and no tool call in its last step: an empty result | the step fails with [`AI1020`](/docs/reference/errors#ai-1020). It is not retryable: the same call hits the same cap |
+| a call cut off part way through its answer | unchanged: the partial text is returned. `finishReason` says so, and an agent result now carries it too |
+| `maxTokens` defaults to 1024 on every call | it defaults to 1024 only when `reasoning` is unset or `'none'`. A call that sets `reasoning` sends no cap, and the provider's own maximum applies |
+| `llm({ user })` that resolved to an empty string or an empty parts array sent the exchange body | it sends the empty prompt. The body stands in only when `user` is absent, which is what `agent()` already did for a string |
+
+A model that thinks without being asked to still runs under the 1024 default, since the framework cannot tell. Set `maxTokens` on that call, or set `reasoning`, when it fails with `AI1020`. A route that preferred the empty answer says so:
+
+```ts
+import {
+  craft,
+  direct,
+  isRoutecraftError,
+  recovery,
+} from '@routecraft/routecraft'
+import { llm } from '@routecraft/ai'
+
+export default craft()
+  .id('summarise')
+  .error((error) =>
+    isRoutecraftError(error) && error.rc === 'AI1020'
+      ? { text: '' }
+      : recovery.rethrow(),
+  )
+  .from(direct())
+  .enrich(llm('anthropic:claude-opus-4-7', { maxTokens: 4096 }))
+```
+
+With the cap lifted, a provider that has no maximum of its own (a local `ollama` or `lmstudio` model) is bounded only by the model's context, so set `maxTokens` there when the output must be bounded. [The output cap](/docs/reference/adapters/llm#the-output-cap) has the detail.
+
+## 24. What is new in 0.8.0 \{#24-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()` and the resilience operations are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT` and `RESILIENCE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too. Both ports are provisional in 0.8: they are due to be reshaped, so a replacement pins the minor it was written against.
