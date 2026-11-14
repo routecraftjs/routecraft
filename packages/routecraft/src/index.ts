@@ -876,7 +876,7 @@ export {
 export {
   type CredentialLogin,
   type CredentialLoginIO,
-} from "./plugins/credentials/login.ts";
+} from "./kernel/tooling.ts";
 export { MemoryCredentialStore } from "./plugins/credentials/memory-store.ts";
 export {
   type PluginTooling,

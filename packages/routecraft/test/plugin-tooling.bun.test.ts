@@ -179,7 +179,7 @@ describe("plugin tooling", () => {
       "acme:books",
     ]);
     const refused = expect.objectContaining({
-      rc: "RC5070",
+      rc: "RC5072",
       message: expect.stringContaining('"other:mail"'),
     });
     await expect(scoped.get("other:mail")).rejects.toEqual(refused);

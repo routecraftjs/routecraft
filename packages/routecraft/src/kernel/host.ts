@@ -110,6 +110,13 @@ function validateTooling(p: Plugin, where: string): void {
   ) {
     invalidPlugin(where, "tooling.commands must be an object of commands");
   }
+  const namespace = namespaceOf(p);
+  if (Object.keys(commands).length > 0 && !TOOLING_COMMAND.test(namespace)) {
+    invalidPlugin(
+      where,
+      `namespace "${namespace}" is the first word of its tooling commands, so it must be one word of letters, digits, "-" and "_"`,
+    );
+  }
   for (const [key, command] of Object.entries(commands)) {
     if (!TOOLING_COMMAND.test(key)) {
       invalidPlugin(

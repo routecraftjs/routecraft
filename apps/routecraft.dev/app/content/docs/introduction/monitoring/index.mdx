@@ -117,7 +117,7 @@ export default defineProject({
 })
 ```
 
-The database is written to `.routecraft/telemetry.db` in the current working directory. The SQLite sink uses Bun's built-in [`bun:sqlite`](https://bun.com/docs/api/sqlite) under Bun and the optional peer `better-sqlite3` under Node. On Node without that peer, the sink disables itself with a warn log and only the OpenTelemetry path runs; configure a `tracerProvider` with an OTLP exporter for production telemetry.
+The key installs the telemetry plugin; `plugins: [telemetryPlugin({ ... })]` with the same options is equivalent. The database is written to `.routecraft/telemetry.db` in the current working directory. The SQLite sink uses Bun's built-in [`bun:sqlite`](https://bun.com/docs/api/sqlite) under Bun and the optional peer `better-sqlite3` under Node. On Node without that peer, the sink disables itself with a warn log and only the OpenTelemetry path runs; configure a `tracerProvider` with an OTLP exporter for production telemetry.
 
 ### Configuration
 

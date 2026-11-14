@@ -124,6 +124,7 @@ export async function startCommand(
     config = await withFolderPlugins(root, contentRoot, config);
 
     config = await applyDiscoverers(root, contentRoot, config);
+    // Refuses a plugin whose commands or logins the command line could not serve.
     await toolingOf(config);
 
     const builder = new ContextBuilder().with(config);

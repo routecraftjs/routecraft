@@ -430,7 +430,7 @@ Code that holds a plain `Exchange` rather than a route's typed one (an adapter, 
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `commands` | `Record<string, ToolingCommand>` | `craft <namespace> <key>`. A key is one word of letters, digits, `-` and `_`. A repeatable plugin may not declare commands (`RC1117`): its installs share one namespace. |
+| `commands` | `Record<string, ToolingCommand>` | `craft <namespace> <key>`. A key is one word of letters, digits, `-` and `_`, and so is the namespace of a plugin that declares commands. A repeatable plugin may not declare commands (`RC1117`): its installs share one namespace. |
 | `logins` | `() => CredentialLogin[]` | The logins the plugin's configuration declares, run by `craft connect <id>`. Pure: called by every tool that reads it, never by the application. Two logins with one `id` or one `owner` across the application are `RC5003`. |
 
 A `ToolingCommand` is `{ summary, usage?, run(args, context) }` and returns `{ code, output?, error? }`: the exit code, and what to print on standard output and standard error. Its `context` carries:
@@ -439,7 +439,7 @@ A `ToolingCommand` is `{ summary, usage?, run(args, context) }` and returns `{ c
 | --- | --- |
 | `root` | The project root: the directory holding `craft.config.ts`. |
 | `logger` | The project's logger. |
-| `credentials()` | The project's credential store, narrowed to the owners this plugin's own `logins` declare. Any other owner is refused with `RC5070`, and a listing shows only those owners. |
+| `credentials()` | The project's credential store, narrowed to the owners this plugin's own `logins` declare. Any other owner is refused with [`RC5072`](/docs/reference/errors#rc-5072), and a listing shows only those owners. |
 
 ```ts
 import { definePlugin } from '@routecraft/routecraft'

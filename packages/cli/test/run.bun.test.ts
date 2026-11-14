@@ -217,10 +217,10 @@ describe("CLI run command", () => {
   /**
    * @case A nearby config that does not install what the routes were built with is ignored, out loud
    * @preconditions The same routes, beside a craft.config.js that installs an unrelated plugin only
-   * @expectedResult The run uses the routes' own project (only the base plugin binds) and logs an info line naming the ignored file and the plugin it lacks
+   * @expectedResult The run uses the routes' own project (only the base plugin binds) and warns, naming the ignored file and the plugin it lacks
    */
   test("ignores a nearby config that does not extend the routes' project", async () => {
-    const info = spyOn(logger, "info").mockImplementation(() => {});
+    const warned = spyOn(logger, "warn").mockImplementation(() => {});
     try {
       const bound = await sharedProject(`
         import { defineProject } from "@routecraft/routecraft";
@@ -229,13 +229,58 @@ describe("CLI run command", () => {
       const res = await runModule.runCommand("routes.js");
       expect(res).toEqual({ success: true });
       expect(bound).toEqual(["base"]);
-      const lines = info.mock.calls.map((call) => String(call[0]));
+      const lines = warned.mock.calls.map((call) => String(call[0]));
       expect(
         lines.find((line) => line.startsWith("Ignoring craft.config.js")),
       ).toMatch(/does not install "test\.base"/);
     } finally {
-      info.mockRestore();
+      warned.mockRestore();
     }
+  });
+
+  /**
+   * @case A nearby config that cannot be read does not stop routes that carry their own project
+   * @preconditions The shared-project routes beside a craft.config.js still in the pre-0.8 craftConfig shape; then a root craft() route beside the same file
+   * @expectedResult The project-built routes run in their own project; the root craft() route, which has nothing to fall back to, fails with RC1120 naming the file
+   */
+  test("falls back from an unreadable nearby config only when the routes have a project", async () => {
+    const bound = await sharedProject(`export const craftConfig = {};`);
+    expect(await runModule.runCommand("routes.js")).toEqual({ success: true });
+    expect(bound).toEqual(["base"]);
+
+    await writeFile(
+      "plain.js",
+      `
+      import { craft, simple, noop } from "@routecraft/routecraft";
+      export default craft().id("p").from(simple("y")).to(noop());
+    `,
+    );
+    const res = await runModule.runCommand("plain.js");
+    expect(res).toMatchObject({ success: false });
+    if (!("message" in res)) throw new Error("expected a failure");
+    expect(res.message).toMatch(/RC1120.*craft\.config\.js/s);
+  });
+
+  /**
+   * @case A project export that is not a project is refused, not skipped
+   * @preconditions A file exporting a plain object as project beside a valid default route
+   * @expectedResult runCommand fails with RC1120 saying the export is not a project
+   */
+  test("a project export that is not a project is RC1120", async () => {
+    await writeFile(
+      "not-a-project.js",
+      `
+      import { craft, simple, noop } from "@routecraft/routecraft";
+      export const project = { plugins: [] };
+      export default craft().id("x").from(simple("y")).to(noop());
+    `,
+    );
+    const res = await runModule.runCommand("not-a-project.js");
+    expect(res).toMatchObject({ success: false });
+    if (!("message" in res)) throw new Error("expected a failure");
+    expect(res.message).toMatch(
+      /RC1120.*exports project, but it is not a project/s,
+    );
   });
 
   /**

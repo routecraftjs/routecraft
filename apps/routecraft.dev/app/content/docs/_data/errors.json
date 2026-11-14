@@ -294,6 +294,12 @@
     "retryable": false
   },
   {
+    "code": "RC5072",
+    "category": "Adapter",
+    "message": "Credential outside a plugin's tooling scope",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",

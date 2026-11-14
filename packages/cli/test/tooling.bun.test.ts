@@ -11,6 +11,7 @@ import {
 const {
   RESERVED_VERBS,
   SHARED_VERBS,
+  VALUED_FLAGS,
   runToolingCommand,
   toolingInvocation,
   toolingOf,
@@ -68,8 +69,8 @@ describe("the verb table", () => {
 
   /**
    * @case The table names exactly what the command line registers
-   * @preconditions The source of index.ts, read for its top-level commands and the subcommands registered under ops
-   * @expectedResult Every reserved and shared verb is a registered command, and the ops entry lists exactly the ops subcommands, so a subcommand added to one place and not the other fails here
+   * @preconditions The source of index.ts, read for its top-level commands, the subcommands registered under ops, and the valued flags of withLogOptions and withEnvironment
+   * @expectedResult Every reserved and shared verb is a registered command, the ops entry lists exactly the ops subcommands, and the flags skipped when reading the verb are exactly the valued ones, so an addition to one place and not the other fails here
    */
   test("matches the commands index.ts registers", () => {
     const source = readFileSync(
@@ -83,7 +84,20 @@ describe("the verb table", () => {
       (rest, verb) => rest.filter((name) => name !== verb),
       registered.filter((name) => !RESERVED_VERBS.includes(name)),
     );
-    expect([...ops].sort()).toEqual([...SHARED_VERBS["ops"]!].sort());
+    expect([...ops].sort()).toEqual([...SHARED_VERBS["ops"]!.shipped].sort());
+
+    const helpers = source.slice(
+      source.indexOf("function withLogOptions"),
+      source.indexOf("await registerPluginCommand()"),
+    );
+    const valued = [
+      ...helpers.matchAll(
+        /function with(?:LogOptions|Environment)[\s\S]*?\n}\n/g,
+      ),
+    ].flatMap((match) =>
+      [...match[0].matchAll(/"(--[a-z-]+) <[a-z]+>"/g)].map((flag) => flag[1]!),
+    );
+    expect(valued.sort()).toEqual([...VALUED_FLAGS].sort());
     for (const verb of [...RESERVED_VERBS, ...Object.keys(SHARED_VERBS)]) {
       if (verb === "help") continue;
       expect(registered).toContain(verb);
@@ -131,6 +145,30 @@ describe("the verb table", () => {
     expect(rcCodeOf(error)).toBe("RC1117");
     expect((error as Error).message).toMatch(/craft ops health/);
     expect(await refusal({ plugins: [plugin("drain")] })).toBeUndefined();
+  });
+
+  /**
+   * @case A namespace that cannot be typed as one word carries no commands
+   * @preconditions A plugin with the explicit namespace "acme tools" declaring a command, and the same plugin declaring none
+   * @expectedResult RC1117 naming the namespace for the first, since craft <namespace> could never reach it; the second is accepted
+   */
+  test("refuses commands under a namespace that is not one word", async () => {
+    const error = await refusal({
+      plugins: [
+        definePlugin({
+          id: "acme.tools",
+          namespace: "acme tools",
+          tooling: { commands: { echo } },
+        }),
+      ],
+    });
+    expect(rcCodeOf(error)).toBe("RC1117");
+    expect((error as Error).message).toMatch(/namespace "acme tools"/);
+    expect(
+      await refusal({
+        plugins: [definePlugin({ id: "acme.tools", namespace: "acme tools" })],
+      }),
+    ).toBeUndefined();
   });
 
   /**
@@ -247,7 +285,7 @@ describe("a command a plugin adds to craft", () => {
   /**
    * @case Help and listings come from the plugin's own summary and usage
    * @preconditions The namespace with no key, the command with --help, and a key the plugin does not declare
-   * @expectedResult The namespace lists its commands and exits 1 (0 with --help); the command's help shows its usage line and summary without running it; the unknown key is refused with the listing
+   * @expectedResult The namespace lists its commands and exits 1 (0 with --help); the command's help shows its usage line and summary without running it; --help after another argument reaches the command as its own; the unknown key is refused with the listing
    */
   test("lists the commands and prints a command's help", async () => {
     const bare = await runToolingCommand("mcp", undefined, []);
@@ -263,6 +301,11 @@ describe("a command a plugin adds to craft", () => {
       code: 0,
       output:
         "Usage: craft mcp echo [words...]\n\nPrint the arguments and the project root",
+    });
+
+    const forwarded = await runToolingCommand("mcp", "echo", ["-x", "--help"]);
+    expect(JSON.parse(forwarded.output ?? "")).toMatchObject({
+      args: ["-x", "--help"],
     });
 
     const unknown = await runToolingCommand("mcp", "nothing", []);

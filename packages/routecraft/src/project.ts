@@ -57,6 +57,17 @@ export function projectOf(route: unknown): Project<unknown> | undefined {
 }
 
 /**
+ * The plugin list an application built from a configuration resolves:
+ * what its config keys and `plugins` install, behind the defaults those do
+ * not displace. The one place a tool around the application gets it from.
+ *
+ * @internal
+ */
+export function applicationPluginsOf(config: CraftConfig): unknown[] {
+  return applicationPlugins(configuredPlugins(config));
+}
+
+/**
  * The id of every plugin a configuration installs, defaults and brought
  * plugins included, in install order. What two projects are compared by
  * when a tool asks whether one extends the other.
@@ -66,7 +77,7 @@ export function projectOf(route: unknown): Project<unknown> | undefined {
  * @throws RC1117 when a listed plugin is not a descriptor
  */
 export function installedPluginIds(config: CraftConfig): string[] {
-  return installedPlugins(applicationPlugins(configuredPlugins(config))).map(
+  return installedPlugins(applicationPluginsOf(config)).map(
     (plugin) => plugin.id,
   );
 }
@@ -234,10 +245,7 @@ export function defineProject<const D extends ProjectDefinition>(
 ): Project<InstalledPluginsOf<D>> {
   // The parameter's `never` intersections are for the caller's literal only.
   const given: ProjectDefinition = definition as D;
-  const configured = configuredPlugins(given);
-  const catalogue = catalogueOf(
-    installedPlugins(applicationPlugins(configured)),
-  );
+  const catalogue = catalogueOf(installedPlugins(applicationPluginsOf(given)));
   const plugins: readonly Plugin[] = given.plugins ?? [];
   const project: Project<InstalledPluginsOf<D>> = {
     craft: () =>

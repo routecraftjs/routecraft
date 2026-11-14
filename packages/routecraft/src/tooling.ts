@@ -1,15 +1,11 @@
 // Self-reference via the published specifier so ecosystem augmentations of
 // `CraftConfig` reach this module, as in project.ts.
 import type { CraftConfig } from "@routecraft/routecraft";
-import { configuredPlugins } from "./config-applier.ts";
 import { rcError } from "./error.ts";
-import { applicationPlugins } from "./kernel/defaults.ts";
+import { applicationPluginsOf } from "./project.ts";
 import { PluginHost } from "./kernel/host.ts";
-import type {
-  CredentialLogin,
-  CredentialStore,
-  ToolingCommand,
-} from "./kernel/tooling.ts";
+import type { CredentialStore } from "./kernel/credentials.ts";
+import type { CredentialLogin, ToolingCommand } from "./kernel/tooling.ts";
 
 /** One installed plugin's tooling, as a tool around the application reads it. */
 export interface InstalledTooling {
@@ -38,7 +34,7 @@ export interface InstalledTooling {
  *   could not tell apart, or an owner, whose credential they would share
  */
 export function pluginTooling(config: CraftConfig): InstalledTooling[] {
-  const host = new PluginHost(applicationPlugins(configuredPlugins(config)));
+  const host = new PluginHost(applicationPluginsOf(config));
   const out: InstalledTooling[] = [];
   const ids = new Set<string>();
   const owners = new Set<string>();
@@ -93,7 +89,7 @@ function isLogin(value: unknown): value is CredentialLogin {
  * @param store - The project's credential store
  * @param owners - The owners the view may reach
  * @param plugin - The plugin the view is for, named in a refusal
- * @returns The narrowed store; any other owner is refused with `RC5070`
+ * @returns The narrowed store; any other owner is refused with `RC5072`
  */
 export function scopedCredentialStore(
   store: CredentialStore,
@@ -102,7 +98,7 @@ export function scopedCredentialStore(
 ): CredentialStore {
   const allow = (owner: string): void => {
     if (owners.has(owner)) return;
-    throw rcError("RC5070", undefined, {
+    throw rcError("RC5072", undefined, {
       message: `Plugin "${plugin}" asked for the credential of "${owner}", which none of its own logins declares. A tooling command reaches only the credentials its plugin's tooling.logins name.`,
     });
   };

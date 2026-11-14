@@ -106,7 +106,7 @@ describe("outsider: a plugin with tooling, built on the published entry", () => 
       output: '{"token":"w-1"}',
     });
     await expect(scoped.get("acme:elsewhere")).rejects.toMatchObject({
-      rc: "RC5070",
+      rc: "RC5072",
     });
   });
 

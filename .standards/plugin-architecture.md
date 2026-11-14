@@ -75,8 +75,16 @@ factory closed over, with nothing bound. The kernel validates its shape
 (`RC1117`) and learns no verb: which namespaces the command line keeps for
 itself is the command line's table (`packages/cli/src/tooling.ts`), checked
 there. A command is handed the credential store narrowed to the owners its
-own plugin's `logins` declare (`RC5070` for any other), so one plugin's
-command cannot read another's credential through the tooling surface. There
+own plugin's `logins` declare (`RC5072` for any other), so one plugin's
+command does not read another's credential through the tooling surface. That
+is a guard against accident, not a sandbox: code in the process is trusted
+and can open the store itself. The store tooling opens is the configured
+one (`credentials.store`); a plugin that `replaces` `CREDENTIALS` is not
+bound when a command runs, so its store is not the one a command or
+`craft connect` reaches. Nothing is started, so tooling emits no events: a
+command reports through its result and the project's logger. A verb the
+command line adds later takes that namespace from plugins, so it is a
+breaking change. There
 is no process-wide registry of commands or logins: a registry is the second
 copy of the plugin list, and it is the one that disagrees.
 

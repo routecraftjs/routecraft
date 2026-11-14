@@ -139,7 +139,7 @@ The file must export a capability (or array of capabilities) as its default expo
 
 1. `--config <path>`: the project that file default-exports.
 2. The file's own `export const project = defineProject({ ... })`.
-3. The `craft.config` beside the nearest `package.json` at or above the file, when it installs every plugin the routes were built with. One that does not is ignored, with an info line naming the plugins it lacks; `--no-config` skips this step.
+3. The `craft.config` beside the nearest `package.json` at or above the file, when it installs every plugin the routes were built with. One that does not, or that fails to load while the routes carry a project of their own, is ignored with a warning saying why; `--no-config` skips this step.
 4. The project the routes were built with: the one whose `craft()` started them.
 5. The defaults, for routes built with the root `craft()`.
 
@@ -418,7 +418,7 @@ An installed plugin adds commands to `craft` through the [`tooling`](/docs/refer
 
 ```bash
 craft <namespace>                  # list the plugin's commands
-craft <namespace> <command> --help # its usage line and summary
+craft <namespace> <command> --help # its usage line and summary, when --help comes first
 craft <namespace> <command> [args]
 ```
 
@@ -432,7 +432,7 @@ craft <namespace> <command> [args]
 | `ops` | `craft` and the ops plugin | `health`, `ready`, `routes`, `deferrals` and `indicators` are shipped; a plugin command with one of those names is refused with `RC1117` |
 | any other word | the plugin with that namespace | All of them |
 
-A namespace has one owner in an application (`RC1102`), so a third-party plugin cannot add commands under `ops` beside the ops plugin. A command is handed the project root, the project's logger, and the credential store narrowed to the owners its own plugin's logins declare.
+A namespace has one owner in an application (`RC1102`), so a third-party plugin cannot add commands under `ops` beside the ops plugin. A command is handed the project root, the project's logger, and the credential store narrowed to the owners its own plugin's logins declare (`RC5072` for any other). `craft` adding a verb of its own is a breaking change for a plugin already using that namespace, and ships as one.
 
 
 ## Settings file

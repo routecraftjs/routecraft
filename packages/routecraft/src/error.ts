@@ -137,6 +137,7 @@ export interface ErrorCodeRegistry {
   /** Credential store failure: a stored credential could not be read, written or opened */
   RC5070: RCMeta;
   RC5071: RCMeta;
+  RC5072: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -315,7 +316,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Invalid plugin descriptor",
     suggestion:
-      "A plugin is a descriptor built with definePlugin({ id, ... }). The message names the field that is wrong: a missing plugin or hook id, the pre-0.8 apply() shape, a port list holding something other than ports, or a repeatable plugin declaring what only one install may.",
+      "A plugin is a descriptor built with definePlugin({ id, ... }). The message names the field that is wrong: a missing plugin or hook id, the pre-0.8 apply() shape, a port list holding something other than ports, a repeatable plugin declaring what only one install may, a malformed tooling field, or tooling commands under a verb or subcommand the command line ships.",
     docs: `${DOCS_BASE}#rc-1117`,
     retryable: false,
   },
@@ -888,6 +889,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A warning at start, never thrown. A route that defers, or caches under the default key, has among the steps its digest covers a value the digest cannot see into: a class instance, a native or bound function, a schema with no JSON Schema rendering, a symbol-keyed or accessor property, a value that contains itself, or something nested more than five deep. Editing that value refuses no parked approval (`RC5048`), so the approval can resume into behaviour its approver did not see, and misses no cached entry. The warning names each path. Pass plain data, or have the step or adapter state its identity with `[IDENTITY]()`: `versioned(value, id)` for a value whose author knows when it changed, `secret(value)` for one that configures without defining.",
     docs: `${DOCS_BASE}#rc-5071`,
+    retryable: false,
+  },
+  RC5072: {
+    category: "Adapter",
+    message: "Credential outside a plugin's tooling scope",
+    suggestion:
+      "A plugin's tooling command asked the credential store for an owner none of that plugin's own tooling.logins declares. A command reaches only its own plugin's credentials. Declare the login on the plugin whose command needs it, or read the credential from the plugin that owns it.",
+    docs: `${DOCS_BASE}#rc-5072`,
     retryable: false,
   },
   RC9901: {

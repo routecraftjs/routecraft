@@ -4,7 +4,7 @@ import type {
   CredentialStore,
   CredentialWrite,
   StoredCredential,
-} from "../../kernel/tooling.ts";
+} from "../../kernel/credentials.ts";
 
 export type { CredentialStore, CredentialWrite, StoredCredential };
 

@@ -25,18 +25,34 @@ export const RESERVED_VERBS: readonly string[] = [
 
 /**
  * The verbs `craft` shares with the first-party plugin of the same
- * namespace, each with the subcommands `craft` ships under it. The plugin
- * adds more through `tooling.commands`; a key equal to a shipped subcommand
- * is refused (`RC1117`).
+ * namespace: who answers the verb on its own, and the subcommands `craft`
+ * ships under it. The plugin adds more through `tooling.commands`; a key
+ * equal to a shipped subcommand is refused (`RC1117`).
  */
-export const SHARED_VERBS: Readonly<Record<string, readonly string[]>> = {
-  mcp: [],
-  acp: [],
-  ops: ["health", "ready", "routes", "deferrals", "indicators"],
+export const SHARED_VERBS: Readonly<
+  Record<
+    string,
+    { readonly bare: "craft" | "plugin"; readonly shipped: readonly string[] }
+  >
+> = {
+  mcp: { bare: "plugin", shipped: [] },
+  acp: { bare: "craft", shipped: [] },
+  ops: {
+    bare: "craft",
+    shipped: ["health", "ready", "routes", "deferrals", "indicators"],
+  },
 };
 
+function sharedVerb(
+  namespace: string,
+): (typeof SHARED_VERBS)[string] | undefined {
+  return Object.hasOwn(SHARED_VERBS, namespace)
+    ? SHARED_VERBS[namespace]
+    : undefined;
+}
+
 /** Root and per-command options that take a value, skipped when reading the verb. */
-const VALUED_FLAGS: readonly string[] = [
+export const VALUED_FLAGS: readonly string[] = [
   "--log-level",
   "--log-file",
   "--env",
@@ -88,21 +104,16 @@ export function toolingInvocation(
     return undefined;
   }
   const key = words?.[1];
-  const shipped = Object.hasOwn(SHARED_VERBS, namespace)
-    ? SHARED_VERBS[namespace]
-    : undefined;
-  if (shipped === undefined) {
+  const shared = sharedVerb(namespace);
+  if (shared === undefined) {
     // An unknown word outside a project stays commander's to refuse.
     if (!hasProject) return undefined;
     return key === undefined ? { namespace } : { namespace, key };
   }
   if (key === undefined) {
-    // A shared verb with nothing shipped under it is the plugin's alone.
-    return shipped.length === 0 && namespace !== "acp"
-      ? { namespace }
-      : undefined;
+    return shared.bare === "plugin" ? { namespace } : undefined;
   }
-  return shipped.includes(key) ? undefined : { namespace, key };
+  return shared.shipped.includes(key) ? undefined : { namespace, key };
 }
 
 /**
@@ -126,9 +137,7 @@ export async function assertVerbTable(
         message: `Invalid plugin "${plugin}": it declares tooling commands under the namespace "${namespace}", which is craft's own verb. Give the plugin an explicit namespace.`,
       });
     }
-    const shipped = Object.hasOwn(SHARED_VERBS, namespace)
-      ? SHARED_VERBS[namespace]!
-      : [];
+    const shipped = sharedVerb(namespace)?.shipped ?? [];
     const taken = keys.find((key) => shipped.includes(key));
     if (taken !== undefined) {
       throw rcError("RC1117", undefined, {
@@ -170,8 +179,11 @@ function describeCommand(
   key: string,
   command: ToolingCommand,
 ): string {
-  const usage = command.usage === undefined ? "" : ` ${command.usage}`;
-  return `  craft ${namespace} ${key}${usage}  ${command.summary}`;
+  return `  craft ${namespace} ${key}${usageOf(command)}  ${command.summary}`;
+}
+
+function usageOf(command: ToolingCommand): string {
+  return command.usage === undefined ? "" : ` ${command.usage}`;
 }
 
 /**
@@ -204,10 +216,11 @@ export async function runToolingCommand(
     if (owner === undefined) {
       return {
         code: 1,
-        error: `"${namespace}" is not a craft command, and no installed plugin declares commands under that namespace. ${listing(tooling)}`,
+        error: `"${namespace}" is not a craft command (those are ${[...RESERVED_VERBS, ...Object.keys(SHARED_VERBS)].join(", ")}), and no installed plugin declares commands under that namespace. ${listing(tooling)}`,
       };
     }
-    const wantsHelp = args.includes("--help") || args.includes("-h");
+    // Help is craft's only as the first word: later, it is the command's own argument.
+    const wantsHelp = args[0] === "--help" || args[0] === "-h";
     if (key === undefined) {
       return { code: wantsHelp ? 0 : 1, output: listing([owner]) };
     }
@@ -223,7 +236,7 @@ export async function runToolingCommand(
     if (wantsHelp) {
       return {
         code: 0,
-        output: `Usage: craft ${namespace} ${key}${command.usage === undefined ? "" : ` ${command.usage}`}\n\n${command.summary}`,
+        output: `Usage: craft ${namespace} ${key}${usageOf(command)}\n\n${command.summary}`,
       };
     }
     const owners = new Set(owner.logins.map((login) => login.owner));

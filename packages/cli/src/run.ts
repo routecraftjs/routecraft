@@ -123,7 +123,7 @@ export async function runCommand(
     // The project's own logger takes the run's lines when it has one; the default logger otherwise.
     log = project.config?.logger ?? defaultLogger();
     log.info({ file: absFilePath, project: project.from }, "Loading file");
-    for (const note of project.notes) log.info(note);
+    for (const note of project.notes) log.warn(note);
 
     const contextBuilder = new ContextBuilder();
     if (project.config) contextBuilder.with(project.config);
@@ -224,7 +224,7 @@ async function runProject(
     } catch (error: unknown) {
       if (rcCodeOf(error) !== "RC1120") throw error;
       throw rcError("RC1120", error, {
-        message: `${path}: ${messageOf(error)}`,
+        message: `${displayPath(process.cwd(), path)}: ${messageOf(error)}`,
       });
     }
   };
@@ -239,6 +239,11 @@ async function runProject(
       from: "the file's project export",
       notes: [],
     };
+  }
+  if (module.project !== undefined) {
+    throw rcError("RC1120", undefined, {
+      message: `${file} exports project, but it is not a project. Write \`export const project = defineProject({ ... })\`.`,
+    });
   }
   if (module.craftConfig !== undefined) {
     throw rcError("RC1120", undefined, {
@@ -260,14 +265,25 @@ async function runProject(
 
   const beside = flag === false ? undefined : nearestConfigFile(dirname(file));
   if (beside !== undefined) {
-    const config = await read(beside);
-    const missing = routesProject
-      ? missingPlugins(config, routesProject.config)
-      : [];
-    if (missing.length === 0) return { config, from: beside, notes };
-    notes.push(
-      `Ignoring ${displayPath(process.cwd(), beside)}: it does not install ${missing.map((id) => `"${id}"`).join(", ")}, which the project these routes were built with does. Running with the routes' own project; pass --config to choose another.`,
-    );
+    const shown = displayPath(process.cwd(), beside);
+    const fallback =
+      "Running with the routes' own project; pass --config to choose another.";
+    let config: CraftConfig | undefined;
+    try {
+      config = await read(beside);
+    } catch (error: unknown) {
+      if (routesProject === undefined) throw error;
+      notes.push(`Ignoring ${shown}: ${messageOf(error)} ${fallback}`);
+    }
+    if (config !== undefined) {
+      const missing = routesProject
+        ? missingPlugins(config, routesProject.config)
+        : [];
+      if (missing.length === 0) return { config, from: beside, notes };
+      notes.push(
+        `Ignoring ${shown}: it does not install ${missing.map((id) => `"${id}"`).join(", ")}, which the project these routes were built with does. ${fallback}`,
+      );
+    }
   }
   if (routesProject !== undefined) {
     return {
