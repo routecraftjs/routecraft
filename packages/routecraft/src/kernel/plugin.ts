@@ -38,16 +38,8 @@ type Elements<A> = A extends ReadonlyArray<infer E> ? E : never;
  * step lists read-only. At runtime every write through it is refused
  * (`RC1110`), the fields included.
  */
-export type RouteDefinitionView = Readonly<
-  Omit<RouteDefinition, "steps" | "deferSteps" | "reentrantDeferSteps">
-> & {
+export type RouteDefinitionView = Readonly<Omit<RouteDefinition, "steps">> & {
   readonly steps: ReadonlyArray<Elements<RouteDefinition["steps"]>>;
-  readonly deferSteps?: ReadonlyArray<
-    Elements<NonNullable<RouteDefinition["deferSteps"]>>
-  >;
-  readonly reentrantDeferSteps?: ReadonlyArray<
-    Elements<NonNullable<RouteDefinition["reentrantDeferSteps"]>>
-  >;
 };
 
 /**

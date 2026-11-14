@@ -48,6 +48,7 @@ import {
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
 import {
+  alwaysDefers,
   applyResolvedSites,
   nestedStepsOf,
 } from "./kernel/continuation/sites.ts";
@@ -473,7 +474,7 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
     });
   }
 
-  if ((route.deferSteps?.length ?? 0) > 0) {
+  if (alwaysDefers(route)) {
     throw rcError("RC5003", undefined, {
       message:
         `Route "${route.id}" has route-scope .cache() and a reachable .defer(). ` +

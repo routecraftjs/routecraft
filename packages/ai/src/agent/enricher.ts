@@ -1,11 +1,9 @@
 import {
   authorityOf,
   deferralOf,
+  DEFERS,
   getExchangeContext,
   getExchangeRoute,
-  markDeferCapable,
-  deferAside,
-  peekResumeStepState,
   rcError,
   type CraftContext,
   type Enricher,
@@ -171,11 +169,11 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
 > {
   readonly adapterId = "routecraft.adapter.agent";
 
-  constructor(public readonly binding: AgentBinding<T>) {
-    // A tool handler may defer the run (ctx.defer / DeferError), so the
-    // defer-site walk assigns this adapter's hosting step a re-entrant
-    // site at build time. Routes that never defer pay nothing for it.
-    markDeferCapable(this);
+  constructor(public readonly binding: AgentBinding<T>) {}
+
+  /** A tool handler may defer the run, which then runs this step again. */
+  [DEFERS](): { readonly revival: "this-step" } {
+    return { revival: "this-step" };
   }
 
   async fetch(
@@ -222,8 +220,12 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // instead (AI1006, the same refusal an unbound dispatch gets) puts the
     // error where the author can act on it.
     const deferral: AgentRunDeferral | undefined =
-      dispatchIdentity && agentIdentity !== undefined && merged.stream !== true
+      dispatchIdentity &&
+      agentIdentity !== undefined &&
+      merged.stream !== true &&
+      stepCtx?.defer !== undefined
         ? {
+            defer: stepCtx.defer,
             id: deferralOf(exchange).id,
             // Lazy: minting reads the context's signer and throws RC5052
             // without a deferral runtime; a handler that never builds a
@@ -239,7 +241,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // this step settles, so a retried attempt (a provider 429 here, or a
     // setup failure below) still resumes instead of silently re-running
     // the whole loop from the original prompt.
-    const resumeRaw = peekResumeStepState(exchange);
+    const resumeRaw = stepCtx?.defer?.revived?.stepState;
     // A revived session continuation re-enters here too, carrying only
     // the session's name: the transcript and the inbox are in the session
     // record, and the turn they make is the runtime's to run.
@@ -381,30 +383,26 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         });
       }
       const interrupt = perCall?.interrupt ?? merged.interrupt;
-      // Where this exchange can be deferred for a later turn: the re-entrant
-      // site the build assigned this step, when it sits on the primary flow.
-      const site = route?.definition.reentrantDeferSteps?.find(
-        (host) => host.adapter === this,
-      )?.deferSite;
+      // A later turn can be stored only where this step can be run again:
+      // on the primary flow of a built route.
+      const handle = stepCtx?.defer;
       const routeId = route?.definition.id;
       const defer =
-        site !== undefined && routeId !== undefined
+        handle !== undefined &&
+        handle.refused === undefined &&
+        routeId !== undefined
           ? async (
               announce: (deferral: AgentSessionDeferral) => Promise<void>,
             ): Promise<AgentSessionDeferral> => {
-              const { deferralId } = await deferAside(
-                context,
-                exchange,
-                site,
-                routeId,
-                (id): AgentSessionDeferralMarker => ({
+              const { deferralId } = await handle.aside({
+                stepState: (id): AgentSessionDeferralMarker => ({
                   kind: "agent-session-deferral",
                   agent: agentIdentity,
                   session: sessionKey,
                   deferralId: id,
                 }),
-                (id) => announce({ deferralId: id, routeId }),
-              );
+                announce: (id) => announce({ deferralId: id, routeId }),
+              });
               return { deferralId, routeId };
             }
           : undefined;

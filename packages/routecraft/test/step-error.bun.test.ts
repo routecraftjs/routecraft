@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { toSignalContext } from "../src/types.ts";
 import type { Identity } from "../src/kernel/continuation/identity.ts";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
@@ -334,6 +335,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
 
     const N = 10;
     const stepContext: StepContext = {
+      ...toSignalContext(),
       takePending: () => [],
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),

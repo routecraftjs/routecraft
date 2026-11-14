@@ -511,7 +511,7 @@ export class CacheWrapperStep<
       },
       context ? (event, details) => context.emit(event, details) : undefined,
     );
-    if (bypassed) return this.inner.execute(exchange, ctx);
+    if (bypassed) return this.runStep(exchange, ctx);
 
     let key: string;
     try {
@@ -549,7 +549,7 @@ export class CacheWrapperStep<
       exchange,
       key,
       emit: (event, details) => context?.emit(event, details),
-      attempt: () => this.inner.execute(exchange, ctx),
+      attempt: () => this.runStep(exchange, ctx),
     });
   }
 }

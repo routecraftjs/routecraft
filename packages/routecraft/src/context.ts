@@ -28,8 +28,11 @@ import {
 } from "./kernel/continuation/port.ts";
 import { ContinuationSweeper } from "./kernel/continuation/sweep.ts";
 import {
+  alwaysDefers,
   applyResolvedSites,
+  resolvedSitesOf,
   routeCanDefer,
+  usesResume,
 } from "./kernel/continuation/sites.ts";
 import {
   reviveDeferral,
@@ -1126,16 +1129,18 @@ export class CraftContext {
         `An error slot hook declared with { mayDefer: true } can park route "${parked.definition.id}", but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
       );
     }
-    const deferring = this.routes.find(
-      (route) => (route.definition.deferSteps?.length ?? 0) > 0,
+    const deferring = this.routes.find((route) =>
+      alwaysDefers(route.definition),
     );
     // A resume ingress needs the runtime just as much: it verifies tokens
     // against the signer and reads the store. Left out, a resume-only
     // deployment starts clean and refuses every answer at request time.
-    const resuming = this.routes.find((route) => route.definition.usesResume);
+    const resuming = this.routes.find((route) => usesResume(route.definition));
     const offender = deferring ?? resuming;
     if (!offender) return;
-    const reached = deferring ? ".defer()" : ".resume()";
+    const reached = deferring
+      ? "step that defers (.defer())"
+      : "step that resumes (.resume())";
     this.refuseWithoutDeferralRuntime(
       `Route "${offender.definition.id}" can reach a ${reached}, but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
     );
@@ -1350,7 +1355,7 @@ export class CraftContext {
       // executor would find no site and refuse with RC5051, contradicting
       // the whole reason the sites are resolved for every route rather than
       // only for one that declares a `.defer()`.
-      if (definition.errorPathSites === undefined) {
+      if (resolvedSitesOf(definition) === undefined) {
         applyResolvedSites(definition);
       }
 

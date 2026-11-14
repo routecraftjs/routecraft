@@ -25,15 +25,11 @@ import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
-import { DEFER_HOST } from "../dsl-symbol.ts";
-import type {
-  DeferCapableStep,
-  DeferSite,
-} from "../kernel/continuation/sites.ts";
+import { DEFERS } from "../dsl-symbol.ts";
 import {
-  convertDeferSignal,
-  isDeferSignal,
-} from "../kernel/continuation/signal.ts";
+  type DeferDeclaration,
+  deferDeclarationOf,
+} from "../kernel/continuation/sites.ts";
 
 /**
  * Function form of an enricher: receives the exchange and produces a value
@@ -191,20 +187,14 @@ export type EnrichAggregatorOption<T, R> =
  * REPLACES the body; pass an aggregator (`only()`, `none()`, or a custom
  * function) to merge instead.
  */
-export class EnrichStep<T = unknown, R = unknown>
-  implements Step<Adapter>, DeferCapableStep
-{
+export class EnrichStep<T = unknown, R = unknown> implements Step<Adapter> {
   operation: OperationType = OperationType.ENRICH;
   adapter: Adapter;
   aggregator: EnrichAggregatorOption<T, R> | undefined;
-  /** Assigned by the defer-site walk when the adapter is defer-capable. */
-  deferSite?: DeferSite;
-  /** Why the walk refused a site (fan-out or sealed side flow), when it did. */
-  deferRefusal?: string;
 
-  /** This step hosts its own defer site; wrappers forward here. @internal */
-  [DEFER_HOST](): DeferCapableStep {
-    return this;
+  /** Declares for its adapter: the adapter defers from inside the call this step makes. @internal */
+  [DEFERS](): DeferDeclaration | undefined {
+    return deferDeclarationOf(this.adapter);
   }
 
   constructor(
@@ -238,33 +228,23 @@ export class EnrichStep<T = unknown, R = unknown>
     // Pull the enrichment data through the fetch slot (or the mock handler
     // when an override is registered).
     let enrichmentData: R;
-    try {
-      if (override) {
-        enrichmentData = (await invokeSendOverride(
-          exchange,
-          this.adapter,
-          override,
-        )) as R;
-      } else {
-        if (!hasFetch<T, R>(this.adapter)) {
-          throw rcError("RC5003", undefined, {
-            message: "`.enrich()` target does not implement `fetch`",
-            suggestion:
-              "Enrichment pulls data in; pass an Enricher (fetch) or a function form. Push-out sends belong in `.to()` / `.tap()`",
-          });
-        }
-        enrichmentData = await Promise.resolve(
-          this.adapter.fetch(exchange, toSignalContext(ctx)),
-        );
+    if (override) {
+      enrichmentData = (await invokeSendOverride(
+        exchange,
+        this.adapter,
+        override,
+      )) as R;
+    } else {
+      if (!hasFetch<T, R>(this.adapter)) {
+        throw rcError("RC5003", undefined, {
+          message: "`.enrich()` target does not implement `fetch`",
+          suggestion:
+            "Enrichment pulls data in; pass an Enricher (fetch) or a function form. Push-out sends belong in `.to()` / `.tap()`",
+        });
       }
-    } catch (err) {
-      // Converted here, inside the step, so a step-scope wrapper never
-      // observes the raw throw (a retry wrapper would re-run the adapter
-      // and charge the deferred work twice).
-      if (isDeferSignal(err)) {
-        return convertDeferSignal(this, exchange, err);
-      }
-      throw err;
+      enrichmentData = await Promise.resolve(
+        this.adapter.fetch(exchange, toSignalContext(ctx)),
+      );
     }
 
     // The metadata rides the OUTCOME, not the step: Step instances are

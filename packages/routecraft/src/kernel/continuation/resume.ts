@@ -14,7 +14,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   setExchangeRoute,
-  setResumeStepState,
+  setRevival,
 } from "../../exchange.ts";
 import type { Route } from "../../route.ts";
 import type { Adapter, ExchangeScoped, Step } from "../../types.ts";
@@ -44,7 +44,7 @@ import {
   encodeOutcome,
 } from "./serialize.ts";
 import type { DetachedKind } from "../../pipeline/chain-policy.ts";
-import type { DeferSite } from "./sites.ts";
+import { type DeferSite, resolvedSitesOf } from "./sites.ts";
 import type { ErrorHook } from "../hooks.ts";
 import type { Principal } from "../../principal.ts";
 import { MAX_STORED_MESSAGE, resumable } from "./types.ts";
@@ -495,11 +495,16 @@ export async function reviveDeferral(
       ...(runAs ? { elevated: runAs } : {}),
     });
     // Internals, not headers: step state must not re-serialize into a second deferral.
-    if (site.site.reentrant && deferral.stepState !== undefined) {
-      setResumeStepState(
-        exchange,
-        decodePersistable(deferral.stepState, "stepState"),
-      );
+    // An error-path park re-enters the step that failed, which deferred nothing.
+    if (site.site.reentrant && !deferral.errorPath) {
+      setRevival(exchange, {
+        deferralId: id,
+        stepState:
+          deferral.stepState !== undefined
+            ? decodePersistable(deferral.stepState, "stepState")
+            : undefined,
+        input: payload,
+      });
     }
 
     // Set here rather than filled by `emit`: the resumed run has not entered
@@ -1105,20 +1110,17 @@ function findSite(
     }
     return undefined;
   }
-  for (const step of route.definition.deferSteps ?? []) {
-    if (step.site?.position === deferral.position) {
-      return {
-        step,
-        site: step.site,
-        schemaIsLive: true,
-        ...(step.schema !== undefined ? { schema: step.schema } : {}),
-      };
-    }
-  }
-  for (const host of route.definition.reentrantDeferSteps ?? []) {
-    if (host.deferSite?.position === deferral.position) {
-      return { step: host, site: host.deferSite };
-    }
+  for (const [step, declared] of resolvedSitesOf(route.definition)?.declared ??
+    []) {
+    if (declared.kind !== "site") continue;
+    if (declared.site.position !== deferral.position) continue;
+    if (declared.revival === "this-step") return { step, site: declared.site };
+    return {
+      step,
+      site: declared.site,
+      schemaIsLive: true,
+      ...(declared.input !== undefined ? { schema: declared.input } : {}),
+    };
   }
   return undefined;
 }

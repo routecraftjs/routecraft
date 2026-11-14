@@ -1,5 +1,11 @@
 import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
-import type { Adapter, Step, StepOutcome } from "../types.ts";
+import {
+  toSignalContext,
+  type Adapter,
+  type Step,
+  type StepContext,
+  type StepOutcome,
+} from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -72,7 +78,10 @@ export class TapStep<T = unknown> implements Step<Adapter> {
     return { kind: "routecraft.tap", options: { adapter: this.adapter } };
   }
 
-  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
+  async execute(
+    exchange: Exchange<T>,
+    ctx?: StepContext,
+  ): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
 
@@ -104,7 +113,11 @@ export class TapStep<T = unknown> implements Step<Adapter> {
         // contract. The header sink swallows receipts: they would only
         // ever decorate the discarded snapshot. Function forms get the
         // same sink so a callable written for `.to()` behaves identically.
-        const sink: SendContext = { setHeader: () => undefined };
+        const detached = toSignalContext({
+          ...(ctx?.route ? { route: ctx.route } : {}),
+          ...(ctx?.forward ? { forward: ctx.forward } : {}),
+        });
+        const sink: SendContext = { ...detached, setHeader: () => undefined };
         if (override) {
           await invokeSendOverride(snapshot, this.adapter, override);
         } else if (this.callable) {
@@ -112,7 +125,7 @@ export class TapStep<T = unknown> implements Step<Adapter> {
         } else if (hasSend<T>(this.adapter)) {
           await Promise.resolve(this.adapter.send(snapshot, sink));
         } else if (hasFetch<T, unknown>(this.adapter)) {
-          await Promise.resolve(this.adapter.fetch(snapshot, {}));
+          await Promise.resolve(this.adapter.fetch(snapshot, detached));
         } else {
           throw missingSlotError("`.tap()`");
         }

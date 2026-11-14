@@ -9,7 +9,7 @@ import {
   markDeferred,
   noteAsideSequence,
 } from "../../exchange.ts";
-import type { DeferRequest } from "./sites.ts";
+import type { DeferTicket } from "./sites.ts";
 import {
   actionFingerprint,
   continuationTailHash,
@@ -70,7 +70,7 @@ import type { NewDeferral } from "./types.ts";
 export async function deferExchange(
   context: CraftContext,
   exchange: Exchange,
-  request: DeferRequest,
+  request: DeferTicket,
   routeId: string,
   abortSignal?: AbortSignal,
 ): Promise<Exchange> {
@@ -234,7 +234,7 @@ function describeRecord(
   exchange: Exchange,
   routeId: string,
   request: Pick<
-    DeferRequest,
+    DeferTicket,
     "site" | "schema" | "meta" | "callBinding" | "stepState" | "errorPath"
   >,
   ttlMs: number | undefined,
@@ -331,7 +331,7 @@ function describeRecord(
 export async function deferAside(
   context: CraftContext,
   exchange: Exchange,
-  site: DeferRequest["site"],
+  site: DeferTicket["site"],
   routeId: string,
   stepState: (deferralId: string) => unknown,
   announce?: (deferralId: string) => Promise<void>,

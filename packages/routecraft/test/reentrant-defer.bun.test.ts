@@ -4,16 +4,15 @@ import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
   CONTINUATIONS,
-  DeferSignal,
+  DEFERS,
   craft,
   direct,
-  markDeferCapable,
   noop,
-  peekResumeStepState,
   simple,
+  type DeferringAdapter,
   type Enricher,
   type Exchange,
-  deferralOf,
+  type StepSignalContext,
 } from "../src/index.ts";
 import { asDeferred, storeWith, deferring } from "./helpers/deferral.ts";
 
@@ -30,23 +29,26 @@ const sleep = (ms: number): Promise<void> =>
  * agent tier is the shipped implementation of this protocol; this adapter
  * exercises the core seam without any AI machinery.
  */
-function deferCapable(): Enricher<unknown, unknown> {
-  const adapter: Enricher<unknown, unknown> = {
-    fetch: (ex: Exchange<unknown>) => {
-      const state = peekResumeStepState(ex);
-      if (state !== undefined) {
-        return { resumed: true, state, payload: deferralOf(ex).input };
+function deferCapable(): Enricher<unknown, unknown> & DeferringAdapter {
+  return {
+    [DEFERS]: () => ({ revival: "this-step" }),
+    fetch: (_ex: Exchange<unknown>, ctx?: StepSignalContext) => {
+      const revived = ctx?.defer?.revived;
+      if (revived !== undefined) {
+        return {
+          resumed: true,
+          state: revived.stepState,
+          payload: revived.input,
+        };
       }
-      throw new DeferSignal({
-        schema: Approval,
+      return ctx!.defer!({
+        input: Approval,
         ttl: "1h",
         meta: { channel: "finance" },
         stepState: { n: 1 },
       });
     },
   };
-  markDeferCapable(adapter);
-  return adapter;
 }
 
 describe("re-entrant defer sites (defer-capable steps)", () => {
@@ -100,14 +102,14 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
    */
   test("stepState round-trips a Date through the store", async () => {
     const deferredAt = new Date("2026-08-19T12:00:00.000Z");
-    const withDate: Enricher<unknown, unknown> = {
-      fetch: (ex: Exchange<unknown>) => {
-        const state = peekResumeStepState(ex);
-        if (state !== undefined) return { state };
-        throw new DeferSignal({ schema: Approval, stepState: { deferredAt } });
+    const withDate: Enricher<unknown, unknown> & DeferringAdapter = {
+      [DEFERS]: () => ({ revival: "this-step" }),
+      fetch: (_ex: Exchange<unknown>, ctx?: StepSignalContext) => {
+        const revived = ctx?.defer?.revived;
+        if (revived !== undefined) return { state: revived.stepState };
+        return ctx!.defer!({ input: Approval, stepState: { deferredAt } });
       },
     };
-    markDeferCapable(withDate);
     const sink = spy();
     t = await testContext()
       .with(deferring())

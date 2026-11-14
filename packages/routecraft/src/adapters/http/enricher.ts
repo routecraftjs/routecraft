@@ -61,9 +61,9 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
 
   fetch = async (
     exchange: Exchange<T>,
-    ctx: StepSignalContext = {},
+    ctx?: StepSignalContext,
   ): Promise<HttpResult<R>> => {
-    const result = await this.performFetch(exchange, ctx.signal);
+    const result = await this.performFetch(exchange, ctx?.signal);
     return result as HttpResult<R>;
   };
 

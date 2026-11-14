@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { toSignalContext } from "../src/types.ts";
 import {
   bootServer,
   signHs256,
@@ -701,6 +702,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
     const ex1 = new DefaultExchange(ctx, { body: "a" });
     const ex2 = new DefaultExchange(ctx, { body: "b" });
     const stepContext: StepContext = {
+      ...toSignalContext(),
       takePending: () => [],
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),
@@ -752,6 +754,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
     const ex1 = new DefaultExchange(ctx, { body: "a" });
     const ex2 = new DefaultExchange(ctx, { body: "b" });
     const stepContext: StepContext = {
+      ...toSignalContext(),
       takePending: () => [],
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),

@@ -103,17 +103,23 @@ export {
 } from "../../kernel/continuation/deferred.ts";
 export type { Deferred } from "../../kernel/continuation/deferred.ts";
 
-export {
-  markDeferCapable,
-  routeCanDefer,
+export { routeCanDefer } from "../../kernel/continuation/sites.ts";
+export type {
+  DeferDeclaration,
+  DeferringAdapter,
+  DeferringStep,
+  DeferSite,
+  ResumingStep,
 } from "../../kernel/continuation/sites.ts";
-export type { DeferSite } from "../../kernel/continuation/sites.ts";
+export type {
+  DeferAsideRequest,
+  DeferHandle,
+  DeferRequest,
+  DeferRevival,
+  ResumeFn,
+} from "../../kernel/continuation/handles.ts";
 
-export {
-  DeferSignal,
-  isDeferSignal,
-} from "../../kernel/continuation/signal.ts";
-export type { DeferSignalRequest } from "../../kernel/continuation/signal.ts";
+export { isDeferSignal } from "../../kernel/continuation/signal.ts";
 
 export { DeferralHeaders } from "../../kernel/continuation/exchange-state.ts";
 export type { DeferralAffordance } from "../../kernel/continuation/exchange-state.ts";

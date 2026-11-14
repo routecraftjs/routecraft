@@ -4,7 +4,7 @@ import type { CraftContext } from "./context.ts";
 import type { Route } from "./route.ts";
 import type { ErrorHandlerScope } from "./types.ts";
 import type { Deferred } from "./kernel/continuation/deferred.ts";
-import type { DeferSignalRequest } from "./kernel/continuation/signal.ts";
+import type { DeferRequest } from "./kernel/continuation/handles.ts";
 
 /**
  * Brand key marking a {@link Recovery} directive. Registered in
@@ -38,9 +38,8 @@ export interface RecoveryRethrow {
 }
 
 /**
- * What `recovery.defer()` takes: everything a {@link DeferSignalRequest}
- * declares except the schema, plus the notification the framework owns the
- * timing of.
+ * What `recovery.defer()` takes: what a step hands `ctx.defer()`, except
+ * the input schema.
  *
  * The site is deliberately absent. A handler runs outside the step tree and
  * has no position of its own, so the executor resolves the site from
@@ -53,8 +52,8 @@ export interface RecoveryRethrow {
  * route-scope `.error(handler, { schema })`, or on the error hook's `schema`.
  */
 export interface ErrorPathDeferRequest extends Omit<
-  DeferSignalRequest,
-  "schema"
+  DeferRequest,
+  "input" | "notify"
 > {
   /**
    * Tell someone the exchange parked, once the park is real.

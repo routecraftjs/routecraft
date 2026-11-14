@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   DefaultExchange,
   MemoryDeferralStore,
@@ -941,24 +941,22 @@ describe("the error slot", () => {
   });
 
   /**
-   * @case A hand-written definition keeps the resolver output both consumers read
-   * @preconditions A RouteDefinition with a static .defer(), stripped of everything the builder resolved, registered on a context
-   * @expectedResult deferSteps is restored, so the startup runtime check sees the route and a revival can find its static site
+   * @case A hand-written definition still parks and resumes at its static site
+   * @preconditions A RouteDefinition with a static .defer(), copied so it carries nothing the builder resolved, registered on a context
+   * @expectedResult The context resolves the sites itself: the route parks at the .defer() and a resume runs the step after it
    */
-  test("a definition that did not come from the builder keeps its defer steps", async () => {
+  test("a definition that did not come from the builder still parks and resumes", async () => {
     const store = new MemoryDeferralStore();
+    const sink = spy();
     const [built] = craft()
       .id("parks")
       .from(direct())
       .defer({})
-      .to(noop())
+      .to(sink)
       .build();
     const raw = { ...built! };
     delete (raw as { errorPathSites?: unknown }).errorPathSites;
     delete (raw as { admissionSite?: unknown }).admissionSite;
-    delete (raw as { deferSteps?: unknown }).deferSteps;
-    delete (raw as { reentrantDeferSteps?: unknown }).reentrantDeferSteps;
-    delete (raw as { usesResume?: unknown }).usesResume;
 
     t = await testContext()
       .with({ deferral: { store, secret: SECRET } })
@@ -966,42 +964,14 @@ describe("the error slot", () => {
       .build();
     await t.startAndWaitReady();
 
-    const registered = t.ctx
-      .getRoutes()
-      .find((r) => r.definition.id === "parks");
-    expect(registered?.definition.deferSteps?.length).toBe(1);
-  });
-
-  /**
-   * @case A hand-written definition claiming defer steps its own steps do not support
-   * @preconditions A route with no .defer(), handed over with deferSteps set by hand
-   * @expectedResult The walk's answer replaces it, rather than being merged with it
-   */
-  test("a definition's own claim about its defer steps does not outrank the walk", async () => {
-    const store = new MemoryDeferralStore();
-    const [built] = craft()
-      .id("claims")
-      .from(direct())
-      .transform((body) => body)
-      .to(noop())
-      .build();
-    const raw = { ...built! } as Record<string, unknown>;
-    delete raw["errorPathSites"];
-    delete raw["admissionSite"];
-    raw["deferSteps"] = [{ index: 0 }];
-    raw["usesResume"] = true;
-
-    t = await testContext()
-      .with({ deferral: { store, secret: SECRET } })
-      .routes([raw as never, craft().id("answers").from(direct()).resume()])
-      .build();
-    await t.startAndWaitReady();
-
-    const registered = t.ctx
-      .getRoutes()
-      .find((r) => r.definition.id === "claims");
-    expect(registered?.definition.deferSteps).toBeUndefined();
-    expect(registered?.definition.usesResume).toBeUndefined();
+    const deferred = asDeferred(await t.client.sendDirect("parks", {}));
+    expect(sink.received).toHaveLength(0);
+    await t.client.sendDirect("answers", {
+      token: deferred.token,
+      input: {},
+    });
+    expect(sink.received).toHaveLength(1);
+    expect(t.errors).toHaveLength(0);
   });
 
   /**
@@ -1050,7 +1020,10 @@ describe("the error slot", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
-    await t.client.sendDirect("answers", { token: deferred.token });
+    await t.client.sendDirect("answers", {
+      token: deferred.token,
+      input: {},
+    });
 
     expect(seen).toEqual([
       { route: "work", execution: 1, result: undefined },
@@ -1259,7 +1232,10 @@ describe("the error slot", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
-    await t.client.sendDirect("answers", { token: deferred.token });
+    await t.client.sendDirect("answers", {
+      token: deferred.token,
+      input: {},
+    });
 
     expect(heard).toEqual([
       "normalOnly:normal",

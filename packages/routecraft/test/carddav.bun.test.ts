@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { toSignalContext } from "../src/types.ts";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -660,6 +661,7 @@ describe("CardDAV destination (write)", () => {
         ctx,
       ),
       {
+        ...toSignalContext(),
         setHeader: (key, value) => {
           receipts[key] = value;
         },
@@ -760,6 +762,7 @@ describe("CardDAV destination (delete)", () => {
         ctx,
       ),
       {
+        ...toSignalContext(),
         setHeader: (key, value) => {
           receipts[key] = value;
         },

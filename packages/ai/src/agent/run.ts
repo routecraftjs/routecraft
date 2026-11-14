@@ -1,10 +1,11 @@
 import {
   authorityOf,
   HeadersKeys,
-  DeferSignal,
   isDeferSignal,
   rcError,
   type CraftContext,
+  type DeferHandle,
+  type DeferRequest,
   type Exchange,
 } from "@routecraft/routecraft";
 import { isBlockLoaderCall, summariseBlockLoads } from "../block/resolve.ts";
@@ -216,6 +217,8 @@ export interface AgentRunDeferral {
    * agents.
    */
   readonly agentId: string;
+  /** The hosting step's handle: what ends the run deferred. */
+  readonly defer: DeferHandle;
 }
 
 /**
@@ -283,7 +286,7 @@ export class AgentCancellationCause extends Error {
  * `ctx.defer(...)`'s sentinel (or throws `DeferError`) stops the loop
  * after its batch settles; the run persists the messages thread and
  * outstanding tool-call id as `stepState` and raises the core
- * `DeferSignal`, which the hosting `.to()` / `.enrich()` step converts
+ * deferral through the hosting step's `ctx.defer`, which the kernel turns
  * into a deferral. A resumed dispatch re-enters through
  * {@link AgentRunInput.resume} with the answer already swapped into
  * the thread.
@@ -509,7 +512,7 @@ export class AgentRun<T = unknown> {
           accumulatedToolCalls.push(...result.toolCalls);
         }
         if (signals.length > 0) {
-          throw this.buildDeferSignal(
+          await this.defer(
             signals,
             result,
             currentUser,
@@ -557,8 +560,8 @@ export class AgentRun<T = unknown> {
   }
 
   /**
-   * Turn a collected batch of defer signals into the core signal the
-   * hosting step converts into a deferral.
+   * Turn a collected batch of defer signals into one deferral of the
+   * hosting step, and end the run with it.
    *
    * The winner is the FIRST deferred tool call in the model's own
    * emission order (deterministic under parallel execution, unlike
@@ -569,13 +572,13 @@ export class AgentRun<T = unknown> {
    *
    * @internal
    */
-  private buildDeferSignal(
+  private async defer(
     signals: AgentDeferSignalRecord[],
     result: LlmResult,
     currentUser: string | ThreadMessage[],
     turnsUsed: number,
     usage: LlmUsage | undefined,
-  ): DeferSignal {
+  ): Promise<never> {
     // Signals are only ever recorded through a bridge this run created,
     // and the bridge exists only when the input carries deferral wiring,
     // so this guard is wiring defence rather than a reachable path.
@@ -628,9 +631,9 @@ export class AgentRun<T = unknown> {
       turnsUsed,
       ...(usage !== undefined ? { usage } : {}),
     };
-    const { input: schema, ttl, meta } = winner.request;
-    return new DeferSignal({
-      ...(schema !== undefined ? { schema } : {}),
+    const { input, ttl, meta } = winner.request;
+    const request: DeferRequest = {
+      ...(input !== undefined ? { input } : {}),
       ...(ttl !== undefined ? { ttl } : {}),
       ...(meta !== undefined ? { meta } : {}),
       // The winner's call is what the record binds to, so exactly the
@@ -638,7 +641,8 @@ export class AgentRun<T = unknown> {
       // answers. Losing siblings' credentials name their own calls.
       callBinding: winner.toolCallId,
       stepState,
-    });
+    };
+    return deferral.defer(request);
   }
 
   /**

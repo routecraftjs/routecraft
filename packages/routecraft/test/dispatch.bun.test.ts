@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { toSignalContext } from "../src/types.ts";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, weighted, type Source } from "@routecraft/routecraft";
 
@@ -412,6 +413,7 @@ describe("dispatch operation", () => {
     type Ctx = Parameters<(typeof step)["execute"]>[1];
     let calls = 0;
     const makeCtx = (aborted: boolean): Ctx => ({
+      ...toSignalContext(),
       takePending: () => [],
       runPaths: async () => {},
       runPath: async () => {

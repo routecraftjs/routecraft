@@ -72,7 +72,7 @@ export class ErrorWrapperStep<
     // success. The inner never sees the work queue, so a failure here
     // has scheduled nothing; recovery simply substitutes an outcome.
     try {
-      return await this.inner.execute(exchange, ctx);
+      return await this.runStep(exchange, ctx);
     } catch (rawInnerError) {
       // The step-scope handler receives the same shape the route-scope
       // handler does, so one that branches on `error.rc` works in both.

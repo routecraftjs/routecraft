@@ -1,9 +1,8 @@
 import type { IdentityValue } from "./identity.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { BRAND, isBranded, setBrand } from "../../brand.ts";
 import { rcError } from "../../error.ts";
 import { OperationType } from "../../exchange.ts";
-import { NESTED_STEPS, DEFER_HOST } from "../../dsl-symbol.ts";
+import { NESTED_STEPS, DEFERS, RESUMES } from "../../dsl-symbol.ts";
 import type { Adapter, Step } from "../../types.ts";
 import type { CraftContext } from "../../context.ts";
 import type { RouteDefinition } from "../../route.ts";
@@ -67,65 +66,71 @@ export interface DeferSite {
 }
 
 /**
- * Mark an adapter as able to raise a durable deferral from inside its own
- * execution (by throwing a `DeferSignal` from `fetch` / `send`). The
- * defer-site walk assigns `.to()` / `.enrich()` steps carrying a marked
- * adapter a re-entrant {@link DeferSite}.
+ * What a step says about deferring, through {@link DEFERS}.
  *
- * Core owns the brand; a consumer package (the agent tier is the shipped
- * case) marks its adapter with this helper and never mints its own symbol.
+ * `"next-step"`: the step always defers, and a revival continues with the
+ * step after it. `input` is the schema a resume payload is validated
+ * against before the claim (`RC5049`), read back off the step at resume
+ * because a schema cannot be stored with the record.
+ *
+ * `"this-step"`: the step may defer, and a revival runs it again with what
+ * it stored (`ctx.defer.revived`). It names its `input` when it defers,
+ * so the route cannot be asked for it and the step validates the payload.
  */
-export function markDeferCapable(adapter: Adapter): void {
-  setBrand(adapter, BRAND.DeferCapable);
+export type DeferDeclaration =
+  | { readonly revival: "next-step"; readonly input?: StandardSchemaV1 }
+  | { readonly revival: "this-step" };
+
+/** A step that declares it defers. The kernel hands it `ctx.defer`. */
+export interface DeferringStep extends Step<Adapter> {
+  [DEFERS](): DeferDeclaration;
 }
 
 /**
- * Whether an adapter was marked with {@link markDeferCapable}.
- *
- * @internal
+ * A `.to()` / `.enrich()` adapter that may defer from inside `send` or
+ * `fetch`. The step that carries it declares for it, and the adapter reads
+ * `ctx.defer` off the context it is called with.
  */
-export function isDeferCapable(adapter: Adapter): boolean {
-  return isBranded(adapter, BRAND.DeferCapable);
+export interface DeferringAdapter extends Adapter {
+  [DEFERS](): { readonly revival: "this-step" };
+}
+
+/** A step that declares it resumes deferred exchanges. The kernel hands it `ctx.resume`. */
+export interface ResumingStep extends Step<Adapter> {
+  [RESUMES](): true;
 }
 
 /**
- * A `.to()` / `.enrich()` step that can host a re-entrant defer site.
- * The walk stores its verdict on the hosting instance, because that
- * instance's `execute` is where the defer signal is converted (before any
- * step-scope wrapper can observe the throw and, say, retry the step).
+ * What a step declares through {@link DEFERS}, or `undefined`.
  *
+ * @throws RC5003 when the declaration is not one of the two shapes
  * @internal
  */
-export interface DeferCapableStep extends Step<Adapter> {
-  /** Assigned by {@link resolveDeferSites} when the step sits on the primary flow. */
-  deferSite?: DeferSite;
-  /**
-   * Why no site was assigned, when the step sits somewhere a durable deferral
-   * cannot be revived from (inside a `.split()` fan-out, or a
-   * `.multicast()` path / `.dispatch()` target). Deferability of a
-   * capable step is dynamic, so the refusal cannot fail the build the way a
-   * static `.defer()` does; it fails the first actual deferral instead,
-   * with this message, as `RC5051`.
-   */
-  deferRefusal?: string;
-  /** Identity through wrappers: the instance the walk stores the site on. */
-  [DEFER_HOST](): DeferCapableStep | undefined;
+export function deferDeclarationOf(
+  step: Step<Adapter> | Adapter,
+): DeferDeclaration | undefined {
+  const declare = (step as { [DEFERS]?: () => DeferDeclaration | undefined })[
+    DEFERS
+  ];
+  if (typeof declare !== "function") return undefined;
+  const declared = declare.call(step);
+  if (declared === undefined) return undefined;
+  if (declared.revival !== "next-step" && declared.revival !== "this-step") {
+    throw rcError("RC5003", undefined, {
+      message: `A step's DEFERS declaration must be { revival: "next-step", input? } or { revival: "this-step" }; it returned ${JSON.stringify(declared)}.`,
+    });
+  }
+  return declared;
 }
 
 /**
- * Resolve the defer-capable host of a step, looking through step-scope
- * wrappers (which forward {@link DEFER_HOST} like they forward
- * {@link NESTED_STEPS}). Returns undefined for steps that cannot host a
- * re-entrant site, which is every step other than `.to()` / `.enrich()`
- * (and a wrapper around one of those).
+ * Whether a step declares {@link RESUMES}.
  *
  * @internal
  */
-export function deferHostOf(step: Step<Adapter>): DeferCapableStep | undefined {
-  const resolve = (step as Partial<DeferCapableStep>)[DEFER_HOST];
-  return typeof resolve === "function"
-    ? resolve.call(step as DeferCapableStep)
-    : undefined;
+export function declaresResume(step: Step<Adapter>): boolean {
+  const declare = (step as { [RESUMES]?: () => unknown })[RESUMES];
+  return typeof declare === "function" && declare.call(step) === true;
 }
 
 /**
@@ -139,9 +144,13 @@ export function deferHostOf(step: Step<Adapter>): DeferCapableStep | undefined {
  * it on the `StepOutcome` union, and `types.ts` is the dependency root: it
  * does not import from `operations/`.
  *
+ * Minted by a defer handle or by the error path, never built by hand: the
+ * executor refuses a `defer` outcome whose request it did not mint
+ * (`RC5032`).
+ *
  * @internal
  */
-export interface DeferRequest {
+export interface DeferTicket {
   /**
    * Live schema the eventual resume payload is validated against, when the site
    * declared one. Absent defers with no ingress validation, which is the
@@ -177,10 +186,10 @@ export interface DeferRequest {
    */
   readonly notify?: (ack: Deferred) => void | Promise<void>;
   /**
-   * What bounds {@link DeferRequest.notify}.
+   * What bounds {@link DeferTicket.notify}.
    *
    * Resolved by the executor rather than supplied by the handler, like
-   * {@link DeferRequest.site}: the deferring route's intake signal widened by
+   * {@link DeferTicket.site}: the deferring route's intake signal widened by
    * an enclosing `.timeout()`, which is the same bound `runAuthorizer` gives
    * the resume `authorize` hook and for the same reason. Stop has to be in
    * it, because a route with no `.timeout()` could otherwise never interrupt
@@ -196,24 +205,50 @@ export interface DeferRequest {
   readonly stepState?: unknown;
 }
 
+const tickets = new WeakSet<object>();
+
 /**
- * A step that can defer the exchange. Implemented by the `.defer()` step;
- * declared here so the walk can recognise one without importing the
- * operation (which imports this module back).
+ * Mint the ticket a `defer` outcome carries.
  *
  * @internal
  */
-export interface DeferrableStep extends Step<Adapter> {
-  readonly operation: OperationType.DEFER;
-  /**
-   * The live resume-payload schema, when the site declared one. Read back
-   * off the step at resume time to validate the submitted payload, because a
-   * Standard Schema cannot be persisted with the record.
-   */
-  readonly schema?: StandardSchemaV1;
-  /** Assigned by {@link resolveDeferSites}. Absent means the step is not reachable from a built route. */
-  site?: DeferSite;
+export function mintDeferTicket(fields: DeferTicket): DeferTicket {
+  const ticket = Object.freeze({ ...fields });
+  tickets.add(ticket);
+  return ticket;
 }
+
+/**
+ * Whether a value is a ticket {@link mintDeferTicket} minted.
+ *
+ * @internal
+ */
+export function isDeferTicket(value: unknown): value is DeferTicket {
+  return typeof value === "object" && value !== null && tickets.has(value);
+}
+
+/**
+ * What the walk resolved for one step that declares {@link DEFERS}.
+ *
+ * A `"this-step"` step somewhere a deferral cannot be revived from keeps a
+ * refusal rather than failing the build, because whether it ever defers is
+ * dynamic; the refusal fires as `RC5051` on its first deferral.
+ *
+ * @internal
+ */
+export type DeclaredDeferSite =
+  | {
+      readonly kind: "site";
+      readonly revival: DeferDeclaration["revival"];
+      readonly site: DeferSite;
+      /** The declared resume-payload schema of a `"next-step"` site. */
+      readonly input?: StandardSchemaV1;
+    }
+  | {
+      readonly kind: "refused";
+      readonly revival: "this-step";
+      readonly refusal: string;
+    };
 
 /**
  * One nested sub-pipeline of a step, as reported through
@@ -295,8 +330,10 @@ export type AdmissionSite = DeferSite;
  * @internal
  */
 export interface ResolvedDeferSites {
-  deferSteps: DeferrableStep[];
-  reentrantDeferSteps: DeferCapableStep[];
+  /** Every step that declares `DEFERS`, by the instance the executor runs. */
+  declared: Map<Step<Adapter>, DeclaredDeferSite>;
+  /** The route can reach a step that declares `RESUMES`. */
+  resumes: boolean;
   /**
    * Keyed by step INSTANCE rather than by position, because that is what the
    * executor holds when a step fails. Positions are derivable from the site
@@ -329,11 +366,10 @@ export function routeCanDefer(
   definition: RouteDefinition,
   context?: Pick<CraftContext, "hasDeferringErrorHook">,
 ): boolean {
-  return (
-    (definition.deferSteps?.length ?? 0) > 0 ||
-    (definition.reentrantDeferSteps?.length ?? 0) > 0 ||
-    context?.hasDeferringErrorHook(definition) === true
-  );
+  for (const declared of resolvedSitesOf(definition)?.declared.values() ?? []) {
+    if (declared.kind === "site") return true;
+  }
+  return context?.hasDeferringErrorHook(definition) === true;
 }
 
 /**
@@ -363,8 +399,8 @@ export function routeCanDefer(
  */
 export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
   const found: ResolvedDeferSites = {
-    deferSteps: [],
-    reentrantDeferSteps: [],
+    declared: new Map(),
+    resumes: containsResume(route.steps),
     errorPathSites: new Map(),
     // Nested steps are reached through branch outcomes, so the top level is the whole body.
     admissionSite: { position: 0, continuation: route.steps },
@@ -401,28 +437,44 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
  */
 export function applyResolvedSites(definition: RouteDefinition): void {
   const sites = resolveDeferSites(definition);
-  // Deleted, not set to undefined: `exactOptionalPropertyTypes` is on.
-  if (sites.deferSteps.length > 0) {
-    definition.deferSteps = sites.deferSteps;
-  } else {
-    delete definition.deferSteps;
-  }
-  if (sites.reentrantDeferSteps.length > 0) {
-    definition.reentrantDeferSteps = sites.reentrantDeferSteps;
-  } else {
-    delete definition.reentrantDeferSteps;
-  }
+  resolved.set(definition, sites);
   definition.errorPathSites = sites.errorPathSites;
   definition.admissionSite = sites.admissionSite;
-  if (usesResume(definition)) {
-    definition.usesResume = true;
-  } else {
-    delete definition.usesResume;
-  }
+}
+
+const resolved = new WeakMap<RouteDefinition, ResolvedDeferSites>();
+
+/**
+ * What {@link applyResolvedSites} resolved for a definition, or `undefined`
+ * for one that never went through it.
+ *
+ * @internal
+ */
+export function resolvedSitesOf(
+  definition: RouteDefinition,
+): ResolvedDeferSites | undefined {
+  return resolved.get(definition);
 }
 
 /**
- * Whether a route can reach a `.resume()`.
+ * Whether the route declares a site that always defers (a `"next-step"`
+ * declaration, the shipped `.defer()` included). Startup demands a
+ * continuations provider for it (`RC5052`), and a route-scope cache is
+ * refused beside it.
+ *
+ * @internal
+ */
+export function alwaysDefers(definition: RouteDefinition): boolean {
+  for (const declared of resolvedSitesOf(definition)?.declared.values() ?? []) {
+    if (declared.kind === "site" && declared.revival === "next-step") {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether a route can reach a step that declares `RESUMES`.
  *
  * A resume ingress needs the deferral runtime just as much as a
  * deferring route does: it verifies tokens against the signer and reads
@@ -434,14 +486,14 @@ export function applyResolvedSites(definition: RouteDefinition): void {
  * @internal
  */
 export function usesResume(route: RouteDefinition): boolean {
-  return containsResume(route.steps);
+  return resolvedSitesOf(route)?.resumes ?? containsResume(route.steps);
 }
 
 /** @internal */
 function containsResume(steps: ReadonlyArray<Step<Adapter>>): boolean {
   return steps.some(
     (step) =>
-      step.operation === OperationType.RESUME ||
+      declaresResume(step) ||
       nestedStepsOf(step).some((nested) => containsResume(nested.steps)),
   );
 }
@@ -506,36 +558,49 @@ function walk(
             },
     );
 
-    if (step.operation === OperationType.DEFER) {
+    const declaration = deferDeclarationOf(step);
+    if (declaration?.revival === "next-step") {
       if (splitDepth > 0) {
         throw refuse(route.id, "split");
       }
       if (scope.sealed) {
         throw refuse(route.id, "sealed");
       }
-      const defer = step as DeferrableStep;
-      defer.site = { position, continuation: after };
-      found.deferSteps.push(defer);
+      found.declared.set(step, {
+        kind: "site",
+        revival: "next-step",
+        site: { position, continuation: after },
+        ...(declaration.input !== undefined
+          ? { input: declaration.input }
+          : {}),
+      });
       continue;
     }
-
-    const host = deferHostOf(step);
-    if (host && isDeferCapable(step.adapter)) {
-      // A rebuilt walk starts every host clean so a stale field cannot outrank the fresh one.
-      delete host.deferRefusal;
-      delete host.deferSite;
-      if (splitDepth > 0) {
-        host.deferRefusal = unrevivablePosition(route.id, "split", "raised");
-      } else if (scope.sealed) {
-        host.deferRefusal = unrevivablePosition(route.id, "sealed", "raised");
-      } else {
-        host.deferSite = {
-          position,
-          continuation: [step, ...after],
-          reentrant: true,
-        };
-        found.reentrantDeferSteps.push(host);
-      }
+    if (declaration?.revival === "this-step") {
+      found.declared.set(
+        step,
+        splitDepth > 0
+          ? {
+              kind: "refused",
+              revival: "this-step",
+              refusal: unrevivablePosition(route.id, "split", "raised"),
+            }
+          : scope.sealed
+            ? {
+                kind: "refused",
+                revival: "this-step",
+                refusal: unrevivablePosition(route.id, "sealed", "raised"),
+              }
+            : {
+                kind: "site",
+                revival: "this-step",
+                site: {
+                  position,
+                  continuation: [step, ...after],
+                  reentrant: true,
+                },
+              },
+      );
     }
 
     const nested = nestedStepsOf(step);

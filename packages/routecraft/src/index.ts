@@ -52,7 +52,6 @@ export {
   type HeaderLiteral,
   isDropped,
   OperationType,
-  peekResumeStepState,
   principalOf,
   wasOutputValidated,
   type RoutecraftHeaders,
@@ -684,6 +683,7 @@ export {
   type Step,
   type StepContext,
   type StepSignalContext,
+  type StepRouteView,
   type StepOutcome,
   type StepOutcomeMetadata,
 } from "./types.ts";
@@ -939,11 +939,9 @@ export {
   DEFERRAL_SECRET_ENV,
   DEFERRAL_STORE_ENV,
   SqliteDeferralStore,
-  DeferSignal,
   DeferralHeaders,
   isDeferSignal,
   isDeferred,
-  markDeferCapable,
   // deferAside, reviveDeferral, deferralScope, decodePersistable and
   // decodeOutcome are @internal and re-exported on purpose: @routecraft/ai
   // stores and revives an agent session's continuation through the first
@@ -966,7 +964,15 @@ export {
 export type {
   ExpiredScanCursor,
   NewDeferral,
-  DeferSignalRequest,
+  DeferRequest,
+  DeferAsideRequest,
+  DeferRevival,
+  DeferHandle,
+  ResumeFn,
+  DeferDeclaration,
+  DeferringStep,
+  DeferringAdapter,
+  ResumingStep,
   DeferSite,
   PendingDeferralSummary,
   PrincipalRef,
@@ -1071,7 +1077,7 @@ export {
   type VCardPropertyOptions,
   type VCardParam,
 } from "./adapters/carddav/index.ts";
-export { NESTED_STEPS, AUTHENTICATES } from "./dsl-symbol.ts";
+export { NESTED_STEPS, AUTHENTICATES, DEFERS, RESUMES } from "./dsl-symbol.ts";
 export type { NestedSteps, NestingStep } from "./kernel/continuation/sites.ts";
 export {
   IDENTITY,

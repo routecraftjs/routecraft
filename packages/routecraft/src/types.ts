@@ -4,7 +4,10 @@ import type { CraftContext } from "./context.ts";
 import type { RouteDefinition } from "./route.ts";
 import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
-import type { DeferRequest } from "./kernel/continuation/sites.ts";
+import type { DeferTicket } from "./kernel/continuation/sites.ts";
+import type { DeferHandle, ResumeFn } from "./kernel/continuation/handles.ts";
+import type { ForwardFn } from "./route.ts";
+import { rcError } from "./error.ts";
 import type { PrincipalRef } from "./kernel/continuation/types.ts";
 
 /**
@@ -205,13 +208,23 @@ export type StepOutcome =
   | { kind: "drop"; metadata?: StepOutcomeMetadata }
   | { kind: "branch"; exchange: Exchange; steps: Step<Adapter>[] }
   | { kind: "fanOut"; exchanges: Exchange[] }
-  | { kind: "defer"; exchange: Exchange; request: DeferRequest };
+  | { kind: "defer"; exchange: Exchange; request: DeferTicket };
+
+/** What step code learns about the route it runs on. */
+export interface StepRouteView {
+  readonly id: string;
+  readonly tags: readonly string[];
+}
 
 /**
- * The abort surface of a step execution, handed to function-form steps
- * (`.process()`, `.transform()`, `.to()`, `.enrich()`) as their trailing
- * argument. {@link StepContext} extends it, so adapter authors
- * implementing {@link Step.execute} read the same field from `ctx`.
+ * What a step execution is handed besides the exchange: function-form steps
+ * (`.process()`, `.transform()`, `.to()`, `.enrich()`) get it as their
+ * trailing argument, and an adapter's `send` / `fetch` as its context.
+ * {@link StepContext} extends it, so a step written against
+ * {@link Step.execute} reads the same fields from `ctx`.
+ *
+ * The kernel always passes it. A callable called by hand (a unit test) may
+ * get none, which is why the parameter stays optional where it is.
  *
  * `signal` fires when an enclosing `.timeout()` deadline expires (step
  * scope or route scope): promises cannot be cancelled, so the framework
@@ -236,21 +249,56 @@ export type StepOutcome =
 export interface StepSignalContext {
   /** Fires when an enclosing `.timeout()` deadline expires. */
   readonly signal?: AbortSignal;
+  /** The route this step runs on. */
+  readonly route: StepRouteView;
+  /**
+   * Send a payload to another route and get its result: what
+   * `.to(direct(endpoint))` does, from inside a step. The call carries this
+   * exchange's headers, so the target sees the same principal and journey.
+   */
+  readonly forward: ForwardFn;
+  /** Present when the step, or the adapter it carries, declares `DEFERS`. */
+  readonly defer?: DeferHandle;
+  /** Present when the step declares `RESUMES`. */
+  readonly resume?: ResumeFn;
 }
 
+const DETACHED_ROUTE: StepRouteView = Object.freeze({
+  id: "",
+  tags: Object.freeze([]),
+});
+
+const detachedForward: ForwardFn = () =>
+  Promise.reject(
+    rcError("RC5001", undefined, {
+      message:
+        "forward() requires a route, and this step ran without a route binding.",
+    }),
+  );
+
 /**
- * Narrow a {@link StepContext} down to its abort surface for handing to
- * user code. Function-form steps (`.process()`, `.transform()`, `.to()`,
- * `.enrich()`) pass THIS to their callables instead of the executor's
- * full context: the narrowing is a deliberate capability boundary (only
- * `signal` may reach user code, never scheduling capabilities like
- * `takePending`), so every call site funnels through here rather than
- * re-spelling the spread.
+ * Narrow a {@link StepContext} down to what user code is handed.
+ * Function-form steps (`.process()`, `.transform()`, `.to()`,
+ * `.enrich()`) pass THIS to their callables instead of the executor's full
+ * context, so the scheduling capabilities (`takePending`, `runPaths`) stay
+ * with steps written against {@link Step.execute}. Every call site goes
+ * through here rather than re-spelling the spread.
+ *
+ * A step executed by hand with no context gets a route with no id and a
+ * `forward` that rejects (`RC5001`).
  *
  * @internal
  */
-export function toSignalContext(ctx?: StepContext): StepSignalContext {
-  return ctx?.signal ? { signal: ctx.signal } : {};
+export function toSignalContext(
+  ctx?: Partial<StepSignalContext>,
+): StepSignalContext {
+  return {
+    ...(ctx?.signal ? { signal: ctx.signal } : {}),
+    route: ctx?.route ?? DETACHED_ROUTE,
+    forward: ctx?.forward ?? detachedForward,
+    ...(ctx?.defer ? { defer: ctx.defer } : {}),
+    ...(ctx?.resume ? { resume: ctx.resume } : {}),
+  };
 }
 
 /**

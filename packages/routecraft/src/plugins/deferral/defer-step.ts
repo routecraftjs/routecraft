@@ -1,13 +1,14 @@
 import { IDENTITY, type Identity } from "../../kernel/continuation/identity.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { rcError } from "../../error.ts";
+import { DEFERS } from "../../dsl-symbol.ts";
 import { type Exchange, OperationType } from "../../exchange.ts";
-import type { Adapter, StepOutcome } from "../../types.ts";
+import type { Adapter, StepContext, StepOutcome } from "../../types.ts";
 import type { Duration } from "../../shared/duration.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import type {
-  DeferSite,
-  DeferrableStep,
+  DeferDeclaration,
+  DeferringStep,
 } from "../../kernel/continuation/sites.ts";
 
 /**
@@ -74,71 +75,63 @@ export interface DeferAdapter extends Adapter {
 /**
  * Step that defers the exchange and exits the pipeline.
  *
- * It performs no effects of its own: it produces the `defer` outcome and
- * the executor does the deferring. Nothing is scheduled, no worker waits, and
- * the route stays live for every other exchange, because a deferred exchange
- * lives in the deferral store rather than in this process.
+ * It declares a `"next-step"` site and asks the kernel to defer: nothing
+ * is scheduled, no worker waits, and the route stays live for every other
+ * exchange, because a deferred exchange lives in the deferral store rather
+ * than in this process.
  */
-export class DeferStep implements DeferrableStep {
+export class DeferStep implements DeferringStep {
   readonly operation = OperationType.DEFER;
   readonly adapter: DeferAdapter = {
     adapterId: "routecraft.operation.defer",
   };
 
-  /**
-   * Assigned by the build-time site resolver. A step that never got one is
-   * not reachable from a built route, so there is no continuation to revive
-   * and the step refuses rather than deferring an exchange nothing can wake.
-   */
-  site?: DeferSite;
-
-  /**
-   * The live resume-payload schema, when one was declared. Public because
-   * the resume path reads it back off the route to validate the submitted
-   * payload: a Standard Schema is an object with a validate function, so it
-   * cannot travel in the record.
-   */
-  readonly schema?: StandardSchemaV1;
-
-  /** Policy inputs the defer site attached, persisted verbatim on the record. */
-  readonly meta?: unknown;
-
-  readonly #expiresInMs?: number;
+  readonly #input?: StandardSchemaV1;
+  readonly #meta?: unknown;
+  readonly #ttl?: Duration;
 
   constructor(options: DeferOptions = {}) {
-    if (options.input !== undefined) this.schema = options.input;
-    if (options.meta !== undefined) this.meta = options.meta;
+    if (options.input !== undefined) this.#input = options.input;
+    if (options.meta !== undefined) this.#meta = options.meta;
     if (options.ttl !== undefined) {
-      this.#expiresInMs = parseDuration(options.ttl, ".defer({ ttl })");
+      // Parsed here so a bad duration fails the build, not the first exchange.
+      parseDuration(options.ttl, ".defer({ ttl })");
+      this.#ttl = options.ttl;
     }
+  }
+
+  [DEFERS](): DeferDeclaration {
+    return {
+      revival: "next-step",
+      ...(this.#input !== undefined ? { input: this.#input } : {}),
+    };
   }
 
   /** @internal */
   [IDENTITY](): Identity {
     return {
       kind: "routecraft.defer",
-      options: { schema: this.schema, meta: this.meta, ttl: this.#expiresInMs },
+      options: {
+        schema: this.#input,
+        meta: this.#meta,
+        ttl:
+          this.#ttl !== undefined
+            ? parseDuration(this.#ttl, ".defer({ ttl })")
+            : undefined,
+      },
     };
   }
 
-  async execute(exchange: Exchange): Promise<StepOutcome> {
-    if (!this.site) {
+  async execute(_exchange: Exchange, ctx?: StepContext): Promise<StepOutcome> {
+    if (!ctx?.defer) {
       throw rcError("RC5051", undefined, {
         message:
           "This .defer() is not reachable from a built route, so the framework cannot work out what would run when it resumes. Build the route through craft()...build() rather than assembling a RouteDefinition by hand.",
       });
     }
-    return {
-      kind: "defer",
-      exchange,
-      request: {
-        ...(this.schema !== undefined ? { schema: this.schema } : {}),
-        ...(this.#expiresInMs !== undefined
-          ? { expiresInMs: this.#expiresInMs }
-          : {}),
-        ...(this.meta !== undefined ? { meta: this.meta } : {}),
-        site: this.site,
-      },
-    };
+    return ctx.defer({
+      ...(this.#ttl !== undefined ? { ttl: this.#ttl } : {}),
+      ...(this.#meta !== undefined ? { meta: this.#meta } : {}),
+    });
   }
 }

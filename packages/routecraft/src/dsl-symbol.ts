@@ -113,18 +113,24 @@ export const AUTHENTICATES: unique symbol = Symbol.for(
 );
 
 /**
- * Symbol a step implements to expose the step instance that hosts a
- * re-entrant defer site: the `.to()` / `.enrich()` step whose adapter
- * carries the defer-capable brand. Step-scope wrappers forward it to
- * their inner step (like {@link NESTED_STEPS}), so the defer-site walk
- * can store the site on the instance whose `execute` converts the defer
- * signal, however deeply the step is wrapped.
+ * Symbol a step implements to declare that it defers the exchange: always,
+ * continuing with the step after it (`{ revival: "next-step" }`), or
+ * sometimes, running again when revived (`{ revival: "this-step" }`). The
+ * kernel resolves where a revival re-enters from the declaration and hands
+ * the step `ctx.defer`. A `.to()` / `.enrich()` adapter implements it to
+ * declare for the step that carries it.
  *
- * @internal
+ * A registered symbol, so a step from the package's other build (ESM beside
+ * CJS) declares the same thing.
  */
-export const DEFER_HOST: unique symbol = Symbol.for(
-  "routecraft.step.deferHost",
-);
+export const DEFERS: unique symbol = Symbol.for("routecraft.step.defers");
+
+/**
+ * Symbol a step implements to declare that it resumes deferred exchanges.
+ * The kernel hands it `ctx.resume`, and the route needs a continuations
+ * provider to start.
+ */
+export const RESUMES: unique symbol = Symbol.for("routecraft.step.resumes");
 
 /**
  * The name a plugin's catalogue registered a step under, stamped by the
