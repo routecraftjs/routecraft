@@ -92,4 +92,4 @@ A custom aggregator receives the original exchange and the fetched value, and re
 - `.to()` with a destination (send) leaves the body unchanged; with an enricher (fetch) it replaces the body. No aggregator.
 - `.enrich()` always resolves the fetch slot, and the aggregator decides how the result lands: replace (default), merge (`only()` / custom), or ignore (`none()`).
 
-Enrichment pulls data in. Push-out sends (`mail()`, file writes, `log()`) belong in `.to()` / `.tap()`; passing a send-only destination to `.enrich()` throws `RC5003`.
+Enrichment pulls data in. Push-out sends (`mail()`, file writes) belong in `.to()` / `.tap()`; passing a send-only destination to `.enrich()` throws `RC5003`.

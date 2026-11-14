@@ -871,16 +871,23 @@ describe("step identity: steps and adapters", () => {
 
   /**
    * @case A log line is added to a tail
-   * @preconditions The same route with and without `.log()` and `.debug()`
+   * @preconditions The same route with and without two `.log()` lines
    * @expectedResult The digests match: a log line re-asks no parked approval
    */
   test("log steps are left out", () => {
-    expect(digestOf((r) => r.log().debug().to(noop()))).toBe(
-      digestOf((r) => r.to(noop())),
-    );
-    expect(digestOf((r) => r.retry({ maxAttempts: 2 }).log().to(noop()))).toBe(
-      digestOf((r) => r.to(noop())),
-    );
+    expect(
+      digestOf((r) =>
+        r
+          .log("info", "Seen")
+          .log("debug", "Seen", (ex) => ({ id: ex.id }))
+          .to(noop()),
+      ),
+    ).toBe(digestOf((r) => r.to(noop())));
+    expect(
+      digestOf((r) =>
+        r.retry({ maxAttempts: 2 }).log("info", "Seen").to(noop()),
+      ),
+    ).toBe(digestOf((r) => r.to(noop())));
   });
 
   /**
@@ -903,8 +910,7 @@ describe("step identity: steps and adapters", () => {
           .schema(z.object({ a: z.number() }))
           .validate(z.object({ a: z.number() }))
           .tap(() => void mine.USER)
-          .log()
-          .debug()
+          .log("info", "Seen", () => ({ user: mine.USER }))
           .sample({ every: 2 })
           .dedupe({ key: () => String(mine.USER) })
           .enrich(
@@ -1024,7 +1030,7 @@ describe("step identity: the stored continuation hash", () => {
    */
   test("numbers a step by its place and tells an addition from an edit", () => {
     const logged = (tier: string) =>
-      stepsOf((r) => r.log().header("tier", tier).to(noop()));
+      stepsOf((r) => r.log("info", "Seen").header("tier", tier).to(noop()));
     expect(
       continuationDifference(
         continuationTailHash(logged("gold"), schema),

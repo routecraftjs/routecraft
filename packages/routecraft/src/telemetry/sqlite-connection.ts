@@ -7,7 +7,7 @@ import {
 import type { SqliteDatabase } from "../shared/sqlite/types.ts";
 import { resolveDatabasePath } from "../shared/sqlite/database.ts";
 import { ADDED_COLUMNS, ALL_DDL, POST_MIGRATION_DDL } from "./schema.ts";
-import type { TelemetryLogger } from "./types.ts";
+import type { Logger } from "../logger.ts";
 
 /**
  * Default path for the telemetry database, relative to cwd.
@@ -65,10 +65,10 @@ const PRUNE_INTERVAL_MS = 60_000;
  */
 export class SqliteConnection {
   readonly db: TelemetryDatabase;
-  readonly logger: TelemetryLogger | undefined;
+  readonly logger: Pick<Logger, "warn"> | undefined;
   private pruneTimer: ReturnType<typeof setInterval> | undefined;
 
-  private constructor(db: TelemetryDatabase, logger?: TelemetryLogger) {
+  private constructor(db: TelemetryDatabase, logger?: Pick<Logger, "warn">) {
     this.db = db;
     this.logger = logger;
   }
@@ -88,7 +88,7 @@ export class SqliteConnection {
    */
   static async open(
     options?: SqliteConnectionOptions,
-    logger?: TelemetryLogger,
+    logger?: Pick<Logger, "warn">,
     loaders?: SqliteDriverLoaders,
   ): Promise<SqliteConnection | null> {
     const dbPathRaw = options?.dbPath ?? DEFAULT_DB_PATH;

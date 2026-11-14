@@ -6,7 +6,7 @@ import {
   type ResolvedRequestValidation,
 } from "./request-validation.ts";
 import { port, type PortLookup } from "../../kernel/port.ts";
-import type { PluginLogger } from "../../kernel/plugin.ts";
+import type { Logger } from "../../logger.ts";
 import type { EventDetailsMap, EventName } from "../../types.ts";
 import { rcError } from "../../error.ts";
 import type { HttpServerRuntime } from "../http/server/index.ts";
@@ -43,7 +43,7 @@ export const WEB_INGRESS = port<ReadonlyMap<string, WebIngress>>(
  * `PluginContext` is one; so is a `CraftContext`.
  */
 export interface IngressHost {
-  readonly logger: PluginLogger;
+  readonly logger: Logger;
   emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
   /**
    * Brands the identities a mount verifies, so they are authentic to the

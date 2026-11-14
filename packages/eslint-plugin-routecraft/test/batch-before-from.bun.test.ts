@@ -31,11 +31,11 @@ ruleTester.run("batch-before-from", batchBeforeFromRule, {
     // batch before from
     {
       code: `
-        import { craft, simple, log } from "@routecraft/routecraft";
+        import { craft, simple, noop } from "@routecraft/routecraft";
         craft()
           .batch({ size: 10 })
           .from(simple(['a', 'b']))
-          .to(log());
+          .to(noop());
       `,
     },
     // with id and other ops
@@ -46,13 +46,13 @@ ruleTester.run("batch-before-from", batchBeforeFromRule, {
           .batch({ size: 10, flushInterval: 1000 })
           .from(simple([1,2,3]))
           .transform(x => x)
-          .to(log());
+          .to(noop());
       `,
     },
     // no batch usage
     {
       code: `
-        craft().id('r').from(simple(1)).to(log());
+        craft().id('r').from(simple(1)).to(noop());
       `,
     },
     // multiple routes staged: batch before each from
@@ -61,10 +61,10 @@ ruleTester.run("batch-before-from", batchBeforeFromRule, {
         craft()
           .batch()
           .from(simple(1))
-          .to(log())
+          .to(noop())
           .batch({ size: 5 })
           .from(simple(2))
-          .to(log());
+          .to(noop());
       `,
     },
     // Non-craft chains are ignored

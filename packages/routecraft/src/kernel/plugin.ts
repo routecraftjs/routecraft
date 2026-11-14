@@ -1,6 +1,6 @@
 import type { Capability } from "../capabilities.ts";
 import type { Exchange, ExchangeHeaders } from "../exchange.ts";
-import type { logger } from "../logger.ts";
+import type { Logger } from "../logger.ts";
 import type { RouteDefinition } from "../route.ts";
 import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
 import type {
@@ -11,9 +11,6 @@ import type {
 import type { AnyPort, Port } from "./port.ts";
 import type { Hooks, PointDeclaration, RouteHookView } from "./hooks.ts";
 import type { StepFactory } from "./steps.ts";
-
-/** The logger every plugin context carries. */
-export type PluginLogger = ReturnType<typeof logger.child>;
 
 /**
  * How far the application got, handed to every {@link Plugin.stop}.
@@ -165,7 +162,7 @@ export interface Execution {
 export interface PluginContext {
   readonly id: string;
   readonly namespace: string;
-  readonly logger: PluginLogger;
+  readonly logger: Logger;
   /**
    * The provider of a port this plugin declared in `requires` or `optional`.
    *

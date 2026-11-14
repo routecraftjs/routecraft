@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, log } from "@routecraft/routecraft";
+import { craft, simple, noop } from "@routecraft/routecraft";
 
 describe("Exchange and Step Lifecycle Events", () => {
   let t: TestContext;
@@ -23,7 +23,7 @@ describe("Exchange and Step Lifecycle Events", () => {
     const route = craft()
       .id("exchange-evt-route")
       .from(simple([1, 2, 3]))
-      .to(log());
+      .to(noop());
 
     t = await testContext()
       .on("route:exchange:started", ({ details }) => {
@@ -141,7 +141,7 @@ describe("Exchange and Step Lifecycle Events", () => {
         const num = ex.body as unknown as number;
         return { ...ex, body: num + 10 };
       })
-      .to(log());
+      .to(noop());
 
     t = await testContext()
       .on("route:step:started", ({ details }) => {
@@ -198,7 +198,7 @@ describe("Exchange and Step Lifecycle Events", () => {
     const route = craft()
       .id("payload-test")
       .from(simple([1]))
-      .to(log());
+      .to(noop());
 
     t = await testContext()
       .on("route:exchange:started", (payload) => {
@@ -236,7 +236,7 @@ describe("Exchange and Step Lifecycle Events", () => {
     const route = craft()
       .id("correlation-test")
       .from(simple([1, 2]))
-      .to(log());
+      .to(noop());
 
     t = await testContext()
       .on("route:exchange:started", ({ details }) => {

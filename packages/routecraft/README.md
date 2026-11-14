@@ -20,13 +20,13 @@ yarn add @routecraft/routecraft
 
 ```typescript
 // capabilities/timer-ping.ts
-import { craft, timer, log } from '@routecraft/routecraft';
+import { craft, timer } from '@routecraft/routecraft';
 
 export default craft()
   .id('timer-ping')
   .from(timer({ interval: "1s" }))
   .transform((ex) => ({ timestamp: Date.now() }))
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 ```
 
 Run it directly with the `craft` CLI (requires Bun on the host):
@@ -178,7 +178,7 @@ Examples by adapter type:
 Trigger a capability from internal events:
 
 ```typescript
-import { craft, event, log } from '@routecraft/routecraft';
+import { craft, event } from '@routecraft/routecraft';
 
 craft()
   .from(event('route:exchange:completed'))
@@ -186,7 +186,7 @@ craft()
     console.log('Route completed:', ex.body.details.routeId);
     return ex;
   })
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 ```
 
 Note: the event adapter does not filter its own events. A route that subscribes to `route:step:*` or `route:exchange:*` events and then emits more of them loops; subscribe to lifecycle events, or filter in the route.
@@ -197,7 +197,9 @@ Logs go to stdout at `warn` level by default.
 
 - **Env vars**: `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`
 - **CLI flags**: `craft --log-level info --log-file craft.log run <file>`
-- **Config file**: `craft.log.js` (or `craft.log.cjs`) in the working directory or `~/.routecraft/` sets defaults; env vars and CLI flags win
+- **Config file**: `craft.log.js` (or `craft.log.cjs`) in the working directory or `~/.routecraft/` sets `level`, `file` and `redact`; env vars and CLI flags win
+- **Your own logger**: `defineProject({ logger })` takes any `Logger`, a pino instance included, and then none of the above is read
+- **In a route**: `.log('info', 'Order received', (ex) => ({ orderId: ex.body.id }))` writes one line on the exchange passing through
 
 ## Documentation
 

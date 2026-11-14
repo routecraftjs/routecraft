@@ -103,16 +103,6 @@ export interface TelemetryOptions {
 }
 
 /**
- * Minimal logger interface for telemetry internals.
- *
- * Accepts the same signature as pino's `warn(bindings, message)` so we
- * can pass `ctx.logger` directly without coupling to pino types.
- */
-export interface TelemetryLogger {
-  warn(bindings: Record<string, unknown>, message: string): void;
-}
-
-/**
  * A telemetry event record persisted to the SQLite `events` table.
  */
 export interface TelemetryEvent {

@@ -345,7 +345,7 @@ Ensure the consumer route is running before sending. Check route startup order a
 
 **Example**
 ```ts
-craft().id('my-endpoint').from(direct()).to(log());
+craft().id('my-endpoint').from(direct()).log('info', 'Done', (ex) => ({ result: ex.body }));
 craft().id('producer').from(simple('message')).to(direct('my-endpoint'));
 ```
 

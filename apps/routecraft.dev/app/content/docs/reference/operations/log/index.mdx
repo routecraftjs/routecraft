@@ -8,22 +8,45 @@ title: log
 
 ```ts skip="signature: a type signature, not a statement"
 log(
-  formatter?: (exchange: Exchange<Current>) => unknown,
-  options?: { level?: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' },
+  level: StepLogLevel | ((exchange: Readonly<Exchange<Current>>) => StepLogLevel),
+  message: string,
+  bindings?: (exchange: Readonly<Exchange<Current>>) => Record<string, unknown>,
 ): RouteBuilder<Current>
+
+type StepLogLevel = 'trace' | 'debug' | 'info' | 'warn'
 ```
 
-Sugar for `.tap(log(formatter, options))`. Logs the current exchange via the exchange logger and continues the pipeline unchanged. Defaults to `info` level. By default the logger prints `id`, `body`, and `headers`; pass a `formatter` to log a derived value instead.
+Writes one log line from inside the flow, on the exchange passing through. The line goes to `exchange.logger`, so it carries the exchange's `exchangeId`, `correlationId` and `route`, and it lands in step order. The exchange continues unchanged.
 
 ```ts skip="fragment: not a complete statement on its own"
-// Log id, body, headers at info level
-.log()
+// A fixed message, with the variable part in the bindings
+.log('info', 'Order received', (ex) => ({ orderId: ex.body.id }))
 
-// Log a derived value
-.log((exchange) => ({ id: exchange.id, body: exchange.body }))
+// A message alone
+.log('debug', 'Entering enrichment')
 
-// Log at a different level
-.log(undefined, { level: 'warn' })
+// A level chosen per exchange: quiet when nothing happened, visible when something did
+.log((ex) => (ex.body.items.length === 0 ? 'debug' : 'info'), 'Sweep done', (ex) => ({
+  items: ex.body.items.length,
+}))
 ```
 
-Use `.log()` for ad-hoc visibility inside a route. For more control or a non-default destination, use `.tap(log(...))` directly.
+Keep the message a fixed string and put everything that varies in `bindings`, so a log aggregator can group and count by message.
+
+## What a log line cannot do
+
+- **It cannot change the exchange.** `level` and `bindings` receive a read-only view: a write to the exchange, its headers or a plain object or array in its body is refused. An instance of a class (a `Date`, a `Map`) is handed over as it is.
+- **It cannot fail the exchange.** A `level` or `bindings` function that throws, or that tries a write, costs the line and nothing else: one `warn` line, `Log line could not be built`, with the error and the message of the line it replaces, and the route carries on.
+- **It cannot log an error.** The levels stop at `warn`. A failure is logged once, at the boundary that handles it; a step that logged it too would report every failure twice. To add context to a failure, use [`.error()`](/docs/reference/operations/error).
+
+When the logger does not write at the line's level, `bindings` is never called.
+
+## Step events and resumes
+
+The step emits `route:step:started` and `route:step:completed` with `operation: 'log'`, like any other step.
+
+A log line is left out of the digest a [deferred](/docs/reference/operations/defer) exchange is checked against on resume. Adding, removing or rewording one while exchanges are parked refuses none of them.
+
+## Where the line goes
+
+To the context's logger: the one given as `defineProject({ logger })`, or the default one configured by the environment. See [logging configuration](/docs/reference/configuration#logging-configuration).

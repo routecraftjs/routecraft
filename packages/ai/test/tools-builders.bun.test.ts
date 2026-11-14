@@ -6,7 +6,7 @@ import {
   HeadersKeys,
   isRoutecraftError,
   defaultAuthority,
-  log,
+  noop,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, directTool, tools, type FnEntry } from "../src/index.ts";
@@ -73,7 +73,7 @@ describe("tool builders - directTool", () => {
           .input(inputSchema)
           .tag("read-only")
           .from(direct())
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -120,7 +120,7 @@ describe("tool builders - directTool", () => {
           .input(z.object({ orderId: z.string() }))
           .tag("read-only")
           .from(direct())
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -149,7 +149,7 @@ describe("tool builders - directTool", () => {
         ],
       })
       .routes([
-        craft().id("real-route").description("...").from(direct()).to(log()),
+        craft().id("real-route").description("...").from(direct()).to(noop()),
       ])
       .build();
 
@@ -183,7 +183,7 @@ describe("tool builders - directTool", () => {
         ],
       })
       .routes([
-        craft().id("no-desc").input(z.object({})).from(direct()).to(log()),
+        craft().id("no-desc").input(z.object({})).from(direct()).to(noop()),
       ])
       .build();
     await expect(t.ctx.start()).rejects.toThrow(/description/i);
@@ -208,7 +208,7 @@ describe("tool builders - directTool", () => {
           .id("no-input")
           .description("Route with no input schema.")
           .from(direct())
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await expect(t.ctx.start()).rejects.toThrow(/input/i);
@@ -244,7 +244,7 @@ describe("tool builders - directTool dispatch", () => {
               ok: true,
             },
           }))
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -286,7 +286,7 @@ describe("tool builders - directTool dispatch", () => {
               body: { ok: true },
             };
           })
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -331,7 +331,7 @@ describe("tool builders - directTool dispatch", () => {
             downstream = ex.headers[HeadersKeys.CORRELATION_ID];
             return { ...ex, body: { ok: true } };
           })
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -374,7 +374,7 @@ describe("tool builders - directTool dispatch", () => {
             cause = ex.headers[HeadersKeys.CAUSATION_ID];
             return { ...ex, body: { ok: true } };
           })
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -420,7 +420,7 @@ describe("tool builders - directTool dispatch", () => {
             );
             return { ...ex, body: { ok: true } };
           })
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -482,7 +482,7 @@ describe("tool builders - directTool dispatch", () => {
           .authorize({ roles: ["admin"] })
           .from(direct())
           .process((ex) => ({ ...ex, body: { ok: true } }))
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -558,7 +558,7 @@ describe("tool builders - a deferred tool is not a lesser tool", () => {
       .input(z.object({ command: z.string() }))
       .tag("host")
       .from(direct())
-      .to(log());
+      .to(noop());
 
   /**
    * @case The tools catalogue reports a route-backed tool's own description and tags

@@ -34,7 +34,7 @@ A source produces data and starts the flow. It goes in `.from()`.
 A destination pushes the exchange out to an external system. It goes in `.to()`. The push is void: the body flows through unchanged, and a receipt (a message id, an etag) lands on headers.
 
 ```ts skip="fragment: a chain shown without its route"
-.to(log())
+.log('info', 'Done', (ex) => ({ result: ex.body }))
 .to(json({ path: './output.json' }))
 .to(jsonl({ path: './events.jsonl', append: true }))
 .to(mail())

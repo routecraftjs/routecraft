@@ -13,7 +13,7 @@ import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { snapshotCapability, type Capability } from "./capabilities.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
-import { logger, childBindings } from "./logger.ts";
+import { defaultLogger, childBindings, type Logger } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { configuredPlugins, getConfigAppliers } from "./config-applier.ts";
 import { DIRECT } from "./kernel/direct.ts";
@@ -227,6 +227,7 @@ const SHUTDOWN_DEADLINE = Symbol("routecraft.shutdown.deadline");
  */
 const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "name",
+  "logger",
   "store",
   "on",
   "once",
@@ -261,6 +262,13 @@ export interface CraftConfig {
    * added to logs.
    */
   name?: string;
+  /**
+   * The logger every line of this context is written to, in place of
+   * `defaultLogger()`. The context's, each route's, each plugin's and each
+   * exchange's logger are its children. A pino logger fits as it is, and so
+   * does `createLogger(options)`.
+   */
+  logger?: Logger;
   /** Initial values for the context store */
   store?: Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>;
   /** Event handlers to register on context creation */
@@ -438,8 +446,10 @@ export class CraftContext {
     StoreRegistry[keyof StoreRegistry]
   >();
 
-  /** Logger for this context (pino child logger) */
-  public readonly logger: ReturnType<typeof logger.child>;
+  /** This context's logger: the configured root, or the default one, bound to the context. */
+  public readonly logger: Logger;
+  /** The logger `logger` is a child of, kept to flush it when the context stops. */
+  private readonly rootLogger: Logger;
 
   /** Event bus backing on/once/emit (see event-bus.ts) */
   private readonly events: EventBus;
@@ -506,7 +516,8 @@ export class CraftContext {
     );
     this.shutdownTimeoutMs = resolveShutdownTimeout(config?.shutdown?.timeout);
     this.hooksConfig = config?.hooks ?? {};
-    this.logger = logger.child(childBindings(this));
+    this.rootLogger = config?.logger ?? defaultLogger();
+    this.logger = this.rootLogger.child(childBindings(this));
     this.events = new EventBus(this.contextId, this.logger);
     warnAboutKernelCopies(this.logger);
     if (config) {
@@ -1906,6 +1917,13 @@ export class CraftContext {
 
     this.logger.info({}, "Routecraft context stopped");
     this.emit("context:stopped", { forced, pending });
+    try {
+      // A process that exits on the heels of stop() would otherwise lose
+      // whatever a buffering logger still holds.
+      await this.rootLogger.flush?.();
+    } catch {
+      // A logger that cannot flush must not fail the stop it follows.
+    }
 
     if (drainError) {
       throw drainError;

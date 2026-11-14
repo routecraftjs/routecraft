@@ -35,7 +35,6 @@ import {
   type CraftConfig,
 } from "./context.ts";
 import { rcError } from "./error.ts";
-import { logger } from "./logger.ts";
 import { CraftClient } from "./client.ts";
 import type { EventHandler, EventName } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
@@ -737,7 +736,6 @@ export class RouteBuilder<
   id(id: string): PreFromBuilder<NextRouteState<S>> {
     this.assertNoPendingWrappers("id");
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
-    logger.trace({ route: id }, "Staging route id for next route");
     return this.prelude();
   }
 
@@ -989,7 +987,6 @@ export class RouteBuilder<
         options: mapped,
       },
     };
-    logger.trace("Staging batch processing for next route");
     return this.prelude();
   }
 
@@ -1060,7 +1057,6 @@ export class RouteBuilder<
           ? { errorPathSchema: options.schema }
           : {}),
       };
-      logger.trace("Staging route-scope error handler for next route");
       return this;
     }
     if (options.schema !== undefined) {
@@ -1115,7 +1111,6 @@ export class RouteBuilder<
         ...(this.pendingOptions ?? {}),
         cacheConfig: resolveCacheOptions(options as CacheOptions),
       };
-      logger.trace("Staging route-scope cache config for next route");
       return this;
     }
     return super.cache(options);
@@ -1147,7 +1142,6 @@ export class RouteBuilder<
         ...(this.pendingOptions ?? {}),
         timeoutConfig: resolveTimeoutOptions(duration),
       };
-      logger.trace("Staging route-scope timeout config for next route");
       return this;
     }
     return super.timeout(duration);
@@ -1188,7 +1182,6 @@ export class RouteBuilder<
         ...(this.pendingOptions ?? {}),
         retryConfig: resolveRetryOptions(options),
       };
-      logger.trace("Staging route-scope retry config for next route");
       return this;
     }
     return super.retry(options);
@@ -1232,7 +1225,6 @@ export class RouteBuilder<
           resolveThrottleOptions(options),
         ],
       };
-      logger.trace("Staging route-scope throttle config for next route");
       return this;
     }
     return super.throttle(options);
@@ -1269,7 +1261,6 @@ export class RouteBuilder<
         ...(this.pendingOptions ?? {}),
         circuitBreakerConfig: resolveCircuitBreakerOptions(options),
       };
-      logger.trace("Staging route-scope circuit breaker config for next route");
       return this;
     }
     return super.circuitBreaker(options);
@@ -1304,7 +1295,6 @@ export class RouteBuilder<
           resolveConcurrencyOptions(options),
         ],
       };
-      logger.trace("Staging route-scope concurrency config for next route");
       return this;
     }
     return super.concurrency(options);
@@ -1370,7 +1360,6 @@ export class RouteBuilder<
       ...next,
       authorizers: [...existing, options ?? {}],
     };
-    logger.trace("Staging route-scope authorization for next route");
     return this.prelude();
   }
 
@@ -1454,11 +1443,6 @@ export class RouteBuilder<
         message: `Route "${id}": .from() with multiple sources requires .input({ body }) so every ingress validates to one shared body type. Declare .input() before .from(), or expose each channel as its own single-source route.`,
       });
     }
-
-    logger.trace(
-      { route: id, sourceCount: sources.length },
-      "Creating route definition",
-    );
 
     const normalizedSources: Source<T>[] = sources.map((source) =>
       toSource(source),
@@ -1564,10 +1548,6 @@ export class RouteBuilder<
     // shapes. Per-step rejection at push time would refuse the
     // balanced case before the user gets a chance to add the matching
     // aggregate.
-    logger.trace(
-      { operation: wrapped.operation, route: route.id },
-      "Adding step to route",
-    );
     route.steps.push(wrapped);
   }
 
@@ -1908,7 +1888,6 @@ export class RouteBuilder<
         route.volatileCacheKey = true;
       }
     }
-    logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;
   }
 

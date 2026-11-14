@@ -43,7 +43,7 @@ When an ambiguous shape can still reach the factory at runtime (plain JS), throw
 
 ## Single-role adapters
 
-Adapters that only act as source or only as destination (timer, simple, log, noop) use a single options type: **XxxOptions** (e.g., `TimerOptions`, `LogOptions`). Do not use Server/Client in their option names.
+Adapters that only act as source or only as destination (timer, cron, noop) use a single options type: **XxxOptions** (e.g., `TimerOptions`, `CronOptions`). Do not use Server/Client in their option names.
 
 ## Schema field names
 

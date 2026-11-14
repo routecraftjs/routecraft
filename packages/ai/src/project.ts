@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  logger,
+  defaultLogger,
   rcError,
   registerProjectDiscoverer,
   type CraftConfig,
@@ -297,7 +297,7 @@ async function composeAgentSkills(
     for (const [name, block] of Object.entries(source.blocks)) {
       const prior = origin.get(name);
       if (prior !== undefined) {
-        logger.info(
+        defaultLogger().info(
           `Agent "${file.name}": skill "${name}" from ${source.label} shadows the one from ${prior}.`,
         );
       }
@@ -316,13 +316,13 @@ async function composeAgentSkills(
  */
 registerProjectDiscoverer(SKILLS_FOLDER, async ({ directory, declared }) => {
   if (declared.agent?.defaultOptions?.blocks?.[SKILLS_FOLDER] !== undefined) {
-    logger.info(
+    defaultLogger().info(
       `Skills: "agent.defaultOptions.blocks.skills" is set in ${CONFIG_FILE}; "${directory}" not loaded.`,
     );
     return {};
   }
   const loaded = await skills({ source: directory });
-  logger.info(
+  defaultLogger().info(
     `Skills: loaded ${Object.keys(loaded).length} house skill(s) from "${directory}".`,
   );
   return {
@@ -386,7 +386,7 @@ registerProjectDiscoverer(
       // would have been discarded, which is not what code-wins means.
       if (declaredAgent?.blocks?.[SKILLS_FOLDER] !== undefined) {
         const configFields = Object.keys(declaredAgent).sort().join(", ");
-        logger.info(
+        defaultLogger().info(
           `Agent "${file.name}": ${configFields} from ${CONFIG_FILE}, including blocks.skills; the "skills:" refs in ${from} are not loaded.`,
         );
         continue;
@@ -401,7 +401,7 @@ registerProjectDiscoverer(
       if (declaredAgent !== undefined) {
         const configFields = Object.keys(declaredAgent).sort().join(", ");
         if (composed === undefined) {
-          logger.info(
+          defaultLogger().info(
             `Agent "${file.name}": ${configFields} from ${CONFIG_FILE}; ${from} contributes nothing further.`,
           );
           continue;
@@ -412,7 +412,7 @@ registerProjectDiscoverer(
         discovered[file.name] = {
           blocks: { [SKILLS_FOLDER]: composed.blocks },
         };
-        logger.info(
+        defaultLogger().info(
           `Agent "${file.name}": ${configFields} from ${CONFIG_FILE}, ${skillsProvenance}.`,
         );
         continue;
@@ -428,7 +428,7 @@ registerProjectDiscoverer(
                 [SKILLS_FOLDER]: composed.blocks,
               },
             };
-      logger.info(
+      defaultLogger().info(
         skillsProvenance === undefined
           ? `Agent "${file.name}": loaded from ${from}.`
           : `Agent "${file.name}": loaded from ${from}, ${skillsProvenance}.`,

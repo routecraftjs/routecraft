@@ -12,7 +12,7 @@ craft()
   .from(simple('x'))
   .filter((ex) => ex.body.length > 0)
   .transform((s) => s + '!')
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 <OperationsIndex />

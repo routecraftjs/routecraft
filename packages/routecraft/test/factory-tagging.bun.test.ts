@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   cron,
   csv,
-  debug,
   direct,
   event,
   file,
@@ -11,7 +10,6 @@ import {
   http,
   json,
   jsonl,
-  log,
   mail,
   noop,
   simple,
@@ -52,8 +50,6 @@ const cases: Array<{
     make: () => cron("@daily"),
     args: ["@daily"],
   },
-  { name: "log", factory: log, make: () => log(), args: [] },
-  { name: "debug", factory: debug, make: () => debug(), args: [] },
   { name: "noop", factory: noop, make: () => noop(), args: [] },
   {
     name: "direct (source)",

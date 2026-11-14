@@ -6,7 +6,7 @@ import { INTERNALS_KEY, BRAND, setBrand, setInternals } from "./brand.ts";
 // OperationType uninitialised for ESM loaders that evaluate the cycle in
 // that order (vite/vitest; bun's loader happens to tolerate it).
 import type { CraftContext } from "./context.ts";
-import { logger, childBindings } from "./logger.ts";
+import { defaultLogger, scopeBindings, type Logger } from "./logger.ts";
 import { lineageOf } from "./lineage.ts";
 import type { Route } from "./route.ts";
 import type { Adapter, Step } from "./types.ts";
@@ -58,6 +58,8 @@ export enum OperationType {
   VALIDATE = "validate",
   /** Synthetic step that runs one chain slot's plugin hooks. */
   HOOKS = "hooks",
+  /** Report on the exchange in the flow without changing it: `.log()` */
+  OBSERVE = "observe",
   /** Enrich the exchange with data from another exchange */
   ENRICH = "enrich",
   /** Set or override a header on the exchange */
@@ -301,7 +303,7 @@ export type Exchange<T = unknown> = {
    * route / correlation. Not stored as serializable state; rehydrated
    * exchanges build a fresh child logger on first access.
    */
-  readonly logger: ReturnType<typeof logger.child>;
+  readonly logger: Logger;
 };
 
 /**
@@ -880,7 +882,7 @@ type DefaultExchangeOptions<T> = {
  */
 type RewrapState = {
   readonly internals: ExchangeInternals;
-  readonly logger: ReturnType<typeof logger.child> | undefined;
+  readonly logger: Logger | undefined;
 };
 
 /**
@@ -940,7 +942,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
    * Private fields are stored in a hidden internal slot, not as own
    * properties, so writes to `#logger` are unaffected by `Object.freeze(this)`.
    */
-  #logger: ReturnType<typeof logger.child> | undefined;
+  #logger: Logger | undefined;
 
   /**
    * Create a new exchange.
@@ -1076,9 +1078,13 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
    * framework's base logger; rebuilt on a rehydrated exchange because the
    * logger is not part of the serializable state.
    */
-  get logger(): ReturnType<typeof logger.child> {
+  get logger(): Logger {
     if (this.#logger === undefined) {
-      this.#logger = logger.child(childBindings(this));
+      const context = getExchangeContext(this);
+      this.#logger =
+        context !== undefined
+          ? context.logger.child(scopeBindings(this))
+          : defaultLogger();
     }
     return this.#logger;
   }

@@ -10,7 +10,7 @@ describe("EventBus with a thenable handler result", () => {
   /** Assimilating a thenable costs several microtasks, so yield the loop. */
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-  /** The two methods the bus calls; its logger type is module-local. */
+  /** The two methods the bus calls. */
   const collectingLogger = (messages: string[]) => {
     const record = (_fields: unknown, message?: string) => {
       messages.push(message ?? "");

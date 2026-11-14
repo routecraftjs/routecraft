@@ -1,6 +1,6 @@
 import { type Exchange, DefaultExchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { logger } from "../logger.ts";
+import { defaultLogger } from "../logger.ts";
 import type { CraftContext } from "../context.ts";
 import type { ForwardFn, Route } from "../route.ts";
 import type { RouteKey } from "../kernel/positions.ts";
@@ -383,7 +383,7 @@ export class CircuitBreakerController extends RouteScopedController<CircuitBreak
     try {
       counts = this.#options.isFailure(error);
     } catch (err) {
-      logger.warn(
+      defaultLogger().warn(
         { err },
         "circuitBreaker isFailure callback threw; counting the failure",
       );

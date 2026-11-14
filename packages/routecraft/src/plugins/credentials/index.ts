@@ -1,9 +1,9 @@
+import type { Logger } from "../../logger.ts";
 import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import {
   definePlugin,
   type Plugin,
   type PluginContext,
-  type PluginLogger,
 } from "../../kernel/plugin.ts";
 import { registerConfigApplier } from "../../config-applier.ts";
 import { isRoutecraftError } from "../../brand.ts";
@@ -127,7 +127,7 @@ class LazyCredentialStore implements CredentialStore {
 
   constructor(
     private readonly config: CredentialsConfig & CredentialsTestSeams,
-    private readonly logger: PluginLogger,
+    private readonly logger: Logger,
   ) {}
 
   #store(): Promise<CredentialStore> {

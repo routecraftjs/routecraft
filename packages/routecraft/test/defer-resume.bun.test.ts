@@ -9,7 +9,6 @@ import {
   craft,
   direct,
   isDeferred,
-  log,
   noop,
   otherwise,
   type ResumeAcknowledgment,
@@ -1251,7 +1250,7 @@ describe("defer and resume", () => {
           .id("payout")
           .from(simple({ amountCents: 1 }))
           .defer({ schema: Approval })
-          .to(log()),
+          .to(noop()),
       ])
       .build();
 

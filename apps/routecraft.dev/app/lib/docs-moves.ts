@@ -12,6 +12,10 @@ const MOVED: Record<string, string> = {
   'advanced/talk-from-your-editor': 'introduction/talk-from-your-editor',
   'introduction/events': 'advanced/events',
   'introduction/tui': 'advanced/tui',
+  // Folded into `.log(level, message, bindings?)` in 0.8.
+  'reference/operations/debug': 'reference/operations/log',
+  'reference/adapters/log': 'reference/operations/log',
+  'reference/adapters/debug': 'reference/operations/log',
   // Removed with agentBrowser() in 0.8; the migration guide explains why.
   'reference/adapters/agentbrowser': 'migrating/0.7-to-0.8',
 }

@@ -1,9 +1,9 @@
+import type { Logger } from "../../logger.ts";
 import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import {
   definePlugin,
   type Plugin,
   type PluginContext,
-  type PluginLogger,
 } from "../../kernel/plugin.ts";
 import { deferralOf, type Exchange } from "../../exchange.ts";
 import type { DeferralAffordance } from "../../kernel/continuation/exchange-state.ts";
@@ -214,7 +214,7 @@ export interface DeferralTestSeams {
  * @internal
  */
 export async function createDeferralRuntime(
-  host: { readonly logger: PluginLogger },
+  host: { readonly logger: Logger },
   config: DeferralConfig & DeferralTestSeams = {},
 ): Promise<ResolvedDeferral> {
   const configuredTtl = config.defaultTtl ?? DEFAULT_DEFERRAL_TTL;

@@ -1,4 +1,4 @@
-import type { PluginLogger } from "../../kernel/plugin.ts";
+import type { Logger } from "../../logger.ts";
 
 /**
  * The longest interval `setInterval` schedules as written; above it the
@@ -18,7 +18,7 @@ export class SweepCadence {
   constructor(
     private readonly sweep: () => Promise<unknown>,
     private readonly intervalMs: number,
-    private readonly logger: PluginLogger,
+    private readonly logger: Logger,
   ) {}
 
   /** Begin sweeping on the interval. Idempotent. */

@@ -1,18 +1,14 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { CraftContext, type CraftConfig } from "../src/context.ts";
 import {
   getConfigAppliers,
   registerConfigApplier,
 } from "../src/config-applier.ts";
-import { logger } from "../src/logger.ts";
+import type { Logger } from "../src/logger.ts";
 
 type WarnCall = [Record<string, unknown>, string];
 
-/**
- * Build a stub child logger whose warn calls are captured. The context
- * creates its logger via `logger.child(...)` in the constructor, so the
- * spy must intercept `child` before construction.
- */
+/** A root logger whose warn calls, and its children's, are captured. */
 function stubChildLogger(calls: WarnCall[]) {
   const stub = {
     trace: () => {},
@@ -24,19 +20,15 @@ function stubChildLogger(calls: WarnCall[]) {
     error: () => {},
     fatal: () => {},
     child: () => stub,
+    isLevelEnabled: () => true,
   };
-  return stub as unknown as ReturnType<typeof logger.child>;
+  return stub as unknown as Logger;
 }
 
-/** Construct a CraftContext with the child-logger spy installed and return the captured warn calls. */
+/** Construct a CraftContext on a capturing root logger and return the captured warn calls. */
 function constructCapturingWarns(config: CraftConfig): WarnCall[] {
   const calls: WarnCall[] = [];
-  const spy = spyOn(logger, "child").mockReturnValue(stubChildLogger(calls));
-  try {
-    new CraftContext(config);
-  } finally {
-    spy.mockRestore();
-  }
+  new CraftContext({ ...config, logger: stubChildLogger(calls) });
   return calls;
 }
 

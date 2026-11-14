@@ -38,7 +38,7 @@ craft()
   .id('greet')
   .from(simple({ name: 'Alice' }))
   .transform((body) => `Hello, ${body.name}!`)  // body is { name: 'Alice' }
-  .to(log())                                      // body is now 'Hello, Alice!'
+  .log('info', 'Done', (ex) => ({ result: ex.body }))                                      // body is now 'Hello, Alice!'
 ```
 
 The body type flows through the DSL. TypeScript tracks what shape the body is at each step, giving you full type safety throughout the pipeline.
@@ -60,7 +60,7 @@ craft()
     const priority = exchange.headers['x-priority'] // 'normal'
     return exchange
   })
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 Headers can be static values or derived from the exchange at runtime.

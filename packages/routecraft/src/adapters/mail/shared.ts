@@ -1,3 +1,4 @@
+import type { Logger } from "../../logger.ts";
 import type { CraftContext } from "../../context.ts";
 import { port } from "../../kernel/port.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
@@ -746,15 +747,6 @@ async function parseMessageContent(
 export const MAIL_PARSE_ERRORS = new WeakMap<MailMessage, Error>();
 
 /**
- * Minimal logger shape accepted by `fetchMessages`. Matches the methods used
- * on a pino child logger without pinning to pino's types.
- */
-export interface MailFetchLogger {
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-}
-
-/**
  * Fetch messages from an open IMAP mailbox using the given client.
  * The client must already be connected and have a mailbox open.
  *
@@ -770,7 +762,7 @@ export async function fetchMessages(
   client: InstanceType<typeof import("imapflow").ImapFlow>,
   options: MailServerOptions,
   folder: string,
-  logger?: MailFetchLogger,
+  logger?: Pick<Logger, "debug" | "warn">,
 ): Promise<MailMessage[]> {
   const criteriaSets = buildSearchCriteriaSets(options);
   const messages: MailMessage[] = [];
@@ -947,7 +939,7 @@ export async function fetchMessages(
 export async function markMessagesSeen(
   client: InstanceType<typeof import("imapflow").ImapFlow>,
   uids: number | number[],
-  logger?: MailFetchLogger,
+  logger?: Pick<Logger, "debug" | "warn">,
 ): Promise<void> {
   const list = Array.isArray(uids) ? uids : [uids];
   if (list.length === 0) return;

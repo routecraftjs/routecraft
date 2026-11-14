@@ -59,6 +59,8 @@ export type SpyLogger = {
   trace: SpyFn;
   fatal: SpyFn;
   child: SpyFn;
+  /** Every level is enabled, so a line is never skipped before it reaches a spy. */
+  isLevelEnabled: () => boolean;
 };
 
 export function createSpyLogger(fn: SpyFactory = createSpyFn): SpyLogger {
@@ -70,6 +72,7 @@ export function createSpyLogger(fn: SpyFactory = createSpyFn): SpyLogger {
     trace: fn(),
     fatal: fn(),
     child: fn(),
+    isLevelEnabled: () => true,
   };
   spy.child.mockImplementation(() => spy);
   return spy;
@@ -86,6 +89,7 @@ export function createNoopSpyLogger(fn: SpyFactory = createSpyFn): SpyLogger {
     trace: noop,
     fatal: noop,
     child: childFn,
+    isLevelEnabled: () => true,
   };
   childFn.mockImplementation(() => noopLogger);
   return noopLogger;

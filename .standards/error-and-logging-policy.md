@@ -30,6 +30,8 @@ For non-error logs, the **message** is a fixed string. Variable context goes onl
 
 Use **info** for context and route lifecycle so start and stop are visible at default level and symmetric.
 
+A route author's own line goes through `.log(level, message, bindings?)`, which takes `trace` to `warn` only. `error` and `fatal` are not step levels: a failure is logged once, at the boundary that handles it, and a step that logged it too would log it twice.
+
 ## 5. Lifecycle and consistency
 
 - **Same level for start and stop:** Log context and route start at the same level as their corresponding stop (e.g., both **info**).
@@ -39,7 +41,15 @@ Use **info** for context and route lifecycle so start and stop are visible at de
 
 When logging a failure, put the error in bindings (e.g., `{ err, operation, adapter }`). `RoutecraftError` implements `toJSON()` so `rc`, `message`, `suggestion`, `docs`, `causeMessage`, `causeStack` appear in serialized logs.
 
-## 7. Validation and cause serialization
+## 7. Redaction
+
+The default logger redacts the credential headers on every line (`DEFAULT_REDACT` in `logger.ts`), and `redact` in `craft.log.js` or `createLogger({ redact })` adds paths to that list, never replaces it. An application that brings its own `Logger` owns its own redaction. Do not log a whole `headers` object from framework code on the strength of the default list: name the fields.
+
+## 8. A log line never costs the exchange
+
+A `.log()` step whose level or bindings function throws, returns a level outside `trace` to `warn`, or writes through the read-only exchange it is handed (`RC1110`) produces one `warn` ("Log line could not be built", `{ err, line }`) and the exchange continues unchanged. The step is not a boundary and adds none: nothing is handled, because nothing failed that the caller asked for.
+
+## 9. Validation and cause serialization
 
 When creating `RoutecraftError` for validation (e.g., RC5002), ensure the **cause** serializes to something useful in logs (e.g., `JSON.stringify(issues)` or a normalized object). Never pass an object that will log as `[object Object]`.
 
@@ -173,7 +183,7 @@ A refusal of one kind must never be reported under another code: the bridge's dr
 
 - Use `rcError(rc, cause?, { message?, suggestion?, docs?, retryable? })` from `packages/routecraft/src/error.ts` for framework and adapter errors.
 - Use normal `throw new Error` only when you do not need an RC code or docs link.
-- Log with `context.logger` in sources and `exchange.logger` in steps/destinations.
+- Log with `context.logger` in sources and `exchange.logger` in steps/destinations. Both are children of the one root (`CraftConfig.logger`, else `defaultLogger()`); framework code never builds a logger of its own and never imports `pino`, it types against `Logger` from `logger.ts`.
 - At boundaries: `logger.error({ err, operation, adapter }, err.meta.message)`.
 - Emit and observe context events for lifecycle and errors.
 

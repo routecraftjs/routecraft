@@ -3,75 +3,6 @@ import { z } from "zod";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, noop, mapper, schema } from "../src/index.ts";
 
-describe(".log() sugar", () => {
-  let t: TestContext;
-
-  afterEach(async () => {
-    if (t) await t.stop();
-  });
-
-  /**
-   * @case .log() adds a tap step that logs at info level
-   * @preconditions Route with .log() and a spy destination
-   * @expectedResult Exchange reaches the destination (type-preserving)
-   */
-  test("passes exchange through unchanged", async () => {
-    const s = spy<string>();
-
-    t = await testContext()
-      .routes(craft().from(simple("hello")).log().to(s))
-      .build();
-
-    await t.test();
-    expect(s.receivedBodies()).toEqual(["hello"]);
-  });
-
-  /**
-   * @case .log() with formatter calls the formatter function
-   * @preconditions Route with .log(formatter) and a spy destination
-   * @expectedResult Exchange reaches the destination
-   */
-  test("accepts a formatter function", async () => {
-    const s = spy<{ name: string }>();
-
-    t = await testContext()
-      .routes(
-        craft()
-          .from(simple({ name: "Alice" }))
-          .log((ex) => ex.body.name)
-          .to(s),
-      )
-      .build();
-
-    await t.test();
-    expect(s.receivedBodies()).toEqual([{ name: "Alice" }]);
-  });
-});
-
-describe(".debug() sugar", () => {
-  let t: TestContext;
-
-  afterEach(async () => {
-    if (t) await t.stop();
-  });
-
-  /**
-   * @case .debug() adds a tap step that logs at debug level
-   * @preconditions Route with .debug() and a spy destination
-   * @expectedResult Exchange reaches the destination (type-preserving)
-   */
-  test("passes exchange through unchanged", async () => {
-    const s = spy<number>();
-
-    t = await testContext()
-      .routes(craft().from(simple(42)).debug().to(s))
-      .build();
-
-    await t.test();
-    expect(s.receivedBodies()).toEqual([42]);
-  });
-});
-
 describe(".map() sugar", () => {
   let t: TestContext;
 
@@ -256,14 +187,20 @@ describe("step label in events", () => {
 
   /**
    * @case Sugar step labels appear in step:completed events
-   * @preconditions Route with .log() sugar, listening for step events
-   * @expectedResult step:completed event has operation "log", not "tap"
+   * @preconditions Route with .log(), listening for step events
+   * @expectedResult step:completed event has operation "log", not "observe"
    */
-  test("log sugar shows 'log' label in step events", async () => {
+  test(".log() shows 'log' label in step events", async () => {
     const stepOps: string[] = [];
 
     t = await testContext()
-      .routes(craft().id("label-test").from(simple("x")).log().to(noop()))
+      .routes(
+        craft()
+          .id("label-test")
+          .from(simple("x"))
+          .log("info", "Seen")
+          .to(noop()),
+      )
       .build();
 
     t.ctx.on("route:step:completed", ({ details }) => {
@@ -273,7 +210,7 @@ describe("step label in events", () => {
     await t.test();
 
     expect(stepOps).toContain("log");
-    expect(stepOps).not.toContain("tap");
+    expect(stepOps).not.toContain("observe");
   });
 
   /**

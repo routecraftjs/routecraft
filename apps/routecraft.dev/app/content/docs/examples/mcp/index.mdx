@@ -19,7 +19,7 @@ it lets other capabilities call the same tool in-process.
 
 ```ts
 // capabilities/greet-user/route.ts
-import { craft, direct, log, noop } from '@routecraft/routecraft'
+import { craft, direct, noop } from '@routecraft/routecraft'
 import { mcp } from '@routecraft/ai'
 import { z } from 'zod'
 
@@ -34,7 +34,7 @@ export default craft()
   .input({ body: GreetInput })
   .from(direct(), mcp())
   .transform((body) => `Hello, ${body.user}!`)
-  .tap(log())
+  .log('info', 'Seen', (ex) => ({ body: ex.body }))
   .to(noop())
 ```
 
@@ -86,14 +86,14 @@ export const craftConfig = defineConfig({
 
 ```ts
 // capabilities/web-search/route.ts
-import { craft, simple, log } from '@routecraft/routecraft'
+import { craft, simple } from '@routecraft/routecraft'
 import { mcp } from '@routecraft/ai'
 
 export default craft()
   .id('web-search')
   .from(simple({ query: 'Routecraft documentation' }))
   .to(mcp('search:web_search'))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 See [Calling an MCP](/docs/advanced/call-an-mcp) for custom argument mapping and inline-URL

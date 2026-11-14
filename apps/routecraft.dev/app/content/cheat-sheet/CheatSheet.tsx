@@ -134,7 +134,8 @@ await ctx.stop()`}</CheatCode>
   .validate(schema(zodSchema))     // any Standard Schema
   .header('key', 'val')            // set a header
   .enrich(other)                   // fetch and merge
-  .tap(log())                      // side effect, non-blocking
+  .tap(ex => audit(ex))            // side effect, non-blocking
+  .log('info', 'Seen')             // one log line, in the flow
   .split()                         // fan-out per array item
   .aggregate()                     // collect back into one
   .choice(when(...), otherwise(...)?) // otherwise is optional
@@ -182,9 +183,9 @@ await ctx.stop()`}</CheatCode>
             eyebrow="Outputs"
             title="Destinations"
           >
-            <CheatCode skip="fragment: not a complete statement on its own">{`// Log to console
-.to(log())
-.to(debug(ex => ex.body))
+            <CheatCode skip="fragment: not a complete statement on its own">{`// Log a line, in the flow
+.log('info', 'Order priced', ex => ({ total: ex.body.total }))
+.log('debug', 'Entering enrichment')
 
 // Discard the exchange
 .to(noop())
@@ -218,7 +219,7 @@ await ctx.stop()`}</CheatCode>
           </CheatSection>
 
           <CheatSection id="exchanges" eyebrow="Envelope" title="Exchanges">
-            <CheatCode skip="fragment: Logger is illustrative">{`type Exchange<T> = {
+            <CheatCode>{`type Exchange<T> = {
   id: string
   body: T
   headers: ExchangeHeaders
@@ -249,7 +250,7 @@ await ctx.stop()`}</CheatCode>
   .split()                  // 3 exchanges
   .transform(n => n * 2)    // each runs once
   .aggregate()              // [2, 4, 6]
-  .to(log())`}</CheatCode>
+  .log('info', 'Done', (ex) => ({ result: ex.body }))`}</CheatCode>
           </CheatSection>
 
           <CheatSection
@@ -315,7 +316,7 @@ craft()
     email: z.string().email(),
     age: z.number().min(18),
   })))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 // body type is inferred from the schema`}</CheatCode>
           </CheatSection>
 
@@ -400,7 +401,7 @@ const project = defineProject({
 export default project
 
 // Routes see the project's plugin steps and facets
-project.craft().id('orders').from(direct()).to(log())
+project.craft().id('orders').from(direct()).log('info', 'Done', (ex) => ({ result: ex.body }))
 
 // Embedding: build a context from the project's config
 const ctx = await new ContextBuilder()
@@ -427,7 +428,7 @@ craft()
     user: ex => ex.body.text,
     temperature: 0.2,
   }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 
 // Structured output (body.output is typed)
 .to(llm('openai:gpt-4o', {
@@ -464,7 +465,7 @@ craft()
         .map(f => f.name),
     ]),
   }))
-  .to(log())`}</CheatCode>
+  .log('info', 'Done', (ex) => ({ result: ex.body }))`}</CheatCode>
             <CheatNote>
               Register functions and direct-route tools once via{' '}
               <code>
@@ -498,7 +499,7 @@ craft()
   }) })
   .from(mcp())
   .enrich(http({ url: ex => ex.body.url }))
-  .to(log())`}</CheatCode>
+  .log('info', 'Done', (ex) => ({ result: ex.body }))`}</CheatCode>
             <CheatLabel>Call an MCP server</CheatLabel>
             <CheatCode skip="fragment: not a complete statement on its own">{`// As a destination (invoke a remote tool)
 .to(mcp('github', 'search'))`}</CheatCode>
@@ -523,7 +524,7 @@ craft()
   .id('private-tool')
   .authorize({ scopes: ['tools:read'] })
   .from(mcp())
-  .to(log())`}</CheatCode>
+  .log('info', 'Done', (ex) => ({ result: ex.body }))`}</CheatCode>
             <CheatLabel>Claude Desktop config</CheatLabel>
             <CheatCode language="json">{`{
   "mcpServers": {

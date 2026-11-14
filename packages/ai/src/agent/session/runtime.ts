@@ -24,7 +24,7 @@ import {
   type Exchange,
   type ExchangeScoped,
   type OpsPage,
-  type PluginLogger,
+  type Logger,
   type Principal,
   type ResumeAcknowledgment,
   type ResumeRequest,
@@ -65,7 +65,7 @@ import type {
  * @internal
  */
 export interface SessionHost {
-  readonly logger: PluginLogger;
+  readonly logger: Logger;
   emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
   /** Subscribe to an event for the application's lifetime. */
   observe<K extends EventName>(event: K, handler: EventHandler<K>): void;

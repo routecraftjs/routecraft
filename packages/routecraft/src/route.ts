@@ -19,7 +19,7 @@ import {
 import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
-import { logger, childBindings } from "./logger.ts";
+import { scopeBindings, type Logger } from "./logger.ts";
 import { lineageOf } from "./lineage.ts";
 import { assertTraceId } from "./trace-context.ts";
 import { journeyOfHeaders } from "./journey-headers.ts";
@@ -532,8 +532,8 @@ export interface Route<T = unknown> {
    */
   readonly inFlightCount: number;
 
-  /** Logger for this route (pino child logger) */
-  logger: ReturnType<typeof logger.child>;
+  /** This route's logger: a child of its context's. */
+  logger: Logger;
 
   /**
    * Start processing: subscribe to every source and begin delivering messages through the steps.
@@ -693,8 +693,8 @@ export class DefaultRoute implements Route {
    */
   private executionController = new AbortController();
 
-  /** Logger for this route (pino child logger) */
-  public readonly logger: ReturnType<typeof logger.child>;
+  /** This route's logger: a child of its context's. */
+  public readonly logger: Logger;
 
   /** Internal queues, one per source, for passing messages to the consumers */
   private messageChannels!: ProcessingQueue<Message>[];
@@ -723,7 +723,7 @@ export class DefaultRoute implements Route {
     setBrand(this, BRAND.DefaultRoute);
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
-    this.logger = logger.child(childBindings(this));
+    this.logger = context.logger.child(scopeBindings(this));
     if (definition.volatileCacheKey) {
       this.logger.warn(
         { route: definition.id },

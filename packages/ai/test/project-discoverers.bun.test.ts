@@ -9,8 +9,8 @@ import {
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  defaultLogger,
   getProjectDiscoverers,
-  logger,
   type CraftConfig,
   type ProjectDiscoverer,
 } from "@routecraft/routecraft";
@@ -422,7 +422,7 @@ describe("project discoverers", () => {
    *   that fed blocks.skills, in composition order
    */
   test("logs field provenance for a merged agent", async () => {
-    const info = spyOn(logger, "info").mockImplementation(() => {});
+    const info = spyOn(defaultLogger(), "info").mockImplementation(() => {});
     try {
       const root = makeProject({
         "node_modules/@acme/claude-skills/package.json": JSON.stringify({

@@ -55,7 +55,7 @@ Copy `capabilities/hello-world`, rename it, and change what it does. The one rul
 
 ```ts
 // capabilities/find-overdue-invoices/route.ts
-import { craft, direct, log } from "@routecraft/routecraft";
+import { craft, direct } from "@routecraft/routecraft";
 import { mcp } from "@routecraft/ai";
 import { z } from "zod";
 
@@ -66,7 +66,7 @@ export default craft()
   .input({ body: z.object({ days: z.number().int().min(1) }) })
   .from(direct(), mcp())
   .transform(({ days }) => ({ days, invoices: [] }))
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 ```
 
 The schema is the boundary, and it holds whatever the model decides. Ask your agent for invoices more than 30 days overdue and the call goes through. A call with `days: 0`, or `days: "a month"`, is refused before any step runs, and the refusal names the failing field so the agent can correct itself. The model chooses what to ask for; your code decides which actions exist, what input they accept and under which conditions they run. That does not make the model's output deterministic. It bounds what that output can do.
@@ -79,14 +79,14 @@ A schedule is different: a `cron()` source starts a run with no body, and this c
 
 ```ts
 // capabilities/daily-overdue-invoices/route.ts
-import { craft, cron, direct, log } from "@routecraft/routecraft";
+import { craft, cron, direct } from "@routecraft/routecraft";
 
 export default craft()
   .id("daily-overdue-invoices")
   .from(cron("0 8 * * *"))
   .transform(() => ({ days: 30 }))
   .to(direct("find-overdue-invoices"))
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 ```
 
 The capability stays written once, and the schedule passes the same input check as an agent's call.

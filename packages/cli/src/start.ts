@@ -5,7 +5,7 @@ import {
   isProject,
   isRouteBuilder,
   isRouteDefinition,
-  logger,
+  defaultLogger,
   mergeProjectConfig,
   shutdownHandler,
   type CraftConfig,
@@ -113,7 +113,9 @@ export async function startCommand(
     // this command can hit belongs in its CommandOutcome rather than as a
     // rejection its caller has to catch.
     const contentRoot = pickContentRoot(root);
-    logger.info(`Starting project "${root}" (content root: "${contentRoot}").`);
+    defaultLogger().info(
+      `Starting project "${root}" (content root: "${contentRoot}").`,
+    );
 
     config = await withFolderPlugins(root, contentRoot, config);
 
@@ -171,7 +173,7 @@ export async function startCommand(
           `No exchange reached a terminal outcome within ${String(timeout)}ms. Nothing in this project produced one; check that a source actually fires, or raise --timeout.`,
         );
       }
-      logger.info(`Exchange ${outcome}; shutting down (--once).`);
+      defaultLogger().info(`Exchange ${outcome}; shutting down (--once).`);
       const shutdown = await context.stop();
       // Attach the start rejection so a route failure during shutdown is
       // reported rather than surfacing as an unhandled rejection.
@@ -280,7 +282,7 @@ function pickContentRoot(root: string): string {
   const rootHas = folders.some((f) => isDirectory(join(root, f)));
   const srcHas = folders.some((f) => isDirectory(join(src, f)));
   if (rootHas && srcHas) {
-    logger.warn(
+    defaultLogger().warn(
       `Convention folders exist both at "${root}" and "${src}". Using the root-level layout; the ones under "src" are ignored. Move them into one place.`,
     );
   }
@@ -341,7 +343,7 @@ async function loadPlugins(root: string, dir: string): Promise<Plugin[]> {
     const exported = module.default;
     if (isPluginInstance(exported)) {
       out.push(exported);
-      logger.info(`Plugin: loaded from "${where}".`);
+      defaultLogger().info(`Plugin: loaded from "${where}".`);
       continue;
     }
     if (typeof exported === "function") {
@@ -373,7 +375,7 @@ async function loadCapabilities(
       throw new Error(`${where}: ${collected.reason}`);
     }
     out.push(...collected.routes);
-    logger.info(
+    defaultLogger().info(
       `Capability: loaded ${collected.routes.length} route(s) from "${where}".`,
     );
   }
@@ -491,6 +493,6 @@ function reportStartup(failedRoutes: readonly string[]): CommandOutcome {
 }
 
 function fail(message: string): CommandOutcome {
-  logger.error(message);
+  defaultLogger().error(message);
   return { success: false, code: 1, message };
 }

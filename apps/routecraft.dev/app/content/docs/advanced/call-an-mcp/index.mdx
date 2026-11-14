@@ -44,14 +44,14 @@ Use the `server:tool` shorthand in `.to()` to send the exchange body as tool arg
 
 ```ts
 // capabilities/web-search/route.ts
-import { craft, simple, log } from '@routecraft/routecraft'
+import { craft, simple } from '@routecraft/routecraft'
 import { mcp } from '@routecraft/ai'
 
 export default craft()
   .id('web-search')
   .from(simple({ query: 'Routecraft documentation' }))
   .to(mcp('search:web_search'))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 Or use `.enrich()` with an aggregator such as `only()` to merge the result into the exchange body instead of replacing it:
@@ -190,7 +190,7 @@ agent({
 })
 ```
 
-Why a route and not a richer guard? A guard runs once and holds no state. Caching, timeouts, throttling, retries, and fallbacks each need something wrapped around the call with its own state and lifecycle, which is exactly what a route step is. A wrapped route gives you [`authorize()`](/docs/reference/operations/authorize), [`error()`](/docs/reference/operations/error) fallbacks, [`cache()`](/docs/reference/operations/cache), [`throttle()`](/docs/reference/operations/throttle), [`timeout()`](/docs/reference/operations/timeout), [`retry()`](/docs/reference/operations/retry), and `.tap(log())` for an audit trail, all without changing how the agent consumes the tool. The route is the only place that behaviour can ever live.
+Why a route and not a richer guard? A guard runs once and holds no state. Caching, timeouts, throttling, retries, and fallbacks each need something wrapped around the call with its own state and lifecycle, which is exactly what a route step is. A wrapped route gives you [`authorize()`](/docs/reference/operations/authorize), [`error()`](/docs/reference/operations/error) fallbacks, [`cache()`](/docs/reference/operations/cache), [`throttle()`](/docs/reference/operations/throttle), [`timeout()`](/docs/reference/operations/timeout), [`retry()`](/docs/reference/operations/retry), and `.log('info', 'Seen', (ex) => ({ body: ex.body }))` for an audit trail, all without changing how the agent consumes the tool. The route is the only place that behaviour can ever live.
 
 ## Governing a remote server's tools
 

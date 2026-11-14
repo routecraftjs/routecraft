@@ -4,11 +4,11 @@ import {
   craft,
   simple,
   http,
-  log,
   only,
   type Enricher,
   type Exchange,
   type HttpResult,
+  noop,
 } from "@routecraft/routecraft";
 
 // Use t.test() for normal runs (start → wait routes ready → drain → stop). Use t.ctx.start() when a route does not emit routeStarted (e.g. dynamic source) or when you need manual lifecycle control.
@@ -43,7 +43,7 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-void-adapter")
           .from(simple({ userId: 1, name: "John" }))
-          .to(log())
+          .to(noop())
           .to(s),
       )
       .build();

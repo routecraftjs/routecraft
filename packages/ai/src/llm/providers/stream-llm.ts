@@ -1,4 +1,4 @@
-import { logger as frameworkLogger } from "@routecraft/routecraft";
+import { defaultLogger } from "@routecraft/routecraft";
 import type { AgentDeltaListener } from "../../agent/events.ts";
 import { normalizeStreamDelta } from "../../agent/events.ts";
 import type { LlmResult } from "../types.ts";
@@ -97,7 +97,7 @@ export async function runStreamGenerate(
       try {
         await onDelta(delta);
       } catch (err) {
-        frameworkLogger.warn(
+        defaultLogger().warn(
           { err },
           "agent.onDelta listener threw; ignoring and continuing stream",
         );
@@ -156,7 +156,7 @@ async function safeAwait<T>(
   try {
     return await value;
   } catch (err) {
-    frameworkLogger.debug(
+    defaultLogger().debug(
       { err },
       "llm.streamLlm: optional accessor rejected; treating as absent",
     );

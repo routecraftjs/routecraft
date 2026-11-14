@@ -1,5 +1,5 @@
 import type { SqliteConnection } from "./sqlite-connection.ts";
-import type { TelemetryLogger } from "./types.ts";
+import type { Logger } from "../logger.ts";
 
 /**
  * Semantic attribute keys used by the telemetry plugin to tag spans.
@@ -62,7 +62,7 @@ interface OTelSpan {
  * external export scenarios.
  */
 export class SqliteSpanProcessor {
-  private readonly logger: TelemetryLogger | undefined;
+  private readonly logger: Pick<Logger, "warn"> | undefined;
   private readonly upsertRouteStmt: { run(...params: unknown[]): unknown };
   private readonly updateRouteStatusStmt: {
     run(...params: unknown[]): unknown;

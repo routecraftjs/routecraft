@@ -25,7 +25,7 @@ craft()
     system: 'Summarise the following in one sentence.',
     user: (ex) => ex.body.content,
   }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 // Result replaces the body: { text: '...', usage: { inputTokens, outputTokens } }
 // (use only() to merge instead, e.g. .enrich(llm(...), only((r) => r.text, 'summary')))
 
@@ -45,7 +45,7 @@ craft()
     user: (ex) => ex.body.text,
     output: sentimentSchema,
   }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 // result.output is typed as { sentiment: 'positive' | 'neutral' | 'negative', confidence: number }
 ```
 
@@ -94,7 +94,7 @@ craft()
       { type: 'text', text: 'Answer the question in the recording.' },
     ],
   }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 | Part | Fields | Notes |
@@ -128,7 +128,7 @@ craft()
     system: 'Answer yes or no.',
     reasoning: 'none',
   }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 `reasoning` is normalised, so the same route survives a provider swap. Each level maps to the provider's own control:

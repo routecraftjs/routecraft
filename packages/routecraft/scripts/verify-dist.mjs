@@ -110,7 +110,7 @@ function identityCorpus(m) {
     .dispatch("round-robin", m.noop(), m.noop())
     .dedupe({ key: (exchange) => exchange.id })
     .defer({ ttl: "1h" })
-    .log()
+    .log("info", "Seen", (exchange) => ({ id: exchange.id }))
     .to(m.noop())
     .build()[0].steps;
 }
@@ -294,6 +294,16 @@ if (shippedInBundle < found.shipped) {
   console.error(
     `verify-dist: ${entry} carries ${shippedInBundle} registerShippedPlugin() call(s); src/ has ${found.shipped}. ` +
       "A default plugin's registration was tree-shaken out of the bundle, so an application would start without it.",
+  );
+  process.exit(1);
+}
+
+// The logger is an interface of Routecraft's own, so a consumer's types
+// never need pino's to resolve.
+const types = readFileSync(join(pkgRoot, "dist/index.d.ts"), "utf8");
+if (/\bpino\b/.test(types.replace(/\/\*[\s\S]*?\*\//g, ""))) {
+  console.error(
+    "verify-dist: dist/index.d.ts names pino outside a comment. The public Logger type must not depend on pino's.",
   );
   process.exit(1);
 }

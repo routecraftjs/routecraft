@@ -849,9 +849,11 @@ describe("choice operation", () => {
           .id("choice-sugar-branch")
           .from(items<Order>([{ priority: "normal", amount: 99 }]))
           .choice<{ label: string }>(
-            otherwise((b) => b.log().map<{ label: string }>({
-              label: (src) => `${src.priority}-${src.amount}`,
-            })),
+            otherwise((b) => b
+              .log("info", "Fell through")
+              .map<{ label: string }>({
+                label: (src) => `${src.priority}-${src.amount}`,
+              })),
           )
           .to(downstream),
       )
@@ -880,11 +882,11 @@ describe("choice operation", () => {
   });
 
   /**
-   * @case debug() sugar is callable inside a branch (runtime + inheritance)
-   * @preconditions Branch chains .debug() followed by .to() to a sink
-   * @expectedResult Debug tap runs as a fire-and-forget side effect; sink receives the unchanged exchange
+   * @case A debug-level .log() is callable inside a branch (runtime + inheritance)
+   * @preconditions Branch chains .log("debug", ...) followed by .to() to a sink
+   * @expectedResult The line is written in the branch; sink receives the unchanged exchange
    */
-  test(".debug() sugar works inside a branch", async () => {
+  test(".log() at debug works inside a branch", async () => {
     const downstream = spy<Order>();
 
     t = await testContext()
@@ -892,7 +894,9 @@ describe("choice operation", () => {
         craft()
           .id("choice-sugar-debug-branch")
           .from(items<Order>([{ priority: "urgent", amount: 7 }]))
-          .choice(otherwise((b) => b.debug().to(downstream))),
+          .choice(
+            otherwise((b) => b.log("debug", "Branch taken").to(downstream)),
+          ),
       )
       .build();
 

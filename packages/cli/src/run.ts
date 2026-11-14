@@ -4,7 +4,7 @@ import {
   type CraftConfig,
   isRouteBuilder,
   isRouteDefinition,
-  logger,
+  defaultLogger,
   shutdownHandler,
   RUNNER_INVOCATION,
   argvRouteIds,
@@ -98,11 +98,11 @@ export async function runCommand(
     const module = await import(absFilePath);
     const craftConfig = module.craftConfig as CraftConfig | undefined;
 
-    logger.info(`Loading file: ${absFilePath}`);
+    defaultLogger().info(`Loading file: ${absFilePath}`);
 
     const contextBuilder = new ContextBuilder();
     if (craftConfig) {
-      logger.info("Found craftConfig export, applying configuration");
+      defaultLogger().info("Found craftConfig export, applying configuration");
       contextBuilder.with(craftConfig);
     }
 
@@ -168,7 +168,7 @@ export async function runCommand(
     return { reply: renderOutcome(outcome, routeId, line.format) };
   } catch (error: unknown) {
     const message = messageOf(error);
-    logger.error(`Failed to run ${absFilePath}: ${message}`);
+    defaultLogger().error(`Failed to run ${absFilePath}: ${message}`);
     return { success: false, code: 1, message };
   }
 }
@@ -378,10 +378,12 @@ function configureRoutes(
 ): CommandOutcome {
   const collected = collectRoutes(defaultExport);
   if (!collected.ok) {
-    logger.error(collected.reason);
+    defaultLogger().error(collected.reason);
     return { success: false, code: 1, message: collected.reason };
   }
   collected.routes.forEach((route) => contextBuilder.routes(route));
-  logger.info(`Loaded ${collected.routes.length} route(s) from default export`);
+  defaultLogger().info(
+    `Loaded ${collected.routes.length} route(s) from default export`,
+  );
   return { success: true };
 }

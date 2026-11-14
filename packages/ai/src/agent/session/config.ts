@@ -8,7 +8,7 @@ import {
   resolveSqliteDriver,
   type CraftContext,
   type Plugin,
-  type PluginLogger,
+  type Logger,
   type SqliteDriverLoaders,
 } from "@routecraft/routecraft";
 import { ADAPTER_AGENT_SESSION_STORE } from "../store.ts";
@@ -84,7 +84,7 @@ export interface SessionStoreTestSeams {
  * @internal
  */
 export interface SessionStoreHost {
-  readonly logger: PluginLogger;
+  readonly logger: Logger;
   /** The database file the continuations store opened, if it opened one. */
   readonly continuationsPath?: string;
 }

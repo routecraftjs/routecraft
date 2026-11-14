@@ -14,10 +14,10 @@ Produce exchanges from framework events. Use as the source with `.from(event(fil
 
 ```ts
 // Single event
-craft().from(event('route:started')).to(log())
+craft().from(event('route:started')).log('info', 'Done', (ex) => ({ result: ex.body }))
 
 // Multiple events
-craft().from(event(['route:started', 'route:stopped'])).to(log())
+craft().from(event(['route:started', 'route:stopped'])).log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 **Filter (`EventFilter`):** an event name, an array of names, or a wildcard pattern.

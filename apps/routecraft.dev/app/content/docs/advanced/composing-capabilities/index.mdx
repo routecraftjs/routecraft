@@ -103,24 +103,24 @@ export default craft()
 
 ```ts skip="fragment: processUrgent is illustrative"
 // capabilities/jobs-high/route.ts
-import { craft, direct, log } from '@routecraft/routecraft'
+import { craft, direct } from '@routecraft/routecraft'
 
 export default craft()
   .id('jobs-high')
   .from(direct())
   .transform(processUrgent)
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 ```ts skip="fragment: processNormal is illustrative"
 // capabilities/jobs-normal/route.ts
-import { craft, direct, log } from '@routecraft/routecraft'
+import { craft, direct } from '@routecraft/routecraft'
 
 export default craft()
   .id('jobs-normal')
   .from(direct())
   .transform(processNormal)
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 ## Discovery metadata and framework validation
@@ -129,7 +129,7 @@ Title, description, and request / response schemas are route-level concerns decl
 
 ```ts skip="fragment: fulfillOrder is illustrative"
 // capabilities/process-orders/route.ts
-import { craft, direct, log } from '@routecraft/routecraft'
+import { craft, direct } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 export default craft()
@@ -145,7 +145,7 @@ export default craft()
   .output({ body: z.object({ ok: z.literal(true) }) })
   .from(direct())
   .transform(fulfillOrder)
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 Add `mcp()` beside `direct()` in `.from()` and the same title, description and schemas describe the MCP tool; no metadata moves.

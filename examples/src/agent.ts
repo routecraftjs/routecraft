@@ -22,7 +22,7 @@ export default craft()
   .description("Greet a user by name")
   .input({ body: GreetInput })
   .from(direct())
-  .debug()
+  .log("debug", "Greeting requested", (ex) => ({ user: ex.body.user }))
   .to(
     agent({
       model: "gemini:gemini-3.7-flash",
@@ -51,4 +51,4 @@ export default craft()
       },
     }),
   )
-  .log();
+  .log("info", "Agent answered", (ex) => ({ answer: ex.body }));

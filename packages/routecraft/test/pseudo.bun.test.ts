@@ -4,7 +4,7 @@ import type {
   PseudoFactory,
   PseudoKeyedFactory,
 } from "../../testing/src/adapters/pseudo/index.ts";
-import { craft, simple, noop, log } from "@routecraft/routecraft";
+import { craft, simple, noop } from "@routecraft/routecraft";
 import { expectBodyOf } from "./helpers/types.ts";
 import type { Exchange } from "@routecraft/routecraft";
 
@@ -274,7 +274,7 @@ describe("Pseudo adapter", () => {
   describe("integration with route builder", () => {
     /**
      * @case Route with enrich, split, tap builds one definition with three steps
-     * @preconditions craft().from(pseudo src).enrich(mcp).split().tap(log())
+     * @preconditions craft().from(pseudo src).enrich(mcp).split().tap(noop())
      * @expectedResult One route, id and steps length match
      */
     test("pseudo adapter in enrich+split route builds valid definition", () => {
@@ -285,7 +285,7 @@ describe("Pseudo adapter", () => {
         .from(src<{ account: string }>({ poll: 1000 }))
         .enrich(mcp<{ messages: string[] }>({ server: "gmail", tool: "list" }))
         .split<string>((ex) => ex.body.messages)
-        .tap(log())
+        .tap(noop())
         .build();
 
       expect(route).toHaveLength(1);

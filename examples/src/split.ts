@@ -1,4 +1,4 @@
-import { log, craft, simple, direct, noop } from "@routecraft/routecraft";
+import { craft, simple, direct, noop } from "@routecraft/routecraft";
 import { z } from "zod";
 
 const OrderItemSchema = z.object({
@@ -50,12 +50,12 @@ const processOrder = craft()
       ],
     }),
   )
-  .tap(log())
+  .log("info", "Order received", (ex) => ({ items: ex.body.items.length }))
   .transform((order) => order.items)
   .split()
   .schema(OrderItemSchema)
   .to(direct<OrderItem>("price-check"))
   .aggregate()
-  .to(log());
+  .log("info", "Order priced", (ex) => ({ items: ex.body }));
 
 export default [priceCheck, processOrder];

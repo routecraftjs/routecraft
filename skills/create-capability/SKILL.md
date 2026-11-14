@@ -57,7 +57,7 @@ Do not write from memory. Capabilities look small but the operator order, schema
 The DSL is fluent and mostly self-documenting once you have an example open. Common shape:
 
 ```ts
-import { craft, simple, http, log } from "@routecraft/routecraft";
+import { craft, simple, http } from "@routecraft/routecraft";
 import { z } from "zod";
 
 const Input = z.object({ /* ... */ });

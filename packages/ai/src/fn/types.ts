@@ -2,7 +2,7 @@ import type {
   Principal,
   ResolveKey,
   Tag,
-  logger as frameworkLogger,
+  Logger,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { AgentDeferOptions, AgentDeferSentinel } from "../agent/defer.ts";
@@ -40,8 +40,8 @@ export type ReadonlyPrincipal = Readonly<
  * thread it through their own closure rather than via this interface.
  */
 export interface FnHandlerContext {
-  /** Pino child logger bound to the fn id. */
-  readonly logger: ReturnType<typeof frameworkLogger.child>;
+  /** A logger bound to the fn id. */
+  readonly logger: Logger;
   /** Context-level abort signal. Honour in long-running work. */
   readonly abortSignal: AbortSignal;
   /**

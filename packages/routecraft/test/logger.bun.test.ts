@@ -1,13 +1,30 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testContext } from "@routecraft/testing";
-import { logger, DefaultExchange, craft, simple } from "@routecraft/routecraft";
-import { childBindings, serializeError } from "../src/logger.ts";
+import {
+  defaultLogger,
+  DefaultExchange,
+  craft,
+  simple,
+} from "@routecraft/routecraft";
+import { childBindings, createLogger, serializeError } from "../src/logger.ts";
+import { loadOptionalPeerSync } from "../src/adapters/shared/optional-peer.ts";
+import { ContextBuilder, direct, noop } from "../src/index.ts";
 
 describe("logger", () => {
+  const logger = defaultLogger();
+
   /**
    * @case Logger exports a pino-like instance with level methods and child
    * @preconditions None
@@ -178,7 +195,7 @@ describe("serializeError", () => {
 describe("log file diversion", () => {
   /**
    * @case A log file whose basename is too long for the requested path and for the temp-dir fallback alike
-   * @preconditions A fresh process importing the logger with LOG_FILE naming a 300-character basename and TMPDIR pointing at an empty directory
+   * @preconditions A fresh process building the default logger with LOG_FILE naming a 300-character basename and TMPDIR pointing at an empty directory
    * @expectedResult The process starts (the logs divert to stderr) and the temp directory is still empty: the private craft-log directory made for the fallback file is removed when that file cannot be opened either
    */
   test("a fallback that fails leaves no directory behind", () => {
@@ -189,7 +206,7 @@ describe("log file diversion", () => {
         process.execPath,
         [
           "-e",
-          `import ${JSON.stringify(join(import.meta.dir, "../src/logger.ts"))}`,
+          `const { defaultLogger } = await import(${JSON.stringify(join(import.meta.dir, "../src/logger.ts"))}); defaultLogger();`,
         ],
         {
           cwd: temp,
@@ -206,5 +223,252 @@ describe("log file diversion", () => {
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }
+  });
+});
+
+describe("createLogger", () => {
+  const inTemp = async (run: (dir: string) => Promise<void> | void) => {
+    const dir = mkdtempSync(join(tmpdir(), "craft-logger-test-"));
+    try {
+      await run(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const linesOf = (file: string) =>
+    readFileSync(file, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  /**
+   * @case A logger built from options alone
+   * @preconditions `createLogger({ level: "info", file })`, one line below the level and one at it
+   * @expectedResult The file holds the one line at info as NDJSON with a level label, written by the time the call returns
+   */
+  test("writes NDJSON to the named file at the named level", () =>
+    inTemp((dir) => {
+      const file = join(dir, "app.log");
+      const logger = createLogger({ level: "info", file });
+
+      logger.debug("hidden");
+      logger.info({ n: 1 }, "shown");
+
+      expect(linesOf(file)).toMatchObject([
+        { level: "info", msg: "shown", n: 1 },
+      ]);
+    }));
+
+  /**
+   * @case A route logs the headers of an exchange that carries credentials
+   * @preconditions `createLogger({ file, redact: ["secret"] })` as the context's root; a `.log()` with the exchange's headers and a `secret` field
+   * @expectedResult The four credential headers and the configured path are redacted, an ordinary header is not: a configured path adds to the default list
+   */
+  test("redacts the credential headers by default, and what it is told to", () =>
+    inTemp(async (dir) => {
+      const file = join(dir, "app.log");
+      const { context, client } = await new ContextBuilder()
+        .with({
+          logger: createLogger({ level: "info", file, redact: ["secret"] }),
+        })
+        .routes(
+          craft()
+            .id("redacted")
+            .from(direct())
+            .log("info", "Seen", (ex) => ({ headers: ex.headers, secret: "s" }))
+            .to(noop()),
+        )
+        .build();
+      const running = context.start();
+      try {
+        await context.whenStarted();
+        await client.sendDirect(
+          "redacted",
+          {},
+          {
+            authorization: "Bearer token",
+            cookie: "session=1",
+            "set-cookie": "session=2",
+            "proxy-authorization": "Basic abc",
+            "x-request-id": "r-1",
+          },
+        );
+      } finally {
+        await context.stop();
+        await running;
+      }
+
+      const line = linesOf(file).find((entry) => entry["msg"] === "Seen");
+      expect(line).toMatchObject({
+        secret: "[Redacted]",
+        headers: {
+          authorization: "[Redacted]",
+          cookie: "[Redacted]",
+          "set-cookie": "[Redacted]",
+          "proxy-authorization": "[Redacted]",
+          "x-request-id": "r-1",
+        },
+      });
+    }));
+});
+
+describe("defaultLogger", () => {
+  const run = (script: string, cwd: string, env: Record<string, string>) =>
+    spawnSync(process.execPath, ["-e", script], {
+      cwd,
+      env: { ...process.env, NODE_ENV: "production", ...env },
+      encoding: "utf8",
+    });
+  const core = JSON.stringify(join(import.meta.dir, "../src/index.ts"));
+  const inTemp = (check: (dir: string) => void) => {
+    const dir = mkdtempSync(join(tmpdir(), "craft-default-logger-test-"));
+    try {
+      check(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  /**
+   * @case Importing the package builds no logger
+   * @preconditions A fresh process with LOG_FILE set that imports core, then calls `defaultLogger()` twice
+   * @expectedResult The log file does not exist after the import and does after the first call, and both calls return one logger
+   */
+  test("is built on first use, once", () =>
+    inTemp((dir) => {
+      const outcome = run(
+        `const { existsSync } = await import("node:fs");
+         const core = await import(${core});
+         const before = existsSync("app.log");
+         const same = core.defaultLogger() === core.defaultLogger();
+         console.log(JSON.stringify({ before, same, after: existsSync("app.log") }));`,
+        dir,
+        { LOG_FILE: "app.log" },
+      );
+
+      expect(outcome.stderr).toBe("");
+      expect(JSON.parse(outcome.stdout)).toEqual({
+        before: false,
+        same: true,
+        after: true,
+      });
+    }));
+
+  /**
+   * @case An application that configured its own logger
+   * @preconditions A fresh process with LOG_FILE set, a context built on a logger of its own, one exchange with a `.log()` line, then a stop
+   * @expectedResult The application's logger has the line and the log file was never created: nothing reached the default logger
+   */
+  test("is never built when a root is configured", () =>
+    inTemp((dir) => {
+      const outcome = run(
+        `const { existsSync } = await import("node:fs");
+         const core = await import(${core});
+         const messages = [];
+         const record = (first, second) => messages.push(second ?? first);
+         const root = { child: () => root, isLevelEnabled: () => true, trace: record, debug: record, info: record, warn: record, error: record, fatal: record };
+         const { context, client } = await new core.ContextBuilder()
+           .with({ logger: root })
+           .routes(core.craft().id("own").from(core.direct()).log("info", "Seen").to(core.noop()))
+           .build();
+         const running = context.start();
+         await context.whenStarted();
+         await client.sendDirect("own", {});
+         await context.stop();
+         await running;
+         console.log(JSON.stringify({ seen: messages.includes("Seen"), file: existsSync("app.log") }));`,
+        dir,
+        { LOG_FILE: "app.log" },
+      );
+
+      expect(outcome.stderr).toBe("");
+      expect(JSON.parse(outcome.stdout)).toEqual({ seen: true, file: false });
+    }));
+
+  /**
+   * @case What craft.log.cjs may set
+   * @preconditions A craft.log.cjs with level, file, redact and two pino options it has no business setting
+   * @expectedResult The three settings apply and the rest is ignored: the level label and the message key stay Routecraft's
+   */
+  test("reads level, file and redact from craft.log and nothing else", () =>
+    inTemp((dir) => {
+      writeFileSync(
+        join(dir, "craft.log.cjs"),
+        `module.exports = { level: "debug", file: "from-config.log", redact: ["token"], messageKey: "message", base: null };`,
+      );
+      const outcome = run(
+        `const { defaultLogger } = await import(${core});
+         defaultLogger().debug({ token: "t" }, "configured");`,
+        dir,
+        {},
+      );
+
+      expect(outcome.stderr).toBe("");
+      const line = JSON.parse(
+        readFileSync(join(dir, "from-config.log"), "utf8"),
+      ) as Record<string, unknown>;
+      expect(line).toMatchObject({
+        level: "debug",
+        msg: "configured",
+        token: "[Redacted]",
+      });
+      expect(line["pid"]).toBeNumber();
+    }));
+
+  /**
+   * @case LOG_LEVEL names no level
+   * @preconditions A fresh process with LOG_LEVEL=verbose that logs at warn and at info
+   * @expectedResult The process says so on stderr and carries on at the default level, warn, instead of failing at its first log line
+   */
+  test("reports a level that is no level and keeps the default", () =>
+    inTemp((dir) => {
+      const outcome = run(
+        `const { defaultLogger } = await import(${core});
+         defaultLogger().info("quiet");
+         defaultLogger().warn("loud");`,
+        dir,
+        { LOG_LEVEL: "verbose" },
+      );
+
+      expect(outcome.status).toBe(0);
+      expect(outcome.stderr).toContain("LOG_LEVEL must be one of");
+      expect(outcome.stdout).toContain('"msg":"loud"');
+      expect(outcome.stdout).not.toContain('"msg":"quiet"');
+      expect(existsSync(join(dir, "app.log"))).toBe(false);
+    }));
+});
+
+describe("loadOptionalPeerSync", () => {
+  /**
+   * @case A peer that is not installed, loaded synchronously
+   * @preconditions A thunk that throws what `require` throws for an absent package, and one that throws something else
+   * @expectedResult The first becomes RC5017 naming the package and how to install it; the second is rethrown as it is
+   */
+  test("turns an absent peer into RC5017 and leaves other failures alone", () => {
+    const absent = Object.assign(
+      new Error("Cannot find module 'pino-pretty'"),
+      {
+        code: "MODULE_NOT_FOUND",
+      },
+    );
+    const broken = new Error("native binding crashed");
+    const load = (cause: Error) => () =>
+      loadOptionalPeerSync(
+        () => {
+          throw cause;
+        },
+        { consumer: "pretty log output", packageName: "pino-pretty" },
+      );
+
+    expect(load(absent)).toThrow(
+      expect.objectContaining({
+        rc: "RC5017",
+        message: expect.stringContaining("bun add pino-pretty") as string,
+      }),
+    );
+    expect(load(broken)).toThrow(broken);
+    expect(
+      loadOptionalPeerSync(() => 42, { consumer: "x", packageName: "y" }),
+    ).toBe(42);
   });
 });

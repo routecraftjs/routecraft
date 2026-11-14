@@ -15,8 +15,8 @@ import {
   isRoutecraftError,
   RoutecraftError,
   rcError,
-  logger,
   parseDuration,
+  type Logger,
 } from "@routecraft/routecraft";
 import {
   RC_ADAPTER_OVERRIDES,
@@ -64,6 +64,24 @@ function applyTestDefaults(config: CraftConfig): CraftConfig {
     ...config.deferral,
   };
   return { ...config, deferral };
+}
+
+/**
+ * The root logger a test context is built on: lines a route or an exchange
+ * writes land on `routes`, everything else (the context, its plugins) on
+ * `context`. Each build has its own, so two contexts alive at once never
+ * see each other's lines.
+ */
+function spyRoot(routes: SpyLogger, context: SpyLogger): Logger {
+  const pick = (bindings: unknown): SpyLogger =>
+    bindings !== null && typeof bindings === "object" && "route" in bindings
+      ? routes
+      : context;
+  context.child.mockImplementation(pick);
+  return {
+    ...(context as unknown as Logger),
+    child: (bindings) => pick(bindings) as unknown as Logger,
+  };
 }
 
 function describeOverrideTarget(target: unknown): string {
@@ -118,8 +136,6 @@ export class TestContext {
   readonly errors: RoutecraftError[] = [];
   private readonly routesReadyTimeoutMs: number;
 
-  private restoreLoggerChild?: () => void;
-  private loggerChildRestored = false;
   private startedPromise?: Promise<void>;
 
   constructor(
@@ -128,15 +144,12 @@ export class TestContext {
     options?: TestContextOptions & {
       spyLogger?: SpyLogger;
       contextLogger?: SpyLogger;
-      restoreLoggerChild?: () => void;
     },
   ) {
     this.ctx = ctx;
     this.client = client;
     this.logger = options?.spyLogger ?? createNoopSpyLogger();
     this.contextLogger = options?.contextLogger ?? createNoopSpyLogger();
-    if (options?.restoreLoggerChild)
-      this.restoreLoggerChild = options.restoreLoggerChild;
     rejectStaleOptions(options, "testContext");
     this.routesReadyTimeoutMs =
       options?.routesReadyTimeout === undefined
@@ -327,12 +340,8 @@ export class TestContext {
       }
       await ctx.drain();
     } finally {
-      try {
-        await ctx.stop();
-        await started;
-      } finally {
-        this.restoreLoggerChildOnce();
-      }
+      await ctx.stop();
+      await started;
     }
   }
 
@@ -341,20 +350,10 @@ export class TestContext {
   }
 
   async stop(): Promise<void> {
-    try {
-      await this.ctx.stop();
-      if (this.startedPromise !== undefined) {
-        await this.startedPromise;
-      }
-    } finally {
-      this.restoreLoggerChildOnce();
+    await this.ctx.stop();
+    if (this.startedPromise !== undefined) {
+      await this.startedPromise;
     }
-  }
-
-  private restoreLoggerChildOnce(): void {
-    if (this.loggerChildRestored) return;
-    this.restoreLoggerChild?.();
-    this.loggerChildRestored = true;
   }
 }
 
@@ -366,10 +365,16 @@ export class TestContextBuilder {
   private builder = new ContextBuilder();
   private routesReadyTimeoutMs: number | undefined;
   private adapterOverrides: AdapterOverride[] = [];
-  private readonly spyFactory: SpyFactory;
+  private readonly spyLogger: SpyLogger;
+  private readonly contextLogger: SpyLogger;
+  private readonly root: Logger;
 
   constructor(options?: TestContextOptions) {
-    this.spyFactory = options?.fn ?? createSpyFn;
+    const spyFactory = options?.fn ?? createSpyFn;
+    this.spyLogger = createSpyLogger(spyFactory);
+    this.contextLogger = createSpyLogger(spyFactory);
+    this.root = spyRoot(this.spyLogger, this.contextLogger);
+    this.builder.with({ logger: this.root });
     this.routesReadyTimeoutMs =
       options?.routesReadyTimeout === undefined
         ? undefined
@@ -408,7 +413,10 @@ export class TestContextBuilder {
   }
 
   with(config: CraftConfig): this {
-    this.builder.with(applyTestDefaults(config));
+    this.builder.with({
+      ...applyTestDefaults(config),
+      logger: config.logger ?? this.root,
+    });
     return this;
   }
 
@@ -433,32 +441,7 @@ export class TestContextBuilder {
   }
 
   async build(): Promise<TestContext> {
-    const spyLogger = createSpyLogger(this.spyFactory);
-    const contextLogger = createSpyLogger(this.spyFactory);
-    const originalChild = logger.child;
-    const childSpy = this.spyFactory();
-    childSpy.mockImplementation((bindings) => {
-      const isRouteLogger =
-        bindings !== null &&
-        typeof bindings === "object" &&
-        "route" in bindings;
-      return (isRouteLogger
-        ? spyLogger
-        : contextLogger) as unknown as ReturnType<typeof logger.child>;
-    });
-    logger.child = childSpy as unknown as typeof logger.child;
-    // Restore the patched child on build failure: the restore hook is only
-    // handed to TestContext after a successful build, so without this a
-    // rejected build (e.g. an invalid route) would leak the stub into every
-    // later test in the process.
-    let built: Awaited<ReturnType<ContextBuilder["build"]>>;
-    try {
-      built = await this.builder.build();
-    } catch (error) {
-      logger.child = originalChild;
-      throw error;
-    }
-    const { context: ctx, client } = built;
+    const { context: ctx, client } = await this.builder.build();
 
     // Install registered adapter overrides onto the context store so that
     // ToStep / EnrichStep / Route source can resolve them at execution time.
@@ -473,16 +456,12 @@ export class TestContextBuilder {
     const options: TestContextOptions & {
       spyLogger: SpyLogger;
       contextLogger: SpyLogger;
-      restoreLoggerChild: () => void;
     } = {
       ...(this.routesReadyTimeoutMs !== undefined
         ? { routesReadyTimeout: this.routesReadyTimeoutMs }
         : {}),
-      spyLogger,
-      contextLogger,
-      restoreLoggerChild: () => {
-        logger.child = originalChild;
-      },
+      spyLogger: this.spyLogger,
+      contextLogger: this.contextLogger,
     };
     return new TestContext(ctx, client, options);
   }

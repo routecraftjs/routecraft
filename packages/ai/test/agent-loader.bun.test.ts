@@ -8,7 +8,9 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { logger } from "@routecraft/routecraft";
+import { defaultLogger } from "@routecraft/routecraft";
+
+const logger = defaultLogger();
 import { testContext } from "@routecraft/testing";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { agentPlugin, agents, tools } from "../src/index.ts";

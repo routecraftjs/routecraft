@@ -12,7 +12,7 @@ A capability becomes an MCP tool when `mcp()` is one of its sources. The tool na
 
 ```ts
 // capabilities/search-orders/route.ts
-import { craft, direct, log } from "@routecraft/routecraft";
+import { craft, direct } from "@routecraft/routecraft";
 import { mcp } from "@routecraft/ai";
 import { z } from "zod";
 
@@ -23,7 +23,7 @@ export default craft()
   .input({ body: z.object({ email: z.string().email() }) })
   .from(direct(), mcp())
   .transform(({ email }) => ({ email, orders: [] }))
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 ```
 
 The `mcp` key in `craft.config.ts` decides how the tools are served. See the [MCP example](/docs/examples/mcp) for a complete capability and the [`mcp()` adapter reference](/docs/reference/adapters/mcp) for every option.

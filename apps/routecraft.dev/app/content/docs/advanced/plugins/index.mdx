@@ -71,7 +71,7 @@ export default project
   .id('orders')
   .from<Order>(direct())
   .withTax(0.21)
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 Here `withTax` is a step the project's `pricing` plugin adds; [Steps](#steps) shows how it is declared.
@@ -474,7 +474,7 @@ declare module '@routecraft/routecraft' {
 
 A route that uses a plugin's step refuses to start unless that plugin is installed (`RC1111`). Two plugins declaring one step, or a step named after a builder method, is `RC1116`.
 
-The `.log()`, `.debug()`, `.map()` and `.schema()` methods are ordinary builder methods. `.authenticate()` and `.delegate()` are the auth plugin's steps, and `.defer()` and `.resume()` are the deferral plugin's.
+The `.log()`, `.map()` and `.schema()` methods are ordinary builder methods. `.authenticate()` and `.delegate()` are the auth plugin's steps, and `.defer()` and `.resume()` are the deferral plugin's.
 
 ### Step identity \{#step-identity}
 
@@ -574,14 +574,14 @@ The shipped facets follow the same rule. `ex.auth.principal` is the authenticate
 A plugin may contribute routes in `bind`. They are registered with the application's own routes and compiled with them:
 
 ```ts
-import { craft, definePlugin, log, simple } from '@routecraft/routecraft'
+import { craft, definePlugin, simple } from '@routecraft/routecraft'
 
 export const adminRoutes = definePlugin({
   id: 'acme.admin',
   bind(c) {
     if (process.env['ENABLE_ADMIN'] !== 'true') return
     c.routes.register(
-      ...craft().id('admin-health').from(simple({ ok: true })).to(log()).build(),
+      ...craft().id('admin-health').from(simple({ ok: true })).log('info', 'Done', (ex) => ({ result: ex.body })).build(),
     )
   },
 })

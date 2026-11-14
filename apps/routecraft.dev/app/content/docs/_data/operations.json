@@ -135,7 +135,7 @@
     "name": "delegate",
     "category": "Transform",
     "signature": ".delegate(resolver)",
-    "description": "Mark the principal as exercised by an actor (an agent) on the subject\u2019s behalf."
+    "description": "Mark the principal as exercised by an actor (an agent) on the subject’s behalf."
   },
   {
     "name": "map",
@@ -249,14 +249,8 @@
   {
     "name": "log",
     "category": "Side Effects",
-    "signature": ".log(formatter?)",
-    "description": "Emit a log line for the exchange."
-  },
-  {
-    "name": "debug",
-    "category": "Side Effects",
-    "signature": ".debug(formatter?)",
-    "description": "Emit a log line for the exchange at debug level."
+    "signature": ".log(level, message, bindings?)",
+    "description": "Write one log line on the exchange passing through; the exchange is unchanged."
   },
   {
     "name": "to",

@@ -19,7 +19,7 @@ import {
   getExchangeContext,
   type Exchange,
 } from "../../exchange";
-import type { PluginLogger } from "../../kernel/plugin.ts";
+import type { Logger } from "../../logger.ts";
 import type { DirectChannel } from "../../adapters/direct/types";
 import { InMemoryDirectChannel } from "../../adapters/direct/shared";
 import { createDeferred } from "../../kernel/continuation/deferred";
@@ -50,7 +50,7 @@ export function isRemoteAbsence(error: unknown, endpoint: string): boolean {
 
 /** What a channel needs to know about the route it fronts. */
 export interface RemoteTarget {
-  logger: PluginLogger;
+  logger: Logger;
   /** The remote's name in `defineConfig({ remotes })`. */
   remote: string;
   /** The route id on the remote. */

@@ -107,12 +107,12 @@ Create your first capability:
 
 ```ts
 // capabilities/my-first-capability/route.ts
-import { craft, simple, log } from "@routecraft/routecraft";
+import { craft, simple } from "@routecraft/routecraft";
 
 export default craft()
   .id("my-first-capability")
   .from(simple("Hello, Routecraft!"))
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 ```
 
 Run it directly with the CLI (requires Bun on the machine):

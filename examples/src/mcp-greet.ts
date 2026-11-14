@@ -1,5 +1,5 @@
 export { craftConfig } from "./craft.config.ts";
-import { craft, direct, log, noop } from "@routecraft/routecraft";
+import { craft, direct, noop } from "@routecraft/routecraft";
 import { mcp } from "@routecraft/ai";
 import { z } from "zod";
 
@@ -14,5 +14,5 @@ export default craft()
   .input({ body: GreetInput })
   .from(direct(), mcp())
   .transform((body) => `Hello, ${body.user}!`)
-  .tap(log())
+  .log("info", "Greeting built", (ex) => ({ greeting: ex.body }))
   .to(noop());

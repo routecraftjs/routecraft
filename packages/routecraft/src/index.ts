@@ -73,7 +73,6 @@ export {
   type Execution,
   type Plugin,
   type PluginContext,
-  type PluginLogger,
   type PluginRoutes,
   type RouteView,
   type RouteDefinitionView,
@@ -641,7 +640,20 @@ export {
   type RegisteredDirectEndpoint,
 } from "./registry.ts";
 
-export { logger, logFileDiversion, type LogFileDiversion } from "./logger.ts";
+export {
+  createLogger,
+  defaultLogger,
+  childBindings,
+  logFileDiversion,
+  type LogFileDiversion,
+  type Logger,
+  type LogFn,
+  type LogLevel,
+  type StepLogLevel,
+  type LogThreshold,
+  type LogBindings,
+  type DefaultLoggerOptions,
+} from "./logger.ts";
 
 export { shutdownHandler } from "./shutdown.ts";
 
@@ -681,7 +693,6 @@ export { BatchConsumer, type BatchOptions } from "./consumers/batch.ts";
 
 export { simple } from "./adapters/simple/index.ts";
 export { noop } from "./adapters/noop/index.ts";
-export { log, debug } from "./adapters/log/index.ts";
 export { direct } from "./adapters/direct/index.ts";
 export { timer } from "./adapters/timer/index.ts";
 export { cron } from "./adapters/cron/index.ts";
@@ -711,7 +722,6 @@ export {
 } from "./adapters/argv/index.ts";
 export { commandLineInput } from "./adapters/argv/command-line.ts";
 
-export { type LogOptions, type LogLevel } from "./adapters/log/index.ts";
 export {
   type HttpClientOptions,
   type HttpResult,

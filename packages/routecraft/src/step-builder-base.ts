@@ -66,7 +66,8 @@ import {
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { mapper } from "./operations/transform.ts";
 import { schema } from "./operations/validate.ts";
-import { log, debug, type LogOptions } from "./adapters/log/index.ts";
+import { LogStep } from "./operations/log.ts";
+import type { LogBindings, StepLogLevel } from "./logger.ts";
 import { HeaderStep } from "./operations/header.ts";
 import {
   CorrelateStep,
@@ -77,11 +78,11 @@ import {
   BUILDER_KIND,
   BUILDER_STATE,
   CATALOGUE,
+  DIGEST_EXEMPT,
   PUSH_STEP,
   STEP_PLUGIN,
   STEP_ARGS,
   STEP_NAME,
-  DIGEST_EXEMPT,
 } from "./dsl-symbol.ts";
 import { rcError } from "./error.ts";
 import type { StepCatalogue } from "./kernel/steps.ts";
@@ -882,38 +883,42 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   }
 
   /**
-   * Log the current exchange at info level. Body unchanged.
+   * Write one log line from inside the flow, on the exchange passing
+   * through: the line carries that exchange's id and lands in step order.
+   * The exchange is unchanged.
    *
-   * @param formatter - Formats what is logged; the exchange when omitted
-   * @param options - Log options; the level defaults to "info"
+   * The message is a fixed string and everything variable goes in
+   * `bindings`, so an aggregator can group and count by message. `level`
+   * and `bindings` see the exchange read-only, and a throw from either
+   * costs the line, never the exchange: it is reported once at `warn` and
+   * the route carries on.
+   *
+   * There is no `error` level here: a failure is logged once, at the
+   * boundary that handles it.
+   *
+   * @param level - `trace`, `debug`, `info` or `warn`, or a function choosing one per exchange
+   * @param message - The line's fixed message
+   * @param bindings - The fields the line carries, computed from the exchange
+   * @example
+   * ```ts
+   * .log("info", "Order received", (ex) => ({ orderId: ex.body.id }))
+   * .log((ex) => (ex.body.items.length === 0 ? "debug" : "info"), "Sweep done")
+   * ```
    */
   log(
-    formatter?: (exchange: ExchangeOf<S>) => unknown,
-    options?: LogOptions,
+    level: StepLogLevel | ((exchange: Readonly<ExchangeOf<S>>) => StepLogLevel),
+    message: string,
+    bindings?: (exchange: Readonly<ExchangeOf<S>>) => LogBindings,
   ): this {
-    const step = new TapStep(
-      log(formatter as (exchange: Exchange<unknown>) => unknown, options),
+    this.pushLabelled(
+      new LogStep(
+        level as
+          StepLogLevel | ((exchange: Readonly<Exchange>) => StepLogLevel),
+        message,
+        bindings as ((exchange: Readonly<Exchange>) => LogBindings) | undefined,
+      ),
+      "log",
     );
-    (step as { [DIGEST_EXEMPT]?: true })[DIGEST_EXEMPT] = true;
-    this.pushLabelled(step, "log");
-    return this;
-  }
-
-  /**
-   * Log the current exchange at debug level. Body unchanged.
-   *
-   * @param formatter - Formats what is logged; the exchange when omitted
-   * @param options - Log options; the level is always "debug"
-   */
-  debug(
-    formatter?: (exchange: ExchangeOf<S>) => unknown,
-    options?: Omit<LogOptions, "level">,
-  ): this {
-    const step = new TapStep(
-      debug(formatter as (exchange: Exchange<unknown>) => unknown, options),
-    );
-    (step as { [DIGEST_EXEMPT]?: true })[DIGEST_EXEMPT] = true;
-    this.pushLabelled(step, "debug");
     return this;
   }
 

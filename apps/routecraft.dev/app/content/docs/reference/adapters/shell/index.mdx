@@ -27,7 +27,7 @@ craft()
     network: true,
     timeout: 60_000,
   }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 ## It never invokes a shell

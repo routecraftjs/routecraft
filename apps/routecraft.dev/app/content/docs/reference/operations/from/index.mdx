@@ -58,7 +58,7 @@ craft()
     http({ path: '/servicenow/fetch', method: 'POST' }), // integrations
   )
   .transform((body) => incidents.find((i) => i.number === body.incidentId))
-  .log()
+  .log('info', 'Incident fetched', (ex) => ({ found: ex.body !== undefined }))
 ```
 
 Rules:
@@ -78,7 +78,7 @@ craft()
   .id('orders-search')
   .input(z.object({ customerId: z.string() }))
   .from(...channels('/orders/search'))
-  .log()
+  .log('info', 'Incident fetched', (ex) => ({ found: ex.body !== undefined }))
 ```
 
 When a channel genuinely needs a different contract, keep it as a separate route that delegates to the canonical one via `to(direct('...'))`.
