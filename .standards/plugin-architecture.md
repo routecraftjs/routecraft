@@ -460,7 +460,7 @@ its arguments or on its adapter.
 
 A route logs `RC5071` once at start for every inferred value in a digest
 it compares: what a resume would run after each defer site, the whole
-pipeline when the error path declares a park (`.error(handler, { schema })`
+pipeline when the error path declares a park (`.error(handler, { input })`
 or a hook with `mayDefer`), and the pipeline a default cache key stands
 for at either scope. Each entry says which (`affects: "resume" | "cache"`).
 An `.error()` handler that parks without declaring a schema is not walked. `.log()` is exempt from the digest, by the symbol its step carries and

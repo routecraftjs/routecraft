@@ -138,8 +138,8 @@ describe("Standard Schema guards after adopting isStandardSchema", () => {
       authorityOf(undefined),
     );
 
-    expect(() => ctx.defer?.({ schema: noValidator })).toThrow(
-      /ctx\.defer in tool "probe-tool": "schema" must be a Standard Schema when given/,
+    expect(() => ctx.defer?.({ input: noValidator })).toThrow(
+      /ctx\.defer in tool "probe-tool": "input" must be a Standard Schema when given/,
     );
   });
 });

@@ -158,12 +158,12 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
         // tool reports it, and a route with `.defer()` downstream is not
         // fooled by a body that merely looks deferred. Resume stays at the
         // remote's door, under the remote's policy.
-        const { deferralId, token, schema, expiresAt } = outcome.deferral;
+        const { deferralId, token, input, expiresAt } = outcome.deferral;
         return new DefaultExchange(ctx, {
           body: createDeferred({
             deferralId,
             token,
-            ...(schema !== undefined ? { schema } : {}),
+            ...(input !== undefined ? { input } : {}),
             ...(expiresAt !== undefined ? { expiresAt } : {}),
           }),
           headers: exchange.headers,

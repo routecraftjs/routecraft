@@ -1759,7 +1759,7 @@ export class AgentSessionRuntime {
         new Date(),
       );
       await this.host.resume(
-        { token, result: undefined },
+        { token, input: undefined },
         wokenBy === undefined ? options : { ...options, exchangeId: wokenBy },
       );
     })()

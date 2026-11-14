@@ -149,7 +149,7 @@ export interface RouteErrorOptions {
    * resume door can read it back live and validate against it (`RC5049`);
    * a changed or removed schema refuses the resume (`RC5048`).
    */
-  readonly schema?: StandardSchemaV1;
+  readonly input?: StandardSchemaV1;
 }
 
 export type ErrorHandler = (

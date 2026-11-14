@@ -35,7 +35,7 @@ function deferCapable(): Enricher<unknown, unknown> {
     fetch: (ex: Exchange<unknown>) => {
       const state = peekResumeStepState(ex);
       if (state !== undefined) {
-        return { resumed: true, state, payload: deferralOf(ex).result };
+        return { resumed: true, state, payload: deferralOf(ex).input };
       }
       throw new DeferSignal({
         schema: Approval,
@@ -74,12 +74,12 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("capable", "work"));
-    expect(deferred.schema).toBeDefined();
+    expect(deferred.input).toBeDefined();
     expect(sink.received).toHaveLength(0);
 
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
     expect(ack.continuation.status).toBe("completed");
@@ -121,7 +121,7 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
     const deferred = asDeferred(await t.client.sendDirect("dated", "work"));
     await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     });
 
     expect(sink.received).toHaveLength(1);
@@ -236,7 +236,7 @@ describe("cancellation around the deferral (RC5054)", () => {
             await sleep(120);
             return ex;
           })
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -278,7 +278,7 @@ describe("cancellation around the deferral (RC5054)", () => {
             tokens.push(ex.deferral.token);
             ids.push(ex.deferral.id);
           })
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -305,13 +305,13 @@ describe("cancellation around the deferral (RC5054)", () => {
 
     const resume = t.client.sendDirect("answers", {
       token: tokens[0]!,
-      result: { approved: true },
+      input: { approved: true },
     });
     await expect(resume).rejects.toMatchObject({ rc: "RC5050" });
     await expect(
       t.client.sendDirect("answers", {
         token: tokens[0]!,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5050" });
   });

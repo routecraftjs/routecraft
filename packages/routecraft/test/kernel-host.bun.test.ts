@@ -989,7 +989,7 @@ describe("the kernel host: installs and repeatable", () => {
             id: "test.resumer",
             async start(c) {
               refused = await c.execution
-                .resume({ token: "nope", result: undefined })
+                .resume({ token: "nope", input: undefined })
                 .catch((error: unknown) => error);
             },
           }),

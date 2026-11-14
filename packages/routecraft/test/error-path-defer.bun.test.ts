@@ -44,10 +44,10 @@ function asWho(ex: Exchange): Principal | undefined {
 
 /** The mapper the resume doors in this file use. */
 function payloadFrom(ex: Exchange) {
-  const body = ex.body as { token: string; result?: unknown };
+  const body = ex.body as { token: string; input?: unknown };
   return {
     token: body.token,
-    result: "result" in body ? body.result : { approved: true },
+    input: "input" in body ? body.input : { approved: true },
   };
 }
 
@@ -221,7 +221,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
       .routes([
         craft()
           .id("work")
-          .error(() => recovery.defer({ ttl: "1h" }), { schema: Decision })
+          .error(() => recovery.defer({ ttl: "1h" }), { input: Decision })
           .from(direct())
           .transform((body) => {
             if (failOnce) {
@@ -237,18 +237,18 @@ describe("recovery.defer: parking an exchange from the error path", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
-    expect(deferred.schema).toBeDefined();
+    expect(deferred.input).toBeDefined();
 
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: "not a boolean" },
+        input: { approved: "not a boolean" },
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
 
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
     expect(ack.continuation.status).toBe("completed");
@@ -273,7 +273,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
                 id: "park",
                 phase: "mutate",
                 mayDefer: true,
-                schema: Decision,
+                input: Decision,
                 run: (error) =>
                   (error as Error).message.includes("needs a human")
                     ? recovery.defer({ ttl: "1h" })
@@ -305,13 +305,13 @@ describe("recovery.defer: parking an exchange from the error path", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: 1 },
+        input: { approved: 1 },
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
 
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: false },
+      input: { approved: false },
     })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
     expect(ack.continuation.status).toBe("completed");
@@ -332,7 +332,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
             (error as Error).message.includes("needs a human")
               ? recovery.defer({ ttl: "1h" })
               : recovery.rethrow(),
-          { schema },
+          { input: schema },
         )
         .from(direct())
         .transform(() => {
@@ -362,7 +362,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: "yes" },
+        input: { approved: "yes" },
       }),
     ).rejects.toMatchObject({ rc: "RC5048" });
   });
@@ -386,7 +386,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
                 id: "park",
                 phase: "mutate",
                 mayDefer: true,
-                schema: Decision,
+                input: Decision,
                 run: () => recovery.defer({ ttl: "1h" }),
               },
             },
@@ -418,7 +418,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
 
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: "not a boolean" },
+      input: { approved: "not a boolean" },
     })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
     expect(ack.continuation.status).toBe("completed");
@@ -450,7 +450,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
               (error as Error).message.includes("needs a human")
                 ? recovery.defer({ ttl: "1h" })
                 : recovery.rethrow(),
-            { schema: Decision },
+            { input: Decision },
           )
           .from(direct())
           .transform(() => {
@@ -467,7 +467,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5048" });
   });
@@ -482,7 +482,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
       craft()
         .id("work")
         .from(direct())
-        .error(() => "recovered", { schema: Decision })
+        .error(() => "recovered", { input: Decision })
         .to(noop()),
     ).toThrow(expect.objectContaining({ rc: "RC5003" }));
   });

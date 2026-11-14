@@ -808,10 +808,10 @@ Catch it in the deferred route's route-scope `.error()` and re-ask. The message 
 Deferral result rejected
 
 **Why it happens**  
-The payload handed to `.resume()` failed the `schema` declared at the deferring site: the `.defer()` step, or the route-scope `.error(handler, { schema })` or error hook `schema` that parked it.
+The payload handed to `.resume()` failed the `input` schema declared at the deferring site: the `.defer()` step, or the route-scope `.error(handler, { schema })` or error hook `schema` that parked it.
 
 **Suggestion**  
-The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema.
+The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, input: result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema.
 
 A door that dispatched the ingress route answers the submitter the way it answers the route's own `.input()` refusal: the `http()` source and the ops dispatch door answer 400 with the schema's issues in the shape given under [RC5065](#rc-5065), the MCP server a tool error carrying them, the ACP mount `-32602`. A plugin resuming through `c.execution.resume()` has no caller waiting, so there the code alone is raised.
 

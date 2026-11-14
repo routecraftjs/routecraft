@@ -30,7 +30,7 @@ export const DeferralHeaders = {
    */
   OWNER: "routecraft.deferral.owner",
   /** The validated resume payload, written by the resume path before the continuation runs. */
-  RESULT: "routecraft.deferral.result",
+  INPUT: "routecraft.deferral.input",
   /** Who resumed it, recorded for audit. */
   RESUMED_BY: "routecraft.deferral.resumedBy",
   /** When the resume was accepted. */
@@ -56,7 +56,7 @@ declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     "routecraft.deferral.sequence"?: number;
     "routecraft.deferral.owner"?: string;
-    "routecraft.deferral.result"?: unknown;
+    "routecraft.deferral.input"?: unknown;
     "routecraft.deferral.resumedBy"?: PrincipalRef;
     "routecraft.deferral.resumedAt"?: Date;
     "routecraft.deferral.refusedScopes"?: readonly string[];
@@ -78,7 +78,7 @@ declare module "@routecraft/routecraft" {
  * threads the `schema` option's output type into every step after the
  * `.defer()`, the way `.input()` types the body.
  *
- * @template R - The resume payload type, threaded in by `.defer({ schema })`
+ * @template R - The resume payload type, threaded in by `.defer({ input: schema })`
  */
 export interface DeferralAffordance<R = unknown> {
   /** Id of the deferral this exchange would defer as (or deferred as). */
@@ -110,7 +110,7 @@ export interface DeferralAffordance<R = unknown> {
    */
   readonly tokenFor: (callBinding: string) => string;
   /** The validated resume payload. Present only after a resume. */
-  readonly result: R;
+  readonly input: R;
   /** Who resumed it. Present only after a resume, and only when the ingress route had a principal. */
   readonly resumedBy: PrincipalRef | undefined;
   /** When the resume was accepted. Present only after a resume. */
@@ -168,7 +168,7 @@ export function deferralAffordance(
       }
       return mint(callBinding);
     },
-    result: headers[DeferralHeaders.RESULT],
+    input: headers[DeferralHeaders.INPUT],
     resumedBy: headers[DeferralHeaders.RESUMED_BY],
     resumedAt: headers[DeferralHeaders.RESUMED_AT],
   };

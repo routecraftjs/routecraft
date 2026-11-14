@@ -212,7 +212,7 @@ describe("the plugin start hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: { "~standard": undefined } as never })
+          .defer({ input: { "~standard": undefined } as never })
           .to(noop()),
       ])
       .build());
@@ -243,7 +243,7 @@ describe("the plugin start hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: { "~standard": undefined } as never })
+          .defer({ input: { "~standard": undefined } as never })
           .to(noop()),
       ])
       .build());

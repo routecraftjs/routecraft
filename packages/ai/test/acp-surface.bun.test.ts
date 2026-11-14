@@ -495,7 +495,7 @@ describe("surface(), reaching the editor from a route", () => {
         craft()
           .id("deferred-read")
           .from(direct())
-          .defer({ schema: z.object({}) })
+          .defer({ input: z.object({}) })
           .enrich(surface("fs/read_text_file", { path: "/a.ts" }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -515,7 +515,7 @@ describe("surface(), reaching the editor from a route", () => {
 
       const acknowledgment = (await t.client.sendDirect("answers", {
         token: deferred.token,
-        result: {},
+        input: {},
       })) as {
         status: string;
         continuation: { status: string; error?: { rc?: string } };

@@ -41,7 +41,7 @@ describe("testFn with a schema returning a thenable", () => {
       handler: async (
         _input: number,
         ctx: { defer: (o?: unknown) => unknown },
-      ) => ctx.defer({ schema: { "~standard": {} } }) as never,
+      ) => ctx.defer({ input: { "~standard": {} } }) as never,
     };
 
     await expect(testFn(spec as never, 1)).rejects.toMatchObject({

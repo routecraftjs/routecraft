@@ -251,7 +251,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
 
 /**
  * The convention fallback for a bare `.resume()`: the body is already
- * `{ token, result }`.
+ * `{ token, input: result }`.
  *
  * Refuses anything else rather than reviving with a token read out of a
  * shape it does not recognise, since the token is a bearer capability and a
@@ -260,17 +260,17 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
  * @internal
  */
 function fromBody(exchange: Exchange): ResumeRequest {
-  const body = exchange.body as { token?: unknown; result?: unknown } | null;
+  const body = exchange.body as { token?: unknown; input?: unknown } | null;
   if (
     typeof body !== "object" ||
     body === null ||
     typeof body.token !== "string" ||
-    !("result" in body)
+    !("input" in body)
   ) {
     throw rcError("RC5041", undefined, {
       message:
-        "Bare .resume() expects the body to already be shaped { token, result }. Map it explicitly with .resume((ex) => ({ token, result })) when the ingress carries the payload in its own shape.",
+        "Bare .resume() expects the body to already be shaped { token, input }. Map it explicitly with .resume((ex) => ({ token, input: result })) when the ingress carries the payload in its own shape.",
     });
   }
-  return { token: body.token, result: body.result };
+  return { token: body.token, input: body.input };
 }

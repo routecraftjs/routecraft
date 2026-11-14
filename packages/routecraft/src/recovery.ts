@@ -177,7 +177,7 @@ export const recovery = {
    *       id: "parkForStepUp",
    *       phase: "mutate",
    *       mayDefer: true,
-   *       schema: decision,
+   *       input: decision,
    *       run(error, exchange, { forward }) {
    *         const refusal = insufficientAuthorityOf(error);
    *         if (!refusal) return undefined;

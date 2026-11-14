@@ -996,7 +996,7 @@ async function runErrorSlot(
         admitted: args.admitted,
         ...(args.failingStep ? { failingStep: args.failingStep } : {}),
         handler: entry.id,
-        ...(handler.schema ? { schema: handler.schema } : {}),
+        ...(handler.input ? { schema: handler.input } : {}),
       });
     } catch (thrown) {
       const handlerErr = processError(thrown);

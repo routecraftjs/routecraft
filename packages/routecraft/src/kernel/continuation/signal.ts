@@ -8,7 +8,7 @@ import type { DeferCapableStep } from "./sites.ts";
 
 /**
  * What a defer-capable adapter resolves when it raises a deferral from
- * inside its own execution: the same pieces `.defer({ schema, ttl })`
+ * inside its own execution: the same pieces `.defer({ input: schema, ttl })`
  * declares statically, plus the closure state only the step can produce.
  */
 export interface DeferSignalRequest {

@@ -27,11 +27,11 @@ craft()
   .authenticate(mailPrincipal)
   .resume((ex) => ({
     token: tokenFrom(ex.headers['routecraft.mail.subject']),
-    result: { approved: /^yes/i.test(ex.body.text ?? '') },
+    input: { approved: /^yes/i.test(ex.body.text ?? '') },
   }))
   .log('info', 'Done', (ex) => ({ result: ex.body }))
 
-// Fallback: the body is already shaped { token, result }.
+// Fallback: the body is already shaped { token, input: result }.
 craft().id('resume-api').from(http({ path: '/resume', method: 'POST' })).resume()
 ```
 
@@ -144,7 +144,7 @@ authorize: ({ principal, deferred }) => {
 **Scope gate.** The defer site records what the resuming principal must hold, so the requirement is the one in force at deferral time:
 
 ```ts skip="fragment: one property of the resume options object, shown on its own"
-// .defer({ schema: Approval, meta: { requires: ['payouts:approve'] } })
+// .defer({ input: Approval, meta: { requires: ['payouts:approve'] } })
 authorize: ({ principal, record }) => {
   const required = (record.meta as { requires?: string[] })?.requires
   // No recorded requirement is a defer-site bug, not a grant. Without this,
@@ -161,7 +161,7 @@ That guard is the pattern, not decoration. Every hook you write is the whole gat
 **Channel segmentation.** Several classes of deferral share a context under different transport auth, and each door serves only its own:
 
 ```ts skip="fragment: financeIngress, mapPayload, opsIngress are illustrative"
-// .defer({ schema: Approval, meta: { channel: 'finance' } })
+// .defer({ input: Approval, meta: { channel: 'finance' } })
 const servesChannel = (channel: string) => ({
   authorize: ({ record }) => (record.meta as { channel?: string })?.channel === channel,
 })
@@ -173,7 +173,7 @@ craft().id('ops-door').from(opsIngress).resume(mapPayload, servesChannel('ops'))
 **Policy travels with the deferral.** The defer site snapshots its policy onto the record; the door enforces the record's copy, so editing the defer site never reaches records already deferred:
 
 ```ts skip="fragment: one property of the resume options object, shown on its own"
-// .defer({ schema: Approval, meta: { fourEyes: true } })
+// .defer({ input: Approval, meta: { fourEyes: true } })
 authorize: ({ principal, deferred, record }) => {
   const policy = record.meta as { fourEyes?: boolean } | undefined
   if (!policy?.fourEyes) return true
@@ -201,7 +201,7 @@ An anonymous defer site can never satisfy this, and the hook says so rather than
 **Threshold by scope.** What was submitted decides which scope the hook demands, so a junior approver clears the small payments and escalates the large ones:
 
 ```ts skip="fragment: one property of the resume options object, shown on its own"
-// .defer({ schema: Settlement, meta: { threshold: 1000, senior: 'payouts:approve:large' } })
+// .defer({ input: Settlement, meta: { threshold: 1000, senior: 'payouts:approve:large' } })
 authorize: ({ principal, payload, record }) => {
   const { threshold, senior } = record.meta as { threshold: number; senior: string }
   // `payload` is the raw submission: schema validation has not run yet,

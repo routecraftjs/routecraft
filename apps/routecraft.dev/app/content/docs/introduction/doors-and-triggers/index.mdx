@@ -49,7 +49,7 @@ Some work cannot finish on its own: a payout over a threshold, a reply that need
 
 ```ts skip="fragment: Approval and notifyApprover are illustrative"
 .tap(direct("notify-approver"))
-.defer({ schema: Approval, ttl: "72h" })
+.defer({ input: Approval, ttl: "72h" })
 .to(executePayout)
 ```
 

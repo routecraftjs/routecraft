@@ -136,7 +136,7 @@ export type ResumeElevator = (
  * const record = await store.get(deferralId);
  * const parked = record && deferredPrincipal(record, authority);
  * const live = parked && (await directory.verify(parked.subject));
- * await c.execution.resume({ token, result }, { reidentified: live });
+ * await c.execution.resume({ token, input: result }, { reidentified: live });
  * ```
  */
 export function deferredPrincipal(

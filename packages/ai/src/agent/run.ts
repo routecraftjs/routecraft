@@ -628,7 +628,7 @@ export class AgentRun<T = unknown> {
       turnsUsed,
       ...(usage !== undefined ? { usage } : {}),
     };
-    const { schema, ttl, meta } = winner.request;
+    const { input: schema, ttl, meta } = winner.request;
     return new DeferSignal({
       ...(schema !== undefined ? { schema } : {}),
       ...(ttl !== undefined ? { ttl } : {}),

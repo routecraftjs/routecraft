@@ -1053,16 +1053,16 @@ export class RouteBuilder<
       this.pendingOptions = {
         ...(this.pendingOptions ?? {}),
         errorHandler: handler,
-        ...(options.schema !== undefined
-          ? { errorPathSchema: options.schema }
+        ...(options.input !== undefined
+          ? { errorPathSchema: options.input }
           : {}),
       };
       return this;
     }
-    if (options.schema !== undefined) {
+    if (options.input !== undefined) {
       throw rcError("RC5003", undefined, {
         message:
-          "A step-scope .error() cannot park an exchange, so it declares no resume schema. Declare { schema } on the route-scope .error() (before .from()), which is where recovery.defer() parks from.",
+          "A step-scope .error() cannot park an exchange, so it declares no resume schema. Declare { input } on the route-scope .error() (before .from()), which is where recovery.defer() parks from.",
       });
     }
     // Post-`.from()` on the current route: delegate to the base-class

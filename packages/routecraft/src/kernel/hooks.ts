@@ -358,7 +358,7 @@ export interface ErrorHook extends HookBase {
    * it live and validates against it (`RC5049`); a changed or removed
    * schema refuses the resume (`RC5048`).
    */
-  readonly schema?: StandardSchemaV1;
+  readonly input?: StandardSchemaV1;
   run(
     error: unknown,
     exchange: Exchange,

@@ -716,7 +716,7 @@ fn({
 })
 ```
 
-The durable form replaces the blocking await with `return ctx.defer({ schema: Approval, ttl: "72h" })` and consumes the payload when the run resumes; `ctx.deferralId` and `ctx.deferral.token` are populated before the handler runs, so the approval request can carry a working resume link. `DeferError` remains available as a throw-form escape hatch, with a documented footgun: a handler that wraps its work in `try/catch` silently swallows a thrown deferral. Both require the exchange to be route-bound and, at deferral time, a [`deferral`](/docs/reference/configuration#deferral) block on the context.
+The durable form replaces the blocking await with `return ctx.defer({ input: Approval, ttl: "72h" })` and consumes the payload when the run resumes; `ctx.deferralId` and `ctx.deferral.token` are populated before the handler runs, so the approval request can carry a working resume link. `DeferError` remains available as a throw-form escape hatch, with a documented footgun: a handler that wraps its work in `try/catch` silently swallows a thrown deferral. Both require the exchange to be route-bound and, at deferral time, a [`deferral`](/docs/reference/configuration#deferral) block on the context.
 
 #### Observability: three channels
 

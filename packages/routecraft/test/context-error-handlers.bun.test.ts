@@ -1023,7 +1023,7 @@ describe("the error slot", () => {
               seen.push({
                 route: info.routeId,
                 execution: info.execution,
-                result: deferralOf(exchange)?.result,
+                result: deferralOf(exchange)?.input,
               });
               if (info.routeId === "downstream") return { done: true };
               if (info.execution === 1) return recovery.defer({ ttl: "1h" });
@@ -1043,7 +1043,7 @@ describe("the error slot", () => {
           .from(direct())
           .resume((ex) => ({
             token: (ex.body as { token: string }).token,
-            result: { approved: true },
+            input: { approved: true },
           })),
       ])
       .build();
@@ -1138,7 +1138,7 @@ describe("the error slot", () => {
           .from(direct())
           .resume((ex) => ({
             token: (ex.body as { token: string }).token,
-            result: { approved: true },
+            input: { approved: true },
           })),
       ])
       .build();
@@ -1252,7 +1252,7 @@ describe("the error slot", () => {
           .from(direct())
           .resume((ex) => ({
             token: (ex.body as { token: string }).token,
-            result: { approved: true },
+            input: { approved: true },
           })),
       ])
       .build();

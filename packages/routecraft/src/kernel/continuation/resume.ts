@@ -84,8 +84,8 @@ export const RENEWALS_PER_LEASE = 3;
 export interface ResumeRequest {
   /** The signed token minted when the exchange deferred. */
   token: string;
-  /** The submitted payload, validated against the deferring step's `schema`. */
-  result: unknown;
+  /** The submitted payload, validated against the deferring step's `input` schema. */
+  input: unknown;
   /**
    * Who resumed it. Defaults to the ingress exchange's own principal, which
    * is the value worth recording: it was verified live on the route that
@@ -321,7 +321,7 @@ export async function reviveDeferral(
   const hookInput = {
     principal: door.principal,
     deferred: deferredPrincipal(deferral, authority),
-    payload: request.result,
+    payload: request.input,
     record: recordView(deferral),
   };
   if (door.authorize) {
@@ -420,9 +420,9 @@ export async function reviveDeferral(
   }
 
   // A Standard Schema cannot be persisted, so only the live one can validate.
-  let payload: unknown = request.result;
+  let payload: unknown = request.input;
   if (site.schema) {
-    const result = await validateAgainst(site.schema, request.result);
+    const result = await validateAgainst(site.schema, request.input);
     if (!result.ok) {
       const cause =
         door.routeId === undefined
@@ -489,7 +489,7 @@ export async function reviveDeferral(
   let continuation: SerializedOutcome;
   try {
     const exchange = rehydrate(context, route, deferral, {
-      result: payload,
+      input: payload,
       resumedAt,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
       ...(runAs ? { elevated: runAs } : {}),
@@ -917,7 +917,7 @@ function rehydrate(
   route: Route,
   deferral: Deferral,
   resumption?: {
-    result: unknown;
+    input: unknown;
     resumedAt: Date;
     resumedBy?: PrincipalRef;
     /**
@@ -935,7 +935,7 @@ function rehydrate(
     [HeadersKeys.ROUTE_ID]: deferral.routeId,
     ...(resumption
       ? {
-          [DeferralHeaders.RESULT]: resumption.result,
+          [DeferralHeaders.INPUT]: resumption.input,
           [DeferralHeaders.RESUMED_AT]: resumption.resumedAt,
           ...(resumption.resumedBy
             ? { [DeferralHeaders.RESUMED_BY]: resumption.resumedBy }
@@ -1126,7 +1126,7 @@ function findSite(
 /**
  * The schema an error-path park's resume payload is validated against, read
  * live off the handler that parked it: the route's `.error(handler, {
- * schema })` or the error hook the record names. A handler that declares
+ * input })` or the error hook the record names. A handler that declares
  * none, or that is gone, yields no schema, and the hash comparison that
  * follows decides whether that matches what was parked. A record written
  * before the handler was recorded falls back to the descriptor: the one
@@ -1142,11 +1142,11 @@ function liveErrorPathSchema(
   const hooks = context.errorHooks(route).decide;
   if (errorPath.handler !== undefined) {
     const parker = hooks.find((entry) => entry.id === errorPath.handler);
-    return parker ? (parker.hook as ErrorHook).schema : undefined;
+    return parker ? (parker.hook as ErrorHook).input : undefined;
   }
   const declared = [
     route.definition.errorPathSchema,
-    ...hooks.map((entry) => (entry.hook as ErrorHook).schema),
+    ...hooks.map((entry) => (entry.hook as ErrorHook).input),
   ].filter((schema): schema is StandardSchemaV1 => schema !== undefined);
   if (stored.absent) return declared[0];
   return declared.find((schema) => describeSchema(schema).hash === stored.hash);

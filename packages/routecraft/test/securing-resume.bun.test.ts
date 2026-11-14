@@ -40,7 +40,7 @@ function asWho(ex: Exchange) {
 function payloadFrom(ex: Exchange) {
   return {
     token: (ex.body as { token: string }).token,
-    result: { approved: true },
+    input: { approved: true },
   };
 }
 
@@ -66,7 +66,7 @@ describe("securing resume: the documented patterns", () => {
           .id("payout")
           .from(direct())
           .authenticate(asWho)
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("approvals")
@@ -117,7 +117,7 @@ describe("securing resume: the documented patterns", () => {
           .id("payout")
           .from(direct())
           .defer({
-            schema: Approval,
+            input: Approval,
             meta: { requires: ["payouts:approve"] },
           })
           .to(noop()),
@@ -174,7 +174,7 @@ describe("securing resume: the documented patterns", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("approvals")
@@ -222,7 +222,7 @@ describe("securing resume: the documented patterns", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval, meta: { channel: "finance" } })
+          .defer({ input: Approval, meta: { channel: "finance" } })
           .to(noop()),
         craft()
           .id("ops-door")
@@ -278,7 +278,7 @@ describe("securing resume: the documented patterns", () => {
           .id("payout")
           .from(direct())
           .authenticate(asWho)
-          .defer({ schema: Approval, meta: { fourEyes: true } })
+          .defer({ input: Approval, meta: { fourEyes: true } })
           .to(noop()),
         door,
       ])
@@ -297,7 +297,7 @@ describe("securing resume: the documented patterns", () => {
           .id("payout")
           .from(direct())
           .authenticate(asWho)
-          .defer({ schema: Approval, meta: { fourEyes: false } })
+          .defer({ input: Approval, meta: { fourEyes: false } })
           .to(noop()),
         craft()
           .id("approvals")
@@ -336,7 +336,7 @@ describe("securing resume: the documented patterns", () => {
           .id("wizard")
           .from(direct())
           .authenticate(asWho)
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("continue")
@@ -386,7 +386,7 @@ describe("securing resume: the documented patterns", () => {
         craft()
           .id("wizard")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("continue")
@@ -428,7 +428,7 @@ describe("securing resume: the documented patterns", () => {
           .id("payout")
           .from(direct())
           .defer({
-            schema: Settlement,
+            input: Settlement,
             meta: { threshold: 1000, senior: "payouts:approve:large" },
           })
           .to(noop()),
@@ -441,7 +441,7 @@ describe("securing resume: the documented patterns", () => {
               const body = ex.body as { token: string; amount: number };
               return {
                 token: body.token,
-                result: { approved: true, amount: body.amount },
+                input: { approved: true, amount: body.amount },
               };
             },
             {

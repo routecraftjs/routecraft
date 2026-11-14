@@ -117,7 +117,7 @@ export async function deferExchange(
   const ack: Deferred = createDeferred({
     deferralId: id,
     token: runtime.signer.mint(id, new Date(), request.callBinding),
-    ...(schema.jsonSchema !== undefined ? { schema: schema.jsonSchema } : {}),
+    ...(schema.jsonSchema !== undefined ? { input: schema.jsonSchema } : {}),
     ...(record.expiresAt ? { expiresAt: record.expiresAt.toISOString() } : {}),
   });
 

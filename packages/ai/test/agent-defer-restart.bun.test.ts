@@ -105,7 +105,7 @@ describe("agent deferral across a restart (stepState adoption)", () => {
 
     const ack = (await b.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
     expect(ack.continuation.status).toBe("completed");
@@ -121,7 +121,7 @@ describe("agent deferral across a restart (stepState adoption)", () => {
 
     const duplicate = (await b.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
     expect(duplicate.status).toBe("duplicate");
     expect(duplicate.continuation.status).toBe("completed");
@@ -154,7 +154,7 @@ describe("agent deferral across a restart (stepState adoption)", () => {
     await expect(
       b.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5048" });
 

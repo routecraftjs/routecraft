@@ -1376,7 +1376,7 @@ describe("the ops management API", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: z.object({ approved: z.boolean() }) })
+          .defer({ input: z.object({ approved: z.boolean() }) })
           .to(noop()),
       ],
     });

@@ -91,15 +91,15 @@ function parkRoute(
       token = ex.deferral.token;
       return ex;
     })
-    .defer({ schema: Decision, ttl })
+    .defer({ input: Decision, ttl })
     .filter((ex) =>
-      (ex.deferral.result as Decision).verdict === "drop"
+      (ex.deferral.input as Decision).verdict === "drop"
         ? { reason: "the approver withdrew" }
         : true,
     )
     .transform((_body, ex) => {
       actionRuns++;
-      const decision = ex.deferral.result as Decision;
+      const decision = ex.deferral.input as Decision;
       if (decision.verdict === "fail") {
         throw new Error("the mail relay is down");
       }
@@ -141,14 +141,14 @@ function routes(
         token = ex.deferral.token;
         return ex;
       })
-      .defer({ schema: Decision, ttl })
+      .defer({ input: Decision, ttl })
       .process((ex) => {
         secondToken = ex.deferral.token;
         return ex;
       })
-      .defer({ schema: Decision, ttl })
+      .defer({ input: Decision, ttl })
       .transform((_body, ex) => ({
-        approved: (ex.deferral.result as Decision).verdict === "approve",
+        approved: (ex.deferral.input as Decision).verdict === "approve",
       }))
       .to(noop())
       .build(),
@@ -229,7 +229,7 @@ function send(
 
 /** Answer the park, as the human's ingress would. */
 function answer(t: TestContext, result: Decision): Promise<unknown> {
-  return t.client.sendDirect("answers", { token, result });
+  return t.client.sendDirect("answers", { token, input: result });
 }
 
 /** The last user message of a recorded model call, as the SDK saw it. */
@@ -1462,7 +1462,7 @@ describe("a live settlement follows the park it is about", () => {
     llm.script.push({ text: "both approved" });
     await t.client.sendDirect("answers", {
       token: secondToken,
-      result: { verdict: "approve" },
+      input: { verdict: "approve" },
     });
     await until(() => llm.calls.length === 2);
     await t.ctx.getRouteById("chat")!.drain();

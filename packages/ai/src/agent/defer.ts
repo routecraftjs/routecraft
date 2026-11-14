@@ -11,7 +11,7 @@ const DEFER_SENTINEL_BRAND = Symbol.for("routecraft.ai.agentDeferSentinel");
 
 /**
  * What a fn handler passes to `ctx.defer()`: the same pieces the core
- * `.defer({ schema, ttl, meta })` operation declares, so an agent-raised
+ * `.defer({ input: schema, ttl, meta })` operation declares, so an agent-raised
  * deferral and a route-raised one are the same record with the same
  * options.
  */
@@ -21,12 +21,12 @@ export interface AgentDeferOptions {
    * acknowledgment (so the caller can see the shape) and folded into the
    * deferral's compatibility hash.
    *
-   * Descriptive at resume time, unlike the core operation's `schema`: the
+   * Descriptive at resume time, unlike the core operation's `input`: the
    * live schema exists only in this handler's code, so after a restart the
    * framework cannot re-validate against it and the payload reaches the
    * model as an ordinary, untrusted tool result. Treat it accordingly.
    */
-  schema?: StandardSchemaV1;
+  input?: StandardSchemaV1;
   /**
    * How long the deferral stays resumable (e.g. `"72h"`). Omitted means
    * the context's `defaultTtl`. Expiry re-enters the route's error channel
@@ -136,7 +136,7 @@ export class DeferError extends Error {
 
   constructor(opts?: AgentDeferOptions) {
     super("Agent deferred pending external resumption.");
-    if (opts?.schema !== undefined) this.schema = opts.schema;
+    if (opts?.input !== undefined) this.schema = opts.input;
     if (opts?.ttl !== undefined) this.ttl = opts.ttl;
     if (opts?.meta !== undefined) this.meta = opts.meta;
   }

@@ -98,7 +98,7 @@ describe("a structural plugin step", () => {
     expect(trace).toEqual([]);
     const answer = (await t.client.sendDirect("door", {
       token: (parked as { token: string }).token,
-      result: true,
+      input: true,
     })) as { status: string };
     expect(answer.status).toBe("resumed");
     expect(trace).toEqual(["branch", "main"]);

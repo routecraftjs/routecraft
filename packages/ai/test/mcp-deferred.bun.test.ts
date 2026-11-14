@@ -58,7 +58,7 @@ describe("MCP carries Deferred (#581)", () => {
           .output({ body: Payout })
           .from<{ amount: number }>(mcp())
           .defer({
-            schema: Approval,
+            input: Approval,
             meta: { channel: "finance", requires: ["payouts:approve"] },
           })
           .transform(() => ({ paid: true })),
@@ -89,7 +89,7 @@ describe("MCP carries Deferred (#581)", () => {
     // structural fallback still accepted it, or the reverse.
     expect(
       Object.keys(oneOf[1]!["properties"] as Record<string, unknown>),
-    ).toContain("schema");
+    ).toContain("input");
     expect(tool.outputSchema?.type).toBeUndefined();
   });
 
@@ -145,7 +145,7 @@ describe("MCP carries Deferred (#581)", () => {
           .id("quiet")
           .description("Defers but declares no output")
           .from<{ amount: number }>(mcp())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -175,7 +175,7 @@ describe("MCP carries Deferred (#581)", () => {
           .output({ body: Payout })
           .from<{ amount: number }>(mcp())
           .defer({
-            schema: Approval,
+            input: Approval,
             meta: { channel: "finance", requires: ["payouts:approve"] },
           })
           .transform(() => ({ paid: true })),
@@ -234,7 +234,7 @@ describe("MCP carries Deferred (#581)", () => {
 
     const resumeAck = (await t.client.sendDirect("answers", {
       token: ack.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string; body?: unknown } };
     expect(resumeAck.status).toBe("resumed");
     expect(resumeAck.continuation.status).toBe("completed");

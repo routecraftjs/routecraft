@@ -85,7 +85,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
         craft()
           .id("work")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .tap((ex) => {
             seen.push(ex.auth.principal);
           })
@@ -130,7 +130,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
       const refusal = await host
         .execution()
         .resume(
-          { token: deferred.token, result: { approved: true } },
+          { token: deferred.token, input: { approved: true } },
           { reidentified },
         )
         .then(
@@ -163,7 +163,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
     const ack = await host
       .execution()
       .resume(
-        { token: deferred.token, result: { approved: true } },
+        { token: deferred.token, input: { approved: true } },
         { reidentified: live },
       );
 
@@ -189,7 +189,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
 
     const refusal = await reviveDeferral(
       t!.ctx,
-      { token: deferred.token, result: { approved: true } },
+      { token: deferred.token, input: { approved: true } },
       {
         elevate: () => {
           elevated++;

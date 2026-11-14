@@ -95,7 +95,7 @@ function serverRoutes(): Routes {
       .description("Defers until approved")
       .input({ body: z.object({}) })
       .from(direct())
-      .defer({ schema: z.object({ approved: z.boolean() }) })
+      .defer({ input: z.object({ approved: z.boolean() }) })
       .to(noop()),
   ];
 }

@@ -248,11 +248,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       : undefined;
     const resume: AgentRunResume | undefined =
       resumeRaw !== undefined && revivedDeferral === undefined
-        ? rehydrateSession(
-            resumeRaw,
-            agentIdentity,
-            deferralOf(exchange).result,
-          )
+        ? rehydrateSession(resumeRaw, agentIdentity, deferralOf(exchange).input)
         : undefined;
 
     const userTools = resolveAgentTools(

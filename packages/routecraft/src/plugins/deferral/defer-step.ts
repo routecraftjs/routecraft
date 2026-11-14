@@ -23,7 +23,7 @@ import type {
  * `meta` carries whatever the application's own policy needs onto the
  * record, and `.resume({ authorize })` is where that policy runs.
  *
- * @template Schema - The `schema` option, whose output types `ex.deferral.result`
+ * @template Schema - The `input` option, whose output types `ex.deferral.input`
  */
 export interface DeferOptions<
   Schema extends StandardSchemaV1 = StandardSchemaV1,
@@ -37,13 +37,13 @@ export interface DeferOptions<
    * schema buys three things: the JSON Schema rendering advertised on the
    * acknowledgment so an approval UI or a calling agent can render a form,
    * pre-claim validation of the payload (`RC5049`, so garbage cannot spend
-   * the link), and the typing of `ex.deferral.result` downstream.
+   * the link), and the typing of `ex.deferral.input` downstream.
    *
    * Absent, none of those apply: no ingress validation, and the result
    * types `unknown`. A click-yes consent flow stops paying schema ceremony
    * it never needed.
    */
-  schema?: Schema;
+  input?: Schema;
   /**
    * How long the deferral stays resumable. Omit for no expiry.
    *
@@ -106,7 +106,7 @@ export class DeferStep implements DeferrableStep {
   readonly #expiresInMs?: number;
 
   constructor(options: DeferOptions = {}) {
-    if (options.schema !== undefined) this.schema = options.schema;
+    if (options.input !== undefined) this.schema = options.input;
     if (options.meta !== undefined) this.meta = options.meta;
     if (options.ttl !== undefined) {
       this.#expiresInMs = parseDuration(options.ttl, ".defer({ ttl })");

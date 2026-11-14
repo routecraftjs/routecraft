@@ -31,7 +31,7 @@ agentPlugin({
           token: ctx.deferral.token,
         })
         return ctx.defer({
-          schema: Approval,
+          input: Approval,
           ttl: "72h",
           meta: { requires: ["payouts:approve"], fourEyes: true },
         })

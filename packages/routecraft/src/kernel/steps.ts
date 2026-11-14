@@ -158,8 +158,8 @@ export interface StepMethods<S extends BuilderState, This> {
 declare const STEP_METHOD_TYPES: unique symbol;
 
 /**
- * Facets whose type depends on the route's state, as `ex.deferral.result`
- * depends on the last `.defer({ schema })`. A plugin merges its facet type
+ * Facets whose type depends on the route's state, as `ex.deferral.input`
+ * depends on the last `.defer({ input: schema })`. A plugin merges its facet type
  * in under its namespace; otherwise the facet is typed by what `facet`
  * returns.
  *
