@@ -24,7 +24,7 @@ An [`event()`](/docs/reference/adapters/event) route is not delivered the events
 
 ## Snapshots \{#snapshots}
 
-No event hands a subscriber an exchange. An event that names one carries its `exchangeId`, and the four lifecycle events (`started`, `completed`, `failed`, `dropped`) carry `principal`, a reference to who the exchange ran as (`{ subject, issuer?, clientId?, actorSubject? }`), never the principal with its claims.
+No event hands a subscriber an exchange. An event that names one carries its `exchangeId`, and the lifecycle events (`started`, `completed`, `failed`, `dropped`, `deferred`) carry `principal`, a reference to who the exchange ran as (`{ subject, issuer?, clientId?, actorSubject? }`), never the principal with its claims.
 
 Bodies and headers are in the `_snapshot` envelope, and a subscription receives it only when it asks:
 
@@ -42,7 +42,7 @@ ctx.on(
 | `context:error`, `route:error`, `route:error:caught`, `route:step:error` | `exchange`, when the error came from one |
 | The [agent tool and block events](#agent-operations), `plugin:mcp:tool:called` | the tool's `input`, `output`, `error` or `args` |
 
-The `exchange` is a frozen copy, made once per event and shared by the subscriptions that read it. It is made when a handler first reads `_snapshot.exchange`, so a subscription that asks for snapshots and reads one exchange in a thousand pays for one copy; for an asynchronous handler it is made before the emit returns, so a read after an `await` still sees the exchange as the event found it. `route:exchange:started` carries no snapshot: the body is copied on the event that ends the exchange.
+The `exchange` is a frozen copy, made once per event and shared by the subscriptions that read it. It is made when a handler first reads `_snapshot.exchange`, so a subscription that asks for snapshots and reads one exchange in a thousand pays for one copy; for an asynchronous handler it is made before the emit returns, so a read after an `await` still sees the exchange as the event found it. `route:exchange:started` carries no snapshot: the body is copied on the event that ends the exchange. `route:exchange:deferred` carries none either: its body is the acknowledgment, which holds the resume token. A `Map`, a `Set` or a typed array inside the copy cannot be frozen and stays writable; a write to it changes the copy the event's subscribers share, never the exchange.
 
 What the copy leaves out:
 
@@ -116,7 +116,7 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 | `route:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error, principal? }` |
 | `route:exchange:dropped` | Exchange intentionally removed from the pipeline | `{ routeId, exchangeId, correlationId, reason, principal? }` |
 | `route:exchange:restored` | Exchange restored from cache, skipping steps | `{ routeId, exchangeId, correlationId, source }` |
-| `route:exchange:deferred` | Exchange deferred at a [`.defer()`](/docs/reference/operations/defer); execution one ends here | `{ routeId, exchangeId, correlationId, deferralId, position, expiresAt? }` |
+| `route:exchange:deferred` | Exchange deferred at a [`.defer()`](/docs/reference/operations/defer); execution one ends here | `{ routeId, exchangeId, correlationId, deferralId, position, expiresAt?, principal? }` |
 | `route:exchange:resumed` | A deferred exchange was revived and its continuation is about to run | `{ routeId, exchangeId, correlationId, deferralId, position, resumedBy?, resumerExchangeId? }` |
 | `route:exchange:expired` | A deferral stopped being resumable because its `ttl` elapsed. At least once: a delivery whose claim lapsed before it finalized is redelivered by a later sweep, or is already being redelivered by whoever took the claim over, so this, and the deferred route's error channel with it, can run again for the same deferral | `{ routeId, exchangeId, correlationId, deferralId, expiresAt }` |
 | `route:exchange:denied` | A deferral stopped being resumable because it was denied: a resume found the route changed under it ([`RC5048`](/docs/reference/errors#rc-5048)), or the run that parked it was cancelled around the store write ([`RC5054`](/docs/reference/errors#rc-5054)) or its `notify` hook failed ([`RC5067`](/docs/reference/errors#rc-5067)). Fires at most once, from the process that wrote the denial, right after the write; a process that dies between the two leaves a denied record nothing announces. A later replay of the token reads `RC5050` and emits nothing | `{ routeId, exchangeId, correlationId, deferralId, reason }` |

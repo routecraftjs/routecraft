@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -16,6 +17,7 @@ import { DEFAULT_REDACT } from "../src/logger.ts";
 import { httpPlugin } from "../src/plugins/http/plugin.ts";
 import { CREDENTIAL_HEADERS } from "../src/shared/credential-headers.ts";
 import { safeStringify } from "../src/shared/safe-json.ts";
+import { asDeferred, deferring } from "./helpers/deferral.ts";
 
 const SECRET_HEADERS = {
   Authorization: "Bearer s3cret",
@@ -402,6 +404,101 @@ describe("event body policy", () => {
     });
     const copied = snapshot.headers["acme.loop"] as Record<string, unknown>;
     expect(copied["self"]).toBe(copied);
+  });
+
+  /**
+   * @case A credential or a Secret inside a Map, a Set or a class instance is left out too
+   * @preconditions A wire-header Map holding Authorization under one header; a body holding a Secret inside a Map, a Set and a class instance
+   * @expectedResult The Map keeps its ordinary entry alone, and every Secret is withheld wherever it sits
+   */
+  test("secrets inside Maps, Sets and class instances are withheld", () => {
+    const apiKey = { value: "s3cret" };
+    setBrand(apiKey, BRAND.Secret);
+    class Order {
+      constructor(readonly key: unknown) {}
+    }
+
+    const snapshot = snapshotOf(
+      {
+        id: "x-1",
+        headers: {
+          "acme.wire": new Map<string, unknown>([
+            ["Authorization", "Bearer s3cret"],
+            ["accept", "application/json"],
+          ]),
+        },
+        body: {
+          byName: new Map([["key", apiKey]]),
+          all: new Set([apiKey]),
+          order: new Order(apiKey),
+        },
+      },
+      new Set(CREDENTIAL_HEADERS),
+    );
+
+    expect(snapshot.headers["acme.wire"]).toEqual(
+      new Map([["accept", "application/json"]]),
+    );
+    expect(snapshot.body).toEqual({
+      byName: new Map([["key", { secret: true }]]),
+      all: new Set([{ secret: true }]),
+      order: { key: { secret: true } },
+    });
+  });
+
+  /**
+   * @case A snapshot shares no memory with the live exchange
+   * @preconditions A body holding a typed array over a SharedArrayBuffer, which a structured clone would share rather than copy
+   * @expectedResult The view is replaced with { unserializable: true } and the rest of the body is copied
+   */
+  test("memory shared with the exchange is not handed out", () => {
+    const shared = new Uint8Array(new SharedArrayBuffer(1));
+
+    const snapshot = snapshotOf(
+      { id: "x-1", headers: {}, body: { order: "o-1", bytes: shared } },
+      new Set(),
+    );
+
+    expect(snapshot.body).toEqual({
+      order: "o-1",
+      bytes: { unserializable: true },
+    });
+  });
+
+  /**
+   * @case A parked exchange is attributable, and its acknowledgment is not copied
+   * @preconditions A route that authenticates as alice and defers; a subscription with snapshots on route:exchange:deferred
+   * @expectedResult The event carries principal { subject: "alice" } and no `_snapshot`, so the resume token in the acknowledgment reaches no subscriber
+   */
+  test("deferred carries the principal reference and no snapshot", async () => {
+    const seen: EventPayload<"route:exchange:deferred">["details"][] = [];
+    t = await testContext()
+      .with(deferring())
+      .on(
+        "route:exchange:deferred",
+        ({ details }) => {
+          seen.push(details);
+        },
+        { snapshots: true },
+      )
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .authenticate(() => ({ subject: "alice" }))
+          .defer({ input: z.object({ approved: z.boolean() }) })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("payout", { n: 1 }));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.principal).toEqual({ subject: "alice" });
+    expect(seen[0]).not.toHaveProperty("_snapshot");
+    expect(JSON.stringify(seen[0])).not.toContain(deferred.token);
   });
 
   /**

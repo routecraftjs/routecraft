@@ -1379,9 +1379,7 @@ export class CraftContext {
     this.events.emit(
       event,
       withExchangeFacts(this, event, details, exchange),
-      // `started` is handed the exchange for its facts alone; the body is
-      // copied once, on the event that ends the exchange.
-      event === "route:exchange:started" ? undefined : exchange,
+      FACTS_ONLY_EVENTS.has(event) ? undefined : exchange,
     );
   }
 
@@ -2333,6 +2331,17 @@ const PRINCIPAL_EVENTS: ReadonlySet<string> = new Set([
   "route:exchange:completed",
   "route:exchange:failed",
   "route:exchange:dropped",
+  "route:exchange:deferred",
+]);
+
+/**
+ * The events handed an exchange for its facts alone. `started` leaves the
+ * body to the event that ends the exchange, and the body of `deferred` is
+ * the acknowledgment, which carries the resume token.
+ */
+const FACTS_ONLY_EVENTS: ReadonlySet<string> = new Set([
+  "route:exchange:started",
+  "route:exchange:deferred",
 ]);
 
 /** A handler in the `on` / `once` config keys, bare or with its options. */

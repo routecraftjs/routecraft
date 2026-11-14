@@ -72,9 +72,11 @@ function copyOf(value: unknown, secret: ReadonlySet<string>): unknown {
 }
 
 /**
- * A value with every `Secret` withheld and every secret-named entry of its
- * plain maps left out. Only plain objects and arrays are walked: anything
- * else is the clone's to copy or refuse.
+ * A value with every `Secret` withheld and every secret-named entry left
+ * out, at any depth. Arrays, Maps, Sets and ordinary objects are walked,
+ * because the clone copies what they hold; a platform object (a Date, a
+ * stream, a typed array) is the clone's to copy or refuse. Memory shared
+ * with the live exchange is refused here, since the clone would share it too.
  */
 function withoutSecrets(
   value: unknown,
@@ -91,7 +93,26 @@ function withoutSecrets(
     for (const item of value) items.push(withoutSecrets(item, secret, seen));
     return items;
   }
-  if (!isPlainObject(value)) return value;
+  if (value instanceof Map) {
+    const kept = new Map<unknown, unknown>();
+    seen.set(value, kept);
+    for (const [key, entry] of value) {
+      if (typeof key === "string" && secret.has(key.toLowerCase())) continue;
+      kept.set(
+        withoutSecrets(key, secret, seen),
+        withoutSecrets(entry, secret, seen),
+      );
+    }
+    return kept;
+  }
+  if (value instanceof Set) {
+    const kept = new Set<unknown>();
+    seen.set(value, kept);
+    for (const item of value) kept.add(withoutSecrets(item, secret, seen));
+    return kept;
+  }
+  if (sharesMemory(value)) return UNSERIALIZABLE;
+  if (!isOrdinaryObject(value)) return value;
   const entries: Record<string, unknown> = {};
   seen.set(value, entries);
   for (const [name, entry] of Object.entries(value)) {
@@ -101,9 +122,18 @@ function withoutSecrets(
   return entries;
 }
 
-function isPlainObject(value: object): value is Record<string, unknown> {
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
+/**
+ * A plain object or a class instance, which the clone copies entry by entry.
+ * A platform object names itself in its string tag.
+ */
+function isOrdinaryObject(value: object): value is Record<string, unknown> {
+  return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function sharesMemory(value: object): boolean {
+  if (typeof SharedArrayBuffer === "undefined") return false;
+  if (value instanceof SharedArrayBuffer) return true;
+  return ArrayBuffer.isView(value) && value.buffer instanceof SharedArrayBuffer;
 }
 
 function deepFreeze<T>(value: T): T {
@@ -111,9 +141,18 @@ function deepFreeze<T>(value: T): T {
     return value;
   }
   // A typed array with elements cannot be frozen, and a Map or Set is not
-  // made immutable by it; the copy is the subscriber's own either way.
+  // made immutable by it: those stay writable on the copy, never on the
+  // exchange.
   if (ArrayBuffer.isView(value)) return value;
   Object.freeze(value);
+  if (value instanceof Map) {
+    for (const [key, entry] of value) {
+      deepFreeze(key);
+      deepFreeze(entry);
+    }
+  } else if (value instanceof Set) {
+    for (const item of value) deepFreeze(item);
+  }
   for (const child of Object.values(value)) deepFreeze(child);
   return value;
 }

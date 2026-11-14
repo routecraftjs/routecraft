@@ -395,7 +395,7 @@ Every event that named an exchange handed each subscriber the exchange itself, h
 | `details.exchange` on `context:error`, `route:error`, `route:error:caught`, `route:step:error` | `details.exchangeId` and `details.correlationId`; the copy is `details._snapshot?.exchange` under the same option |
 | `details.exchange` on `route:stopping`, `route:stopped` | removed; it was never set |
 | `details._snapshot` on the agent tool and block events and on `plugin:mcp:tool:called`, always present | present only for a subscription made with `{ snapshots: true }`, so the type is optional |
-| `principalOf(details.exchange)` | `details.principal` on the four lifecycle events: `{ subject, issuer?, clientId?, actorSubject? }` |
+| `principalOf(details.exchange)` | `details.principal` on the lifecycle events (`started`, `completed`, `failed`, `dropped`, `deferred`): `{ subject, issuer?, clientId?, actorSubject? }` |
 
 ```ts skip="fragment: ctx and report are illustrative, and the first statement is the 0.7 shape"
 // Before

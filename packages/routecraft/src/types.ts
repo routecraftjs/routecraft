@@ -732,6 +732,8 @@ export interface EventDetailsMap {
     position: number;
     /** When the deferral stops being resumable, when a `ttl` was declared. */
     expiresAt?: Date;
+    /** Who the exchange ran as, so a parked run is attributable while it waits. */
+    principal?: PrincipalRef;
   };
   /**
    * A deferred exchange was revived and its continuation is about to run.
