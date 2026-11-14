@@ -65,8 +65,8 @@ const UNWRITABLE_ENV = join(DIR, "unwritable.env");
 const LOG_CONFIGURED = join(DIR, "log-configured");
 
 const ROUTE_SOURCE = [
-  'import { craft, simple, noop } from "@routecraft/routecraft";',
-  `export default craft().id("${ROUTE_ID}").from(simple("probe")).to(noop());`,
+  'import { craft, simple } from "@routecraft/routecraft";',
+  `export default craft().id("${ROUTE_ID}").from(simple("probe")).log("info", "Probe ran");`,
   "",
 ].join("\n");
 

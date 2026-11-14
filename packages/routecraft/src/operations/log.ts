@@ -56,16 +56,16 @@ export class LogStep implements Step<Adapter> {
     try {
       const fixed = typeof this.#level === "string" ? this.#level : undefined;
       if (fixed === undefined || logger.isLevelEnabled(fixed)) {
-        const view = readonlyExchange(exchange, ".log()");
+        const view = () => readonlyExchange(exchange, ".log()");
         const level =
-          fixed ?? (this.#level as Exclude<LogStepLevel, string>)(view);
+          fixed ?? (this.#level as Exclude<LogStepLevel, string>)(view());
         if (!(STEP_LOG_LEVELS as readonly unknown[]).includes(level)) {
           throw new TypeError(
             `.log() writes at ${STEP_LOG_LEVELS.join(", ")}; it was given ${JSON.stringify(level)}.`,
           );
         }
         if (logger.isLevelEnabled(level)) {
-          const bindings = this.#bindings?.(view);
+          const bindings = this.#bindings?.(view());
           if (bindings === undefined) logger[level](this.#message);
           else logger[level](bindings, this.#message);
         }

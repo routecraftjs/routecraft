@@ -31,9 +31,9 @@ describe("Unified Destination Adapter", () => {
   });
 
   /**
-   * @case Verify .to() with void-returning adapter (log)
+   * @case Verify .to() with a void-returning adapter (noop)
    * @preconditions Adapter returns void
-   * @expectedResult Body unchanged, log called
+   * @expectedResult Body unchanged for the next destination
    */
   test(".to() with void-returning adapter ignores result", async () => {
     const s = spy();

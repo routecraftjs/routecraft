@@ -80,6 +80,8 @@ export interface Logger {
    * Write out anything buffered. `context.stop()` calls it on the context's
    * root logger and waits, briefly, for the promise it returns or for
    * `done`, whichever the logger uses: pino's `flush` takes the callback.
+   * A `flush` that neither returns a promise nor declares `done` as a
+   * parameter is taken to have finished when it returns.
    */
   flush?(done?: (error?: Error) => void): Promise<void> | void;
 }

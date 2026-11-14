@@ -230,8 +230,8 @@ export async function withFolderPlugins(
 }
 
 /** The content root of a project: where its convention folders live. */
-export function projectContentRoot(root: string): string {
-  return pickContentRoot(root);
+export function projectContentRoot(root: string, log?: Logger): string {
+  return pickContentRoot(root, log);
 }
 
 /**

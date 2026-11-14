@@ -2,6 +2,7 @@ import { resolve, extname } from "node:path";
 import {
   ContextBuilder,
   type CraftConfig,
+  type Logger,
   isRouteBuilder,
   isRouteDefinition,
   defaultLogger,
@@ -92,21 +93,23 @@ export async function runCommand(
     };
   }
 
+  let log: Logger | undefined;
   try {
     // Load the module (CLI already set LOG_LEVEL / LOG_FILE from argv in index.ts).
     // Logger uses env first; context will apply craftConfig.log when built (env wins if set).
     const module = await import(absFilePath);
     const craftConfig = module.craftConfig as CraftConfig | undefined;
 
-    defaultLogger().info({ file: absFilePath }, "Loading file");
+    log = craftConfig?.logger ?? defaultLogger();
+    log.info({ file: absFilePath }, "Loading file");
 
     const contextBuilder = new ContextBuilder();
     if (craftConfig) {
-      defaultLogger().info("Found craftConfig export, applying configuration");
+      log.info("Found craftConfig export, applying configuration");
       contextBuilder.with(craftConfig);
     }
 
-    const configured = configureRoutes(contextBuilder, module.default);
+    const configured = configureRoutes(contextBuilder, module.default, log);
     if (!configured.success) {
       return configured;
     }
@@ -168,7 +171,7 @@ export async function runCommand(
     return { reply: renderOutcome(outcome, routeId, line.format) };
   } catch (error: unknown) {
     const message = messageOf(error);
-    defaultLogger().error(`Failed to run ${absFilePath}: ${message}`);
+    (log ?? defaultLogger()).error(`Failed to run ${absFilePath}: ${message}`);
     return { success: false, code: 1, message };
   }
 }
@@ -375,14 +378,15 @@ export function collectRoutes(defaultExport: unknown): CollectRoutesResult {
 function configureRoutes(
   contextBuilder: InstanceType<typeof ContextBuilder>,
   defaultExport: unknown,
+  log: Logger,
 ): CommandOutcome {
   const collected = collectRoutes(defaultExport);
   if (!collected.ok) {
-    defaultLogger().error(collected.reason);
+    log.error(collected.reason);
     return { success: false, code: 1, message: collected.reason };
   }
   collected.routes.forEach((route) => contextBuilder.routes(route));
-  defaultLogger().info(
+  log.info(
     { routes: collected.routes.length },
     "Loaded routes from default export",
   );

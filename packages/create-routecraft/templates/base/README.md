@@ -101,7 +101,7 @@ export default craft()
   .description("What an agent reads before it decides to call this")
   .from(direct(), mcp())
   .transform((body) => body)
-  .log('info', 'Done', (ex) => ({ result: ex.body }));
+  .log("info", "Done", (ex) => ({ result: ex.body }));
 ```
 
 Delete `capabilities/hello-world` once you no longer need it, and this file with it.

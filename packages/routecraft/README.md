@@ -32,7 +32,7 @@ export default craft()
 Run it directly with the `craft` CLI (requires Bun on the host):
 
 ```bash
-bunx @routecraft/cli run capabilities/timer-ping.ts
+bunx @routecraft/cli run --log-level info capabilities/timer-ping.ts
 ```
 
 For Node-based projects, embed the library programmatically instead of using the CLI -- see [Programmatic Invocation](https://routecraft.dev/docs/advanced/programmatic-invocation).
@@ -198,8 +198,8 @@ Logs go to stdout at `warn` level by default.
 - **Env vars**: `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`
 - **CLI flags**: `craft --log-level info --log-file craft.log run <file>`
 - **Config file**: `craft.log.js` (or `craft.log.cjs`) in the working directory or `~/.routecraft/` sets `level`, `file` and `redact`; env vars and CLI flags win
-- **Your own logger**: `defineProject({ logger })` takes any `Logger`, a pino instance included, and then none of the above is read
-- **In a route**: `.log('info', 'Order received', (ex) => ({ orderId: ex.body.id }))` writes one line on the exchange passing through
+- **Your own logger**: `defineProject({ logger })` takes any `Logger`, a pino instance included; the application's lines go to it, and none of the settings above shape them
+- **In a route**: `.log('info', 'Order received', (ex) => ({ orderId: ex.body.id }))` writes one line on the exchange passing through, when `info` is enabled
 
 ## Documentation
 

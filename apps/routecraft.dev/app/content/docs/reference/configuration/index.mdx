@@ -534,7 +534,7 @@ A failure the route's own `.error()` did not settle reaches the `error` slot, wh
 
 ## Logging configuration
 
-Every line a context writes goes to one root logger. The context's, each capability's, each plugin's and each exchange's logger are children of it, so a line carries `contextId`, `route`, `exchangeId` and `correlationId` without your adding them.
+Every line a context writes goes to one root logger. The context's, each capability's, each plugin's and each exchange's logger are children of it, so a line carries its scope without your adding it: every line has `contextId`, a route's lines add `route`, and an exchange's lines add `exchangeId` and `correlationId`.
 
 ### Your own logger
 

@@ -487,17 +487,22 @@ describe("a createLogger file that cannot be opened", () => {
    * @expectedResult The call returns a working logger, and the default logger's diversion record is left alone: that record is the CLI's, about its own setting
    */
   test("diverts without touching the default logger's record", () => {
+    const tmp = process.env["TMPDIR"];
     const dir = mkdtempSync(join(tmpdir(), "craft-logger-test-"));
     try {
       const blocker = join(dir, "blocker");
       writeFileSync(blocker, "");
       const before = logFileDiversion();
+      // The fallback file lands under the temporary directory; keep it inside `dir`.
+      process.env["TMPDIR"] = dir;
 
       const logger = createLogger({ file: join(blocker, "app.log") });
 
       expect(() => logger.info("still writes")).not.toThrow();
       expect(logFileDiversion()).toBe(before);
     } finally {
+      if (tmp === undefined) delete process.env["TMPDIR"];
+      else process.env["TMPDIR"] = tmp;
       rmSync(dir, { recursive: true, force: true });
     }
   });

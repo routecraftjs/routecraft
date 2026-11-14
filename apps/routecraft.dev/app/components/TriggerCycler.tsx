@@ -25,7 +25,11 @@ const sources: Node[] = [
 //   timer  → mail    (row 5 → row 2, ↗ 3)
 const destinations: Node[] = [
   { key: 'file', label: 'file', call: "file({ path: 'brief.md' })" },
-  { key: 'jsonl', label: 'jsonl', call: "jsonl({ path: 'audit.jsonl' })" },
+  {
+    key: 'jsonl',
+    label: 'jsonl',
+    call: "jsonl({ path: 'audit.jsonl', append: true })",
+  },
   { key: 'mail', label: 'mail', call: 'mail()' },
   { key: 'direct', label: 'direct', call: "direct('publish-brief')" },
   { key: 'agent', label: 'agent', call: "agent('eywa')" },

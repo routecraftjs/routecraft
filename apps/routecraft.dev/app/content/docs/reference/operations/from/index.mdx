@@ -78,7 +78,7 @@ craft()
   .id('orders-search')
   .input(z.object({ customerId: z.string() }))
   .from(...channels('/orders/search'))
-  .log('info', 'Incident fetched', (ex) => ({ found: ex.body !== undefined }))
+  .log('info', 'Orders searched', (ex) => ({ customerId: ex.body.customerId }))
 ```
 
 When a channel genuinely needs a different contract, keep it as a separate route that delegates to the canonical one via `to(direct('...'))`.

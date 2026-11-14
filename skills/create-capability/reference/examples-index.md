@@ -21,6 +21,6 @@ Filter on **shape of the pipeline** first, **trigger** second, **destinations** 
 
 1. Linear vs split/aggregate vs choice -- this picks the example
 2. What triggers the capability (direct, MCP, mail, simple) -- this picks the source adapter
-3. Where the result goes (http, mail, direct, or nowhere beyond a `.log()` line) -- this picks the destination adapter
+3. Where the result goes (http, mail, direct, or nowhere beyond a `.log()` line) -- this picks the destination adapter, or a `.log()` step in its place
 
 If no row is a clean match, pick by pipeline shape and adapt the source and destination to the user's case.

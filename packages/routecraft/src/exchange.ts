@@ -1074,8 +1074,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
   }
 
   /**
-   * Pino child logger scoped to this exchange. Built lazily from the
-   * framework's base logger; rebuilt on a rehydrated exchange because the
+   * A child of the context's logger scoped to this exchange. Built lazily; rebuilt on a rehydrated exchange because the
    * logger is not part of the serializable state.
    */
   get logger(): Logger {

@@ -47,7 +47,7 @@ The default logger redacts the credential headers on every line (`DEFAULT_REDACT
 
 ## 8. A log line never costs the exchange
 
-A `.log()` step whose level or bindings function throws, returns a level outside `trace` to `warn`, or writes through the read-only exchange it is handed (`RC1110`) produces one `warn` ("Log line could not be built", `{ err, line }`) and the exchange continues unchanged. The step is not a boundary and adds none: nothing is handled, because nothing failed that the caller asked for.
+A `.log()` step whose level or bindings function throws, returns a level outside `trace` to `warn`, or writes through the read-only exchange it is handed (`RC1110`) produces one `warn` ("Log line could not be built", `{ err, line }`) and the exchange continues unchanged. The view refuses writes to the exchange and to the plain objects and arrays reachable from it; an instance of a class (a `Date`, a `Map`, a model) is handed out as is, because its methods need the real object, so a function that mutates one is not caught. The step is not a boundary and adds none: nothing is handled, because nothing failed that the caller asked for.
 
 ## 9. Validation and cause serialization
 

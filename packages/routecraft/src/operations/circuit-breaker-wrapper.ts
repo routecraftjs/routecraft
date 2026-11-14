@@ -1,6 +1,6 @@
 import { type Exchange, DefaultExchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { defaultLogger } from "../logger.ts";
+import { defaultLogger, type Logger } from "../logger.ts";
 import type { CraftContext } from "../context.ts";
 import type { ForwardFn, Route } from "../route.ts";
 import type { RouteKey } from "../kernel/positions.ts";
@@ -374,6 +374,7 @@ export class CircuitBreakerController extends RouteScopedController<CircuitBreak
     error: Error,
     probe: boolean,
     hooks: CircuitBreakerHooks,
+    logger: Logger = defaultLogger(),
   ): void {
     // `isFailure` is user code. Isolate it like `onStateChange`: a throwing
     // predicate must not mask the original step error (re-thrown by the
@@ -383,7 +384,7 @@ export class CircuitBreakerController extends RouteScopedController<CircuitBreak
     try {
       counts = this.#options.isFailure(error);
     } catch (err) {
-      defaultLogger().warn(
+      logger.warn(
         { err },
         "circuitBreaker isFailure callback threw; counting the failure",
       );
@@ -518,6 +519,7 @@ export async function executeWithCircuitBreaker(
   hooks: CircuitBreakerHooks,
   onOpen: () => Promise<StepOutcome>,
   run: () => Promise<StepOutcome>,
+  logger?: Logger,
 ): Promise<StepOutcome> {
   const decision = controller.acquire(route, hooks);
   if (!decision.admitted) return onOpen();
@@ -531,6 +533,7 @@ export async function executeWithCircuitBreaker(
       err instanceof Error ? err : new Error(String(err)),
       decision.probe,
       hooks,
+      logger,
     );
     throw err;
   }

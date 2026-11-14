@@ -581,7 +581,11 @@ export const adminRoutes = definePlugin({
   bind(c) {
     if (process.env['ENABLE_ADMIN'] !== 'true') return
     c.routes.register(
-      ...craft().id('admin-health').from(simple({ ok: true })).log('info', 'Done', (ex) => ({ result: ex.body })).build(),
+      ...craft()
+        .id('admin-health')
+        .from(simple({ ok: true }))
+        .log('info', 'Done', (ex) => ({ result: ex.body }))
+        .build(),
     )
   },
 })

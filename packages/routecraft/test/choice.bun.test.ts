@@ -908,6 +908,7 @@ describe("choice operation", () => {
       priority: "urgent",
       amount: 7,
     });
+    expect(t.logger.debug.mock.calls).toContainEqual(["Branch taken"]);
   });
 
   /**
