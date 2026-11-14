@@ -302,6 +302,8 @@ One word names a resume payload everywhere, and only the kernel parks or revives
 | `ex.deferral.result` | `ex.deferral.input` |
 | `schema` on the `Deferred` acknowledgment | `input` |
 
+A `schema` left on `.defer()`, `.error()`, `ctx.defer()` or `DeferError` is refused with [`RC5003`](/docs/reference/errors#rc-5003), and on an error hook with [`RC1115`](/docs/reference/errors#rc-1115), rather than dropped: dropped, the site would park with no contract and the resume door would validate nothing.
+
 A caller that posts to a resume door sends `input` too, so update whatever builds the approval link or form. The header `routecraft.deferral.result` is `routecraft.deferral.input`. A `.resume()` mapper, like a plugin step's `ctx.resume`, no longer names `resumedBy`: the kernel records the principal the route verified, and a request that names one is refused ([`RC5003`](/docs/reference/errors#rc-5003)).
 
 **A step that defers declares it.** Throwing `DeferSignal`, returning a step result with `kind: 'defer'` built by hand, and `markDeferCapable` are removed. The step declares `defers` (or `[DEFERS]()` on a raw step or an adapter) and calls the handle the kernel gives it:

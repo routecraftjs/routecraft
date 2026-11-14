@@ -1,4 +1,8 @@
 import type { Duration } from "@routecraft/routecraft";
+import {
+  RENAMED_TO_INPUT,
+  rejectStaleOptions,
+} from "@routecraft/routecraft/internal";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /**
@@ -71,6 +75,7 @@ export interface AgentDeferSentinel {
 export function createDeferSentinel(
   request: AgentDeferOptions,
 ): AgentDeferSentinel {
+  rejectStaleOptions(request, "ctx.defer", RENAMED_TO_INPUT);
   const sentinel: AgentDeferSentinel = {
     status: "defer-requested",
     request,
@@ -128,7 +133,7 @@ export class DeferError extends Error {
    * no contract at all and the payload reaches the model unvalidated, which
    * is the trust level every tool result already has.
    */
-  readonly schema?: StandardSchemaV1;
+  readonly input?: StandardSchemaV1;
   /** How long the deferral stays resumable. Omitted means the context default. */
   readonly ttl?: Duration;
   /** Policy inputs the defer site attached. See {@link AgentDeferOptions.meta}. */
@@ -136,7 +141,8 @@ export class DeferError extends Error {
 
   constructor(opts?: AgentDeferOptions) {
     super("Agent deferred pending external resumption.");
-    if (opts?.input !== undefined) this.schema = opts.input;
+    rejectStaleOptions(opts, "new DeferError", RENAMED_TO_INPUT);
+    if (opts?.input !== undefined) this.input = opts.input;
     if (opts?.ttl !== undefined) this.ttl = opts.ttl;
     if (opts?.meta !== undefined) this.meta = opts.meta;
   }

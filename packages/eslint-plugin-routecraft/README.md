@@ -50,7 +50,7 @@ match.
 - `@routecraft/routecraft/batch-before-from`: Enforce `batch()` is used as a route-level operation before `.from()`
 - `@routecraft/routecraft/single-to-per-route`: Warn when a route uses more than one `.to()`
 - `@routecraft/routecraft/restrict-principal-minting`: Principal minting (`.authenticate()`, `authenticate()`, an authority's `mint()` / `brand()`) must be an explicitly sanctioned, per-site exception
-- `@routecraft/routecraft/restrict-continuation-minting`: The acts on parked exchanges a plugin holds (`continuations.mintToken()`, `resume()`, `rewriteStepState()`) must be an explicitly sanctioned, per-site exception
+- `@routecraft/routecraft/restrict-continuation-minting`: The acts on a parked exchange (`continuations.mintToken()`, `resume()` and `rewriteStepState()`, `deferral.tokenFor()`, and the continuations signer's `mint()`) must be an explicitly sanctioned, per-site exception
 - `@routecraft/routecraft/require-untrusted-shell-args`: Warn when an exchange-derived value is passed to `shell()` (from `@routecraft/os`) without `untrusted()`, so it cannot pose as an option to the program
 - `@routecraft/routecraft/capability-boundaries` (opt-in): Enforce capability module boundaries (Spring Modulith style)
 

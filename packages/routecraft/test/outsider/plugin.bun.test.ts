@@ -111,8 +111,8 @@ describe("outsider: a plugin built on the published entry", () => {
         .with(defineProject({ plugins }).config)
         .routes(craft().id("quotes").from(direct<Order>()).to(quote))
         .build();
-      await context.startAndWaitReady();
       try {
+        await context.startAndWaitReady();
         await context.client.sendDirect("quotes", { id: "o-1", total: 100 });
       } finally {
         await context.stop();

@@ -189,7 +189,9 @@ export function checkCallBinding(
 export function recordView(deferral: Deferral): DeferralRecordView {
   return {
     id: deferral.id,
-    ...(deferral.meta !== undefined ? { meta: deferral.meta } : {}),
+    ...(deferral.meta !== undefined
+      ? { meta: decodePersistable(deferral.meta, "meta") }
+      : {}),
     routeId: deferral.routeId,
     deferredAt: deferral.deferredAt,
     ...(deferral.expiresAt !== undefined

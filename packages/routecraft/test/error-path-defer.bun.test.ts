@@ -210,7 +210,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
 
   /**
    * @case A route-scope handler's declared schema validates the resume payload
-   * @preconditions .error(handler, { schema: Decision }) parking a failure that clears on the second run; one resume with a payload the schema refuses, then one it accepts
+   * @preconditions .error(handler, { input: Decision }) parking a failure that clears on the second run; one resume with a payload the schema refuses, then one it accepts
    * @expectedResult The acknowledgment renders the schema; the first resume is refused with RC5049 in the ingress route and leaves the deferral resumable; the second resumes and the continuation completes
    */
   test("a handler's declared schema validates the payload at resume", async () => {
@@ -256,7 +256,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
 
   /**
    * @case An error hook's declared schema validates the resume payload
-   * @preconditions No route .error(); a plugin's error hook with mayDefer and schema: Decision parks the failure; a resume with a payload the schema refuses, then one it accepts
+   * @preconditions No route .error(); a plugin's error hook with mayDefer and input: Decision parks the failure; a resume with a payload the schema refuses, then one it accepts
    * @expectedResult RC5049 for the refused payload, then a completed resume: the hook's schema is read back live exactly as a route handler's is
    */
   test("an error hook's declared schema validates the payload at resume", async () => {
@@ -319,7 +319,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
 
   /**
    * @case The handler's schema changed under a parked exchange
-   * @preconditions An exchange parked by .error(handler, { schema: Decision }); the application restarted with the same route declaring a different schema
+   * @preconditions An exchange parked by .error(handler, { input: Decision }); the application restarted with the same route declaring a different schema
    * @expectedResult The resume is refused with RC5048 before any continuation step runs, as a static .defer() whose schema changed is: the stored descriptor no longer identifies a live schema
    */
   test("a changed handler schema refuses the resume as a changed continuation", async () => {
@@ -369,7 +369,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
 
   /**
    * @case The route's handler parks without a schema while an error hook on the same route declares one
-   * @preconditions .error(handler) with no schema parks the failure; a plugin's error hook with mayDefer and schema: Decision also applies to the route but is never consulted
+   * @preconditions .error(handler) with no schema parks the failure; a plugin's error hook with mayDefer and input: Decision also applies to the route but is never consulted
    * @expectedResult The record names the route handler as the parker, and a resume with a payload the hook's schema would refuse is accepted: only the parking handler's schema counts
    */
   test("a park is validated against the schema of the handler that parked it", async () => {

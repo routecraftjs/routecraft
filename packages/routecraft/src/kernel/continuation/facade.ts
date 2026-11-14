@@ -141,7 +141,7 @@ function continuationsView(
       const record = await runtime("Reading a deferral").store.get(id);
       return record && live(record);
     },
-    list: (query: DeferralListQuery) =>
+    list: async (query: DeferralListQuery) =>
       runtime("Listing deferrals").store.list(query),
     verifyToken(token: string) {
       try {

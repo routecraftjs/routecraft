@@ -75,7 +75,7 @@ declare module "@routecraft/routecraft" {
  * `input`, `resumedBy` and `resumedAt` are the other half: they are absent
  * on execution one and populated by the resume path before the continuation
  * runs. `input` is typed `unknown` here and narrowed by the builder, which
- * threads the `schema` option's output type into every step after the
+ * threads the `input` option's output type into every step after the
  * `.defer()`, the way `.input()` types the body.
  *
  * @template R - The resume payload type, threaded in by `.defer({ input: schema })`

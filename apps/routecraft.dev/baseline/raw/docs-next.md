@@ -6604,7 +6604,7 @@ Suspension result rejected
 The candidate result handed to `.resume()` failed the `expect` schema declared on the suspending `.suspend()`.
 
 **Suggestion**  
-The suspension is left resumable, so a corrected answer still works. Check the mapping function in `.resume((ex) => ({ token, input: result }))`: it owns the SHAPE of the answer, while validation happens at revival because only the suspension knows the schema.
+The suspension is left resumable, so a corrected answer still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the answer, while validation happens at revival because only the suspension knows the schema.
 
 ## RC5050
 Suspension denied
@@ -13167,11 +13167,11 @@ craft()
   .authenticate(mailPrincipal)
   .resume((ex) => ({
     token: tokenFrom(ex.headers['routecraft.mail.subject']),
-    input: { approved: /^yes/i.test(ex.body.text ?? '') },
+    result: { approved: /^yes/i.test(ex.body.text ?? '') },
   }))
   .to(log())
 
-// Fallback: the body is already shaped { token, input: result }.
+// Fallback: the body is already shaped { token, result }.
 craft().id('resume-api').from(http({ path: '/resume', method: 'POST' })).resume()
 ```
 

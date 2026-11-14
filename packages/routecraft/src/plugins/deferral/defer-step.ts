@@ -7,6 +7,10 @@ import { type Exchange, OperationType } from "../../exchange.ts";
 import type { Adapter, StepContext, StepOutcome } from "../../types.ts";
 import type { Duration } from "../../shared/duration.ts";
 import { parseDuration } from "../../shared/duration.ts";
+import {
+  RENAMED_TO_INPUT,
+  rejectStaleOptions,
+} from "../../shared/stale-options.ts";
 import type {
   DeferDeclaration,
   DeferringStep,
@@ -92,6 +96,7 @@ export class DeferStep implements DeferringStep {
   readonly #ttl?: Duration;
 
   constructor(options: DeferOptions = {}) {
+    rejectStaleOptions(options, "defer", RENAMED_TO_INPUT);
     if (options.input !== undefined) this.#input = options.input;
     if (options.meta !== undefined) this.#meta = options.meta;
     if (options.ttl !== undefined) {

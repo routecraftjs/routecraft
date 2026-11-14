@@ -5,6 +5,10 @@ import { peekRevival, type Exchange } from "../../exchange.ts";
 import type { Route } from "../../route.ts";
 import { anySignal } from "../../shared/abort.ts";
 import { type Duration, parseDuration } from "../../shared/duration.ts";
+import {
+  RENAMED_TO_INPUT,
+  rejectStaleOptions,
+} from "../../shared/stale-options.ts";
 import { authorityOf } from "../authority.ts";
 import type { Deferred } from "./deferred.ts";
 import { deferAside } from "./park.ts";
@@ -195,6 +199,7 @@ export function deferHandleFor(
   };
   const raise = async (request: DeferRequest): Promise<never> => {
     const resolved = siteOf();
+    rejectStaleOptions(request, "ctx.defer", RENAMED_TO_INPUT);
     const { ttl, meta, callBinding, stepState, input, notify } = request;
     if (
       resolved.revival === "next-step" &&

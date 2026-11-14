@@ -909,4 +909,40 @@ describe("the deferred answer schema", () => {
 
     expect(thrown).toMatchObject({ rc: "RC5003" });
   });
+
+  /**
+   * @case The hook reads meta as the defer site wrote it
+   * @preconditions A record deferred with a Date inside meta, and a door whose authorize hook captures record.meta
+   * @expectedResult The hook is handed a Date, not the envelope the store holds
+   */
+  test("the hook is handed meta in its live form", async () => {
+    const due = new Date("2026-01-02T03:04:05.000Z");
+    let seen: unknown;
+    t = await testContext()
+      .with(shared(new MemoryDeferralStore()))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ input: Approval, meta: { due } })
+          .to(noop()),
+        craft()
+          .id("answers")
+          .from(direct())
+          .resume(payloadFrom, {
+            authorize: ({ record }) => {
+              seen = record.meta;
+              return true;
+            },
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
+    await t.client.sendDirect("answers", { token: deferred.token });
+
+    expect(seen).toEqual({ due });
+    expect((seen as { due: unknown }).due).toBeInstanceOf(Date);
+  });
 });

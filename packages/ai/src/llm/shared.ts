@@ -115,7 +115,7 @@ export function resolveModel(
   const store = service?.providers;
   if (!store) {
     throw new Error(
-      `LLM provider not found: no providers registered. Add llmPlugin({ providers: { ollama: { provider: "ollama" }, ... } }) to your config.`,
+      `LLM provider not found: no providers are registered for this exchange's application. Add llmPlugin({ providers: { ollama: { provider: "ollama" }, ... } }) to your config; an exchange built by hand with no context reaches no plugin at all.`,
     );
   }
 

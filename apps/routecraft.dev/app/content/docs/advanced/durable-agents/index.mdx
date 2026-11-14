@@ -51,7 +51,7 @@ The runtime awaits the batch's in-flight sibling tool calls (their real results 
 
 There is no agent-shaped variant of any of this. `ctx.defer()` takes exactly what `.defer()` takes, defers the same record, and is resumed through the same `.resume({ authorize })` hook: an agent-raised deferral and a route-raised one are one mechanism, so there is nothing extra to learn and nothing that only half works on one surface.
 
-`throw new DeferError({ input, ttl, meta })` is honoured as an escape hatch for handlers that cannot thread a return value out. Prefer the sentinel: a handler that wraps its work in `try/catch` silently swallows a thrown deferral and hands the model a garbage tool result, a footgun the returned sentinel cannot reproduce. A `DeferError` with no `schema` defers with no declared contract at all, which is the same thing `ctx.defer()` does when you omit it.
+`throw new DeferError({ input, ttl, meta })` is honoured as an escape hatch for handlers that cannot thread a return value out. Prefer the sentinel: a handler that wraps its work in `try/catch` silently swallows a thrown deferral and hands the model a garbage tool result, a footgun the returned sentinel cannot reproduce. A `DeferError` with no `input` defers with no declared contract at all, which is the same thing `ctx.defer()` does when you omit it.
 
 ## What survives, and how the loop continues
 
@@ -96,15 +96,18 @@ nowhere else to go.
 
 `replaceDeferredThread` does that swap safely:
 
-```ts skip="fragment: store, deferralId, summariseOldTurns are illustrative"
+```ts skip="fragment: c, deferralId, summariseOldTurns are illustrative"
 import { replaceDeferredThread } from "@routecraft/ai";
 
-const result = await replaceDeferredThread(store, deferralId, async (messages) =>
-  summariseOldTurns(messages),
+// In a plugin hook: `c.continuations` holds the acts on a parked exchange.
+const result = await replaceDeferredThread(
+  c.continuations,
+  deferralId,
+  async (messages) => summariseOldTurns(messages),
 );
 ```
 
-Two things happen before the store is written. The rewrite is put through
+Two things happen before the record is written. The rewrite is put through
 `assertResumableThread`, which refuses a thread that broke tool-call /
 tool-result pairing, reordered a result before its call, duplicated a call id,
 emptied itself, or dropped the deferred call the approver's answer lands on,
@@ -114,7 +117,7 @@ without the check the damage surfaces only when the approver clicks, by which
 point the approval is spent and the run is unrecoverable. Refused here instead,
 it costs nothing.
 
-Then the write goes through the store's `replaceStepState` compare-and-swap
+Then the write goes through `continuations.rewriteStepState`, a compare-and-swap
 against the state the rewrite was based on, so a resume, a sweep, or a second
 rewrite that got there first wins and this one reports `won: false` rather than
 overwriting it. Losing is an ordinary outcome, not an error. What the loser

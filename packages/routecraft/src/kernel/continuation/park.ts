@@ -227,8 +227,8 @@ async function runNotify(
  *
  * The hash covers exactly what a resume would run: a static `.defer()`
  * excludes itself from its continuation, a re-entrant site includes itself.
- * `stepState` is stored raw because the store's `create` applies the
- * plain-JSON rule to it (RC5042) and encodes it exactly once.
+ * `stepState` and `meta` are encoded here, under the plain-JSON rule
+ * (RC5042), and the store persists them as given.
  */
 function describeRecord(
   exchange: Exchange,

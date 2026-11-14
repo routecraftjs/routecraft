@@ -1377,11 +1377,11 @@ describe("defer and resume", () => {
   });
 
   /**
-   * @case The expect schema types ex.deferral.input downstream of the defer
+   * @case The declared input schema types ex.deferral.input downstream of the defer
    * @preconditions A chain whose defer declares a zod object schema
    * @expectedResult The narrowed field is readable without a cast, and stays unknown before any defer (compile-time assertion; the runtime body is incidental)
    */
-  test("expect threads its type into ex.deferral.input", async () => {
+  test("the declared input threads its type into ex.deferral.input", async () => {
     const seen: string[] = [];
     t = await testContext()
       .with(deferring())

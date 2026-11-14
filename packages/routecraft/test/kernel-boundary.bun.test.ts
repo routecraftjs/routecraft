@@ -120,7 +120,7 @@ describe("the kernel boundary", () => {
    * @preconditions Every source file under adapters/, plugins/ and the sibling packages
    * @expectedResult None names getExchangeContext or getExchangeRoute, except the listed agent-tier files, which still run with no plugin to hold their state
    */
-  test("only the kernel reads an exchange's context and route", () => {
+  test("adapters, plugins and sibling packages do not read an exchange's context or route", () => {
     const packages = join(SRC, "..", "..");
     const sources = [
       ...filesUnder("adapters"),

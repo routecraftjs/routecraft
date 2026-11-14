@@ -23,6 +23,17 @@ import { rcError } from "../error.ts";
  *
  * @internal
  */
+/**
+ * The 0.7 name of a resume payload's schema, at every site that declares
+ * one. Dropped silently, the site would park with no contract and the
+ * resume door would validate nothing.
+ *
+ * @internal
+ */
+export const RENAMED_TO_INPUT: Readonly<Record<string, string>> = {
+  schema: "the schema a resume payload must satisfy is declared as `input`.",
+};
+
 export function rejectStaleOptions(
   options: unknown,
   surface: string,

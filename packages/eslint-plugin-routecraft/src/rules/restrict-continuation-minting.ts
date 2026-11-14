@@ -6,7 +6,7 @@ import {
   isObject,
 } from "./shared/ast.ts";
 import {
-  ROUTECRAFT_MODULE,
+  isRoutecraftExport as routecraftExport,
   memberPropertyName,
   resolveBinding,
   variableInit,
@@ -23,6 +23,8 @@ const WRAPPERS = new Set([
   "ChainExpression",
   "TSNonNullExpression",
   "TSAsExpression",
+  "TSSatisfiesExpression",
+  "TSTypeAssertion",
 ]);
 
 /** The expression under an optional chain, a non-null assertion or a cast. */
@@ -53,10 +55,11 @@ function unwrap(expression: unknown): unknown {
  *
  * - `<x>.continuations.mintToken(...)`, `.resume(...)` and
  *   `.rewriteStepState(...)`, on a member named `continuations`, a local
- *   named `continuations`, or a `const` initialised from one
- * - `<x>.deferral.tokenFor(...)`, which mints a token for a call binding
+ *   named `continuations`, or a variable initialised from one
+ * - `<x>.deferral.tokenFor(...)` and `deferralOf(exchange).tokenFor(...)`,
+ *   which mint a token for a call binding
  * - `<signer>.mint(...)` where the signer is the `signer` of
- *   `require(CONTINUATIONS)` / `lookup(CONTINUATIONS)`, or a `const`
+ *   `require(CONTINUATIONS)` / `lookup(CONTINUATIONS)`, or a variable
  *   holding either
  *
  * Not flagged: reading `ex.deferral.token` or `Deferred.token`, the
@@ -86,24 +89,25 @@ const rule: Rule.RuleModule = {
       node: Rule.Node,
       identifier: unknown,
       name: string,
-    ): boolean => {
-      if (!isIdentifier(identifier)) return false;
-      const binding = resolveBinding(context, node, identifier);
-      return (
-        binding.kind === "named" &&
-        binding.module === ROUTECRAFT_MODULE &&
-        binding.imported === name
-      );
+    ): boolean => routecraftExport(context, node, identifier, name);
+
+    // Aliases already followed, so `var a = b, b = a` ends instead of recursing.
+    const followed = new Set<unknown>();
+    const aliasOf = (node: Rule.Node, identifier: { name: string }) => {
+      const init = variableInit(context, node, identifier);
+      if (init === undefined || followed.has(init)) return undefined;
+      followed.add(init);
+      return init;
     };
 
-    /** `<x>.continuations`, a local named `continuations`, or a `const` holding the former. */
+    /** `<x>.continuations`, a local named `continuations`, or a variable holding the former. */
     const isFacade = (node: Rule.Node, wrapped: unknown): boolean => {
       const expression = unwrap(wrapped);
       if (isMemberExpression(expression)) {
         return memberPropertyName(expression) === "continuations";
       }
       if (!isIdentifier(expression)) return false;
-      const init = variableInit(context, node, expression);
+      const init = aliasOf(node, expression);
       if (init !== undefined) return isFacade(node, init);
       if (expression.name !== "continuations") return false;
       // An import of that name from somewhere else is somebody else's object.
@@ -114,7 +118,7 @@ const rule: Rule.RuleModule = {
     const isRuntime = (node: Rule.Node, wrapped: unknown): boolean => {
       const expression = unwrap(wrapped);
       if (isIdentifier(expression)) {
-        const init = variableInit(context, node, expression);
+        const init = aliasOf(node, expression);
         return init !== undefined && isRuntime(node, init);
       }
       if (!isCallExpression(expression)) return false;
@@ -131,7 +135,7 @@ const rule: Rule.RuleModule = {
     const isSigner = (node: Rule.Node, wrapped: unknown): boolean => {
       const expression = unwrap(wrapped);
       if (isIdentifier(expression)) {
-        const init = variableInit(context, node, expression);
+        const init = aliasOf(node, expression);
         return init !== undefined && isSigner(node, init);
       }
       if (!isMemberExpression(expression)) return false;
@@ -141,8 +145,12 @@ const rule: Rule.RuleModule = {
       );
     };
 
-    const isDeferralFacet = (wrapped: unknown): boolean => {
+    /** `<x>.deferral`, or `deferralOf(exchange)`, which returns the same facet. */
+    const isDeferralFacet = (node: Rule.Node, wrapped: unknown): boolean => {
       const expression = unwrap(wrapped);
+      if (isCallExpression(expression)) {
+        return isRoutecraftExport(node, expression.callee, "deferralOf");
+      }
       return (
         isMemberExpression(expression) &&
         memberPropertyName(expression) === "deferral"
@@ -151,6 +159,7 @@ const rule: Rule.RuleModule = {
 
     return {
       CallExpression(node) {
+        followed.clear();
         const callee: unknown = node.callee;
         if (!isMemberExpression(callee)) return;
         const method = memberPropertyName(callee);
@@ -170,7 +179,7 @@ const rule: Rule.RuleModule = {
           report(facadeAct, `continuations.${method}()`);
           return;
         }
-        if (method === "tokenFor" && isDeferralFacet(callee.object)) {
+        if (method === "tokenFor" && isDeferralFacet(node, callee.object)) {
           report("restrictedMint", "deferral.tokenFor()");
           return;
         }

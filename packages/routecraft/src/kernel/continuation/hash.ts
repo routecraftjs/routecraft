@@ -114,6 +114,7 @@ export function isCurrentContinuationHash(stored: string): boolean {
  *
  * @param stored - The record's `continuationHash`
  * @param tail - The live continuation
+ * @param reentrant - As {@link describeContinuation} takes it
  * @returns A clause naming the first step that differs, or the resume
  *   schema when every step matches
  *
@@ -124,8 +125,9 @@ export function continuationDifference(
   tail: ReadonlyArray<Step<Adapter>>,
   schema: DeferralSchema,
   errorPath?: string,
+  reentrant?: boolean,
 ): string {
-  const live = describeContinuation(tail, schema, errorPath);
+  const live = describeContinuation(tail, schema, errorPath, reentrant);
   const before = parseContinuationHash(stored)?.stepDigests ?? [];
   const now = live.stepDigests;
   const index = now.findIndex((digest, i) => digest !== before[i]);
@@ -138,7 +140,7 @@ export function continuationDifference(
   if (before.length > now.length) {
     return `${before.length - now.length} step(s) were removed from the end`;
   }
-  return "the schema the resume payload is validated against, or the error path the deferral was parked from, differs";
+  return "the schema the resume payload is validated against, the error path the deferral was parked from, or the kind of site that parked it, differs";
 }
 
 /**

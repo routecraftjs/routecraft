@@ -7,6 +7,7 @@ import {
 } from "./shared/ast.ts";
 import {
   ROUTECRAFT_MODULE,
+  isRoutecraftExport as routecraftExport,
   memberPropertyName,
   resolveBinding,
   variableInit,
@@ -102,20 +103,11 @@ const rule: Rule.RuleModule = {
       return false;
     };
 
-    /** Whether an identifier is the named routecraft export `name`. */
     const isRoutecraftExport = (
       node: Rule.Node,
       identifier: unknown,
       name: string,
-    ): boolean => {
-      if (!isIdentifier(identifier)) return false;
-      const binding = resolveBinding(context, node, identifier);
-      return (
-        binding.kind === "named" &&
-        binding.module === ROUTECRAFT_MODULE &&
-        binding.imported === name
-      );
-    };
+    ): boolean => routecraftExport(context, node, identifier, name);
 
     /** Whether an identifier is a routecraft namespace import. */
     const isRoutecraftNamespace = (

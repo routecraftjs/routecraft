@@ -31,7 +31,7 @@ function resolveProviderAndModel(
   const store = service?.providers;
   if (!store) {
     throw new Error(
-      "Embedding provider not found: no providers registered. Add embeddingPlugin({ providers: { huggingface: {} } }) to your config.",
+      "Embedding provider not found: no providers are registered for this exchange's application. Add embeddingPlugin({ providers: { huggingface: {} } }) to your config; an exchange built by hand with no context reaches no plugin at all.",
     );
   }
   const { providerId, modelName } = parseProviderModel(modelId);

@@ -40,8 +40,8 @@ export function isDeferSignal(value: unknown): value is DeferSignal {
  * Run a step, turning a deferral it raised through `ctx.defer()` into the
  * `defer` outcome.
  *
- * Every place the kernel runs a step goes through here, a step-scope
- * wrapper running its inner step included. That is what keeps a wrapper
+ * A step-scope wrapper runs its inner step through here, and the pipeline
+ * executor does the same conversion inline. That is what keeps a wrapper
  * honest: a `.retry()` that saw the rejection would run the step again and
  * charge the work twice, so by the time a wrapper sees anything the
  * deferral is an outcome it passes through.

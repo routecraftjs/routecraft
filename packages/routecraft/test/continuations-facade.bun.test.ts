@@ -330,5 +330,40 @@ describe("continuations: the read view and the acts", () => {
 
     await t!.drain();
     expect(done.sort()).toEqual(["loose", "routed"]);
+    expect(
+      t!.contextLogger.error.mock.calls.some(
+        (call) => call[1] === "Background task failed",
+      ),
+    ).toBe(true);
+  });
+
+  /**
+   * @case Work tracked for no route is waited for by stop
+   * @preconditions A plugin tracking a task that settles after 40ms, naming no route, and then the context is stopped
+   * @expectedResult stop() resolves only after the task settled, unforced
+   */
+  test("execution.trackTask() holds stop() open", async () => {
+    let track: ((task: Promise<unknown>) => void) | undefined;
+    await build([
+      {
+        id: "test.tracker",
+        bind(c) {
+          track = (task) => c.execution.trackTask(task);
+        },
+      },
+    ]);
+    let settled = false;
+    track!(
+      new Promise<void>((resolve) =>
+        setTimeout(() => {
+          settled = true;
+          resolve();
+        }, 40),
+      ),
+    );
+
+    const outcome = await t!.ctx.stop();
+    expect(settled).toBe(true);
+    expect(outcome.forced).toBe(false);
   });
 });

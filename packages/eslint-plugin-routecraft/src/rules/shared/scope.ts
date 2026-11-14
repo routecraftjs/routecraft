@@ -1,5 +1,5 @@
 import type { Rule } from "eslint";
-import { isIdentifier, isLiteral } from "./ast.ts";
+import { isIdentifier, isLiteral, isObject } from "./ast.ts";
 
 export const ROUTECRAFT_MODULE = "@routecraft/routecraft";
 
@@ -52,8 +52,29 @@ export function resolveBinding(
 }
 
 /**
+ * Whether an identifier is the named routecraft export `name`, whatever
+ * it was imported as.
+ */
+export function isRoutecraftExport(
+  context: Rule.RuleContext,
+  node: Rule.Node,
+  identifier: unknown,
+  name: string,
+): boolean {
+  if (!isIdentifier(identifier)) return false;
+  const binding = resolveBinding(context, node, identifier);
+  return (
+    binding.kind === "named" &&
+    binding.module === ROUTECRAFT_MODULE &&
+    binding.imported === name
+  );
+}
+
+/**
  * The initialiser of the variable an identifier names, when it is a plain
- * `const x = <init>` declaration; `undefined` for anything else.
+ * `const x = <init>`, `let` or `var` declaration; `undefined` for
+ * anything else, a destructured binding included, whose initialiser is the
+ * object it was taken from rather than the value it holds.
  */
 export function variableInit(
   context: Rule.RuleContext,
@@ -66,7 +87,7 @@ export function variableInit(
     const variable = scope.variables.find((v) => v.name === identifier.name);
     if (variable) {
       const def = variable.defs[0];
-      if (def?.type !== "Variable" || def.parent.kind !== "const") {
+      if (def?.type !== "Variable" || def.node.id.type !== "Identifier") {
         return undefined;
       }
       return def.node.init ?? undefined;
@@ -78,18 +99,22 @@ export function variableInit(
 
 /**
  * Extract a member expression's property name, accepting a plain
- * identifier or a computed string literal (`obj.craft` / `obj["craft"]`),
- * so quoting a property never evades detection.
+ * identifier, a computed string literal or a template with no
+ * substitutions (`obj.craft` / `obj["craft"]`), so quoting a property
+ * never evades detection.
  */
 export function memberPropertyName(callee: {
   computed: boolean;
   property: unknown;
 }): string | undefined {
   if (callee.computed) {
-    return isLiteral(callee.property) &&
-      typeof callee.property.value === "string"
-      ? callee.property.value
-      : undefined;
+    const key = callee.property;
+    if (isLiteral(key)) {
+      return typeof key.value === "string" ? key.value : undefined;
+    }
+    if (!isObject(key) || key["type"] !== "TemplateLiteral") return undefined;
+    const quasis = key["quasis"] as { value: { cooked?: string } }[];
+    return quasis.length === 1 ? quasis[0]!.value.cooked : undefined;
   }
   return isIdentifier(callee.property) ? callee.property.name : undefined;
 }

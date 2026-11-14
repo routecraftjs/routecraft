@@ -240,6 +240,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
             // without a deferral runtime; a handler that never builds a
             // resume link should not pay for or fail on it.
             mintToken: (callBinding: string) =>
+              // eslint-disable-next-line @routecraft/routecraft/restrict-continuation-minting -- the token a tool handler puts in its own resume link, bound to its call
               deferralOf(exchange).tokenFor(callBinding),
             agentId: agentIdentity,
           }

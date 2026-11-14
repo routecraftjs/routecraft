@@ -115,9 +115,13 @@ export function deferDeclarationOf(
   if (typeof declare !== "function") return undefined;
   const declared = declare.call(step);
   if (declared === undefined) return undefined;
-  if (declared.revival !== "next-step" && declared.revival !== "this-step") {
+  const revival =
+    typeof declared === "object" && declared !== null
+      ? declared.revival
+      : undefined;
+  if (revival !== "next-step" && revival !== "this-step") {
     throw rcError("RC5003", undefined, {
-      message: `A step's DEFERS declaration must be { revival: "next-step", input? } or { revival: "this-step" }; it returned ${JSON.stringify(declared)}.`,
+      message: `A step's DEFERS declaration must be { revival: "next-step", input? } or { revival: "this-step" }; it returned ${typeof declared === "object" && declared !== null ? `an object whose revival is ${String(revival)}` : String(declared)}.`,
     });
   }
   return declared;
@@ -427,11 +431,10 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
  *
  * Callers guard on whether the work is already done; this always does it.
  *
- * Every field is overwritten with the walk's answer, never merged: a
- * hand-written definition can arrive carrying `deferSteps` its own steps do
- * not support, which would have startup demand a deferral runtime for a
- * route that cannot park. Empty answers leave the field absent so the common
- * case stays cheap to ask about.
+ * The walk's answer is kept beside the definition and read back through
+ * `resolvedSitesOf`, never merged with anything the definition arrived
+ * carrying: a hand-written one cannot claim sites its own steps do not
+ * support. Only `errorPathSites` and `admissionSite` are written onto it.
  *
  * @internal
  */

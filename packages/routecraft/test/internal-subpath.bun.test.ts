@@ -9,6 +9,7 @@ const repoRoot = new URL("../../../", import.meta.url).pathname;
 /** Runtime names only: the type-only exports leave no trace to assert on. */
 const INTERNAL_NAMES = [
   "RC_ADAPTER_OVERRIDES",
+  "RENAMED_TO_INPUT",
   "SOURCE_FIXTURE",
   "clipText",
   "compareRuntimeVersion",

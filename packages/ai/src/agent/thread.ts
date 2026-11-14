@@ -27,10 +27,10 @@ import "../errors.ts";
  * time: it is discovered when the approver clicks the link, by which point
  * the approval is spent and the run is unrecoverable.
  *
- * The second is the race. The store's compare-and-swap does the work
- * (see `replaceStepState`), and this module supplies its two arguments: the
- * fingerprint of the state the rewrite was based on, and a replacement that
- * has been checked first.
+ * The second is the race. The kernel's `rewriteStepState` fingerprints the
+ * state the rewrite was based on and swaps against it, and this module
+ * supplies the one thing it cannot: a replacement that has been checked
+ * first.
  */
 
 /**

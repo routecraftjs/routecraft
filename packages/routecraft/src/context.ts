@@ -1793,9 +1793,19 @@ export class CraftContext {
       { routeCount: this.routes.length },
       "Draining context: waiting for all route handlers and tasks",
     );
-    await Promise.all(this.routes.map((r) => r.drain()));
-    await Promise.all(this.backgroundTasks);
+    await this.drainAll();
     this.logger.debug({}, "Context drained");
+  }
+
+  /**
+   * Every route's in-flight work, then the application's own tracked
+   * tasks. Looped, because a task may track another while it settles.
+   */
+  private async drainAll(): Promise<void> {
+    await Promise.all(this.routes.map((r) => r.drain()));
+    while (this.backgroundTasks.size > 0) {
+      await Promise.all(this.backgroundTasks);
+    }
   }
 
   /**
@@ -1947,7 +1957,7 @@ export class CraftContext {
     }
 
     // Bounded: past the deadline the work is abandoned, not waited out.
-    const drain = Promise.all(this.routes.map((r) => r.drain()));
+    const drain = this.drainAll();
     let drainError: unknown;
     let forced = false;
     let pending: string[] = [];

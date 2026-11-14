@@ -22,7 +22,9 @@ One defer contract: a resume payload is `input` everywhere, a step declares that
 
 **A parked exchange finds its defer site by what follows it.** A step added or removed ahead of a defer point no longer refuses the exchanges parked there. The digest binds which kind of site parked, so a step that parked itself on a 0.8 canary is refused once with `RC5048`, as a record from 0.7 is. Two sites of one kind followed by identical steps that both moved are refused with `RC5048` as ambiguous. The `RC5032` and `RC5048` messages say what to change.
 
-**New lint rule `restrict-continuation-minting`**, an error in both presets: `continuations.mintToken()`, `resume()` and `rewriteStepState()` run no door policy, so each call site is sanctioned with a scoped disable comment or a per-file override.
+A `schema` left where a resume payload is now declared as `input` is refused (`RC5003`, or `RC1115` on an error hook) rather than dropped. `context.stop()` waits for tasks tracked with no route, as `drain()` does.
+
+**New lint rule `restrict-continuation-minting`**, an error in both presets: `continuations.mintToken()`, `resume()`, `rewriteStepState()`, `deferral.tokenFor()` and the continuations signer's `mint()` run no door policy, so each call site is sanctioned with a scoped disable comment or a per-file override.
 
 Also off the entry, none of which a route needs: `ResolvedSampleOptions`, `ResolvedDedupeOptions`, `ResolvedThrottleOptions`, `ResolvedCircuitBreakerOptions`, `RouteEnablement` and `hashExchangeBody`.
 

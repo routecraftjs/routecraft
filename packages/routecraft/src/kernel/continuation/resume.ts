@@ -412,6 +412,7 @@ export async function reviveDeferral(
       site.site.continuation,
       liveSchema,
       deferral.errorPath?.origin,
+      site.site.reentrant,
     );
     return await refuseContinuation(
       context,

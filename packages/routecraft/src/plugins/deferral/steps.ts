@@ -50,7 +50,7 @@ declare module "@routecraft/routecraft" {
      * Durable-deferral view of this exchange: the id and signed token it
      * would defer as, and after a resume the payload that revived it.
      * Readable before the `.defer()` runs, which is what lets a notification
-     * step earlier in the pipeline send a working resume link. `result` is
+     * step earlier in the pipeline send a working resume link. `input` is
      * typed by the last `.defer({ input: schema })`.
      */
     deferral: DeferralAffordance<S["deferral"]>;
@@ -140,7 +140,7 @@ export interface DeferralStepMethods<S extends BuilderState, This> {
    * A duplicate resume returns the first one's cached continuation result
    * without re-running anything.
    *
-   * @param map - Maps the ingress exchange to `{ token, input: result }`
+   * @param map - Maps the ingress exchange to `{ token, input }`
    * @param options - `authorize`, deciding who may resume, and `elevate`,
    *   lending scope to the resumed run. Omitted, the door is bearer: any
    *   holder of a valid token may resume.

@@ -6,7 +6,6 @@ import {
   DefaultExchange,
   OperationType,
 } from "../../exchange.ts";
-import { toSignalContext } from "../../types.ts";
 import type { Adapter, StepContext, StepOutcome } from "../../types.ts";
 import type { ResumingStep } from "../../kernel/continuation/sites.ts";
 import type { ResumeRequest } from "../../kernel/continuation/resume.ts";
@@ -181,10 +180,11 @@ export class ResumeStep<In = unknown> implements ResumingStep {
           "Cannot resume: this step was run without the kernel's resume handle, so there is no deferral store to revive from.",
       });
     }
-    const signalCtx = toSignalContext(ctx);
     // The mapper shapes a transport payload, which is what an attacker
     // controls, so the door's own facts stay off its request: the hooks are
-    // passed beside it, and the kernel names the resuming principal.
+    // passed beside it, the kernel names the resuming principal, and the
+    // mapper is handed the signal and nothing it could act with.
+    const signalCtx = ctx.signal ? { signal: ctx.signal } : {};
     const request = this.mapper
       ? await this.mapper(exchange as Exchange<In>, signalCtx)
       : fromBody(exchange);
@@ -227,7 +227,7 @@ function fromBody(exchange: Exchange): Omit<ResumeRequest, "resumedBy"> {
   ) {
     throw rcError("RC5041", undefined, {
       message:
-        "Bare .resume() expects the body to already be shaped { token, input }. Map it explicitly with .resume((ex) => ({ token, input: result })) when the ingress carries the payload in its own shape.",
+        "Bare .resume() expects the body to already be shaped { token, input }. Map it explicitly with .resume((ex) => ({ token, input })) when the ingress carries the payload in its own shape.",
     });
   }
   return { token: body.token, input: body.input };

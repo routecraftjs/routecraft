@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
+  CraftContext,
   MemoryDeferralStore,
   craft,
   direct,
@@ -9,6 +10,8 @@ import {
   type CraftConfig,
 } from "../src/index.ts";
 import * as entry from "../src/index.ts";
+import { isExchange } from "../src/brand.ts";
+import { DefaultRoute } from "../src/route.ts";
 import { asDeferred } from "./helpers/deferral.ts";
 
 const SECRET = "deferral-leaks-test-secret-key-0123456789";
@@ -36,8 +39,12 @@ describe("what the defer and resume paths write down", () => {
       LEVELS.flatMap((level) => logger[level].mock.calls),
     );
     const visited = new WeakSet<object>();
-    return JSON.stringify([logged, seen], (key, value: unknown) => {
-      if (key === "exchange" || key === "route" || key === "context") {
+    return JSON.stringify([logged, seen], (_key, value: unknown) => {
+      if (
+        isExchange(value) ||
+        value instanceof DefaultRoute ||
+        value instanceof CraftContext
+      ) {
         return undefined;
       }
       if (value instanceof Error) {
@@ -168,11 +175,11 @@ describe("what the defer and resume paths write down", () => {
   });
 
   /**
-   * @case The public entry hands out no signer
+   * @case The public entry exports nothing whose name says signer, signing secret or deferral runtime
    * @preconditions The main entry's runtime exports
    * @expectedResult Nothing that builds a signer or resolves the signing secret is exported: a token is minted through the facet, the acknowledgment or the continuations facade
    */
-  test("the entry exports no signer", () => {
+  test("the entry exports nothing named for a signer", () => {
     const names = Object.keys(entry).filter((name) =>
       /signer|signingsecret|deferralruntime/i.test(name),
     );

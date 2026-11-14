@@ -976,11 +976,11 @@ describe("the kernel host: installs and repeatable", () => {
   });
 
   /**
-   * @case A plugin resumes a parked exchange through execution
+   * @case A plugin resumes a parked exchange through c.continuations
    * @preconditions No deferral plugin installed, and a plugin calling c.continuations.resume in start
    * @expectedResult The resume rejects with RC5052, the same refusal the kernel's resume gives every caller without continuations
    */
-  test("resumes through execution with the kernel's refusals", async () => {
+  test("resumes through c.continuations with the kernel's refusals", async () => {
     let refused: unknown;
     t = await testContext()
       .with({

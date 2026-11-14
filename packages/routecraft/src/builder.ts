@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type Duration, parseDuration } from "./shared/duration.ts";
-import { rejectStaleOptions } from "./shared/stale-options.ts";
+import {
+  RENAMED_TO_INPUT,
+  rejectStaleOptions,
+} from "./shared/stale-options.ts";
 import {
   isCronCadence,
   MANUAL_REFRESH,
@@ -1039,12 +1042,13 @@ export class RouteBuilder<
    *
    * wrapper pattern. See `.standards/resilience-wrappers.md`.
    *
-   * @param options - Route scope only. `schema`: what a resume payload must
+   * @param options - Route scope only. `input`: what a resume payload must
    *   satisfy when the handler parks the exchange with `recovery.defer()`,
    *   validated at the resume door. A step-scope handler cannot park, so
    *   declaring one there is `RC5003`.
    */
   override error(handler: ErrorHandler, options: RouteErrorOptions = {}): this {
+    rejectStaleOptions(options, "error(handler, ...)", RENAMED_TO_INPUT);
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
       // Pre-`.from()` for the FIRST route, OR staging for the NEXT
       // route in a chained `craft().id(a).from(...).to(...).id(b)

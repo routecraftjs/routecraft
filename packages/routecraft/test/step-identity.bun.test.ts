@@ -1012,7 +1012,7 @@ describe("step identity: the stored continuation hash", () => {
         describeSchema(z.object({ ok: z.boolean() })),
       ),
     ).toBe(
-      "the schema the resume payload is validated against, or the error path the deferral was parked from, differs",
+      "the schema the resume payload is validated against, the error path the deferral was parked from, or the kind of site that parked it, differs",
     );
     expect(
       continuationDifference(

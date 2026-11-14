@@ -632,6 +632,38 @@ describe("agent durable deferral (ctx.defer)", () => {
   });
 
   /**
+   * @case A DeferError that declares an input schema advertises it
+   * @preconditions Handler throws DeferError({ input: Approval })
+   * @expectedResult The acknowledgment carries the declared input schema, the same as a returned ctx.defer({ input }) does
+   */
+  test("DeferError carries its declared input to the acknowledgment", async () => {
+    const declaring = {
+      description: "Deferring tool that declares what it wants back",
+      input: z.object({}),
+      handler: (): never => {
+        throw new DeferError({ input: Approval });
+      },
+    };
+    llm.script.push({ toolCalls: [{ toolName: "declaring", input: {} }] });
+
+    t = await testContext()
+      .with({ deferral: {}, plugins: plugins({ declaring }) })
+      .routes([
+        craft()
+          .id("assistant")
+          .from(direct())
+          .to(agent({ model: MODEL, system: "x", tools: tools(["declaring"]) }))
+          .to(spy()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
+    expect(deferred.input).toBeDefined();
+  });
+
+  /**
    * @case A re-entrant resume skips expect validation: a token holder can send any JSON
    * @preconditions ctx.defer declared schema: Approval; the answer is a string that does not satisfy it
    * @expectedResult The resume is accepted (no RC5049) and the raw answer reaches the model as the tool result, which is the documented model-validates property

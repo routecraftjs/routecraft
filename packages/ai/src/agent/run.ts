@@ -285,9 +285,8 @@ export class AgentCancellationCause extends Error {
  * Durable deferral (#268/#269): a tool handler that returns
  * `ctx.defer(...)`'s sentinel (or throws `DeferError`) stops the loop
  * after its batch settles; the run persists the messages thread and
- * outstanding tool-call id as `stepState` and raises the core
- * deferral through the hosting step's `ctx.defer`, which the kernel turns
- * into a deferral. A resumed dispatch re-enters through
+ * outstanding tool-call id as `stepState` and defers through the hosting
+ * step's `ctx.defer`. A resumed dispatch re-enters through
  * {@link AgentRunInput.resume} with the answer already swapped into
  * the thread.
  *
