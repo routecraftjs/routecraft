@@ -38,8 +38,9 @@ import {
   type CraftConfig,
 } from "./context.ts";
 import { rcError } from "./error.ts";
+import { configuredHandlers } from "./context.ts";
 import { CraftClient } from "./client.ts";
-import type { EventHandler, EventName } from "./types.ts";
+import type { EventHandler, EventName, SubscribeOptions } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
 import { BatchConsumer } from "./consumers/batch.ts";
 import {
@@ -147,6 +148,12 @@ import {
  * - Subscribe to lifecycle events
  * - Perform other initialization
  */
+/** The handlers a builder holds for one event, each with its options. */
+type BuilderSubscriptions = Map<
+  EventHandler<EventName>,
+  SubscribeOptions | undefined
+>;
+
 export class ContextBuilder {
   protected config?: CraftConfig;
   protected definitions: RouteDefinition[] = [];
@@ -154,8 +161,8 @@ export class ContextBuilder {
     keyof StoreRegistry,
     StoreRegistry[keyof StoreRegistry]
   >();
-  protected eventHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
-  protected onceHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
+  protected eventHandlers = new Map<EventName, BuilderSubscriptions>();
+  protected onceHandlers = new Map<EventName, BuilderSubscriptions>();
   protected plugins: Array<import("./kernel/plugin.ts").Plugin> = [];
 
   constructor() {}
@@ -191,20 +198,9 @@ export class ContextBuilder {
     }
 
     // Extract event handlers if provided
-    if (config.on) {
-      for (const [event, handler] of Object.entries(config.on)) {
-        const eventName = event as EventName;
-        if (Array.isArray(handler)) {
-          handler.forEach((h) => {
-            const set = this.eventHandlers.get(eventName) ?? new Set();
-            set.add(h as EventHandler<EventName>);
-            this.eventHandlers.set(eventName, set);
-          });
-        } else if (handler) {
-          const set = this.eventHandlers.get(eventName) ?? new Set();
-          set.add(handler as EventHandler<EventName>);
-          this.eventHandlers.set(eventName, set);
-        }
+    for (const [event, given] of Object.entries(config.on ?? {})) {
+      for (const { handler, options } of configuredHandlers(given)) {
+        this.on(event as EventName, handler, options);
       }
     }
 
@@ -225,10 +221,15 @@ export class ContextBuilder {
   /**
    * Register an event listener to be attached to the built context.
    */
-  on<K extends EventName>(event: K, handler: EventHandler<K>): this {
-    const set = this.eventHandlers.get(event) ?? new Set();
-    set.add(handler as unknown as EventHandler<EventName>);
-    this.eventHandlers.set(event, set);
+  on<K extends EventName>(
+    event: K,
+    handler: EventHandler<K>,
+    options?: SubscribeOptions,
+  ): this {
+    const subscriptions: BuilderSubscriptions =
+      this.eventHandlers.get(event) ?? new Map();
+    subscriptions.set(handler as unknown as EventHandler<EventName>, options);
+    this.eventHandlers.set(event, subscriptions);
     return this;
   }
 
@@ -236,10 +237,15 @@ export class ContextBuilder {
    * Register a one-time event listener to be attached to the built context.
    * The handler fires once and then auto-unsubscribes.
    */
-  once<K extends EventName>(event: K, handler: EventHandler<K>): this {
-    const set = this.onceHandlers.get(event) ?? new Set();
-    set.add(handler as unknown as EventHandler<EventName>);
-    this.onceHandlers.set(event, set);
+  once<K extends EventName>(
+    event: K,
+    handler: EventHandler<K>,
+    options?: SubscribeOptions,
+  ): this {
+    const subscriptions: BuilderSubscriptions =
+      this.onceHandlers.get(event) ?? new Map();
+    subscriptions.set(handler as unknown as EventHandler<EventName>, options);
+    this.onceHandlers.set(event, subscriptions);
     return this;
   }
 
@@ -355,16 +361,16 @@ export class ContextBuilder {
     // registered by the constructor, but the builder's `eventHandlers` map
     // also contains them (with the same handler references), so the
     // CraftContext's Set-based registry deduplicates.
-    for (const [event, handlers] of this.eventHandlers.entries()) {
-      for (const handler of handlers) {
-        ctx.on(event as EventName, handler as EventHandler<EventName>);
+    for (const [event, subscriptions] of this.eventHandlers.entries()) {
+      for (const [handler, options] of subscriptions) {
+        ctx.on(event, handler, options);
       }
     }
 
     // Attach one-time event handlers from builder (config once handlers already added in constructor)
-    for (const [event, handlers] of this.onceHandlers.entries()) {
-      for (const handler of handlers) {
-        ctx.once(event as EventName, handler as EventHandler<EventName>);
+    for (const [event, subscriptions] of this.onceHandlers.entries()) {
+      for (const [handler, options] of subscriptions) {
+        ctx.once(event, handler, options);
       }
     }
 

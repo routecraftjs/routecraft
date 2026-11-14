@@ -10,6 +10,8 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
   isDropped,
+  emitExchangeStarted,
+  emitExchangeCompleted,
 } from "./exchange.ts";
 import type { RegisteredDirectEndpoint } from "./registry.ts";
 import {
@@ -1371,15 +1373,7 @@ export class DefaultRoute implements Route {
     // error-channel run of the same exchange is a root of its own trace.
     const leave = this.enterIngressLineage(exchange);
 
-    // Emit route:exchange:started event
-    const correlationId = exchange.headers[
-      HeadersKeys.CORRELATION_ID
-    ] as string;
-    this.context.emit("route:exchange:started", {
-      routeId: this.definition.id,
-      exchangeId: exchange.id,
-      correlationId,
-    });
+    emitExchangeStarted(this.context, this.definition.id, exchange);
 
     // Run steps (tap adds tasks via route.trackTask)
     const handlerPromise = runPipeline(
@@ -1401,17 +1395,13 @@ export class DefaultRoute implements Route {
         !finalResult.deferred
       ) {
         const duration = Date.now() - startTime;
-        // The final exchange's: a `.correlate()` may have re-stamped it.
-        const correlationId = finalResult.exchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string;
-        this.context.emit("route:exchange:completed", {
-          routeId: this.definition.id,
-          exchangeId: exchange.id,
-          correlationId,
+        emitExchangeCompleted(
+          this.context,
+          this.definition.id,
+          exchange,
           duration,
-          exchange: finalResult.exchange,
-        });
+          finalResult.exchange,
+        );
       }
 
       // Reject so callers (CraftClient, direct channel) can handle the error.
@@ -1531,14 +1521,7 @@ export class DefaultRoute implements Route {
     operation: string,
     start: number,
   ): Promise<void> {
-    const correlationId = exchange.headers[
-      HeadersKeys.CORRELATION_ID
-    ] as string;
-    this.context.emit("route:exchange:started", {
-      routeId: this.definition.id,
-      exchangeId: exchange.id,
-      correlationId,
-    });
+    emitExchangeStarted(this.context, this.definition.id, exchange);
     const routeDeps: ExecutorDeps = { ...this.executorDeps() };
     delete routeDeps.slots;
     const slots = detachedSlots(routeDeps);
@@ -1561,13 +1544,13 @@ export class DefaultRoute implements Route {
     };
     const result = await runPipeline(deps, exchange, start);
     if (!result.failed && !result.dropped) {
-      this.context.emit("route:exchange:completed", {
-        routeId: this.definition.id,
-        exchangeId: exchange.id,
-        correlationId,
-        duration: Date.now() - start,
-        exchange: result.exchange,
-      });
+      emitExchangeCompleted(
+        this.context,
+        this.definition.id,
+        exchange,
+        Date.now() - start,
+        result.exchange,
+      );
     }
   }
 

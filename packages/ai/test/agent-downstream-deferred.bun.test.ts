@@ -118,9 +118,13 @@ describe("downstream deferral token boundary", () => {
             .to(agent("reviewer", { session: () => "review-session" })),
         ])
         .build();
-      t.ctx.on("route:agent:tool:result", ({ details }) => {
-        snapshots.push(details._snapshot);
-      });
+      t.ctx.on(
+        "route:agent:tool:result",
+        ({ details }) => {
+          snapshots.push(details._snapshot);
+        },
+        { snapshots: true },
+      );
       await t.startAndWaitReady();
       llm.script.push(
         { toolCalls: [{ toolName: "park", input: {} }] },

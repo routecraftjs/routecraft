@@ -43,7 +43,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 - [ ] Wildcard subscriptions still work: new event names must be compatible with `*` and `**` glob patterns
 - [ ] New events are documented on the events reference page with their payload shape and when they fire
 - [ ] If the change removes or renames an event, treat it as a breaking change and document the migration path
-- [ ] Event payloads do not hold live mutable references that could change after emission. The `Exchange` wrapper, `headers`, and `principal` are shallow-frozen by `DefaultExchange` and safe to attach by reference; `body` is intentionally left mutable so adapter authors can attach arbitrary user payloads, so any payload that includes `exchange.body` (or other unfrozen fields like nested `principal.claims`) must be snapshotted (spread / `structuredClone`) at emission time when subscribers depend on payload stability.
+- [ ] No event payload carries an exchange, a body or a header. An event about an exchange names it by `exchangeId` and hands the exchange to `emit(event, details, exchange)` as the third argument, from which the bus builds the frozen, credential-free copy that only a `{ snapshots: true }` subscription receives. Any other payload data a plugin gates the same way rides in `_snapshot`, declared optional. A plugin that puts a credential on an exchange under a header of its own names it in `secretHeaders`. See [`.standards/security.md` § 10](.standards/security.md).
 
 ## When you add or modify an adapter
 

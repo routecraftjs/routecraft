@@ -37,11 +37,13 @@ describe("Input validation in the filter chain (#447)", () => {
     const completed: unknown[] = [];
 
     t = await testContext()
-      .on("route:exchange:completed", (p) => {
-        completed.push(
-          (p.details as { exchange?: { body?: unknown } }).exchange?.body,
-        );
-      })
+      .on(
+        "route:exchange:completed",
+        (p) => {
+          completed.push(p.details._snapshot?.exchange.body);
+        },
+        { snapshots: true },
+      )
       .routes(
         craft()
           .id("input-recover")
@@ -110,11 +112,13 @@ describe("Input validation in the filter chain (#447)", () => {
     const completed: unknown[] = [];
 
     t = await testContext()
-      .on("route:exchange:completed", (p) => {
-        completed.push(
-          (p.details as { exchange?: { body?: unknown } }).exchange?.body,
-        );
-      })
+      .on(
+        "route:exchange:completed",
+        (p) => {
+          completed.push(p.details._snapshot?.exchange.body);
+        },
+        { snapshots: true },
+      )
       .routes(
         craft()
           .id("input-recover-parsed")

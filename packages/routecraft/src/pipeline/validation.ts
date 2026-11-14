@@ -3,9 +3,9 @@ import type { CraftContext } from "../context.ts";
 import {
   type Exchange,
   type ExchangeHeaders,
-  HeadersKeys,
   DefaultExchange,
   markOutputValidated,
+  emitExchangeFailed,
 } from "../exchange.ts";
 import { rcError, formatSchemaIssues } from "../error.ts";
 import { isThenable } from "../shared/thenable.ts";
@@ -510,15 +510,18 @@ export async function handleOutputValidationFailure(
   error?: unknown;
 }> {
   const routeId = deps.routeId;
-  const correlationId = exchange.headers[HeadersKeys.CORRELATION_ID] as string;
 
-  deps.context.emit("route:step:error", {
-    routeId,
-    error,
-    route: deps.route,
+  deps.context.emit(
+    "route:step:error",
+    {
+      routeId,
+      error,
+      route: deps.route,
+      exchangeId: exchange.id,
+      operation: "output",
+    },
     exchange,
-    operation: "output",
-  });
+  );
 
   if (deps.errorHandler) {
     try {
@@ -536,34 +539,36 @@ export async function handleOutputValidationFailure(
         DefaultExchange.rewrap(exchange, { body: recovered }),
         schemas,
       );
-      deps.context.emit("route:error:caught", {
-        routeId,
-        error,
-        route: deps.route,
-        exchange: recoveredExchange,
-      });
+      deps.context.emit(
+        "route:error:caught",
+        {
+          routeId,
+          error,
+          route: deps.route,
+          exchangeId: recoveredExchange.id,
+        },
+        recoveredExchange,
+      );
       return { exchange: recoveredExchange, failed: false, dropped: false };
     } catch (handlerErr) {
-      deps.context.emit("route:exchange:failed", {
+      emitExchangeFailed(
+        deps.context,
         routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        duration: Date.now() - startTime,
-        error: handlerErr,
         exchange,
-      });
+        Date.now() - startTime,
+        handlerErr,
+      );
       return { exchange, failed: true, dropped: false, error: handlerErr };
     }
   }
 
-  deps.context.emit("route:exchange:failed", {
+  emitExchangeFailed(
+    deps.context,
     routeId,
-    exchangeId: exchange.id,
-    correlationId,
-    duration: Date.now() - startTime,
-    error,
     exchange,
-  });
+    Date.now() - startTime,
+    error,
+  );
   return { exchange, failed: true, dropped: false, error };
 }
 

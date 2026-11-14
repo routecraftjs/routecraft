@@ -187,11 +187,11 @@ interface EventCause {
 /**
  * The exchange an event names, if any.
  *
- * Exchange events name their exchange in one of two shapes: `routeId`,
- * `exchangeId` and `correlationId` side by side, or the `route` and
- * `exchange` themselves (`route:error`, `context:error`). Both are read. A
- * correlation id is kept only when it is a string, so a malformed payload
- * starts a new chain rather than failing the delivery.
+ * Every exchange event carries `exchangeId` and `correlationId`; the error
+ * events (`route:error`, `context:error`) carry both when the error came from
+ * an exchange, and `context:error` names the `route` in place of a
+ * `routeId`. A correlation id is kept only when it is a string, so a
+ * malformed payload starts a new chain rather than failing the delivery.
  */
 function causeOf(payload: EventPayload<EventName>): EventCause | undefined {
   const details = payload.details as {
@@ -199,16 +199,9 @@ function causeOf(payload: EventPayload<EventName>): EventCause | undefined {
     correlationId?: unknown;
     exchangeId?: unknown;
     route?: { definition?: { id?: unknown } };
-    exchange?: { id?: unknown; headers?: Record<string, unknown> };
   };
-  const exchangeId =
-    details.exchangeId ??
-    details.exchange?.id ??
-    details.exchange?.headers?.[HeadersKeys.ID];
+  const { exchangeId, correlationId } = details;
   if (typeof exchangeId !== "string") return undefined;
-  const correlationId =
-    details.correlationId ??
-    details.exchange?.headers?.[HeadersKeys.CORRELATION_ID];
   return {
     exchangeId,
     routeId: details.routeId ?? details.route?.definition?.id,

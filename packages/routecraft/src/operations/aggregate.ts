@@ -13,6 +13,7 @@ import {
   getExchangeRoute,
   getStartedAt,
   DefaultExchange,
+  emitExchangeCompleted,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { SPLIT_PARENT_STORE } from "./split.ts";
@@ -225,12 +226,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     if (context) {
       for (const child of aggregationGroup) {
         const childStart = getStartedAt(child) ?? Date.now();
-        context.emit("route:exchange:completed", {
-          routeId,
-          exchangeId: child.id,
-          correlationId: child.headers[HeadersKeys.CORRELATION_ID] as string,
-          duration: Date.now() - childStart,
-        });
+        emitExchangeCompleted(context, routeId, child, Date.now() - childStart);
       }
     }
 

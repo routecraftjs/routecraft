@@ -334,6 +334,39 @@ describe("Causation", () => {
   });
 
   /**
+   * @case An event() route reacting to a failure continues the failed exchange's journey
+   * @preconditions A watcher consumes route:error; a worker's exchange throws
+   * @expectedResult The watcher's exchange carries the failed exchange's correlation id, and its id as the cause
+   */
+  test("event(): a delivery of an error event continues the failed chain", async () => {
+    let worker: ReturnType<typeof ids> | undefined;
+    let watcher: ReturnType<typeof ids> | undefined;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("failure-watcher")
+          .from(event("route:error"))
+          .to((ex) => {
+            watcher = ids(ex);
+          }),
+        craft()
+          .id("failing-worker")
+          .from(simple("go"))
+          .process((ex) => {
+            worker = ids(ex);
+            throw new Error("refused");
+          })
+          .to(spy()),
+      ])
+      .build();
+    await t.test().catch(() => undefined);
+    await t.drain();
+
+    expect(watcher?.correlationId).toBe(worker!.correlationId);
+    expect(watcher?.causationId).toBe(worker!.id);
+  });
+
+  /**
    * @case An event() route still receives the rest of the causing chain while it handles one of its events
    * @preconditions A worker calls a second route through direct(); a watcher consumes route:exchange:completed and is still running when the worker's own exchange completes
    * @expectedResult The watcher receives both completions, the callee's and the worker's, although they share the correlation id of the exchange it is handling

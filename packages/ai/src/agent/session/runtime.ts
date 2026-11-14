@@ -17,10 +17,12 @@ import {
   type EventName,
   type Exchange,
   type ExchangeScoped,
+  type ExchangeSnapshotEnvelope,
   type OpsPage,
   type Logger,
   type Principal,
   type RevivalOptions,
+  type SubscribeOptions,
 } from "@routecraft/routecraft";
 import type { LlmPromptPart } from "../../llm/types.ts";
 import { dispatchIdentityFrom } from "../run.ts";
@@ -60,7 +62,11 @@ export interface SessionHost {
   readonly logger: Logger;
   emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
   /** Subscribe to an event for the application's lifetime. */
-  observe<K extends EventName>(event: K, handler: EventHandler<K>): void;
+  observe<K extends EventName>(
+    event: K,
+    handler: EventHandler<K>,
+    options?: SubscribeOptions,
+  ): void;
   /** The continuations store, which holds a turn between messages. */
   deferrals(): DeferralRuntime | undefined;
   /** The application's parked exchanges: reads, and the resume that revives a turn. */
@@ -82,8 +88,8 @@ export function sessionHostOf(context: CraftContext): SessionHost {
   return {
     logger: context.logger,
     emit: (event, details) => context.emit(event, details),
-    observe: (event, handler) => {
-      context.on(event, handler);
+    observe: (event, handler, options) => {
+      context.on(event, handler, options);
     },
     deferrals: () => context.lookup(CONTINUATIONS),
     continuations: context.continuations,
@@ -350,22 +356,37 @@ export class AgentSessionRuntime {
     this.host.observe("route:exchange:resumed", ({ details }) => {
       this.resumedRuns.set(details.exchangeId, details.deferralId);
     });
-    this.host.observe("route:exchange:completed", ({ details }) => {
-      this.settleResumed(details.exchangeId, details.exchange, () =>
-        outcomeOfResult(details.exchange?.body),
-      );
-    });
-    this.host.observe("route:exchange:failed", ({ details }) => {
-      this.settleResumed(details.exchangeId, details.exchange, () => ({
-        status: "failed",
-        error: errorOf(details.error),
-      }));
-    });
-    this.host.observe("route:exchange:dropped", ({ details }) => {
-      this.settleResumed(details.exchangeId, details.exchange, () =>
-        droppedOutcome(details.reason),
-      );
-    });
+    // The handle and the session are read off the exchange's headers, and a
+    // completed run's result off its body, so these three take snapshots.
+    const snapshots = { snapshots: true };
+    this.host.observe(
+      "route:exchange:completed",
+      ({ details }) => {
+        this.settleResumed(details.exchangeId, details._snapshot, () =>
+          outcomeOfResult(details._snapshot?.exchange.body),
+        );
+      },
+      snapshots,
+    );
+    this.host.observe(
+      "route:exchange:failed",
+      ({ details }) => {
+        this.settleResumed(details.exchangeId, details._snapshot, () => ({
+          status: "failed",
+          error: errorOf(details.error),
+        }));
+      },
+      snapshots,
+    );
+    this.host.observe(
+      "route:exchange:dropped",
+      ({ details }) => {
+        this.settleResumed(details.exchangeId, details._snapshot, () =>
+          droppedOutcome(details.reason),
+        );
+      },
+      snapshots,
+    );
     this.host.observe("route:exchange:deferred", ({ details }) => {
       const prior = this.resumedRuns.get(details.exchangeId);
       // Execution one's own terminal event: core runs the notify hook after
@@ -397,11 +418,13 @@ export class AgentSessionRuntime {
   /** Settle the handle a resumed run's terminal event names, when it names one. */
   private settleResumed(
     exchangeId: string,
-    snapshot: { headers: Record<string, unknown> } | undefined,
+    snapshot: ExchangeSnapshotEnvelope["_snapshot"],
     outcome: () => BackgroundRunOutcome,
   ): void {
+    // The bus copies the exchange when it is read, so only a resumed run
+    // pays for one.
     if (!this.resumedRuns.delete(exchangeId)) return;
-    const call = snapshot && backgroundCallOf(snapshot.headers);
+    const call = snapshot && backgroundCallOf(snapshot.exchange.headers);
     if (!call) return;
     this.track(
       this.settleBackground(

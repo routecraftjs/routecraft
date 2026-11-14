@@ -11,7 +11,13 @@ import {
   type Execution,
 } from "./plugin.ts";
 import type { AnyPort, Port } from "./port.ts";
-import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
+import type { Exchange } from "../exchange.ts";
+import type {
+  EventDetailsMap,
+  EventHandler,
+  EventName,
+  SubscribeOptions,
+} from "../types.ts";
 
 /**
  * What the host needs from the application to build a plugin's context.
@@ -28,8 +34,14 @@ export interface HostEnvironment {
   observe<K extends EventName>(
     event: K | "*",
     handler: EventHandler<K>,
+    options?: SubscribeOptions,
+    reader?: string,
   ): () => void;
-  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
+  emit<K extends EventName>(
+    event: K,
+    details: EventDetailsMap[K],
+    exchange?: Exchange,
+  ): void;
 }
 
 /**
@@ -200,6 +212,15 @@ function validateShape(plugin: unknown, where: string): Plugin {
   }
   if (p.repeatable !== undefined && typeof p.repeatable !== "boolean") {
     invalidPlugin(where, "repeatable must be a boolean");
+  }
+  if (
+    p.secretHeaders !== undefined &&
+    !(
+      Array.isArray(p.secretHeaders) &&
+      p.secretHeaders.every((name) => typeof name === "string" && name !== "")
+    )
+  ) {
+    invalidPlugin(where, "secretHeaders must be an array of header names");
   }
   if (p.repeatable === true) {
     const declared = (
@@ -739,12 +760,12 @@ export class PluginHost {
       },
       // Released at stop with the plugin's disposers, so a subscription
       // never outlives the plugin that made it.
-      observe: (event, handler) => {
-        const off = env.observe(event, handler);
+      observe: (event, handler, options) => {
+        const off = env.observe(event, handler, options, id);
         entry.disposers.push(off);
         return off;
       },
-      emit: (event, details) => env.emit(event, details),
+      emit: (event, details, exchange) => env.emit(event, details, exchange),
       onDispose(dispose) {
         entry.disposers.push(dispose);
       },

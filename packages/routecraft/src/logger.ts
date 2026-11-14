@@ -19,6 +19,7 @@ import {
 } from "./exchange.ts";
 import { isCraftContext, isRoute, isExchange } from "./brand.ts";
 import { isThenable } from "./shared/thenable.ts";
+import { CREDENTIAL_HEADERS } from "./shared/credential-headers.ts";
 import type { CraftContext } from "./context.ts";
 import {
   isMissingOptionalPeer,
@@ -110,12 +111,9 @@ export interface DefaultLoggerOptions {
  * The paths every logger built here redacts: the headers that carry a
  * credential, on a line that logs an exchange's or a request's `headers`.
  */
-export const DEFAULT_REDACT: readonly string[] = [
-  "headers.authorization",
-  "headers.cookie",
-  'headers["set-cookie"]',
-  'headers["proxy-authorization"]',
-];
+export const DEFAULT_REDACT: readonly string[] = CREDENTIAL_HEADERS.map(
+  (name) => (/^[a-z]+$/.test(name) ? `headers.${name}` : `headers["${name}"]`),
+);
 
 /**
  * Serialize a logged error, collapsing a cause that only repeats the message.

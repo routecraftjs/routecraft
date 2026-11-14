@@ -4,6 +4,7 @@ import type {
   StoreRegistry,
   EventName,
   EventHandler,
+  SubscribeOptions,
   RoutesArgument,
   DeferralConfig,
   Duration,
@@ -254,7 +255,7 @@ export class TestContext {
         if (settled) return;
         // An exchange that failed is not a route that failed to start, and
         // the payload already separates them: the pipeline attaches the
-        // exchange it was running, while every start-path emitter (plugin
+        // id of the exchange it was running, while every start-path emitter (plugin
         // construction, plugin start(), route start, context start) leaves
         // it undefined. Only the bare form settles this promise.
         //
@@ -267,7 +268,7 @@ export class TestContext {
         // asserting on it never reached the assertion. Which side of the
         // race won depended on whether the sibling's driver import was
         // warm, so it read as an intermittent failure rather than as this.
-        if (payload.details.exchange !== undefined) return;
+        if (payload.details.exchangeId !== undefined) return;
         cleanup();
         reject(payload.details.error);
       });
@@ -420,13 +421,21 @@ export class TestContextBuilder {
     return this;
   }
 
-  on<K extends EventName>(event: K, handler: EventHandler<K>): this {
-    this.builder.on(event, handler);
+  on<K extends EventName>(
+    event: K,
+    handler: EventHandler<K>,
+    options?: SubscribeOptions,
+  ): this {
+    this.builder.on(event, handler, options);
     return this;
   }
 
-  once<K extends EventName>(event: K, handler: EventHandler<K>): this {
-    this.builder.once(event, handler);
+  once<K extends EventName>(
+    event: K,
+    handler: EventHandler<K>,
+    options?: SubscribeOptions,
+  ): this {
+    this.builder.once(event, handler, options);
     return this;
   }
 

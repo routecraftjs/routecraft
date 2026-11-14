@@ -22,6 +22,38 @@ All events share the same envelope:
 
 An [`event()`](/docs/reference/adapters/event) route is not delivered the events its own exchanges cause, so an observability route cannot feed on itself.
 
+## Snapshots \{#snapshots}
+
+No event hands a subscriber an exchange. An event that names one carries its `exchangeId`, and the four lifecycle events (`started`, `completed`, `failed`, `dropped`) carry `principal`, a reference to who the exchange ran as (`{ subject, issuer?, clientId?, actorSubject? }`), never the principal with its claims.
+
+Bodies and headers are in the `_snapshot` envelope, and a subscription receives it only when it asks:
+
+```ts skip="fragment: ctx and audit are illustrative"
+ctx.on(
+  'route:exchange:failed',
+  ({ details }) => audit(details.exchangeId, details._snapshot?.exchange.body),
+  { snapshots: true },
+)
+```
+
+| Event | `_snapshot` holds |
+| --- | --- |
+| `route:exchange:completed`, `:failed`, `:dropped` | `exchange`: `{ id, headers, body }` as the exchange ended |
+| `context:error`, `route:error`, `route:error:caught`, `route:step:error` | `exchange`, when the error came from one |
+| The [agent tool and block events](#agent-operations), `plugin:mcp:tool:called` | the tool's `input`, `output`, `error` or `args` |
+
+The `exchange` is a frozen copy, made once per event and shared by the subscriptions that read it. It is made when a handler first reads `_snapshot.exchange`, so a subscription that asks for snapshots and reads one exchange in a thousand pays for one copy; for an asynchronous handler it is made before the emit returns, so a read after an `await` still sees the exchange as the event found it. `route:exchange:started` carries no snapshot: the body is copied on the event that ends the exchange.
+
+What the copy leaves out:
+
+- `Authorization`, `Cookie`, `Set-Cookie` and `Proxy-Authorization`, in any letter case, and every header an installed plugin lists in [`secretHeaders`](/docs/reference/plugins#plugin-descriptor). The names are matched at every depth of a header's value, so the credentials inside `routecraft.http.rawHeaders` and `routecraft.mail.rawHeaders` go too, and the HTTP plugin lists `routecraft.http.cookies`.
+- The principal's claims and scopes: `routecraft.auth.principal` is the same reference `details.principal` carries.
+- A value branded a `Secret`, in a header or in the body, which becomes `{ secret: true }`.
+
+A header or body value that cannot be cloned is `{ unserializable: true }`. The body is otherwise copied whole: a subscription that asks for snapshots is trusted with what the exchange carried.
+
+`ctx.on`, `ctx.once`, the builder's `.on()` and a plugin's `c.observe` take the option as their third argument; the `on` and `once` [config keys](/docs/reference/configuration) take `{ handler, snapshots: true }` in place of a handler. At start the application logs, at `info`, who holds a subscription made with snapshots: each plugin by id, and `application` for the subscriptions made outside a plugin. A subscription made after start is not in that line. An [`event()`](/docs/reference/adapters/event) route subscribes without snapshots, so its body never holds one.
+
 ## Context events
 
 | Event | When it fires | Details |
@@ -30,7 +62,7 @@ An [`event()`](/docs/reference/adapters/event) route is not delivered the events
 | `context:started` | After context initialization, BEFORE any route or plugin `start()` hook has run. For readiness, await `ctx.whenStarted()` | `{}` |
 | `context:stopping` | Before shutdown begins | `{ reason? }` |
 | `context:stopped` | After all capabilities have stopped | `{ forced, pending }` |
-| `context:error` | Something failed at context level: a plugin's `bind` or `start` threw, a capability failed to start, the config was refused, or an exchange failed with no handler left to catch it | `{ error, route?, exchange? }` |
+| `context:error` | Something failed at context level: a plugin's `bind` or `start` threw, a capability failed to start, the config was refused, or an exchange failed with no handler left to catch it | `{ error, route?, exchangeId?, correlationId? }` |
 
 `context:stopped` reports how the shutdown ended. `forced` is true when the
 drain did not finish inside
@@ -56,13 +88,13 @@ A capability held back by its [`.enabled()`](/docs/reference/operations/enabled)
 | `route:registered` | Capability registered with the context | `{ route }` |
 | `route:starting` | Just before a capability starts | `{ route }` |
 | `route:started` | Capability is running | `{ route }` |
-| `route:stopping` | Capability is stopping | `{ route, reason?, exchange? }` |
-| `route:stopped` | Capability has stopped ACCEPTING work. In-flight exchanges may still be draining: shutdown fires this when intake closes, not when the drain completes | `{ route, exchange? }` |
+| `route:stopping` | Capability is stopping | `{ route, reason? }` |
+| `route:stopped` | Capability has stopped ACCEPTING work. In-flight exchanges may still be draining: shutdown fires this when intake closes, not when the drain completes | `{ route }` |
 | `route:source:failed` | A source gave up producing (e.g. a connection-backed source exhausted its reconnect attempts) and the route is about to stop | `{ routeId, route, adapter?, error }` |
 | `route:enablement:changed` | A capability's [`.enabled()`](/docs/reference/operations/enabled) verdict changed (or was reached for the first time), or it stayed disabled with a different reason. `reason` is present only when `enabled` is false | `{ routeId, route, enabled, reason? }` |
 | `route:standby:changed` | A running route has nothing to serve, or has something again: its source is subscribed but what it points at is gone, such as an [MCP proxy route](/docs/reference/adapters/mcp#proxying-a-remote-server) whose remote tool the client no longer lists. Emitted on a change only, and with `standby: false` when a route on standby stops, so its state does not outlive it; `reason` is present only when `standby` is true. Ops reports the route `inactive` with the reason | `{ routeId, standby, reason? }` |
-| `route:error` | An exchange failed unrecoverably on this capability: no route-scope `.error()` handler, or the handler itself rethrew | `{ routeId, error, route?, exchange? }` |
-| `route:error:caught` | A route-scope `.error()` handler resolved the failure: its return value becomes the final body, or, when it returns `recovery.drop()`, the exchange is dropped. Either way the steps after the failure do not run | `{ routeId, error, route?, exchange? }` |
+| `route:error` | An exchange failed unrecoverably on this capability: no route-scope `.error()` handler, or the handler itself rethrew | `{ routeId, error, route?, exchangeId?, correlationId? }` |
+| `route:error:caught` | A route-scope `.error()` handler resolved the failure: its return value becomes the final body, or, when it returns `recovery.drop()`, the exchange is dropped. Either way the steps after the failure do not run | `{ routeId, error, route?, exchangeId?, correlationId? }` |
 
 `route:source:failed` is the signal to alarm on for a dead channel: unlike `route:stopping`, it never fires for an orderly shutdown. `adapter` is the `adapterId` of the failed source when the adapter declares one (e.g. `routecraft.adapter.mail`).
 
@@ -79,10 +111,10 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:exchange:started` | Exchange enters the pipeline (parent or child) | `{ routeId, exchangeId, correlationId, causationId?, remoteParent? }` |
-| `route:exchange:completed` | Exchange finished successfully (or consumed by aggregate) | `{ routeId, exchangeId, correlationId, duration }` |
-| `route:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error }` |
-| `route:exchange:dropped` | Exchange intentionally removed from the pipeline | `{ routeId, exchangeId, correlationId, reason }` |
+| `route:exchange:started` | Exchange enters the pipeline (parent or child) | `{ routeId, exchangeId, correlationId, causationId?, remoteParent?, principal? }` |
+| `route:exchange:completed` | Exchange finished successfully (or consumed by aggregate) | `{ routeId, exchangeId, correlationId, duration, principal? }` |
+| `route:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error, principal? }` |
+| `route:exchange:dropped` | Exchange intentionally removed from the pipeline | `{ routeId, exchangeId, correlationId, reason, principal? }` |
 | `route:exchange:restored` | Exchange restored from cache, skipping steps | `{ routeId, exchangeId, correlationId, source }` |
 | `route:exchange:deferred` | Exchange deferred at a [`.defer()`](/docs/reference/operations/defer); execution one ends here | `{ routeId, exchangeId, correlationId, deferralId, position, expiresAt? }` |
 | `route:exchange:resumed` | A deferred exchange was revived and its continuation is about to run | `{ routeId, exchangeId, correlationId, deferralId, position, resumedBy?, resumerExchangeId? }` |
@@ -117,7 +149,7 @@ line could not be built.
 | `route:step:started` | Step begins executing | `{ routeId, exchangeId, correlationId, operation, adapter? }` |
 | `route:step:completed` | Step finished successfully | `{ routeId, exchangeId, correlationId, operation, adapter?, duration, metadata? }` |
 | `route:step:failed` | Step threw | `{ routeId, exchangeId, correlationId, operation, adapter?, duration, error }` |
-| `route:step:error` | Step error surfaced on the route error path | `{ routeId, error, operation, route?, exchange? }` |
+| `route:step:error` | Step error surfaced on the route error path | `{ routeId, error, operation, route?, exchangeId?, correlationId? }` |
 
 Recovery by the route error handler is signaled via `route:error:caught` and the `route:error-handler:*` events below, not a step-level event.
 
@@ -303,12 +335,12 @@ These are the **coarse decision events**: broadcast to every subscriber, no opt-
 | --- | --- | --- |
 | `route:agent:started` | Agent dispatch began, before the first model call | `{ routeId, exchangeId, correlationId, agentName?, model, toolNames, maxTurns }` |
 | `route:agent:tool:denied` | [`toolPolicy`](/docs/reference/plugins/agentplugin#tool-policy) refused a tool admission, so it was never offered to the model | `{ routeId, exchangeId, correlationId, agentName?, toolName, toolKind, reason }` |
-| `route:agent:tool:invoked` | Agent decided to call a tool (input validated, before guard) | `{ routeId, exchangeId, correlationId, session?, toolCallId, toolName, _snapshot: { input } }` |
-| `route:agent:tool:result` | Tool handler returned a value | `{ routeId, exchangeId, correlationId, session?, toolCallId, toolName, _snapshot: { output }, duration }` |
-| `route:agent:tool:error` | Tool handler / guard / input validation threw | `{ routeId, exchangeId, correlationId, session?, toolCallId, toolName, errorName, _snapshot: { error }, duration }` |
+| `route:agent:tool:invoked` | Agent decided to call a tool (input validated, before guard) | `{ routeId, exchangeId, correlationId, session?, toolCallId, toolName, _snapshot?: { input } }` |
+| `route:agent:tool:result` | Tool handler returned a value | `{ routeId, exchangeId, correlationId, session?, toolCallId, toolName, _snapshot?: { output }, duration }` |
+| `route:agent:tool:error` | Tool handler / guard / input validation threw | `{ routeId, exchangeId, correlationId, session?, toolCallId, toolName, errorName, _snapshot?: { error }, duration }` |
 | `route:agent:tool:refused` | A tool's guard rejected a call the model made, on a tool it was allowed to attempt | `{ routeId, exchangeId, correlationId, session?, toolCallId, toolName, rc? }` |
-| `route:agent:block:loaded` | Progressive block loader returned a value to the model | `{ routeId, exchangeId, correlationId, toolCallId, blockName, _snapshot: { output }, duration }` |
-| `route:agent:block:error` | Progressive block resolver threw during load | `{ routeId, exchangeId, correlationId, toolCallId, blockName, errorName, _snapshot: { error }, duration }` |
+| `route:agent:block:loaded` | Progressive block loader returned a value to the model | `{ routeId, exchangeId, correlationId, toolCallId, blockName, _snapshot?: { output }, duration }` |
+| `route:agent:block:error` | Progressive block resolver threw during load | `{ routeId, exchangeId, correlationId, toolCallId, blockName, errorName, _snapshot?: { error }, duration }` |
 | `route:agent:finished` | Agent dispatch returned a consolidated result | `{ routeId, exchangeId, correlationId, agentName?, model, finishReason, inputTokens?, outputTokens?, totalTokens? }` |
 | `route:agent:error` | Provider / transport error during dispatch | `{ routeId, exchangeId, correlationId, agentName?, model, error }` |
 | `route:agent:session:queued` | A message arrived for a [session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) whose turn is running and was queued for the next turn boundary | `{ routeId, exchangeId, correlationId, agentName, session, depth, interrupt }` |
@@ -323,7 +355,7 @@ These are the **coarse decision events**: broadcast to every subscriber, no opt-
 
 `agentName` is present only for by-name agents (`agent("id")`); inline agents are identified by their `routeId`. `model` is the resolved `providerId:modelName`. On the session events `agentName` is always present and is the session's agent: the registered name, or the route id for an inline agent with `session`.
 
-Tool input/output (and block-load output) ride in a `_snapshot` envelope. So does the thrown error on `:tool:error` / `:block:error`: error messages routinely echo the rejected input (schema validation, guards), so they are gated the same way. In-process subscribers always receive the envelope, but the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry: { sqlite: { captureSnapshots: true } }`), mirroring how exchange bodies are gated. The non-sensitive fields (`toolName`, `toolCallId`, `errorName`, `duration`) are always persisted.
+Tool input/output (and block-load output) ride in a `_snapshot` envelope. So does the thrown error on `:tool:error` / `:block:error`: error messages routinely echo the rejected input (schema validation, guards), so they are gated the same way. A subscription receives the envelope only when made with `{ snapshots: true }` (see [snapshots](#snapshots)), and the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry: { sqlite: { captureSnapshots: true } }`), mirroring how exchange bodies are gated. The non-sensitive fields (`toolName`, `toolCallId`, `errorName`, `duration`) are always persisted.
 
 `route:agent:tool:denied` fires before any model call, once per tool the policy refused, and carries no `toolCallId` because the tool was never invoked. `reason` is `rule` (a policy decided against it), `rule-error` (a predicate threw, so the tool was denied to fail closed), or `unknown-provenance` (the tool's `source` is missing or names a kind the policy surface does not define, which means a hand-built `ResolvedTool` from outside the type contract; `toolKind` is `unknown`).
 
@@ -442,13 +474,13 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:mcp:tool:called` | Tool invocation started | `{ tool, _snapshot: { args }, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
+| `plugin:mcp:tool:called` | Tool invocation started | `{ tool, _snapshot?: { args }, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
 | `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
 | `plugin:mcp:tool:deferred` | The route deferred at a durable deferral; execution one answered with the `Deferred` acknowledgment | `{ tool, deferralId, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
 | `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
 | `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
 
-The arguments of `called` ride in a `_snapshot` envelope, as an [agent tool's input](#agent-operations) does. In-process subscribers always receive it; the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry: { sqlite: { captureSnapshots: true } }`).
+The arguments of `called` ride in a `_snapshot` envelope, as an [agent tool's input](#agent-operations) does. A subscription receives it only when made with `{ snapshots: true }` (see [snapshots](#snapshots)); the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry: { sqlite: { captureSnapshots: true } }`).
 
 `deferred` is deliberately not `completed`. A deferred run is neither finished nor failed: the real result belongs to execution two, which flows to the route's destinations when the answer arrives, so counting the deferral as a completion would publish a false receipt to every dashboard. The wire result is an ordinary `isError: false` answer whose `structuredContent` is the acknowledgment.
 

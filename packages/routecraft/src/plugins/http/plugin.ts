@@ -125,6 +125,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
 
   return {
     id: "routecraft.http",
+    secretHeaders: ["routecraft.http.cookies"],
     requires: [WEB_INGRESS],
     provides: [HTTP],
     async bind(c: PluginContext) {

@@ -120,12 +120,14 @@ describe("agent context-bus events", () => {
       ({ details }: { details: unknown }) => {
         events.push({ name: "invoked", details });
       },
+      { snapshots: true },
     );
     t.ctx.on(
       "route:agent:tool:result" as never,
       ({ details }: { details: unknown }) => {
         events.push({ name: "result", details });
       },
+      { snapshots: true },
     );
 
     await t.test();
@@ -202,6 +204,7 @@ describe("agent context-bus events", () => {
         events.push("error");
         errorDetails = details as Record<string, unknown>;
       },
+      { snapshots: true },
     );
 
     await t.test();

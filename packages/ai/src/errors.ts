@@ -143,9 +143,9 @@ declare module "@routecraft/routecraft" {
     /**
      * An `agent()` destination began a run. Across the agent events,
      * sensitive payloads (tool input and output, thrown errors that may
-     * echo them) ride in the `_snapshot` envelope: the bus always carries
-     * them, and the telemetry sink persists them only when snapshot capture
-     * is on.
+     * echo them) ride in the `_snapshot` envelope, which reaches only a
+     * subscription made with `{ snapshots: true }`; the telemetry sink makes
+     * one, and persists them, only when snapshot capture is on.
      */
     "route:agent:started": ExchangeScoped & {
       agentName?: string;
@@ -200,28 +200,28 @@ declare module "@routecraft/routecraft" {
       rc?: string;
     };
     "route:agent:tool:invoked": ToolCallScoped & {
-      _snapshot: { input: unknown };
+      _snapshot?: { input: unknown };
     };
     "route:agent:tool:result": ToolCallScoped & {
-      _snapshot: { output: unknown };
+      _snapshot?: { output: unknown };
       duration: number;
     };
     "route:agent:tool:error": ToolCallScoped & {
       errorName: string;
-      _snapshot: { error: unknown };
+      _snapshot?: { error: unknown };
       duration: number;
     };
     "route:agent:block:loaded": ExchangeScoped & {
       toolCallId: string;
       blockName: string;
-      _snapshot: { output: unknown };
+      _snapshot?: { output: unknown };
       duration: number;
     };
     "route:agent:block:error": ExchangeScoped & {
       toolCallId: string;
       blockName: string;
       errorName: string;
-      _snapshot: { error: unknown };
+      _snapshot?: { error: unknown };
       duration: number;
     };
     "route:agent:finished": ExchangeScoped & {
@@ -380,12 +380,12 @@ declare module "@routecraft/routecraft" {
      * Inbound MCP tool call dispatched to a route, or (when `proxied` is
      * true) forwarded to a registered client identified by `serverId` /
      * `remoteTool`. The arguments ride in the `_snapshot` envelope, as an
-     * agent tool's input does: the bus always carries them, and the
-     * telemetry sink persists them only when snapshot capture is on.
+     * agent tool's input does, for subscriptions made with
+     * `{ snapshots: true }`.
      */
     "plugin:mcp:tool:called": {
       tool: string;
-      _snapshot: { args: unknown };
+      _snapshot?: { args: unknown };
     } & McpToolProvenance &
       McpToolMount;
     /** MCP tool call completed successfully. */
