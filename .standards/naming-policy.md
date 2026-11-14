@@ -10,7 +10,7 @@ Naming conventions for Routecraft adapters, interfaces, and option types.
 - **Destination** = push OUT, per exchange, strictly void (`.to()`, `.tap()`). Interface: `Destination<T>`; method: `send`.
 - **Enricher** = pull IN, per exchange, produces a value (`.enrich()`; also accepted by `.to()` / `.tap()`). Interface: `Enricher<T, R>`; method: `fetch`.
 
-Keep **Source**, **Destination**, and **Enricher** for these interfaces. They are protocol-agnostic and apply to every adapter (timer, log, direct, mcp, http, etc.). Class names follow the role: `{Concept}EnricherAdapter` for the fetch role (`HttpEnricherAdapter`, `MailEnricherAdapter`), `{Concept}DestinationAdapter` for the send role.
+Keep **Source**, **Destination**, and **Enricher** for these interfaces. They are protocol-agnostic and apply to every adapter (timer, direct, mcp, http, etc.). Class names follow the role: `{Concept}EnricherAdapter` for the fetch role (`HttpEnricherAdapter`, `MailEnricherAdapter`), `{Concept}DestinationAdapter` for the send role.
 
 ## Protocol config (two-sided adapters only)
 

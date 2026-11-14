@@ -1,3 +1,4 @@
+import { isRoutecraftError } from "../../brand.ts";
 import { rcError } from "../../error.ts";
 
 /**
@@ -97,6 +98,16 @@ function isMissingExpectedPackage(
   });
 }
 
+/**
+ * Whether `error` is the `RC5017` that {@link loadOptionalPeer} and
+ * {@link loadOptionalPeerSync} raise for a package that is not installed.
+ *
+ * @internal
+ */
+export function isMissingOptionalPeer(error: unknown): boolean {
+  return isRoutecraftError(error) && error.rc === "RC5017";
+}
+
 /** Quote characters a runtime may wrap a specifier in. */
 const QUOTES = ["'", '"'] as const;
 
@@ -104,7 +115,7 @@ const QUOTES = ["'", '"'] as const;
  * {@link loadOptionalPeer} for a caller that cannot wait: a `require` behind
  * a thunk, with the same `RC5017` for an absent package and the same
  * rethrow for any other failure. Use it only where the result is needed
- * before the caller can return, as the logger's is.
+ * before the caller can return, as the logger's and the csv parser's are.
  *
  * @param loader - Thunk that performs the `require("...")` call
  * @param ctx - The subsystem that wanted the package, and the package

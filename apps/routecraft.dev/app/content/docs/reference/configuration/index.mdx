@@ -549,7 +549,7 @@ export default defineProject({
 })
 ```
 
-`logger` takes anything that satisfies `Logger`: `child(bindings)`, `isLevelEnabled(level)`, the six level methods (`trace` to `fatal`, each called as `(bindings, message)` or `(message)`) and an optional `flush()`. A [pino](https://getpino.io) logger fits as it is, so `logger: pino({ level: 'info' })` works with no adapter. A logger must never throw.
+`logger` takes anything that satisfies `Logger`: `child(bindings)`, `isLevelEnabled(level)`, the six level methods (`trace` to `fatal`, each called as `(bindings, message)` or `(message)`) and an optional `flush()`, which `context.stop()` calls and waits on for up to two seconds, whether it returns a promise or takes a callback as pino's does. A [pino](https://getpino.io) logger fits as it is, so `logger: pino({ level: 'info' })` works with no adapter. A logger must never throw.
 
 `createLogger(options)` builds the logger Routecraft ships:
 
@@ -565,7 +565,7 @@ Lines are written synchronously, so none is lost when the process exits right af
 
 ### Redaction
 
-Every logger `createLogger` and the default build redacts the headers that carry a credential, on a line that logs `headers`: `headers.authorization`, `headers.cookie`, `headers["set-cookie"]` and `headers["proxy-authorization"]`. A configured `redact` adds to that list and never replaces it. A logger of your own redacts what you tell it to.
+Every logger `createLogger` and the default build redacts the headers that carry a credential, on a line that logs `headers`: `headers.authorization`, `headers.cookie`, `headers["set-cookie"]` and `headers["proxy-authorization"]`. A configured `redact` adds to that list and never replaces it. A logger of your own redacts what you tell it to: `DEFAULT_REDACT` exports the same list, so `pino({ redact: [...DEFAULT_REDACT] })` starts from it.
 
 ### The default logger
 

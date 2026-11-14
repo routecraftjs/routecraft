@@ -18,7 +18,14 @@ import {
   craft,
   simple,
 } from "@routecraft/routecraft";
-import { childBindings, createLogger, serializeError } from "../src/logger.ts";
+import {
+  childBindings,
+  createLogger,
+  flushLogger,
+  logFileDiversion,
+  serializeError,
+  type Logger,
+} from "../src/logger.ts";
 import { loadOptionalPeerSync } from "../src/adapters/shared/optional-peer.ts";
 import { ContextBuilder, direct, noop } from "../src/index.ts";
 
@@ -470,5 +477,94 @@ describe("loadOptionalPeerSync", () => {
     expect(
       loadOptionalPeerSync(() => 42, { consumer: "x", packageName: "y" }),
     ).toBe(42);
+  });
+});
+
+describe("a createLogger file that cannot be opened", () => {
+  /**
+   * @case An application builds a logger on a file under a path that is a regular file
+   * @preconditions `createLogger({ file })` where the file's parent is itself a file, so it cannot be created
+   * @expectedResult The call returns a working logger, and the default logger's diversion record is left alone: that record is the CLI's, about its own setting
+   */
+  test("diverts without touching the default logger's record", () => {
+    const dir = mkdtempSync(join(tmpdir(), "craft-logger-test-"));
+    try {
+      const blocker = join(dir, "blocker");
+      writeFileSync(blocker, "");
+      const before = logFileDiversion();
+
+      const logger = createLogger({ file: join(blocker, "app.log") });
+
+      expect(() => logger.info("still writes")).not.toThrow();
+      expect(logFileDiversion()).toBe(before);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("flushLogger", () => {
+  const silent = (flush: Logger["flush"]): Logger => {
+    const logger: Logger = {
+      child: () => logger,
+      isLevelEnabled: () => false,
+      trace: () => {},
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      fatal: () => {},
+      ...(flush !== undefined ? { flush } : {}),
+    };
+    return logger;
+  };
+
+  /**
+   * @case A logger whose flush takes a callback, as pino's does
+   * @preconditions A flush that calls its callback on a later tick and returns nothing
+   * @expectedResult The wait ends only after the callback ran
+   */
+  test("waits for a callback-style flush", async () => {
+    let flushed = false;
+    const logger = silent((done) => {
+      setTimeout(() => {
+        flushed = true;
+        done?.();
+      }, 5);
+    });
+
+    await flushLogger(logger);
+
+    expect(flushed).toBe(true);
+  });
+
+  /**
+   * @case A logger whose flush returns a promise, one whose flush is synchronous, one whose flush throws, and one without a flush
+   * @preconditions Four loggers, one of each shape
+   * @expectedResult Each wait resolves; the promise one only after it settled, and the throw is swallowed
+   */
+  test("waits for a promise, and never fails over a flush", async () => {
+    let settled = false;
+    const promised = silent(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      settled = true;
+    });
+    let ran = false;
+
+    await flushLogger(promised);
+    await flushLogger(
+      silent(() => {
+        ran = true;
+      }),
+    );
+    await flushLogger(
+      silent(() => {
+        throw new Error("the sink is gone");
+      }),
+    );
+    await flushLogger(silent(undefined));
+
+    expect(settled).toBe(true);
+    expect(ran).toBe(true);
   });
 });

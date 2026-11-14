@@ -643,6 +643,7 @@ export {
 export {
   createLogger,
   defaultLogger,
+  DEFAULT_REDACT,
   childBindings,
   logFileDiversion,
   type LogFileDiversion,

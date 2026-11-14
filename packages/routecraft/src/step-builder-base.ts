@@ -66,8 +66,11 @@ import {
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { mapper } from "./operations/transform.ts";
 import { schema } from "./operations/validate.ts";
-import { LogStep } from "./operations/log.ts";
-import type { LogBindings, StepLogLevel } from "./logger.ts";
+import {
+  LogStep,
+  type LogStepBindings,
+  type LogStepLevel,
+} from "./operations/log.ts";
 import { HeaderStep } from "./operations/header.ts";
 import {
   CorrelateStep,
@@ -906,16 +909,15 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * ```
    */
   log(
-    level: StepLogLevel | ((exchange: Readonly<ExchangeOf<S>>) => StepLogLevel),
+    level: LogStepLevel<ExchangeOf<S>>,
     message: string,
-    bindings?: (exchange: Readonly<ExchangeOf<S>>) => LogBindings,
+    bindings?: LogStepBindings<ExchangeOf<S>>,
   ): this {
     this.pushLabelled(
       new LogStep(
-        level as
-          StepLogLevel | ((exchange: Readonly<Exchange>) => StepLogLevel),
+        level as LogStepLevel,
         message,
-        bindings as ((exchange: Readonly<Exchange>) => LogBindings) | undefined,
+        bindings as LogStepBindings | undefined,
       ),
       "log",
     );

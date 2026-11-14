@@ -160,10 +160,10 @@ Make the declaration and the provision match: list every port the plugin provide
 Contribution after the application froze
 
 **Why it happens**  
-A plugin provided a port or registered a route after the last `bind` returned, or contributed through another plugin's port (an agent registered into `AGENTS`) after it. The application freezes before it compiles routes, so a later contribution would miss compilation, and whatever read the contributions during `bind` has already used them.
+A plugin provided a port or registered a route after the last `bind` returned, or contributed through another plugin's port (an agent registered into `AGENTS`) after it. The application freezes before it compiles routes, so a later contribution would miss compilation, and whatever read the contributions during `bind` has already used them. The same code refuses a write through a read-only view: a plugin editing another plugin's route, or the level or bindings function of a [`.log()`](/docs/reference/operations/log) step changing the exchange it reports on.
 
 **Suggestion**  
-Move the contribution into `bind(c)`. Work that needs running routes belongs in `start(c)`, but it cannot add ports or routes there.
+Move the contribution into `bind(c)`. Work that needs running routes belongs in `start(c)`, but it cannot add ports or routes there. Change an exchange in a step of its own, before or after the `.log()`.
 
 ## RC1111
 Route needs a port nobody provides

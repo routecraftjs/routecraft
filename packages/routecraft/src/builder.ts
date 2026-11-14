@@ -286,7 +286,7 @@ export class ContextBuilder {
    * builder.routes(
    *   craft()
    *     .from(simple("hello"))
-   *     .to(log())
+   *     .log("info", "Done")
    * );
    * ```
    */
@@ -426,7 +426,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  * const route = craft()
  *   .from(simple("Hello, World!"))
  *   .transform(msg => msg.toUpperCase())
- *   .to(log())
+ *   .log("info", "Done")
  * ```
  */
 
@@ -730,7 +730,7 @@ export class RouteBuilder<
    *
    * @example
    * ```typescript
-   * craft().id('ingest-api').from(http({ path: '/ingest', method: 'POST' })).to(log()).build();
+   * craft().id('ingest-api').from(http({ path: '/ingest', method: 'POST' })).log("info", "Done").build();
    * ```
    */
   id(id: string): PreFromBuilder<NextRouteState<S>> {
@@ -965,7 +965,7 @@ export class RouteBuilder<
    *
    * @example
    * ```typescript
-   * craft().batch({ size: 10, flushInterval: "1s" }).from(timer({ interval: "1s" })).to(log()).build();
+   * craft().batch({ size: 10, flushInterval: "1s" }).from(timer({ interval: "1s" })).log("info", "Done").build();
    * ```
    */
   batch(options?: {
@@ -1927,7 +1927,7 @@ export class RouteBuilder<
  * const myRoute = craft()
  *   .from(simple("Hello, World!"))
  *   .transform(data => data.toUpperCase())
- *   .to(log())
+ *   .log("info", "Done")
  * ```
  */
 export function craft(): PreFromBuilder<RootState> {

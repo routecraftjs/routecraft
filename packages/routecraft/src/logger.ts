@@ -18,23 +18,34 @@ import {
   principalOf,
 } from "./exchange.ts";
 import { isCraftContext, isRoute, isExchange } from "./brand.ts";
+import { isThenable } from "./shared/thenable.ts";
 import type { CraftContext } from "./context.ts";
-import { loadOptionalPeerSync } from "./adapters/shared/optional-peer.ts";
+import {
+  isMissingOptionalPeer,
+  loadOptionalPeerSync,
+} from "./adapters/shared/optional-peer.ts";
 
 const require = createRequire(import.meta.url);
 
-/** The severity of one log line. */
-export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
+/** @internal */
+export const STEP_LOG_LEVELS = ["trace", "debug", "info", "warn"] as const;
+
+const LOG_LEVELS = [...STEP_LOG_LEVELS, "error", "fatal"] as const;
+
+const THRESHOLDS = [...LOG_LEVELS, "silent"] as const;
 
 /**
  * The levels a `.log()` step may write at. A failure is logged once, at the
  * boundary that handles it, so a step in the flow never writes `error` or
  * `fatal`.
  */
-export type StepLogLevel = "trace" | "debug" | "info" | "warn";
+export type StepLogLevel = (typeof STEP_LOG_LEVELS)[number];
+
+/** The severity of one log line. */
+export type LogLevel = (typeof LOG_LEVELS)[number];
 
 /** The lowest level a logger writes, or `"silent"` for none. */
-export type LogThreshold = LogLevel | "silent";
+export type LogThreshold = (typeof THRESHOLDS)[number];
 
 /** The fields a log line or a child logger carries. */
 export type LogBindings = Readonly<Record<string, unknown>>;
@@ -65,8 +76,12 @@ export interface Logger {
   warn: LogFn;
   error: LogFn;
   fatal: LogFn;
-  /** Write out anything buffered. The CLI awaits it before the process exits. */
-  flush?(): Promise<void> | void;
+  /**
+   * Write out anything buffered. `context.stop()` calls it on the context's
+   * root logger and waits, briefly, for the promise it returns or for
+   * `done`, whichever the logger uses: pino's `flush` takes the callback.
+   */
+  flush?(done?: (error?: Error) => void): Promise<void> | void;
 }
 
 /** What {@link createLogger} builds its logger from. */
@@ -132,18 +147,8 @@ export function serializeError(error: unknown): unknown {
   return serialized;
 }
 
-const THRESHOLDS: readonly LogThreshold[] = [
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "fatal",
-  "silent",
-];
-
 function isThreshold(value: unknown): value is LogThreshold {
-  return THRESHOLDS.includes(value as LogThreshold);
+  return (THRESHOLDS as readonly unknown[]).includes(value);
 }
 
 /**
@@ -197,7 +202,7 @@ export interface LogFileDiversion {
   /** The file as it was named. */
   path: string;
   /** Where the name came from. */
-  source: "LOG_FILE" | "CRAFT_LOG_FILE" | "craft.log" | "createLogger";
+  source: "LOG_FILE" | "CRAFT_LOG_FILE" | "craft.log";
   /** Why it could not be opened for appending. */
   reason: string;
 }
@@ -236,7 +241,7 @@ function destinationFor(fd: number): Destination {
 function openDestination(
   file: string | undefined,
   fd: 1 | 2,
-  source: LogFileDiversion["source"],
+  diverted: (reason: string) => void,
 ): Destination {
   if (file === undefined) return destinationFor(fd);
   const resolved = isAbsolute(file) ? file : resolve(process.cwd(), file);
@@ -244,11 +249,7 @@ function openDestination(
     mkdirSync(dirname(resolved), { recursive: true });
     return destinationFor(openSync(resolved, "a"));
   } catch (error: unknown) {
-    diversion = {
-      path: file,
-      source,
-      reason: error instanceof Error ? error.message : String(error),
-    };
+    diverted(error instanceof Error ? error.message : String(error));
     let privateDir: string | undefined;
     try {
       // A private directory of this process's own: a fixed name under the
@@ -284,17 +285,19 @@ function prettyDestination(fd: 1 | 2, required: boolean): unknown {
     ) => unknown;
     return build({ colorize: true, destination: fd, sync: true });
   } catch (error: unknown) {
-    if (required || (error as { rc?: unknown } | null)?.rc !== "RC5017") {
-      throw error;
-    }
+    if (required || !isMissingOptionalPeer(error)) throw error;
     return undefined;
   }
 }
 
+/**
+ * A file that cannot be opened is said on the logger that was diverted, so
+ * the line lands wherever the logs now go, and is handed to `diverted`.
+ */
 function build(
   options: DefaultLoggerOptions,
-  source: LogFileDiversion["source"],
   prettyRequired: boolean,
+  diverted?: (reason: string) => void,
 ): Logger {
   const settings = {
     level: options.level ?? "warn",
@@ -313,13 +316,26 @@ function build(
       return pino(settings, pretty as Destination);
     }
   }
-  return pino(settings, openDestination(options.file, fd, source));
+  let reason: string | undefined;
+  const logger = pino(
+    settings,
+    openDestination(options.file, fd, (why) => (reason = why)),
+  );
+  if (reason !== undefined) {
+    logger.warn(
+      { file: options.file, reason },
+      "Log file could not be opened; the logs are diverted",
+    );
+    diverted?.(reason);
+  }
+  return logger;
 }
 
 /**
  * Build a logger: NDJSON to a standard stream or a file, with the headers
  * that carry a credential redacted. Nothing is read from the environment or
- * from `craft.log.*`; that is {@link defaultLogger}.
+ * from `craft.log.*`; that is {@link defaultLogger}. Each call opens a
+ * destination of its own that stays open, so build one and keep it.
  *
  * @param options - Level, destination, redaction and format
  * @returns A logger to hand to `defineProject({ logger })` or a context
@@ -333,7 +349,7 @@ function build(
  * ```
  */
 export function createLogger(options: DefaultLoggerOptions = {}): Logger {
-  return build(options, "createLogger", true);
+  return build(options, true);
 }
 
 function firstSet(...names: string[]): [name: string, value: string] | [] {
@@ -424,11 +440,48 @@ export function defaultLogger(): Logger {
       ...(file !== undefined ? { file } : {}),
       ...(redact !== undefined ? { redact } : {}),
     },
-    (fileSource as LogFileDiversion["source"] | undefined) ?? "craft.log",
     asked,
+    (reason) => {
+      if (file === undefined) return;
+      diversion = {
+        path: file,
+        source:
+          (fileSource as LogFileDiversion["source"] | undefined) ?? "craft.log",
+        reason,
+      };
+    },
   );
   return root;
 }
+
+/**
+ * Ask a logger to write out what it buffers, and wait for it: for the
+ * promise `flush` returns, or for the callback it takes, as pino's does.
+ * The wait is bounded and a failure is ignored, because this runs at the
+ * end of a stop that must finish either way.
+ *
+ * @internal
+ */
+export async function flushLogger(logger: Logger): Promise<void> {
+  if (logger.flush === undefined) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, FLUSH_TIMEOUT_MS);
+      const takesCallback = (logger.flush?.length ?? 0) > 0;
+      const returned = logger.flush?.(() => resolve());
+      if (isThenable(returned))
+        void Promise.resolve(returned).then(resolve, resolve);
+      else if (!takesCallback) resolve();
+    });
+  } catch {
+    // A logger that cannot flush must not fail the stop it follows.
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const FLUSH_TIMEOUT_MS = 2000;
 
 function contextBindings(context: CraftContext): Record<string, unknown> {
   const bindings: Record<string, unknown> = { contextId: context.contextId };
@@ -474,8 +527,11 @@ export function scopeBindings(
  *
  * @example
  * ```typescript
- * const audit = createLogger({ file: "audit.log" }).child(childBindings(exchange));
- * audit.info({ decision: "approved" }, "Decision recorded");
+ * const audit = createLogger({ file: "audit.log" }); // once, at module scope
+ *
+ * audit
+ *   .child(childBindings(exchange))
+ *   .info({ decision: "approved" }, "Decision recorded");
  * ```
  */
 export function childBindings(

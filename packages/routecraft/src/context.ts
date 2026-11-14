@@ -13,7 +13,12 @@ import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { snapshotCapability, type Capability } from "./capabilities.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
-import { defaultLogger, childBindings, type Logger } from "./logger.ts";
+import {
+  defaultLogger,
+  childBindings,
+  flushLogger,
+  type Logger,
+} from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { configuredPlugins, getConfigAppliers } from "./config-applier.ts";
 import { DIRECT } from "./kernel/direct.ts";
@@ -1917,13 +1922,9 @@ export class CraftContext {
 
     this.logger.info({}, "Routecraft context stopped");
     this.emit("context:stopped", { forced, pending });
-    try {
-      // A process that exits on the heels of stop() would otherwise lose
-      // whatever a buffering logger still holds.
-      await this.rootLogger.flush?.();
-    } catch {
-      // A logger that cannot flush must not fail the stop it follows.
-    }
+    // A process that exits on the heels of stop() would otherwise lose
+    // whatever a buffering logger still holds.
+    await flushLogger(this.rootLogger);
 
     if (drainError) {
       throw drainError;

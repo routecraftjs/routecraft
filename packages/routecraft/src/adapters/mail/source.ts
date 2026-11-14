@@ -1,4 +1,4 @@
-import type { Logger } from "../../logger.ts";
+import { isMissingOptionalPeer } from "../shared/optional-peer.ts";
 import type { Source, Subscription } from "../../operations/from.ts";
 import type { Exchange } from "../../exchange.ts";
 import { parseDuration } from "../../shared/duration.ts";
@@ -17,8 +17,8 @@ import {
   throwMailConnectionError,
   splitMailMessage,
   MAIL_PARSE_ERRORS,
-  isMissingPeerError,
   isMailConfigError,
+  type MailLogger,
 } from "./shared.ts";
 
 type ImapClient = InstanceType<typeof import("imapflow").ImapFlow>;
@@ -188,7 +188,7 @@ export class MailSourceAdapter implements Source<MailBody> {
       this.adapterOptions.auth !== undefined;
     const usePool = !!manager && !hasConnectionOverride;
 
-    const logger: Pick<Logger, "debug" | "warn"> | undefined = context.logger;
+    const logger: MailLogger | undefined = context.logger;
 
     validateSourceOptions(resolved, logger);
 
@@ -361,7 +361,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     folder: string,
     usePool: boolean,
     abortController: AbortController,
-    logger?: Pick<Logger, "debug" | "warn">,
+    logger?: MailLogger,
   ): Promise<void> {
     try {
       clientRef.current = await this.acquireAndOpen(
@@ -373,7 +373,7 @@ export class MailSourceAdapter implements Source<MailBody> {
       );
     } catch (error) {
       if (abortController.signal.aborted) return;
-      if (isMissingPeerError(error)) {
+      if (isMissingOptionalPeer(error)) {
         // Missing optional peer: reconnecting cannot install the package.
         throw error;
       }
@@ -420,7 +420,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     markSeenEnabled: boolean,
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
-    logger?: Pick<Logger, "debug" | "warn">,
+    logger?: MailLogger,
   ): Promise<void> {
     const onParseError = options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
     const pollIntervalMs = resolvePollIntervalMs(options);
@@ -434,7 +434,7 @@ export class MailSourceAdapter implements Source<MailBody> {
         messages = await fetchMessages(client, options, folder, logger);
       } catch (error) {
         if (abortController.signal.aborted) return;
-        if (isMissingPeerError(error) || isMailConfigError(error)) {
+        if (isMissingOptionalPeer(error) || isMailConfigError(error)) {
           // A missing optional peer or a config fault: reconnecting fixes neither.
           throw error;
         }
@@ -515,7 +515,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     markSeenEnabled: boolean,
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
-    logger?: Pick<Logger, "debug" | "warn">,
+    logger?: MailLogger,
   ): Promise<void> {
     const reconnect = resolveReconnect(options);
     // Drain on entry, after every IDLE wake, and after every reconnect: mail
@@ -547,7 +547,7 @@ export class MailSourceAdapter implements Source<MailBody> {
         needDrain = true;
       } catch (error) {
         if (abortController.signal.aborted) return;
-        if (isMissingPeerError(error) || isMailConfigError(error)) {
+        if (isMissingOptionalPeer(error) || isMailConfigError(error)) {
           // A missing optional peer or a config fault: reconnecting fixes neither.
           throw error;
         }
@@ -596,7 +596,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     markSeenEnabled: boolean,
     handler: (message: MailMessage) => Promise<Exchange>,
     abortController: AbortController,
-    logger?: Pick<Logger, "debug" | "warn">,
+    logger?: MailLogger,
   ): Promise<void> {
     const client = clientRef.current;
     if (!client) return;
@@ -644,7 +644,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     mode: "connect" | "idle" | "poll",
     reconnect: ResolvedReconnect,
     abortController: AbortController,
-    logger?: Pick<Logger, "debug" | "warn">,
+    logger?: MailLogger,
   ): Promise<void> {
     const dead = clientRef.current;
     clientRef.current = null;
@@ -703,7 +703,7 @@ export class MailSourceAdapter implements Source<MailBody> {
         );
         return;
       } catch (error) {
-        if (isMissingPeerError(error)) {
+        if (isMissingOptionalPeer(error)) {
           // Missing optional peer: reconnecting cannot install the package.
           throw error;
         }
@@ -739,7 +739,7 @@ export class MailSourceAdapter implements Source<MailBody> {
  */
 function validateSourceOptions(
   options: MailServerOptions,
-  logger?: Pick<Logger, "debug" | "warn">,
+  logger?: MailLogger,
 ): void {
   const disabledSeen = options.markSeen === false;
   const disabledUnseen = options.unseen === false;

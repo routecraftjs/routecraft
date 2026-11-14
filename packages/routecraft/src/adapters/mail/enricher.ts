@@ -1,4 +1,3 @@
-import type { Logger } from "../../logger.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Exchange } from "../../exchange.ts";
 import { getExchangeContext } from "../../exchange.ts";
@@ -9,6 +8,7 @@ import {
   fetchMessages,
   markMessagesSeen,
   throwMailConnectionError,
+  type MailLogger,
 } from "./shared.ts";
 
 /**
@@ -74,8 +74,7 @@ export class MailEnricherAdapter implements Enricher<unknown, MailFetchResult> {
     try {
       await client.mailboxOpen(folder);
       if (usePool) manager!.trackMailbox(account, client, folder);
-      const logger: Pick<Logger, "debug" | "warn"> | undefined =
-        context?.logger;
+      const logger: MailLogger | undefined = context?.logger;
       const messages = await fetchMessages(client, resolved, folder, logger);
 
       // The fetch role has no post-commit hook, so mark Seen here.

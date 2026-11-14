@@ -10,6 +10,7 @@ import {
   shutdownHandler,
   type CraftConfig,
   type CraftContext,
+  type Logger,
   type Plugin,
   type AnyRouteBuilder,
   type RouteDefinition,
@@ -107,15 +108,17 @@ export async function startCommand(
     );
   }
 
+  // The application's own logger from here on, so its startup lines land
+  // where the rest of its logs do.
+  const log = config.logger ?? defaultLogger();
+
   try {
     // Inside the guard: picking the content root consults the discoverer
     // registry, which throws on a dependency cycle, and every failure
     // this command can hit belongs in its CommandOutcome rather than as a
     // rejection its caller has to catch.
-    const contentRoot = pickContentRoot(root);
-    defaultLogger().info(
-      `Starting project "${root}" (content root: "${contentRoot}").`,
-    );
+    const contentRoot = pickContentRoot(root, log);
+    log.info(`Starting project "${root}" (content root: "${contentRoot}").`);
 
     config = await withFolderPlugins(root, contentRoot, config);
 
@@ -125,7 +128,7 @@ export async function startCommand(
 
     const capabilitiesDir = join(contentRoot, CAPABILITIES_FOLDER);
     if (isDirectory(capabilitiesDir)) {
-      for (const route of await loadCapabilities(root, capabilitiesDir)) {
+      for (const route of await loadCapabilities(root, capabilitiesDir, log)) {
         builder.routes(route);
       }
     }
@@ -149,7 +152,7 @@ export async function startCommand(
       const started = context.start();
       if (firstExchange === undefined) {
         await started;
-        return reportStartup(startupErrors.read());
+        return reportStartup(startupErrors.read(), log);
       }
 
       const timeout = options.timeoutMs;
@@ -162,7 +165,7 @@ export async function startCommand(
 
       if (outcome === "drained") {
         await started;
-        return reportStartup(startupErrors.read());
+        return reportStartup(startupErrors.read(), log);
       }
       if (outcome === "timeout") {
         await context.stop();
@@ -171,9 +174,10 @@ export async function startCommand(
         await started.catch(() => undefined);
         return fail(
           `No exchange reached a terminal outcome within ${String(timeout)}ms. Nothing in this project produced one; check that a source actually fires, or raise --timeout.`,
+          log,
         );
       }
-      defaultLogger().info(`Exchange ${outcome}; shutting down (--once).`);
+      log.info(`Exchange ${outcome}; shutting down (--once).`);
       const shutdown = await context.stop();
       // Attach the start rejection so a route failure during shutdown is
       // reported rather than surfacing as an unhandled rejection.
@@ -181,6 +185,7 @@ export async function startCommand(
       if (outcome === "failed") {
         return fail(
           "The first exchange failed. See the logged error for the cause.",
+          log,
         );
       }
       // A forced stop abandoned in-flight work, which is not a clean run
@@ -190,14 +195,15 @@ export async function startCommand(
       if (shutdown.forced) {
         return fail(
           `Shutdown was forced after ${String(shutdown.pending.length)} route(s) failed to drain in time${shutdown.pending.length > 0 ? `: ${shutdown.pending.join(", ")}` : ""}. In-flight work was abandoned; raise shutdown.timeout if the work needs longer.`,
+          log,
         );
       }
-      return reportStartup(startupErrors.read());
+      return reportStartup(startupErrors.read(), log);
     } finally {
       startupErrors.off();
     }
   } catch (error: unknown) {
-    return fail(messageOf(error));
+    return fail(messageOf(error), log);
   }
 }
 
@@ -215,7 +221,11 @@ export async function withFolderPlugins(
   const pluginsDir = join(contentRoot, PLUGINS_FOLDER);
   if (!isDirectory(pluginsDir)) return config;
   return mergeProjectConfig(config, {
-    plugins: await loadPlugins(root, pluginsDir),
+    plugins: await loadPlugins(
+      root,
+      pluginsDir,
+      config.logger ?? defaultLogger(),
+    ),
   });
 }
 
@@ -269,7 +279,7 @@ function expire(ms: number): Promise<"timeout"> {
  * uses one or the other; when both hold convention folders the root
  * wins and the other is reported rather than silently dropped.
  */
-function pickContentRoot(root: string): string {
+function pickContentRoot(root: string, log: Logger = defaultLogger()): string {
   const src = join(root, "src");
   // Registered folders count too, so a project whose only convention
   // folder comes from an ecosystem package still resolves its layout.
@@ -282,7 +292,7 @@ function pickContentRoot(root: string): string {
   const rootHas = folders.some((f) => isDirectory(join(root, f)));
   const srcHas = folders.some((f) => isDirectory(join(src, f)));
   if (rootHas && srcHas) {
-    defaultLogger().warn(
+    log.warn(
       `Convention folders exist both at "${root}" and "${src}". Using the root-level layout; the ones under "src" are ignored. Move them into one place.`,
     );
   }
@@ -335,7 +345,11 @@ async function applyDiscoverers(
  * Import every module under `plugins/` and collect the plugin each one
  * default-exports.
  */
-async function loadPlugins(root: string, dir: string): Promise<Plugin[]> {
+async function loadPlugins(
+  root: string,
+  dir: string,
+  log: Logger,
+): Promise<Plugin[]> {
   const out: Plugin[] = [];
   for (const file of discoverPluginModules(dir)) {
     const where = displayPath(root, file);
@@ -343,7 +357,7 @@ async function loadPlugins(root: string, dir: string): Promise<Plugin[]> {
     const exported = module.default;
     if (isPluginInstance(exported)) {
       out.push(exported);
-      defaultLogger().info(`Plugin: loaded from "${where}".`);
+      log.info(`Plugin: loaded from "${where}".`);
       continue;
     }
     if (typeof exported === "function") {
@@ -365,6 +379,7 @@ async function loadPlugins(root: string, dir: string): Promise<Plugin[]> {
 async function loadCapabilities(
   root: string,
   dir: string,
+  log: Logger,
 ): Promise<(RouteDefinition | AnyRouteBuilder)[]> {
   const out: (RouteDefinition | AnyRouteBuilder)[] = [];
   for (const file of discoverCapabilityModules(dir)) {
@@ -375,7 +390,7 @@ async function loadCapabilities(
       throw new Error(`${where}: ${collected.reason}`);
     }
     out.push(...collected.routes);
-    defaultLogger().info(
+    log.info(
       `Capability: loaded ${collected.routes.length} route(s) from "${where}".`,
     );
   }
@@ -485,14 +500,18 @@ function describe(value: unknown): string {
  * where a route never came up is a failed boot, whatever the surviving
  * routes went on to do.
  */
-function reportStartup(failedRoutes: readonly string[]): CommandOutcome {
+function reportStartup(
+  failedRoutes: readonly string[],
+  log: Logger,
+): CommandOutcome {
   if (failedRoutes.length === 0) return { success: true };
   return fail(
     `${String(failedRoutes.length)} route(s) failed to start: ${failedRoutes.join(", ")}. See the logged errors for the cause.`,
+    log,
   );
 }
 
-function fail(message: string): CommandOutcome {
-  defaultLogger().error(message);
+function fail(message: string, log: Logger = defaultLogger()): CommandOutcome {
+  log.error(message);
   return { success: false, code: 1, message };
 }

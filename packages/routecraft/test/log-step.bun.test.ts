@@ -134,6 +134,51 @@ describe(".log()", () => {
   });
 
   /**
+   * @case The logger itself throws, on the line and on the warn about it
+   * @preconditions A root logger that throws on the step's own line and on the warn about it, against the contract that a logger never throws
+   * @expectedResult The exchange still reaches the destination with its body
+   */
+  test("a logger that throws does not cost the exchange", async () => {
+    const boom = (first: unknown, second?: unknown): void => {
+      const message = typeof first === "string" ? first : second;
+      if (message === "Seen" || message === "Log line could not be built") {
+        throw new Error("the sink is gone");
+      }
+    };
+    const broken: Logger = {
+      child: () => broken,
+      isLevelEnabled: () => true,
+      trace: () => {},
+      debug: () => {},
+      info: boom,
+      warn: boom,
+      error: () => {},
+      fatal: () => {},
+    };
+    const { context, client } = await new ContextBuilder()
+      .with({ logger: broken })
+      .routes(
+        craft()
+          .id("broken-logger")
+          .from(direct<{ n: number }>())
+          .log("info", "Seen")
+          .transform((body) => body.n + 1),
+      )
+      .build();
+    const running = context.start();
+    let answer: unknown;
+    try {
+      await context.whenStarted();
+      answer = await client.sendDirect("broken-logger", { n: 1 });
+    } finally {
+      await context.stop();
+      await running;
+    }
+
+    expect(answer).toBe(2);
+  });
+
+  /**
    * @case A pino logger is the root, with no adapter
    * @preconditions `pino()` assigned to a `Logger`, as `CraftConfig.logger`, writing to a buffer; one `.log()` with the exchange's headers
    * @expectedResult The NDJSON line carries the message, the route, the exchange id and the bindings

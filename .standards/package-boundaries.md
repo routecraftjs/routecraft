@@ -52,7 +52,7 @@ This is the Camel-territory layer Routecraft owns natively. Existing adapters ar
 | Object store | s3 (#295) |
 | Messaging | kafka, rabbitmq/amqp, mqtt, nats |
 | RPC | grpc |
-| Plumbing | direct, simple, log, noop, group, cosine |
+| Plumbing | direct, simple, noop, group, cosine |
 
 Native adapters beat MCP here: throughput, streaming, backpressure, exactly-once, and no LLM in the loop.
 

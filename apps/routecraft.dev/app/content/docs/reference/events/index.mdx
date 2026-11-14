@@ -108,7 +108,9 @@ Operation events are scoped to a capability and an operation type. They fire for
 
 Every pipeline step (transform, to, enrich, filter, and so on) emits a
 generic step lifecycle. The step label is `operation`; the adapter's short
-label, when one is involved, is `adapter`.
+label, when one is involved, is `adapter`. A [`.log()`](/docs/reference/operations/log)
+line is a step too, with `operation: "log"`, and it completes even when the
+line could not be built.
 
 | Event | When it fires | Details |
 | --- | --- | --- |

@@ -86,12 +86,11 @@ const tarballPath = join(packDir, tarballs[0]);
 run(`npm install "${tarballPath}"`, { cwd: smokeDir });
 
 // 3. Write a runner.ts that exercises the embedding API: ContextBuilder,
-//    a route with direct() source and log() destination, and a single
+//    a route with direct() source and a .log() line, and a single
 //    client.sendDirect() to assert the dispatch path works end to end.
 const runnerSource = `import {
   craft,
   direct,
-  log,
   ContextBuilder,
 } from "@routecraft/routecraft";
 
@@ -99,7 +98,7 @@ const route = craft()
   .id("greet")
   .from(direct<{ name: string }>())
   .transform((body) => \`Hello, \${body.name}!\`)
-  .to(log());
+  .log("info", "Greeted", (ex) => ({ greeting: ex.body }));
 
 const builder = new ContextBuilder();
 builder.routes(route);
@@ -123,7 +122,7 @@ writeFileSync(join(smokeDir, "runner.ts"), runnerSource);
 // 4. Execute under plain Node. Node 24 strips TypeScript types by default;
 //    older versions need --experimental-strip-types. We pass the flag
 //    unconditionally; on 24+ it is a harmless no-op alias.
-//    CRAFT_LOG_LEVEL=info ensures log() output appears in the captured stream
+//    CRAFT_LOG_LEVEL=info ensures the .log() line appears in the captured stream
 //    (default is warn).
 const output = run("node --experimental-strip-types runner.ts", {
   cwd: smokeDir,
@@ -138,7 +137,8 @@ if (!output.includes("[smoke-embedding] dispatched OK")) {
 
 if (!output.includes("Hello, embedded-node!")) {
   console.error(
-    'Expected log() to emit "Hello, embedded-node!" in output, got:\n' + output,
+    'Expected .log() to emit "Hello, embedded-node!" in output, got:\n' +
+      output,
   );
   process.exit(1);
 }
@@ -153,14 +153,13 @@ console.log(output);
 const negativeRunnerSource = `import {
   craft,
   cron,
-  log,
   ContextBuilder,
 } from "@routecraft/routecraft";
 
 const route = craft()
   .id("tick")
   .from(cron("* * * * *"))
-  .to(log());
+  .log("info", "Tick");
 
 const builder = new ContextBuilder();
 builder.routes(route);

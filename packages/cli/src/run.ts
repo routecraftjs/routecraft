@@ -98,7 +98,7 @@ export async function runCommand(
     const module = await import(absFilePath);
     const craftConfig = module.craftConfig as CraftConfig | undefined;
 
-    defaultLogger().info(`Loading file: ${absFilePath}`);
+    defaultLogger().info({ file: absFilePath }, "Loading file");
 
     const contextBuilder = new ContextBuilder();
     if (craftConfig) {
@@ -383,7 +383,8 @@ function configureRoutes(
   }
   collected.routes.forEach((route) => contextBuilder.routes(route));
   defaultLogger().info(
-    `Loaded ${collected.routes.length} route(s) from default export`,
+    { routes: collected.routes.length },
+    "Loaded routes from default export",
   );
   return { success: true };
 }

@@ -6,7 +6,7 @@ import {
   type PluginContext,
 } from "../../kernel/plugin.ts";
 import { registerConfigApplier } from "../../config-applier.ts";
-import { isRoutecraftError } from "../../brand.ts";
+import { isMissingOptionalPeer } from "../../adapters/shared/optional-peer.ts";
 import { rcError } from "../../error.ts";
 import type { CraftConfig } from "@routecraft/routecraft";
 import type { SqliteDriverLoaders } from "../../shared/sqlite/driver.ts";
@@ -156,7 +156,7 @@ class LazyCredentialStore implements CredentialStore {
       // A configured store that cannot open fails; the default falls back,
       // because the likely cause is Node without better-sqlite3 and a login
       // then lasts until the process stops rather than failing outright.
-      if (explicit || !isMissingDriver(err)) throw err;
+      if (explicit || !isMissingOptionalPeer(err)) throw err;
       this.logger.warn(
         { err },
         "No durable credential store available; credentials will NOT survive a restart. Install better-sqlite3 (Node) or configure credentials: { store }.",
@@ -192,10 +192,6 @@ class LazyCredentialStore implements CredentialStore {
     const store = await opening.catch(() => undefined);
     if (store && this.#owned) await store.close();
   }
-}
-
-function isMissingDriver(err: unknown): boolean {
-  return isRoutecraftError(err) && err.rc === "RC5017";
 }
 
 /**

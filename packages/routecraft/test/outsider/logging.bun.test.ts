@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   ContextBuilder,
+  DEFAULT_REDACT,
   craft,
   defineProject,
   direct,
@@ -194,5 +195,6 @@ describe("logging from the published packages", () => {
     builder.log("error", "Never");
 
     expect([...exported, debug]).toEqual([false, false, false, false]);
+    expect(DEFAULT_REDACT).toContain("headers.authorization");
   });
 });

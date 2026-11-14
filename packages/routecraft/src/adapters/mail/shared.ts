@@ -1,4 +1,7 @@
 import type { Logger } from "../../logger.ts";
+
+/** What the mail fetch and poll helpers log through. */
+export type MailLogger = Pick<Logger, "debug" | "warn">;
 import type { CraftContext } from "../../context.ts";
 import { port } from "../../kernel/port.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
@@ -414,16 +417,6 @@ export async function createSmtpTransport(
 // ---------------------------------------------------------------------------
 
 /**
- * True when the error is the RC5017 raised by `loadOptionalPeer` for a
- * missing optional peer (`imapflow`, `nodemailer`, `mailparser`). A missing
- * package cannot be fixed by reconnecting; the source must surface the
- * install hint and stop instead of burning reconnect attempts into RC5010.
- */
-export function isMissingPeerError(error: unknown): boolean {
-  return isRoutecraftError(error) && error.rc === "RC5017";
-}
-
-/**
  * True when the error is an RC5003 configuration fault, such as a
  * `gmailSearch` sent to a server without Gmail's extension. Like a missing
  * peer, reconnecting cannot fix it, so the source stops instead of retrying.
@@ -762,7 +755,7 @@ export async function fetchMessages(
   client: InstanceType<typeof import("imapflow").ImapFlow>,
   options: MailServerOptions,
   folder: string,
-  logger?: Pick<Logger, "debug" | "warn">,
+  logger?: MailLogger,
 ): Promise<MailMessage[]> {
   const criteriaSets = buildSearchCriteriaSets(options);
   const messages: MailMessage[] = [];
@@ -939,7 +932,7 @@ export async function fetchMessages(
 export async function markMessagesSeen(
   client: InstanceType<typeof import("imapflow").ImapFlow>,
   uids: number | number[],
-  logger?: Pick<Logger, "debug" | "warn">,
+  logger?: MailLogger,
 ): Promise<void> {
   const list = Array.isArray(uids) ? uids : [uids];
   if (list.length === 0) return;

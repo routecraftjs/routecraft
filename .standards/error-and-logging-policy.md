@@ -183,7 +183,7 @@ A refusal of one kind must never be reported under another code: the bridge's dr
 
 - Use `rcError(rc, cause?, { message?, suggestion?, docs?, retryable? })` from `packages/routecraft/src/error.ts` for framework and adapter errors.
 - Use normal `throw new Error` only when you do not need an RC code or docs link.
-- Log with `context.logger` in sources and `exchange.logger` in steps/destinations. Both are children of the one root (`CraftConfig.logger`, else `defaultLogger()`); framework code never builds a logger of its own and never imports `pino`, it types against `Logger` from `logger.ts`.
+- Log with `context.logger` in sources and `exchange.logger` in steps/destinations. Both are children of the one root (`CraftConfig.logger`, else `defaultLogger()`); framework code never builds a logger of its own and never imports `pino` outside `logger.ts`, it types against `Logger`. `defaultLogger()` is called directly only where no context and no project configuration exists to take a logger from: the CLI before the configuration is loaded, and a library entry point that runs without a context (the agent file loader, a streaming callback). A host that has loaded the configuration logs through `config.logger ?? defaultLogger()`.
 - At boundaries: `logger.error({ err, operation, adapter }, err.meta.message)`.
 - Emit and observe context events for lifecycle and errors.
 

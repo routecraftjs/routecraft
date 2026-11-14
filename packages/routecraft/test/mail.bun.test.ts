@@ -28,8 +28,8 @@ import {
   buildSearchCriteriaSets,
   fetchMessages,
   isMailConfigError,
-  isMissingPeerError,
 } from "../src/adapters/mail/shared.ts";
+import { isMissingOptionalPeer } from "../src/adapters/shared/optional-peer.ts";
 import { ImapPool } from "../src/adapters/mail/client-manager.ts";
 import { rcError } from "../src/error.ts";
 import {
@@ -3639,7 +3639,7 @@ describe("fetchMessages gmailSearch guard", () => {
   });
 });
 
-describe("isMissingPeerError", () => {
+describe("isMissingOptionalPeer", () => {
   /**
    * @case RC5017 missing-peer errors classify as terminal
    * @preconditions An RC5017 RoutecraftError (the loadOptionalPeer shape), an RC5001 fetch error, and a plain Error
@@ -3653,12 +3653,12 @@ describe("isMissingPeerError", () => {
     const fetchFailure = rcError("RC5001", undefined, {
       message: "fetch failed",
     });
-    expect(isMissingPeerError(missingPeer)).toBe(true);
-    expect(isMissingPeerError(fetchFailure)).toBe(false);
+    expect(isMissingOptionalPeer(missingPeer)).toBe(true);
+    expect(isMissingOptionalPeer(fetchFailure)).toBe(false);
     expect(
-      isMissingPeerError(new Error("Cannot find package 'mailparser'")),
+      isMissingOptionalPeer(new Error("Cannot find package 'mailparser'")),
     ).toBe(false);
-    expect(isMissingPeerError(undefined)).toBe(false);
+    expect(isMissingOptionalPeer(undefined)).toBe(false);
   });
 });
 
