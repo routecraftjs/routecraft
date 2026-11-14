@@ -1,20 +1,10 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { rcCodeOf } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { mcpPlugin } from "../src/index.ts";
+import { useRealMcpSdk } from "./helpers/real-mcp-sdk.ts";
 
-// Another suite in the same process may have replaced the SDK loader seam
-// with a mock client, and `mock.module` outlives the suite that set it. This
-// suite drives the real client, so it puts the real loader back first.
-const sdk = await import("../src/mcp/sdk.ts");
-const prior = { ...sdk };
-mock.module("../src/mcp/sdk.ts", () => ({
-  ...prior,
-  loadMcpClientSdk: async () => import("@modelcontextprotocol/client"),
-}));
-afterAll(() => {
-  mock.module("../src/mcp/sdk.ts", () => prior);
-});
+const prior = await useRealMcpSdk();
 
 /** What an outbound MCP connection refuses before and while it talks to a remote. */
 describe("outbound MCP requests", () => {

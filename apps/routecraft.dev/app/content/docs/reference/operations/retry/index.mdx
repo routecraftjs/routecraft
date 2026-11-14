@@ -47,9 +47,11 @@ craft()
 By default, `retry` checks the error's `retryable` property:
 
 ```ts skip="fragment: the predicate on its own, not a statement"
-// Default retryOn logic
+// Default retryOn logic, exported as isTransient
 (error) => (isRoutecraftError(error) ? error.retryable !== false : true)
 ```
+
+`isTransient(error)` is that rule as a function, so a custom `retryOn` can narrow it instead of restating it: `retryOn: (e) => isTransient(e) && rcCodeOf(e) !== 'RC5013'`.
 
 This means:
 - Errors with `retryable: false` are **not retried** (e.g., validation, auth, and config errors, which fail the same way every time)
@@ -79,7 +81,7 @@ craft()
   .to(destination)
 ```
 
-**Events:** `route:retry:started` when the guarded execution begins, `route:retry:attempt` before each backoff wait and re-attempt (with `attemptNumber`, the actual `backoffMs`, and `lastError`), `route:retry:stopped` on final success or failure. Payloads carry `scope: "route" | "step"`. See the [events reference](/docs/reference/events).
+**Events:** `route:retry:started` when the guarded execution begins, `route:retry:attempt` before each backoff wait and re-attempt (with `attemptNumber`, the actual `backoffMs`, and `lastError`), `route:retry:stopped` on final success or failure. A failed `stopped` carries `reason`: `exhausted` when the attempts ran out, `not-retryable` when `retryOn` refused the error (so a retry that never re-attempted is visible), `aborted` when the route stopped during a backoff; and `code`, the error's `RC` code when it has one. Payloads carry `scope: "route" | "step"`. See the [events reference](/docs/reference/events).
 
 ## Route scope
 

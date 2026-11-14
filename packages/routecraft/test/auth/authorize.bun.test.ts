@@ -1,5 +1,7 @@
 import {
+  afterAll,
   afterEach,
+  beforeAll,
   describe,
   expect,
   expectTypeOf,
@@ -11,6 +13,7 @@ import {
   authenticate,
   authorize,
   DefaultExchange,
+  type Exchange,
   HeadersKeys,
   insufficientAuthorityOf,
   craft,
@@ -47,6 +50,24 @@ function principalSource<T>(body: T, principal?: Principal): Source<T> {
       await sub.emit({ message: body, ...(headers ? { headers } : {}) });
     },
   };
+}
+
+let app: TestContext;
+
+beforeAll(async () => {
+  app = await testContext().build();
+});
+
+afterAll(async () => {
+  await app.stop();
+});
+
+/** An exchange of an application, carrying a principal: an authority exists only inside one. */
+function carrying(principal: Principal): Exchange {
+  return new DefaultExchange(app.ctx, {
+    body: "x",
+    headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+  });
 }
 
 describe("authorize() validator", () => {
@@ -1128,10 +1149,7 @@ describe("authorize() anyScope", () => {
   ): unknown {
     const check = authorize(options);
     try {
-      check({
-        body: "x",
-        headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
-      } as unknown as Parameters<typeof check>[0]);
+      check(carrying(principal));
       return undefined;
     } catch (err) {
       return err;
@@ -1329,10 +1347,7 @@ describe("insufficientAuthorityOf", () => {
     options: Parameters<typeof authorize>[0],
     principal: Principal,
   ): Promise<{ cause: InsufficientAuthority }> {
-    const exchange = new DefaultExchange(undefined as never, {
-      body: {},
-      headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
-    });
+    const exchange = carrying(principal);
     // The gate throws synchronously, so the call has to be inside the try
     // rather than handed to a promise that never sees it.
     try {

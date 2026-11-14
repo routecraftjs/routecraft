@@ -82,12 +82,9 @@ export {
   type PortLookup,
 } from "./kernel/port.ts";
 export {
-  CACHE,
+  CACHE_STORE,
   ENFORCEMENT,
   RESILIENCE,
-  type CachePositions,
-  type CacheRun,
-  type CacheStep,
   type EnforcementPositions,
   type Position,
   type PositionRun,
@@ -99,7 +96,7 @@ export {
   resiliencePlugin,
   resilienceProvider,
 } from "./plugins/resilience/index.ts";
-export { cachePlugin, cacheProvider } from "./plugins/cache/index.ts";
+export { cachePlugin } from "./plugins/cache/index.ts";
 export { authPlugin, enforcementProvider } from "./plugins/auth/index.ts";
 export { AUTHORITY, authorityOf, type Authority } from "./kernel/authority.ts";
 export {
@@ -463,8 +460,6 @@ export {
   CacheWrapperStep,
   type CacheOptions,
   type ResolvedCacheOptions,
-  type BoundCacheOptions,
-  bindCacheProvider,
 } from "./operations/cache-wrapper.ts";
 export {
   type CacheProvider,
@@ -478,8 +473,10 @@ export {
 } from "./operations/timeout-wrapper.ts";
 export {
   RetryWrapperStep,
+  isTransient,
   type RetryOptions,
   type ResolvedRetryOptions,
+  type RetryStopReason,
 } from "./operations/retry-wrapper.ts";
 export {
   ThrottleWrapperStep,

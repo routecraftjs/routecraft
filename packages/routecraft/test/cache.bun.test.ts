@@ -29,9 +29,7 @@ import {
   simple,
   type StepContext,
   type StepOutcome,
-  CACHE,
-  bindCacheProvider,
-  cacheProvider,
+  CACHE_STORE,
   definePlugin,
   port,
 } from "@routecraft/routecraft";
@@ -2555,51 +2553,35 @@ describe("the default cache provider is the application's own", () => {
   });
 
   /**
-   * @case A plugin replacing CACHE receives the call site's provider choice
-   * @preconditions A replacement that records whether the resolved options carry a provider, for a .cache() without one and a .cache({ provider })
-   * @expectedResult The options carry undefined for the first and the supplied provider for the second; bindCacheProvider settles the first on the fallback
+   * @case A replaced CACHE_STORE that is not a cache provider
+   * @preconditions A plugin replacing CACHE_STORE with an object that has no getOrCompute; a route with a route-scope .cache()
+   * @expectedResult The application refuses to start with RC1111 naming the plugin, rather than failing the first exchange with a TypeError
    */
-  test("hands a replacement the provider the call site supplied, or none", async () => {
-    const seen: Array<CacheProvider | undefined> = [];
-    const own = new MemoryCacheProvider();
-    const fallback = new MemoryCacheProvider();
-    const recording = definePlugin({
-      id: "test.recording-cache",
-      provides: [CACHE],
-      replaces: [CACHE],
+  test("refuses a store that is not a cache provider", async () => {
+    const broken = definePlugin({
+      id: "test.broken-store",
+      provides: [CACHE_STORE],
+      replaces: [CACHE_STORE],
       bind(c) {
-        const positions = cacheProvider(fallback);
-        c.provide(CACHE, {
-          ...positions,
-          wrap(options) {
-            seen.push(options.provider);
-            expect(bindCacheProvider(options, fallback).provider).toBe(
-              options.provider ?? fallback,
-            );
-            return positions.wrap(options);
-          },
-        });
+        c.provide(CACHE_STORE, {} as CacheProvider);
       },
     });
     const t = await testContext()
-      .with({ plugins: [recording] })
+      .with({ plugins: [broken] })
       .routes([
         craft()
-          .id("unsupplied")
-          .from(direct())
+          .id("cached")
           .cache()
-          .transform(() => 1),
-        craft()
-          .id("supplied")
           .from(direct())
-          .cache({ provider: own })
-          .transform(() => 2),
+          .transform(() => 1),
       ])
       .build();
     contexts.push(t);
-    await t.startAndWaitReady();
-    await t.client.sendDirect("unsupplied", {});
-    await t.client.sendDirect("supplied", {});
-    expect(seen).toEqual([undefined, own]);
+    const failure = await t.ctx.start().then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(failure).toMatchObject({ rc: "RC1111" });
+    expect(String(failure)).toContain("test.broken-store");
   });
 });

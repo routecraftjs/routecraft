@@ -34,7 +34,7 @@ import {
  * MCP, ACP) mounts. Provided by the servers plugin.
  */
 export const WEB_INGRESS = port<ReadonlyMap<string, WebIngress>>(
-  "routecraft.servers@1",
+  "routecraft.web-ingress@1",
 );
 
 /**

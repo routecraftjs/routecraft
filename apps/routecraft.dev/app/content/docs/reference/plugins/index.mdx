@@ -210,11 +210,11 @@ The ports the framework ships:
 | --- | --- | --- |
 | `DIRECT` | `routecraft.direct@1` | `routecraft.direct` |
 | `RESILIENCE` | `routecraft.resilience@1` | `routecraft.resilience` |
-| `CACHE` | `routecraft.cache@1` | `routecraft.cache` |
-| `AUTHORITY` | `routecraft.principals@1` | `routecraft.principals` |
+| `CACHE_STORE` | `routecraft.cache-store@1` | `routecraft.cache` |
+| `AUTHORITY` | `routecraft.authority@1` | `routecraft.principals` |
 | `ENFORCEMENT` | `routecraft.enforcement@1` | `routecraft.auth` |
 | `CONTINUATIONS` | `routecraft.continuations@2` | `routecraft.deferral` |
-| `WEB_INGRESS` | `routecraft.servers@1` | `routecraft.servers` |
+| `WEB_INGRESS` | `routecraft.web-ingress@1` | `routecraft.servers` |
 | `HTTP` | `routecraft.http@1` | `routecraft.http` |
 | `OPS` | `routecraft.ops@1` | `routecraft.ops` |
 | `REMOTES` | `routecraft.remotes@1` | `routecraft.remotes` |
@@ -230,7 +230,9 @@ The ports the framework ships:
 | `SURFACES` | `routecraft.ai.surfaces@1` | `routecraft.ai.surfaces` (`@routecraft/ai`) |
 | `SHELL` | `routecraft.os.shell@1` | `routecraft.os.shell` (`@routecraft/os`) |
 
-`RESILIENCE`, `CACHE` and `ENFORCEMENT` fill the chain's route-scope positions. The default providers are exported as `resilienceProvider`, `cacheProvider(fallback?)` and `enforcementProvider`, so a replacement can delegate to them; `cacheProvider` takes the provider a `.cache()` without one of its own runs against, a fresh in-memory one by default. A step-scope wrapper (`.retry()` and the rest called after `.from()`) resolves the same provider when the exchange runs, so a replacement fills both scopes (see [Slots](#slots)). A plugin that replaces a port is named once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.
+The version in a port's name is its contract. The value a consumer reads under `name@1` keeps its shape for as long as that name exists; a change of shape ships as `name@2`, a different port. A `replaces` that names a version nobody provides while another version of the port is installed is [`RC1119`](/docs/reference/errors#rc-1119), and an unmet `requires` names the installed version in [`RC1104`](/docs/reference/errors#rc-1104). `RESILIENCE` and `ENFORCEMENT` are provisional in 0.8 and outside that promise: both are due to be reshaped, so a plugin that replaces either pins the Routecraft minor it was written against.
+
+`RESILIENCE` and `ENFORCEMENT` fill the chain's route-scope positions. The default providers are exported as `resilienceProvider` and `enforcementProvider`, so a replacement can delegate to them. `CACHE_STORE` is where a `.cache()` that names no `provider` keeps its entries: a `CacheProvider`, in memory by default. The cache's policy (the key, `when`, which outcomes are stored, the events) is the framework's at both scopes and no port replaces it. A step-scope wrapper (`.retry()` and the rest called after `.from()`) resolves the same provider when the exchange runs, so a replacement fills both scopes (see [Slots](#slots)). A plugin that replaces a port is named once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.
 
 `AUTHORITY` decides who an exchange acts for and whether to trust it. It provides `mint(claims)`, `brand(principal)`, `isAuthentic(principal)`, `restore(record)`, `isRestored(principal)` and `read(exchange)`. `authorityOf(exchangeOrContext)` returns the application's authority. Every mint and every check goes through it, so a replacement decides both sides; `delegate()` and the ingress mounts take the authority explicitly rather than assuming the default. `defaultAuthority` is exported for a replacement that decorates it.
 
@@ -242,7 +244,7 @@ Installed in every application, ahead of its own plugins:
 | --- | --- | --- | --- |
 | `routecraft.direct` | `directPlugin()` | `DIRECT` | |
 | `routecraft.resilience` | `resiliencePlugin()` | `RESILIENCE` | |
-| `routecraft.cache` | `cachePlugin()` | `CACHE` | |
+| `routecraft.cache` | `cachePlugin()` | `CACHE_STORE` | |
 | `routecraft.principals` | `principalsPlugin()` | `AUTHORITY` | |
 | `routecraft.auth` | `authPlugin()` | `ENFORCEMENT` | steps `authenticate`, `delegate`; facet `ex.auth` |
 | `routecraft.credentials` | `credentialsPlugin()` | `CREDENTIALS` | |
@@ -266,14 +268,14 @@ The chain around every route runs in a fixed order. **Positions** belong to the 
 | `throttle`, `circuitBreaker`, `retry` | positions | `RESILIENCE` |
 | `perAttempt` | slot | wrappers |
 | `timeout`, `concurrency` | positions | `RESILIENCE` |
-| `cacheCheck` | position | `CACHE` |
+| `cacheCheck` | position | the kernel, over `CACHE_STORE` |
 | the pipeline | | the route's steps |
-| `cacheStore` | position | `CACHE` |
+| `cacheStore` | position | the kernel, over `CACHE_STORE` |
 | `exit` | slot | hooks, over completed exchanges only |
 
 `SLOTS` exports the slot names in order. A hook in a slot or point that does not exist is `RC1112`.
 
-The resilience methods and `.cache()` placed after `.from()` are the same positions around one step. The wrapper resolves the same provider when the exchange runs, with `scope: "step"` and the step's label on the `PositionRun` (`"route"` and `"route"` at route scope), so a plugin replacing `RESILIENCE` or `CACHE` fills both scopes; `throttle(options, scope)` takes the scope, and the step-scope cache runs through `CachePositions.wrap`. A step wrapped in a method no installed plugin provides fails with `RC1111` when it runs.
+The resilience methods and `.cache()` placed after `.from()` are the same positions around one step. The wrapper resolves the same provider when the exchange runs, with `scope: "step"` and the step's label on the `PositionRun` (`"route"` and `"route"` at route scope), so a plugin replacing `RESILIENCE` fills both scopes; `throttle(options, scope)` takes the scope. The cache positions are the kernel's at both scopes and keep their entries in the same `CACHE_STORE`. A route with a step wrapped in a method no installed plugin provides refuses to start with `RC1111`; a `.cache({ provider })` brings its own store and needs no `CACHE_STORE`.
 
 ### Phases
 
@@ -301,7 +303,7 @@ A slot runs observe, then mutate, then validate. `exit` has no validate phase. I
 | `runs` | all | The run kinds the hook applies to: `normal`, `resume`, `debounce`, `errorChannel`. Defaults to `normal` only, except in `error`, which defaults to every kind. `beforeAuth`, `afterAuth` and `admitted` see admissions only: a normal run, and an admission resume (a park raised before the route admitted the exchange), which runs `afterAuth` and `admitted` around the `authorize` it re-runs. An admission resume is an admission, so those slots see it as kind `normal` and a hook keeping the default runs on it; the `error` slot, points and `perAttempt` see the same run as kind `resume`. |
 | `writes` | `mutate` | The headers the hook writes, so a conflict is reported at start rather than on the first request. |
 | `mayDefer` | `error` | The hook may answer `recovery.defer()`. Makes every route it applies to deferrable, so the application refuses to start without a deferral runtime ([`RC5052`](/docs/reference/errors#rc-5052)). |
-| `input` | `error` | What a resume payload must satisfy when the hook parks with `recovery.defer()`. Read back live at the resume door and validated there ([`RC5049`](/docs/reference/errors#rc-5049)); a schema that changed or disappeared under a parked exchange refuses the resume ([`RC5048`](/docs/reference/errors#rc-5048)). |
+| `input` | `error` | What a resume payload must satisfy when the hook parks with `recovery.defer(request)`. The request carries the parking options; the schema is this field. Read back live at the resume door and validated there ([`RC5049`](/docs/reference/errors#rc-5049)); a schema that changed or disappeared under a parked exchange refuses the resume ([`RC5048`](/docs/reference/errors#rc-5048)). |
 
 `info` carries `routeId`, `tags`, `slot` and `kind`. An error hook's `info` also carries `execution` (`1` on the first run, `2` once the exchange is a resumed continuation) and `forward`, which sends to a `direct()` endpoint under the failing exchange's principal.
 
@@ -431,7 +433,7 @@ Code that holds a plain `Exchange` rather than a route's typed one (an adapter, 
 
 <QuickLink title="Configuration" icon="installation" href="/docs/reference/configuration" description="Every craft.config.ts field, including the first-class keys that stand in for plugins." />
 
-<QuickLink title="Errors" icon="presets" href="/docs/reference/errors" description="RC1101 to RC1117 and RC5068, the plugin faults." />
+<QuickLink title="Errors" icon="presets" href="/docs/reference/errors" description="RC1101 to RC1119 and RC5068, the plugin faults." />
 
 <QuickLink title="Agents and skills" icon="theming" href="/docs/introduction/agents-and-skills" description="Give a project a model, define an agent, and grant it capabilities as tools." />
 

@@ -42,31 +42,18 @@ export interface Authority {
 }
 
 /** The principals: who an exchange acts for and whether it is trusted. */
-export const AUTHORITY = port<Authority>("routecraft.principals@1");
-
-let fallback: Authority | undefined;
-
-/**
- * The authority used where there is no application at all (a plain
- * exchange in a unit test), set by the principals plugin's module when the
- * package loads. Module-local: a second copy of the package keeps its own,
- * so its principals are never trusted by the first copy's gates.
- *
- * @internal
- */
-export function setFallbackAuthority(authority: Authority): void {
-  fallback = authority;
-}
+export const AUTHORITY = port<Authority>("routecraft.authority@1");
 
 /**
  * The authority of the application an exchange or context belongs to.
  *
- * Falls back to the default only where there is no application at all: a
- * bare exchange, or no argument. An application whose plugins are not yet
- * installed, or none of whose plugins provides the port, is `RC1104` rather
- * than the default, so a replaced authority is never silently stood in for.
+ * There is no authority outside an application. A bare exchange, no
+ * argument, an application whose plugins are not yet installed and one
+ * none of whose plugins provides the port are all `RC1104`, so a replaced
+ * authority is never silently stood in for. A test that needs principals
+ * builds its exchanges through `testContext()`.
  *
- * @throws RC1104 when an application is present and provides no authority
+ * @throws RC1104 when no application provides an authority
  */
 export function authorityOf(
   from: Exchange | PortLookup | undefined,
@@ -83,17 +70,13 @@ export function authorityOf(
         : typeof (from as PortLookup).lookup === "function"
           ? (from as PortLookup)
           : undefined;
-  if (context === undefined) {
-    if (fallback === undefined) throw noAuthority();
-    return fallback;
-  }
-  const found = context.lookup(AUTHORITY);
+  const found = context?.lookup(AUTHORITY);
   if (found === undefined) throw noAuthority();
   return found;
 }
 
 function noAuthority(): Error {
   return rcError("RC1104", undefined, {
-    message: `No plugin provides "${AUTHORITY.name}", or it was asked for before the application installed its plugins. The default routecraft.principals plugin provides it unless a plugin with that id replaced it without providing a value.`,
+    message: `No plugin provides "${AUTHORITY.name}", or it was asked for before the application installed its plugins. The default routecraft.principals plugin provides it unless a plugin with that id replaced it without providing a value. There is no authority outside an application: build the exchange through testContext() in a test.`,
   });
 }

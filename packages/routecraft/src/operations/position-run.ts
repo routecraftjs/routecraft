@@ -53,7 +53,7 @@ export function positionFor<P, T>(
   port: Port<P>,
   method: string,
   build: (provider: P) => T,
-  options: { perRoute?: boolean; member?: string } = {},
+  options: { perRoute?: boolean } = {},
 ): T {
   const { context, route, stepLabel } = wrapperEventScope(exchange, step);
   if (context === undefined) {
@@ -70,7 +70,7 @@ export function positionFor<P, T>(
   assertPositionMember(
     provider,
     port,
-    options.member ?? method,
+    method,
     context,
     `Step "${stepLabel}" is wrapped in .${method}()`,
   );

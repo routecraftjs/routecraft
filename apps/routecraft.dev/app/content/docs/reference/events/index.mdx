@@ -148,7 +148,7 @@ After a split, each child exchange emits its own `route:exchange:started`. When 
 | --- | --- | --- |
 | `route:retry:started` | Guarded execution began | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", maxAttempts }` |
 | `route:retry:attempt` | A failed attempt will be re-attempted after `backoffMs` | Same plus `attemptNumber`, `backoffMs` (the actual wait, `factor` growth and `jitter` applied), `lastError?` |
-| `route:retry:stopped` | Final success or failure | Same plus `attemptNumber`, `success`, and `error?` (the final raw error when `success` is false) |
+| `route:retry:stopped` | Final success or failure | Same plus `attemptNumber`, `success`, and when `success` is false: `error?` (the final raw error), `reason` (`"exhausted"`, `"not-retryable"` or `"aborted"`) and `code?` (the error's `RC` code when it is a `RoutecraftError`) |
 
 `scope` is `"route"` for `.retry()` declared BEFORE `.from()` (the whole pipeline is re-run) and `"step"` for the wrapper attached AFTER `.from()`. `stepLabel` is the wrapped step's label, or `"route"` at route scope. `route:retry:attempt` fires once per re-attempt, so a first-attempt success emits only `started` and `stopped`.
 

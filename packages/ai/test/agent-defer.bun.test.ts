@@ -13,7 +13,7 @@ import {
   testContext,
   type TestContext,
 } from "@routecraft/testing";
-import { authorityOf, type Plugin } from "@routecraft/routecraft";
+import { defaultAuthority, type Plugin } from "@routecraft/routecraft";
 import {
   DeferError,
   agent,
@@ -688,7 +688,7 @@ describe("agent durable deferral (ctx.defer)", () => {
       { id: "def-1", mintToken: () => "token" },
       undefined,
       undefined,
-      authorityOf(undefined),
+      defaultAuthority,
     );
 
     expect(thrown(() => new DeferError(stale))).toMatchObject({ rc: "RC5003" });
@@ -853,7 +853,7 @@ describe("agent durable deferral (ctx.defer)", () => {
       { id: "def-1", mintToken: () => "token" },
       undefined,
       undefined,
-      authorityOf(undefined),
+      defaultAuthority,
     );
 
     expect(() => ctx.defer({ ttl: "3 days" as never })).toThrow();

@@ -12,7 +12,7 @@ import type { ResolvedTimeoutOptions } from "../operations/timeout-wrapper.ts";
 import type { ResolvedThrottleOptions } from "../operations/throttle-wrapper.ts";
 import type { ResolvedCircuitBreakerOptions } from "../operations/circuit-breaker-wrapper.ts";
 import type { ResolvedConcurrencyOptions } from "../operations/concurrency-wrapper.ts";
-import type { ResolvedCacheOptions } from "../operations/cache-wrapper.ts";
+import type { CacheProvider } from "../operations/cache-provider.ts";
 import type { AuthorizeOptions } from "../authorize-options.ts";
 import type { Principal } from "../principal.ts";
 import type { Authority } from "./authority.ts";
@@ -93,33 +93,6 @@ export interface ResiliencePositions {
   concurrency(options: ResolvedConcurrencyOptions): Position;
 }
 
-/**
- * One run of a step-scope cache: the key the wrapper derived for this
- * exchange, and the wrapped step to run on a miss.
- */
-export interface CacheRun extends PositionScope {
-  readonly exchange: Exchange;
-  readonly key: string;
-  /** Run the wrapped step once; its outcome is what a miss produces. */
-  attempt(): Promise<StepOutcome>;
-  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
-}
-
-/** A step-scope cache position, built once per wrapped step. */
-export interface CacheStep {
-  run(run: CacheRun): Promise<StepOutcome>;
-}
-
-/**
- * What the `CACHE` port provides: the two route-scope cache positions, and
- * the one position a `.cache()` placed after `.from()` wraps a step in.
- */
-export interface CachePositions {
-  check(options: ResolvedCacheOptions): Step<Adapter>;
-  store(options: ResolvedCacheOptions): Step<Adapter>;
-  wrap(options: ResolvedCacheOptions): CacheStep;
-}
-
 /** What the `ENFORCEMENT` port provides: the authorize position. */
 export interface EnforcementPositions {
   /** One gate per `.authorize()` call; they AND together in order. */
@@ -141,13 +114,36 @@ export interface EnforcementPositions {
   ): boolean;
 }
 
-/** The resilience positions: throttle, circuitBreaker, retry, timeout, concurrency. */
+/**
+ * The resilience positions: throttle, circuitBreaker, retry, timeout, concurrency.
+ *
+ * @remarks Provisional. This port is outside the port versioning promise:
+ * its value type is due to split into one port per position, and until then
+ * it may change shape in a minor release without becoming `@2`. That change
+ * lands in the same release as {@link ENFORCEMENT}'s, so a provider author
+ * takes one break. A provider that replaces it pins the Routecraft minor it
+ * was written against.
+ */
 export const RESILIENCE = port<ResiliencePositions>("routecraft.resilience@1");
 
-/** The cache positions: cacheCheck and cacheStore. */
-export const CACHE = port<CachePositions>("routecraft.cache@1");
+/**
+ * Where a `.cache()` that names no `provider` of its own keeps its
+ * entries. The kernel owns the policy at both scopes (`when`, the key,
+ * which outcomes are stored, the restore and the events); this is only the
+ * storage behind it. Unprovided, a cache that names no `provider` is `RC1111`.
+ */
+export const CACHE_STORE = port<CacheProvider>("routecraft.cache-store@1");
 
-/** The authorize position. */
+/**
+ * The authorize position.
+ *
+ * @remarks Provisional. This port is outside the port versioning promise:
+ * the run context of the gate is due to be reshaped and `admits` to become
+ * required, and until then it may change shape in a minor release without
+ * becoming `@2`. That change lands in the same release as
+ * {@link RESILIENCE}'s. A provider that replaces it pins the Routecraft
+ * minor it was written against.
+ */
 export const ENFORCEMENT = port<EnforcementPositions>(
   "routecraft.enforcement@1",
 );

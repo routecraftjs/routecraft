@@ -50,6 +50,18 @@ The client is an enricher: in `.to()` and bare `.enrich()` the tool result repla
 
 The result the client hands the route is the remote's `structuredContent` when it published one, otherwise its content: one text block as its string, several blocks as the array, none as the raw result. A result the remote flagged `isError` throws [`AI2003`](/docs/reference/errors#ai-2003), so a route fails at its boundary and can `.error()` or `.retry()` around it, and an agent sees a failed call rather than content. The error's message names the tool and leaves the remote's text out, because a message reaches logs and events; `remoteErrorTextOf(error)` from `@routecraft/ai` returns the text, bounded, to a handler that decides on it. An agent's model is given the text with the failed call.
 
+**Wire failures.** A call that fails on the wire, before the remote answered with a result, is named by what went wrong, so `.retry()` and `.circuitBreaker()` treat a lost connection as transient and a refused credential as final:
+
+| Failure | Code | Retried by default |
+| --- | --- | --- |
+| A timeout, a stalled handshake, HTTP 408 or 504 | [`RC5011`](/docs/reference/errors#rc-5011) | yes |
+| HTTP 429 | [`RC5013`](/docs/reference/errors#rc-5013) | yes |
+| A refused or reset connection, a DNS failure, HTTP 5xx, a closed stdio pipe, anything unrecognised | [`RC5010`](/docs/reference/errors#rc-5010) | yes |
+| HTTP 401 | [`RC5012`](/docs/reference/errors#rc-5012) | no |
+| HTTP 403 | [`RC5015`](/docs/reference/errors#rc-5015) | no |
+| HTTP 404 | [`RC5014`](/docs/reference/errors#rc-5014) | no |
+| Any other HTTP 4xx, a JSON-RPC error from the remote, a URL that does not parse, a client that is not registered, a result the client could not accept (invalid, unsupported, or a version or capability the two sides do not share) | [`RC5003`](/docs/reference/errors#rc-5003) | no |
+
 A remote URL is `https`. Plain `http` is accepted for a loopback host (`localhost`, an address in `127.0.0.0/8`, `[::1]`), and for any other host only with `allowHttp: true` on the call or on the client: the client's credential and every call's arguments travel in that request. A redirect is followed only within the origin that was configured (an `http` URL may also be upgraded to `https` on the same host). A redirect to any other origin fails the call with [`RC5003`](/docs/reference/errors#rc-5003) naming where it points, and the credential is never sent there; set that URL on the client if it is the server you mean.
 
 A `serverId` call (recommended) sends the auth registered on the client in `mcpPlugin({ clients })`. A registered client is one identity, so `mcp()` refuses `auth` beside a `serverId` with [`RC5003`](/docs/reference/errors#rc-5003), in the object form and in the `'server:tool'` shorthand alike. A credential the route owns goes on an inline `url` call.

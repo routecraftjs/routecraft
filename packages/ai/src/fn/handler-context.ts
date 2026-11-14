@@ -1,6 +1,5 @@
 import {
   defaultLogger,
-  authorityOf,
   isStandardSchema,
   type Authority,
   parseDuration,
@@ -227,7 +226,14 @@ const handlerAuthorities = new WeakMap<FnHandlerContext, Authority>();
  * @internal
  */
 export function authorityOfHandler(hctx: FnHandlerContext): Authority {
-  return handlerAuthorities.get(hctx) ?? authorityOf(undefined);
+  const authority = handlerAuthorities.get(hctx);
+  if (authority === undefined) {
+    throw rcError("RC1104", undefined, {
+      message:
+        "This handler context was not built by the framework, so it names no authority to re-brand its principal with. Run the handler through a route in a started context.",
+    });
+  }
+  return authority;
 }
 
 /**

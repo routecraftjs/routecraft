@@ -1,12 +1,9 @@
 import { rcError } from "../error.ts";
 import type { AnyPort, Port, PortLookup } from "../kernel/port.ts";
-import {
-  CACHE,
-  ENFORCEMENT,
-  RESILIENCE,
-  type Position,
-} from "../kernel/positions.ts";
+import { ENFORCEMENT, RESILIENCE, type Position } from "../kernel/positions.ts";
 import type { RouteDefinition } from "../route.ts";
+import { bindCacheStore } from "../operations/cache-wrapper.ts";
+import { buildCacheCheckStep, buildCacheStoreStep } from "./synthetic-steps.ts";
 import type { Adapter, Step } from "../types.ts";
 
 /**
@@ -80,7 +77,7 @@ export function compilePositions(
   definition: PositionFields,
   context: PortLookup,
 ): CompiledPositions {
-  const provider = <T>(target: Port<T>, method: string, member = method): T => {
+  const provider = <T>(target: Port<T>, method: string): T => {
     const found = context.lookup(target);
     if (found === undefined) {
       throw rcError("RC1111", undefined, {
@@ -90,7 +87,7 @@ export function compilePositions(
     assertPositionMember(
       found,
       target,
-      member,
+      method,
       context,
       `Route "${definition.id}" uses .${method}()`,
     );
@@ -133,8 +130,20 @@ export function compilePositions(
     ),
     ...(cache
       ? {
-          cacheCheck: provider(CACHE, "cache", "check").check(cache),
-          cacheStore: provider(CACHE, "cache", "store").store(cache),
+          cacheCheck: buildCacheCheckStep(
+            bindCacheStore(
+              cache,
+              context,
+              `Route "${definition.id}" uses .cache()`,
+            ),
+          ),
+          cacheStore: buildCacheStoreStep(
+            bindCacheStore(
+              cache,
+              context,
+              `Route "${definition.id}" uses .cache()`,
+            ),
+          ),
         }
       : {}),
   };

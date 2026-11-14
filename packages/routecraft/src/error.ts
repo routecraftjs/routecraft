@@ -64,6 +64,7 @@ export interface ErrorCodeRegistry {
   RC1116: RCMeta;
   RC1117: RCMeta;
   RC1118: RCMeta;
+  RC1119: RCMeta;
   RC2001: RCMeta;
   RC2002: RCMeta;
   RC3001: RCMeta;
@@ -323,6 +324,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A bind or start hook awaited c.execution.whenStarted(), which resolves only once every hook returned, so the hook would wait on itself. Return from the hook and await whenStarted() from the work it schedules (a timer, a task), or let the kernel start the plugin first and begin the work in start().",
     docs: `${DOCS_BASE}#rc-1118`,
+    retryable: false,
+  },
+  RC1119: {
+    category: "Definition",
+    message: "Port replacement targets another version",
+    suggestion:
+      "A plugin declares replaces for a port nobody provides, while an installed plugin provides the same owner.capability at another version. The replacement would displace nobody and the application would run both. Build the replacement against the version that is installed, or upgrade the plugin that provides the other one.",
+    docs: `${DOCS_BASE}#rc-1119`,
     retryable: false,
   },
   RC2001: {

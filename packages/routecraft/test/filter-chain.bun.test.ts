@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
-  CACHE,
-  cacheProvider,
+  CACHE_STORE,
   craft,
   DefaultExchange,
   definePlugin,
@@ -275,29 +274,27 @@ describe("pre-from filter chain assembly", () => {
   });
 
   /**
-   * @case A plugin replacing CACHE fills a .cache() placed after .from()
-   * @preconditions A plugin provides and replaces CACHE, delegating to the default provider but counting step-scope runs; a route wraps one step in .cache()
-   * @expectedResult The wrapper runs through the replacement's wrap position on every exchange, with the key the wrapper derived, and a second call is served from the cache
+   * @case A plugin replacing CACHE_STORE is where a .cache() placed after .from() keeps its entries
+   * @preconditions A plugin provides and replaces CACHE_STORE with a store that counts getOrCompute calls; a route wraps one step in .cache()
+   * @expectedResult Every exchange reaches the replacement with the key the wrapper derived, and a second call is served from it
    */
-  test("a plugin replacing CACHE fills the step-scope cache", async () => {
+  test("a plugin replacing CACHE_STORE holds the step-scope cache", async () => {
     const keys: string[] = [];
     let inner = 0;
     const counting = definePlugin({
       id: "test.counting-cache",
-      provides: [CACHE],
-      replaces: [CACHE],
+      provides: [CACHE_STORE],
+      replaces: [CACHE_STORE],
       bind(c) {
-        const positions = cacheProvider();
-        c.provide(CACHE, {
-          ...positions,
-          wrap(options) {
-            const position = positions.wrap(options);
-            return {
-              run(run) {
-                keys.push(`${run.scope}:${run.stepLabel}:${run.key}`);
-                return position.run(run);
-              },
-            };
+        const store = new MemoryCacheProvider();
+        c.provide(CACHE_STORE, {
+          get: (key) => store.get(key),
+          set: (key, value, ttl) => store.set(key, value, ttl),
+          delete: (key) => store.delete(key),
+          has: (key) => store.has(key),
+          getOrCompute(key, loader, ttl) {
+            keys.push(key);
+            return store.getOrCompute(key, loader, ttl);
           },
         });
       },
@@ -321,7 +318,7 @@ describe("pre-from filter chain assembly", () => {
     await t.client.sendDirect("cached", "a");
     await t.client.sendDirect("cached", "b");
 
-    expect(keys).toEqual(["step:transform:same", "step:transform:same"]);
+    expect(keys).toEqual(["same", "same"]);
     expect(inner).toBe(1);
   });
 

@@ -235,9 +235,10 @@ export abstract class WrapperStep<
    * `.delay()`).
    *
    * The route checks it at start, so an application whose plugins provide
-   * no `RESILIENCE` or `CACHE` refuses to start with a step-scope `.retry()`
-   * or `.cache()` the way it already does with the route-scope twin,
-   * instead of reporting ready and failing the first exchange. The position
+   * no `RESILIENCE` refuses to start with a step-scope `.retry()`, and one
+   * with no `CACHE_STORE` with a step-scope `.cache()` that names no
+   * `provider`, the way it already does with the route-scope twin, instead
+   * of reporting ready and failing the first exchange. The position
    * itself is still built on first use: its state is per application, and a
    * definition shared across applications keeps one per application.
    *

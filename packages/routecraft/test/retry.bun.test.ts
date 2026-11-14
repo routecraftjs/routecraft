@@ -533,12 +533,16 @@ describe("Retry wrapper (.retry())", () => {
   /**
    * @case Route shutdown during a backoff wait gives up instead of waiting it out
    * @preconditions Route with .retry({ backoff: 10000 }) around an always-failing step; the context is stopped during the first backoff
-   * @expectedResult The last real error surfaces promptly on the default error path; the 10s backoff is not waited out
+   * @expectedResult The last real error surfaces promptly on the default error path; the 10s backoff is not waited out; the stopped event reports reason "aborted"
    */
   test("shutdown during backoff propagates the last error promptly", async () => {
     let calls = 0;
+    const stopped: unknown[] = [];
 
     t = await testContext()
+      .on("route:retry:stopped", (payload) => {
+        stopped.push(payload.details);
+      })
       .routes(
         craft()
           .id("retry-shutdown")
@@ -560,6 +564,9 @@ describe("Retry wrapper (.retry())", () => {
     await waitFor(() => t.errors.length === 1);
     expect(calls).toBe(1);
     expect(t.errors[0].message).toContain("fails into backoff");
+    expect(stopped).toEqual([
+      expect.objectContaining({ success: false, reason: "aborted" }),
+    ]);
   });
 
   /**

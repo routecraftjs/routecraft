@@ -522,13 +522,13 @@ describe("mcp() DSL function", () => {
   });
 });
 
-describe("dispatchMcpCall: RC5003 error wrapping", () => {
+describe("dispatchMcpCall: transport error wrapping", () => {
   /**
-   * @case Stdio dispatch errors surface as RC5003 with the original error preserved on `cause`
+   * @case An unrecognised stdio dispatch error surfaces as a retryable connection failure with the original preserved on `cause`
    * @preconditions Context with a stdio manager whose callTool rejects with a raw TypeError
-   * @expectedResult dispatchMcpCall rejects with a RoutecraftError; rc === "RC5003"; cause === original TypeError
+   * @expectedResult dispatchMcpCall rejects with a RoutecraftError; rc === "RC5010"; cause === original TypeError
    */
-  test("wraps stdio dispatch errors as RC5003 with cause", async () => {
+  test("wraps stdio dispatch errors as RC5010 with cause", async () => {
     const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
     const { isRoutecraftError } = await import("@routecraft/routecraft");
     const original = new TypeError("simulated SDK fault");
@@ -566,7 +566,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
       }
       expect(isRoutecraftError(caught)).toBe(true);
       const rcerr = caught as { rc: string; cause?: unknown };
-      expect(rcerr.rc).toBe("RC5003");
+      expect(rcerr.rc).toBe("RC5010");
       expect(rcerr.cause).toBe(original);
     } finally {
       await t.stop();

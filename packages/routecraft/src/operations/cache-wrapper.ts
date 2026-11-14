@@ -14,7 +14,14 @@ import { isRoutecraftError } from "../brand.ts";
 import { isThenable } from "../shared/thenable.ts";
 import { hashExchangeBody } from "./hash-body.ts";
 import { principalIdentity } from "./principal-identity.ts";
-import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
+import type {
+  Adapter,
+  EventDetailsMap,
+  EventName,
+  Step,
+  StepContext,
+  StepOutcome,
+} from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
 import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
 import type {
@@ -24,9 +31,9 @@ import type {
 import { nestedStepsOf } from "../kernel/continuation/sites.ts";
 import { describeSteps } from "../kernel/continuation/identity.ts";
 import { type CacheProvider } from "./cache-provider.ts";
-import { positionFor } from "./position-run.ts";
-import { CACHE } from "../kernel/positions.ts";
-import type { CacheStep } from "../kernel/positions.ts";
+import { CACHE_STORE } from "../kernel/positions.ts";
+import type { PositionScope } from "../kernel/positions.ts";
+import type { PortLookup } from "../kernel/port.ts";
 
 /**
  * Options for `.cache()`, at route scope (before `.from()`) and step scope
@@ -82,7 +89,7 @@ export interface CacheOptions<Current = unknown> {
   ttl?: Duration;
   /**
    * Cache backend. Defaults to the application's own in-memory provider,
-   * one per context kept by the default `CACHE` plugin, so two applications
+   * one per context kept by the default `routecraft.cache` plugin, so two applications
    * in one process never share entries by accident. Pass
    * a custom provider (Redis, multi-tier, file-backed, etc.) by
    * constructing an implementation of {@link CacheProvider} and
@@ -150,7 +157,7 @@ export type CacheKeyScope =
 
 /**
  * {@link CacheOptions} with every field populated, defaults filled in: what
- * a `CACHE` provider receives, at route scope and at step scope alike.
+ * the cache runs with, at route scope and at step scope alike.
  */
 export interface ResolvedCacheOptions<Current = unknown> {
   key: (exchange: Exchange<Current>, scope: CacheKeyScope) => string;
@@ -161,8 +168,7 @@ export interface ResolvedCacheOptions<Current = unknown> {
   when: ((exchange: Exchange<Current>) => boolean) | undefined;
   /**
    * The provider the call site supplied, or `undefined` when it supplied
-   * none: the `CACHE` provider then uses its own, which the default plugin
-   * keeps per application.
+   * none: the cache then runs against the application's `CACHE_STORE`.
    */
   provider: CacheProvider | undefined;
 }
@@ -177,24 +183,65 @@ export interface BoundCacheOptions<
   provider: CacheProvider;
 }
 
+/** One run of a step-scope cache: the derived key, and the wrapped step to run on a miss. */
+interface CacheRun extends PositionScope {
+  readonly exchange: Exchange;
+  readonly key: string;
+  attempt(): Promise<StepOutcome>;
+  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
+}
+
+interface CacheStep {
+  run(run: CacheRun): Promise<StepOutcome>;
+}
+
+const CACHE_PROVIDER_MEMBERS = [
+  "get",
+  "set",
+  "delete",
+  "has",
+  "getOrCompute",
+] as const satisfies ReadonlyArray<keyof CacheProvider>;
+
 /**
- * Settle the provider of resolved options on `fallback` when the call site
- * supplied none.
+ * Settle the store a cache runs against: the call site's own `provider`,
+ * else the application's `CACHE_STORE`. There is no third store: a cache
+ * that names none, in an application that provides none, is refused rather
+ * than served from one nobody configured.
+ *
+ * @param uses - The site, for the refusal: `Route "orders" uses .cache()`
+ * @throws RC1111 when no store is provided, or the installed one is not a cache provider
+ * @internal
  */
-export function bindCacheProvider<Current = unknown>(
+export function bindCacheStore<Current = unknown>(
   options: ResolvedCacheOptions<Current>,
-  fallback: CacheProvider,
+  lookup: PortLookup | undefined,
+  uses: string,
 ): BoundCacheOptions<Current> {
-  return options.provider
-    ? (options as BoundCacheOptions<Current>)
-    : { ...options, provider: fallback };
+  if (options.provider) return options as BoundCacheOptions<Current>;
+  const installed = lookup?.lookup(CACHE_STORE);
+  if (installed === undefined) {
+    throw rcError("RC1111", undefined, {
+      message: `${uses}, and ${lookup === undefined ? "the exchange belongs to no application" : `no installed plugin provides "${CACHE_STORE.name}"`}. The default routecraft.cache plugin provides it; otherwise pass .cache({ provider }).`,
+    });
+  }
+  const missing = CACHE_PROVIDER_MEMBERS.filter(
+    (member) => typeof installed[member] !== "function",
+  );
+  if (missing.length > 0) {
+    const by = lookup?.providerOf?.(CACHE_STORE);
+    throw rcError("RC1111", undefined, {
+      message: `${uses}, which keeps its entries in "${CACHE_STORE.name}", and its provider${by === undefined ? "" : ` (plugin "${by}")`} is not a cache provider: it has no ${missing.map((member) => `${member}()`).join(", ")}.`,
+    });
+  }
+  return { ...options, provider: installed };
 }
 
 /**
  * Resolve a user-supplied {@link CacheOptions} into a fully populated
  * {@link ResolvedCacheOptions}, filling defaults: {@link defaultCacheKey}
  * for `key` and no TTL. A custom `key` ignores the scope. The provider is
- * left as supplied; the `CACHE` provider fills it.
+ * left as supplied; {@link bindCacheStore} settles it.
  *
  * @internal
  */
@@ -475,8 +522,11 @@ export class CacheWrapperStep<
     return this.#options.usesDefaultKey;
   }
 
-  override get requiredPosition(): RequiredPosition {
-    return { port: CACHE, method: "cache", member: "wrap" };
+  /** A cache with its own `provider` needs nothing of the application. */
+  override get requiredPosition(): RequiredPosition | undefined {
+    return this.#options.provider
+      ? undefined
+      : { port: CACHE_STORE, method: "cache", member: "getOrCompute" };
   }
 
   /**
@@ -533,15 +583,18 @@ export class CacheWrapperStep<
           });
     }
 
-    const cache = positionFor(
-      this.#runs,
-      exchange,
-      this,
-      CACHE,
-      "cache",
-      (provider) => provider.wrap(this.#options),
-      { member: "wrap" },
-    );
+    const owner = context ?? this;
+    let cache = this.#runs.get(owner);
+    if (cache === undefined) {
+      cache = cacheStepRun(
+        bindCacheStore(
+          this.#options,
+          context,
+          `Step "${stepLabel}" is wrapped in .cache()`,
+        ),
+      );
+      this.#runs.set(owner, cache);
+    }
     return cache.run({
       routeId,
       scope: "step",
@@ -555,8 +608,7 @@ export class CacheWrapperStep<
 }
 
 /**
- * The framework's step-scope cache: what fills `CachePositions.wrap` unless
- * an installed plugin replaces `CACHE`. One `getOrCompute` per key, so a
+ * The step-scope cache over a settled store. One `getOrCompute` per key, so a
  * stampede computes once and every waiter gets the value; a drop inside the
  * loader caches nothing and drops every waiter; a fan-out, branch or defer
  * outcome is refused, since the cache replays a single output.

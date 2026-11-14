@@ -1,4 +1,5 @@
 import { rcError } from "../../error.ts";
+import { rcCodeOf } from "../../brand.ts";
 import { HeadersKeys } from "../../exchange.ts";
 import { definePlugin } from "../../kernel/plugin.ts";
 import { registerShippedPlugin } from "../../kernel/defaults.ts";
@@ -112,12 +113,15 @@ export const resilienceProvider: ResiliencePositions = {
               lastError,
             });
           },
-          onStopped: (attemptNumber, success, error) => {
+          onStopped: (attemptNumber, success, error, reason) => {
+            const code = rcCodeOf(error);
             run.emit("route:retry:stopped", {
               ...scoped,
               attemptNumber,
               success,
               ...(error !== undefined ? { error } : {}),
+              ...(reason !== undefined ? { reason } : {}),
+              ...(code !== undefined ? { code } : {}),
             });
           },
         });

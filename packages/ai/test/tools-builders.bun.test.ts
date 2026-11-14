@@ -7,12 +7,40 @@ import {
   isRoutecraftError,
   defaultAuthority,
   noop,
+  type Principal,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { agentPlugin, directTool, tools, type FnEntry } from "../src/index.ts";
+import {
+  agentPlugin,
+  directTool,
+  tools,
+  type FnEntry,
+  type FnHandlerContext,
+} from "../src/index.ts";
 import { isLazyFn, toolHostOf } from "../src/agent/tools/types.ts";
 import { AGENTS } from "../src/agent/port.ts";
+import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
 import { callable } from "./helpers/callable-fn.ts";
+
+/**
+ * A handler context as the tool bridge would have made it: the principal is
+ * checked against an authority, which a tool that forwards it re-brands
+ * with. Only the signal and the principal are carried over.
+ */
+function handled(ctx: {
+  abortSignal: AbortSignal;
+  principal?: unknown;
+}): FnHandlerContext {
+  return makeFnHandlerContext(
+    "test",
+    ctx.abortSignal,
+    ctx.principal as Principal | undefined,
+    undefined,
+    undefined,
+    undefined,
+    defaultAuthority,
+  );
+}
 
 /** Deferral is not under test in this file; the required slot just refuses. */
 const refuseDefer = (): never => {
@@ -266,8 +294,8 @@ describe("tool builders - directTool dispatch", () => {
 
   /**
    * @case directTool forwards FnHandlerContext.principal to the downstream direct route's exchange
-   * @preconditions Handler invoked with a principal in its ctx; downstream route captures `ex.auth.principal`
-   * @expectedResult Captured principal on the inner route equals the one from the calling tool ctx
+   * @preconditions Handler invoked with a principal in its ctx, once in a context the framework built and once in a hand-built object; downstream route captures `ex.auth.principal`
+   * @expectedResult Captured principal on the inner route equals the one from the calling tool ctx; the hand-built context names no authority to re-brand with and is refused with RC1104
    */
   test("dispatchDirect forwards the calling principal to the downstream exchange", async () => {
     const inputSchema = z.object({ orderId: z.string() });
@@ -301,16 +329,21 @@ describe("tool builders - directTool dispatch", () => {
     const fn = callable(desc.resolve(toolHostOf(t.ctx), "ordersFetchWithAuth"));
     await fn.handler(
       { orderId: "abc" },
-      {
-        logger: undefined as unknown as Parameters<
-          typeof fn.handler
-        >[1]["logger"],
-        abortSignal: new AbortController().signal,
-        defer: refuseDefer,
-        principal,
-      },
+      handled({ abortSignal: new AbortController().signal, principal }),
     );
     expect(downstreamPrincipal).toEqual(principal);
+
+    await expect(
+      fn.handler(
+        { orderId: "abc" },
+        {
+          logger: undefined as unknown as FnHandlerContext["logger"],
+          abortSignal: new AbortController().signal,
+          defer: refuseDefer,
+          principal,
+        },
+      ),
+    ).rejects.toMatchObject({ rc: "RC1104" });
   });
 
   /**
@@ -437,7 +470,7 @@ describe("tool builders - directTool dispatch", () => {
 
     await fn.handler(
       {},
-      {
+      handled({
         ...base,
         principal: defaultAuthority.brand({
           kind: "jwt" as const,
@@ -445,14 +478,14 @@ describe("tool builders - directTool dispatch", () => {
           subject: "verified",
           roles: ["admin"],
         }),
-      },
+      }),
     );
     expect(downstreamAuthentic).toBe(true);
 
     downstreamAuthentic = undefined;
     await fn.handler(
       {},
-      {
+      handled({
         ...base,
         principal: {
           kind: "jwt" as const,
@@ -460,7 +493,7 @@ describe("tool builders - directTool dispatch", () => {
           subject: "forged",
           roles: ["admin"],
         },
-      },
+      }),
     );
     // Explicit generic: control flow narrowed the binding to `undefined`
     // after the reset above, and TS does not track the handler's assignment.
@@ -499,7 +532,7 @@ describe("tool builders - directTool dispatch", () => {
 
     const authResult = await fn.handler(
       {},
-      {
+      handled({
         ...base,
         principal: defaultAuthority.brand({
           kind: "jwt" as const,
@@ -507,7 +540,7 @@ describe("tool builders - directTool dispatch", () => {
           subject: "verified-admin",
           roles: ["admin"],
         }),
-      },
+      }),
     );
     expect(authResult).toMatchObject({ ok: true });
 
@@ -515,7 +548,7 @@ describe("tool builders - directTool dispatch", () => {
     try {
       await fn.handler(
         {},
-        {
+        handled({
           ...base,
           principal: {
             kind: "jwt" as const,
@@ -523,7 +556,7 @@ describe("tool builders - directTool dispatch", () => {
             subject: "forged-admin",
             roles: ["admin"],
           },
-        },
+        }),
       );
     } catch (err) {
       caught = err;

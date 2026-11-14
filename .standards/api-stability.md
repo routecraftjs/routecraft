@@ -29,6 +29,29 @@ At 1.0 we will introduce per-symbol release tags to communicate stability:
 
 Until then, treat the whole surface as `@experimental` by default and rely on the changelog and migration guides for what changed.
 
+## Port versions
+
+Ports are the one place 0.x makes a compatibility promise, because a port is
+the seam two independently released plugins meet at. From 0.8.0 the version
+in a port's name is its contract: the value read under `name@N` keeps its
+shape while that name exists, and a change of shape ships under `name@N+1`
+(the bump rule and the snapshot test that holds it are in
+[Plugin Architecture](./plugin-architecture.md#ports)). The promise is that
+one name never means two shapes, so a plugin built against a port either
+finds that contract or fails at install. It is not a promise that a port
+stays: a port may still be retired or re-versioned in any 0.x release, with a
+migration note.
+
+Two ports are excluded by name. `RESILIENCE` (`routecraft.resilience@1`) and
+`ENFORCEMENT` (`routecraft.enforcement@1`) are **provisional**: the first is
+due to split into one port per position and the second to take a reshaped run
+context with a required `admits`, and both changes land together so a
+provider author takes one break. Until then either may change shape in a
+minor release without becoming `@2`. They are marked `@remarks Provisional`
+on the token and `provisional` in the snapshot, the test refuses a third
+exception, and a plugin that replaces either pins the Routecraft minor it was
+written against.
+
 ## Types a declaration names are public
 
 A type that appears in an emitted declaration (a route's `.d.ts` names the

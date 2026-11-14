@@ -128,6 +128,7 @@ export {
   type ConformanceMatchers,
   type ConformanceRunner,
 } from "./deferral-store-conformance";
+export { cacheProviderConformance } from "./cache-provider-conformance";
 
 // Subscription builder for driving source adapters directly in unit tests
 export {

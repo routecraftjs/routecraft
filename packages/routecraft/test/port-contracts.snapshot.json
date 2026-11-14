@@ -1,0 +1,220 @@
+{
+  "routecraft.ai.agents@1": {
+    "export": "AGENTS",
+    "value": "AgentRegistry",
+    "members": {
+      "agents": "ReadonlyMap<string, AgentRegisteredOptions<unknown>>",
+      "functions": "ReadonlyMap<string, FnEntry>",
+      "defaults": "AgentDefaultOptions | undefined",
+      "toolPolicies": "readonly AgentToolPolicy[]",
+      "reidentify": "ReidentifyHook | undefined",
+      "contribute": "(contribution: AgentContribution) => void",
+      "sessions": "() => AgentSessionRuntime",
+      "resolvedFunction": "(id: string) => RegisteredFn | undefined",
+      "recordLateResolution": "(id: string, fn: RegisteredFn) => boolean"
+    }
+  },
+  "routecraft.ai.embedding@1": {
+    "export": "EMBEDDING",
+    "value": "EmbeddingService",
+    "members": {
+      "providers": "ReadonlyMap<string, EmbeddingModelConfig>",
+      "defaults?": "Partial<EmbeddingOptions<unknown>>"
+    }
+  },
+  "routecraft.ai.llm@1": {
+    "export": "LLM",
+    "value": "LlmService",
+    "members": {
+      "providers": "ReadonlyMap<string, LlmModelConfig>",
+      "defaults?": "Partial<LlmOptionsMerged<unknown>>"
+    }
+  },
+  "routecraft.ai.mcp@1": {
+    "export": "MCP",
+    "value": "McpService",
+    "members": {
+      "local": "ReadonlyMap<string, McpLocalToolEntry>",
+      "registerLocal": "(entry: McpLocalToolEntry) => () => void",
+      "proxies": "ReadonlyMap<string, McpProxyRegistration>",
+      "proxiesVersion": "number",
+      "registerProxy": "(registration: McpProxyRegistration) => () => void",
+      "isProxyDeclared": "(serverId: string, tool: string) => boolean",
+      "onChange": "(listener: () => void) => () => void",
+      "tools": "McpToolRegistry",
+      "stdio": "ReadonlyMap<string, McpStdioToolCaller>",
+      "clients": "ReadonlyMap<string, McpClientConfig>",
+      "disabledClients": "ReadonlyMap<string, string>",
+      "http": "McpHttpConnections"
+    }
+  },
+  "routecraft.ai.session-store@1": {
+    "export": "SESSION_STORE",
+    "value": "ResolvedSessionStore",
+    "members": {
+      "store": "SessionStore",
+      "backend": "\"sqlite\" | \"memory\" | \"custom\" | \"unresolved\"",
+      "driver?": "string",
+      "ownsStore": "boolean",
+      "configured": "boolean",
+      "retain": "(writer: SessionWriter) => void",
+      "close": "() => Promise<void>"
+    }
+  },
+  "routecraft.ai.surfaces@1": {
+    "export": "SURFACES",
+    "value": "SurfaceState",
+    "members": {
+      "surfaces": "Map<string, AgentSurfaceConnection>",
+      "turns": "Map<string, AgentSurfaceRef>",
+      "signals": "Map<string, SurfaceTurnSignal>",
+      "pins": "Map<string, SurfacePin>",
+      "cleanups": "Map<string, SurfaceRegistration>",
+      "pendingCancels": "Map<string, SurfacePendingCancel>",
+      "cancelledTurns": "Set<string>",
+      "logger": "Pick<Logger, \"debug\" | \"warn\">"
+    }
+  },
+  "routecraft.authority@1": {
+    "export": "AUTHORITY",
+    "value": "Authority",
+    "members": {
+      "mint": "(claims: PrincipalClaims) => Principal",
+      "brand": "<P extends Principal>(principal: P) => P",
+      "isAuthentic": "(principal: unknown) => principal is Principal",
+      "restore": "(record: Principal) => Principal",
+      "isRestored": "(principal: unknown) => boolean",
+      "read": "(exchange: Pick<Exchange, \"headers\">) => Principal | undefined"
+    }
+  },
+  "routecraft.cache-store@1": {
+    "export": "CACHE_STORE",
+    "value": "CacheProvider",
+    "members": {
+      "get": "(key: string) => Promise<unknown>",
+      "set": "(key: string, value: unknown, ttl?: number) => Promise<void>",
+      "delete": "(key: string) => Promise<void>",
+      "has": "(key: string) => Promise<boolean>",
+      "getOrCompute": "<T>(key: string, loader: () => Promise<T>, ttl?: number) => Promise<T>"
+    }
+  },
+  "routecraft.carddav@1": {
+    "export": "CARDDAV",
+    "value": "CarddavClientManager",
+    "members": {
+      "clients": "Map<string, Promise<CarddavDriverClient>>",
+      "config": "import(\"packages/routecraft/src/index\").CarddavContextConfig",
+      "defaultAccount": "string",
+      "resolveConnection": "(account?: string) => import(\"packages/routecraft/src/index\").ResolvedCarddavConnection",
+      "resolveAddressBookName": "(account?: string) => string | undefined",
+      "getClient": "(account?: string) => Promise<CarddavDriverClient>",
+      "drain": "() => Promise<void>"
+    }
+  },
+  "routecraft.continuations@2": {
+    "export": "CONTINUATIONS",
+    "value": "DeferralRuntime",
+    "members": {
+      "store": "DeferralStore",
+      "signer": "ResumeTokenSigning",
+      "defaultTtlMs?": "number",
+      "expiryLeaseMs": "number",
+      "retentionMs?": "number",
+      "path?": "string"
+    }
+  },
+  "routecraft.credentials@1": {
+    "export": "CREDENTIALS",
+    "value": "CredentialStore",
+    "members": {
+      "get": "(owner: string) => Promise<StoredCredential | undefined>",
+      "put": "(owner: string, value: unknown, options: { readonly ifVersion: number | null; readonly issuedAt?: number; }) => Promise<CredentialWrite>",
+      "delete": "(owner: string, options?: { readonly ifVersion?: number; }) => Promise<boolean>",
+      "list": "() => Promise<Array<StoredCredential & { readonly owner: string; }>>",
+      "close": "() => Promise<void>"
+    }
+  },
+  "routecraft.direct@1": {
+    "export": "DIRECT",
+    "value": "DirectRegistry",
+    "members": {
+      "channelType": "DirectChannelType<DirectChannel<unknown>> | undefined",
+      "existing": "(key: string) => DirectChannel<Exchange> | undefined",
+      "install": "(key: string, channel: DirectChannel<Exchange>) => void",
+      "uninstall": "(key: string, channel: DirectChannel<Exchange>, restore?: DirectChannel<Exchange>) => void",
+      "channel": "(key: string, channelType?: DirectChannelType<DirectChannel>) => DirectChannel<Exchange>",
+      "send": "(endpoint: string, exchange: Exchange) => Promise<Exchange>",
+      "capability": "(endpoint: string) => Capability | undefined",
+      "capabilities": "() => IterableIterator<Capability>",
+      "registerCapability": "(capability: Capability) => () => void",
+      "registerInternal": "(endpoint: string) => () => void",
+      "isInternal": "(endpoint: string) => boolean"
+    }
+  },
+  "routecraft.enforcement@1": {
+    "export": "ENFORCEMENT",
+    "provisional": true,
+    "value": "EnforcementPositions",
+    "members": {
+      "authorize": "(options: AuthorizeOptions) => Step<Adapter>",
+      "admits?": "(options: AuthorizeOptions, principal: Principal | undefined, authority: Authority) => boolean"
+    }
+  },
+  "routecraft.http@1": {
+    "export": "HTTP",
+    "value": "HttpMounts",
+    "members": {
+      "mounts": "ReadonlyMap<string, HttpMountRuntime>"
+    }
+  },
+  "routecraft.ops@1": {
+    "export": "OPS",
+    "value": "OpsService",
+    "members": {
+      "health": "HealthLedger",
+      "registerResource": "<TItem>(resource: OpsResource<TItem>) => void",
+      "hasResource": "(name: string) => boolean",
+      "contributeIndicator": "(definition: IndicatorContribution) => (health: Health) => void",
+      "contributeRemoteRoutes": "(routes: () => ReadonlyMap<string, RemoteRoute>) => void"
+    }
+  },
+  "routecraft.os.shell@1": {
+    "export": "SHELL",
+    "value": "ShellPluginOptions",
+    "members": {
+      "isolation?": "IsolationName",
+      "timeout?": "Duration",
+      "maxOutputBytes?": "number"
+    }
+  },
+  "routecraft.remotes@1": {
+    "export": "REMOTES",
+    "value": "Remotes",
+    "members": {
+      "routes": "() => ReadonlyMap<string, RemoteRoute>"
+    }
+  },
+  "routecraft.resilience@1": {
+    "export": "RESILIENCE",
+    "provisional": true,
+    "value": "ResiliencePositions",
+    "members": {
+      "throttle": "(options: ResolvedThrottleOptions, scope: PositionScope) => Step<Adapter>",
+      "circuitBreaker": "(options: ResolvedCircuitBreakerOptions) => Position",
+      "retry": "(options: ResolvedRetryOptions) => Position",
+      "timeout": "(options: ResolvedTimeoutOptions) => Position",
+      "concurrency": "(options: ResolvedConcurrencyOptions) => Position"
+    }
+  },
+  "routecraft.trace.spans@1": {
+    "export": "TRACE_SPANS",
+    "value": "TraceSpans",
+    "members": {
+      "spanOf": "(exchangeId: string) => SpanContextLike | undefined"
+    }
+  },
+  "routecraft.web-ingress@1": {
+    "export": "WEB_INGRESS",
+    "value": "ReadonlyMap<string, WebIngress>"
+  }
+}

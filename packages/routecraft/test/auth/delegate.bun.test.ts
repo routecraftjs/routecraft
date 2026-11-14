@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 /** String form of whatever `fn` throws, "" when it does not throw. */
 function thrownString(fn: () => unknown): string {
@@ -24,6 +31,8 @@ import {
   type PrincipalClaims,
   type Source,
   principalOf,
+  DefaultExchange,
+  type Exchange,
 } from "../../src/index.ts";
 import { delegate } from "../helpers/authority.ts";
 
@@ -45,6 +54,24 @@ function jaco(overrides: Partial<PrincipalClaims> = {}): Principal {
     roles: ["member", "admin"],
     scopes: ["mail:send", "employees:read"],
     ...overrides,
+  });
+}
+
+let app: TestContext;
+
+beforeAll(async () => {
+  app = await testContext().build();
+});
+
+afterAll(async () => {
+  await app.stop();
+});
+
+/** An exchange of an application, carrying a principal: an authority exists only inside one. */
+function carrying(principal: Principal): Exchange {
+  return new DefaultExchange(app.ctx, {
+    body: "x",
+    headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
   });
 }
 
@@ -420,14 +447,7 @@ describe("delegation state cannot be forged", () => {
     } as Principal);
 
     const check = authorize({ actor: "any" });
-    expect(
-      thrownString(() =>
-        check({
-          body: "x",
-          headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
-        } as unknown as Parameters<typeof check>[0]),
-      ),
-    ).toContain("RC5036");
+    expect(thrownString(() => check(carrying(principal)))).toContain("RC5036");
   });
 });
 
@@ -678,10 +698,7 @@ describe("authorize() delegation awareness", () => {
     const check = authorize({ scopes: ["mail:send", "employees:read"] });
     let caught: unknown;
     try {
-      check({
-        body: "x",
-        headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
-      } as unknown as Parameters<typeof check>[0]);
+      check(carrying(principal));
     } catch (err) {
       caught = err;
     }

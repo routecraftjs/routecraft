@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
+import { repoRoot, typeProgram } from "./helpers/type-program.ts";
 
-const repoRoot = new URL("../../../", import.meta.url).pathname;
 const outsiderDir = join(repoRoot, "packages/routecraft/test/outsider");
 const suites = readdirSync(outsiderDir, { recursive: true })
   .map(String)
@@ -92,20 +92,7 @@ describe("outsider harness guard", () => {
    * @expectedResult Every import is a named one, and no imported name resolves to a declaration tagged `@internal`; a namespace or default import is refused because its members cannot be checked by name
    */
   test("imports no @internal name", () => {
-    const configPath = join(repoRoot, "tsconfig.bun-test.json");
-    const parsed = ts.getParsedCommandLineOfConfigFile(
-      configPath,
-      {},
-      {
-        ...ts.sys,
-        onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
-          throw new Error(
-            ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
-          );
-        },
-      },
-    );
-    const program = ts.createProgram(suites, parsed!.options);
+    const program = typeProgram(suites);
     const checker = program.getTypeChecker();
     const strays: string[] = [];
     for (const file of suites) {

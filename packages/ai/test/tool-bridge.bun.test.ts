@@ -1,20 +1,31 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { defaultAuthority, type Authority } from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
 import { buildVercelTools } from "../src/agent/tool-bridge.ts";
 import { freezePrincipal } from "../src/fn/handler-context.ts";
 import type { ResolvedTool } from "../src/agent/tools/selection.ts";
 
+let app: TestContext;
+
+beforeAll(async () => {
+  app = await testContext().build();
+});
+
+afterAll(async () => {
+  await app.stop();
+});
+
 describe("buildVercelTools: execute path", () => {
   /**
    * @case Empty input returns empty record
-   * @preconditions buildVercelTools([], undefined, signal)
+   * @preconditions buildVercelTools([], app.ctx, signal)
    * @expectedResult Returned object has no keys
    */
   test("empty resolved tools returns an empty map", async () => {
     const out = await buildVercelTools(
       [],
-      undefined,
+      app.ctx,
       new AbortController().signal,
     );
     expect(Object.keys(out)).toEqual([]);
@@ -38,7 +49,7 @@ describe("buildVercelTools: execute path", () => {
     };
 
     const sessionSignal = new AbortController().signal;
-    const map = await buildVercelTools([resolved], undefined, sessionSignal);
+    const map = await buildVercelTools([resolved], app.ctx, sessionSignal);
     expect(Object.keys(map)).toEqual(["echo"]);
 
     // Exercise the SDK's (input, options) contract; the second arg
@@ -91,7 +102,7 @@ describe("buildVercelTools: execute path", () => {
 
     const map = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
     );
     const tool = map["guarded"] as {
@@ -124,7 +135,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
       undefined,
       principal,
@@ -169,7 +180,7 @@ describe("buildVercelTools: execute path", () => {
     });
     const authenticMap = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
       undefined,
       authentic,
@@ -188,7 +199,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const plainMap = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
       undefined,
       selfAsserted,
@@ -258,7 +269,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
       undefined,
       principal,
@@ -315,7 +326,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
       undefined,
       principal,
@@ -378,7 +389,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
       undefined,
       principal,
@@ -439,7 +450,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
       undefined,
       principal,
@@ -497,7 +508,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
       undefined,
       principal,
@@ -527,7 +538,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      undefined,
+      app.ctx,
       new AbortController().signal,
     );
     const tool = map["ok-guard"] as {

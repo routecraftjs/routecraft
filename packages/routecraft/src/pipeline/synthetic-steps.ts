@@ -275,8 +275,8 @@ const CACHE_STORE_STEP_ADAPTER: Adapter = {
  * true` keeps `runPipeline` from emitting generic `route:step:started` /
  * `route:step:completed` for this internal step.
  *
- * @internal Exported for the default `CACHE` provider, which fills the
- * `cacheCheck` position with it.
+ * @internal The kernel fills the
+ * `cacheCheck` position with it, over the store {@link bindCacheStore} settles.
  */
 export function buildCacheCheckStep(
   cacheConfig: BoundCacheOptions,
@@ -433,8 +433,8 @@ export function buildCacheCheckStep(
  * `skipStepEvents: true` keeps `runPipeline` from emitting generic
  * lifecycle events for this internal step.
  *
- * @internal Exported for the default `CACHE` provider, which fills the
- * `cacheStore` position with it.
+ * @internal The kernel fills the
+ * `cacheStore` position with it, over the store {@link bindCacheStore} settles.
  */
 export function buildCacheStoreStep(
   cacheConfig: BoundCacheOptions,

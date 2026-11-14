@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   collectCredentialLogins,
   craft,
@@ -15,20 +15,11 @@ import { connectLogin } from "../src/mcp/connect.ts";
 import { MCP } from "../src/mcp/port.ts";
 import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
 import { oauthRemote } from "./helpers/oauth-remote.ts";
+import { useRealMcpSdk } from "./helpers/real-mcp-sdk.ts";
 
 const URL_ = "https://remote.test/mcp";
 
-// Another suite may have replaced the SDK loader with a mock; this one
-// drives the real client and the real OAuth flow.
-const sdk = await import("../src/mcp/sdk.ts");
-const prior = { ...sdk };
-mock.module("../src/mcp/sdk.ts", () => ({
-  ...prior,
-  loadMcpClientSdk: async () => import("@modelcontextprotocol/client"),
-}));
-afterAll(() => {
-  mock.module("../src/mcp/sdk.ts", () => prior);
-});
+await useRealMcpSdk();
 
 describe("connect(): MCP clients behind an OAuth login", () => {
   let t: TestContext | undefined;

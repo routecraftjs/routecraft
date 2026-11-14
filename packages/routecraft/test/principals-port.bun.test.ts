@@ -151,7 +151,7 @@ describe("the principals port", () => {
   /**
    * @case An application that displaces the principals plugin without providing an authority
    * @preconditions A plugin with the id routecraft.principals that provides nothing, so the default is not installed; no plugin provides AUTHORITY
-   * @expectedResult authorityOf(context) is RC1104 rather than the default authority, while authorityOf(undefined) still answers the default
+   * @expectedResult authorityOf(context) is RC1104 rather than the default authority, and so is authorityOf(undefined): there is no authority outside an application
    */
   test("a displaced principals plugin is RC1104, never the default", async () => {
     const displacing = definePlugin({ id: "routecraft.principals" });
@@ -163,7 +163,9 @@ describe("the principals port", () => {
     expect(() => authorityOf(t!.ctx)).toThrow(
       expect.objectContaining({ rc: "RC1104" }),
     );
-    expect(authorityOf(undefined)).toBe(defaultAuthority);
+    expect(() => authorityOf(undefined)).toThrow(
+      expect.objectContaining({ rc: "RC1104" }),
+    );
   });
 
   /**

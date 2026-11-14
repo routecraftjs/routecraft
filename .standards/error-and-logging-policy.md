@@ -139,7 +139,6 @@ A new door reuses the shared classification (`callerRefusalOf`) rather than re-d
 
 | Code | Status | Held for | Note |
 | --- | --- | --- | --- |
-| RC1119 | reserved | #961 | a `replaces` that targets another version of a port |
 | RC1120 | reserved | #961 | no project export found by the CLI |
 | RC1121 | reserved | #961 | a config key with two owners |
 | RC1122 | reserved | #942 | an entry kind the source may not claim |

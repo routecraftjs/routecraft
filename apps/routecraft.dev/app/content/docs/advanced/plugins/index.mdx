@@ -88,7 +88,7 @@ Every application installs these ahead of its own plugins:
 | --- | --- |
 | `routecraft.direct` | the `direct()` endpoint registry |
 | `routecraft.resilience` | the throttle, circuit breaker, retry, timeout and concurrency positions |
-| `routecraft.cache` | the cache positions |
+| `routecraft.cache` | `CACHE_STORE`: where `.cache()` keeps its entries |
 | `routecraft.principals` | `AUTHORITY`: minting, branding and reading principals |
 | `routecraft.auth` | the authorize position, the `.authenticate()` and `.delegate()` steps, and the `ex.auth` facet |
 
@@ -171,7 +171,7 @@ An adapter reaches a port at runtime through the context it runs in: `context.lo
 
 ### Replacing a position
 
-The chain positions `.authorize()`, `.throttle()`, `.circuitBreaker()`, `.retry()`, `.timeout()`, `.concurrency()` and `.cache()` configure are filled by default plugins through three ports: `ENFORCEMENT`, `RESILIENCE` and `CACHE`. The builder methods stay the same for route authors; what fills the position is a provider. To replace one, provide the port and declare `replaces`:
+The chain positions `.authorize()`, `.throttle()`, `.circuitBreaker()`, `.retry()`, `.timeout()` and `.concurrency()` configure are filled by default plugins through two ports: `ENFORCEMENT` and `RESILIENCE`. The builder methods stay the same for route authors; what fills the position is a provider. `.cache()` is the exception: its policy is the framework's, and a plugin replaces only where the entries are kept, by providing a `CacheProvider` on `CACHE_STORE`. To replace one, provide the port and declare `replaces`:
 
 ```ts
 import { definePlugin, RESILIENCE, resilienceProvider } from '@routecraft/routecraft'
@@ -199,13 +199,13 @@ export const tracedRetry = definePlugin({
 
 A position cannot be moved, removed or added. A route that configures a position no installed plugin provides refuses to start with [`RC1111`](/docs/reference/errors#rc-1111). The positions and their order are described on the [Filter Chain](/docs/advanced/filter-chain) page.
 
-A replacement fills both scopes. The same methods called after `.from()` wrap a single step, and the wrapper resolves the same provider when the exchange runs: the run it hands the position carries `scope: 'step'` and the wrapped step's label instead of `'route'`, so one `retry` implementation serves a route and a step alike. `throttle` takes the scope as its second argument, and a step-scope `.cache()` goes through the `CACHE` provider's `wrap`.
+A replacement fills both scopes. The same methods called after `.from()` wrap a single step, and the wrapper resolves the same provider when the exchange runs: the run it hands the position carries `scope: 'step'` and the wrapped step's label instead of `'route'`, so one `retry` implementation serves a route and a step alike. `throttle` takes the scope as its second argument.
 
 Replacing a security-relevant port takes on what the default guaranteed. Decorating the exported default, as above, keeps it:
 
 - `AUTHORITY`: `isAuthentic` is true only for what the authority minted or branded, never for a restored record.
 - `ENFORCEMENT`: refusals keep their codes, and a door treats a refusal as the caller's only when the shipped gate raised it, so compose `enforcementProvider`'s gate rather than throwing your own.
-- `CACHE`: the default key carries the principal and the route, or one caller's cached body is served to another.
+- `CACHE_STORE`: an entry is returned only under the key it was stored under. The default key carries the principal and the route and is built by the framework, so a store cannot serve one caller's body to another by composing it wrongly. A custom `key` is used as written, so what it tells apart is the route author's choice.
 - `CONTINUATIONS`: the signer refuses a forged or expired token, and a missing secret is `RC5040` outside a named `NODE_ENV`.
 
 The application names every replaced port once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.

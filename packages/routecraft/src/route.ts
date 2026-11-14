@@ -301,8 +301,10 @@ export type RouteDefinition<T = unknown> = {
 
   /**
    * Route-scope `.cache()`: the `cacheCheck` position before the pipeline
-   * and the `cacheStore` position after it, both filled by the `CACHE`
-   * port's provider. A hit completes the exchange without the pipeline.
+   * and the `cacheStore` position after it. Both are the kernel's own, and
+   * keep their entries in the call site's `provider` when it names one,
+   * else in the application's `CACHE_STORE`. A hit completes the exchange
+   * without the pipeline.
    */
   readonly cache?: ResolvedCacheOptions;
 

@@ -404,13 +404,19 @@ export class PluginHost {
       }
       const replacer = replacers[0];
       if (replacer) {
-        this.replacements.push({
-          port,
-          by: replacer.id,
-          displaced: providers
-            .filter((entry) => entry !== replacer)
-            .map((entry) => entry.id),
-        });
+        const displaced = providers
+          .filter((entry) => entry !== replacer)
+          .map((entry) => entry.id);
+        const sibling =
+          displaced.length === 0
+            ? siblingProvider(port, ports, installed, replacer)
+            : undefined;
+        if (sibling) {
+          throw rcError("RC1119", undefined, {
+            message: `Plugin "${replacer.id}" replaces "${port.name}", but no other plugin provides it: plugin "${sibling.id}" provides "${sibling.port.name}", another version of the same port. The replacement displaces nobody and both would be installed. Build the replacement against "${sibling.port.name}".`,
+          });
+        }
+        this.replacements.push({ port, by: replacer.id, displaced });
       }
       this.provisions.set(key, {
         port,
@@ -423,7 +429,7 @@ export class PluginHost {
       for (const required of entry.plugin.requires ?? []) {
         if (!this.provisions.get(required.key)?.provider) {
           throw rcError("RC1104", undefined, {
-            message: `Plugin "${entry.id}" requires "${required.name}", which no installed plugin provides.`,
+            message: `Plugin "${entry.id}" requires "${required.name}", which no installed plugin provides.${otherVersion(siblingProvider(required, ports, installed))}`,
           });
         }
       }
@@ -536,10 +542,20 @@ export class PluginHost {
     if (!provision?.provided) {
       this.refuseForeignToken(port);
       throw rcError("RC1104", undefined, {
-        message: `${asker} needs "${port.name}", which no installed plugin provides.`,
+        message: `${asker} needs "${port.name}", which no installed plugin provides.${otherVersion(this.siblingProvision(port))}`,
       });
     }
     return provision.value as T;
+  }
+
+  /** A provided port that is another version of the one asked for. */
+  private siblingProvision(port: AnyPort): SiblingProvider | undefined {
+    for (const provision of this.provisions.values()) {
+      if (provision.provider && isOtherVersion(provision.port, port)) {
+        return { id: provision.provider.id, port: provision.port };
+      }
+    }
+    return undefined;
   }
 
   /** Like {@link require}, but `undefined` when nobody provides it. */
@@ -685,4 +701,47 @@ export class PluginHost {
     entry.context = context;
     return context;
   }
+}
+
+interface SiblingProvider {
+  readonly id: string;
+  readonly port: AnyPort;
+}
+
+/** `owner.capability`, the part of a port name its versions share. */
+function baseName(port: AnyPort): string {
+  return port.name.slice(0, port.name.lastIndexOf("@"));
+}
+
+function isOtherVersion(candidate: AnyPort, port: AnyPort): boolean {
+  return candidate.key !== port.key && baseName(candidate) === baseName(port);
+}
+
+/**
+ * An installed plugin providing another version of a port. Asked on behalf
+ * of a replacer, the plugin itself is not a sibling: one plugin shipping two
+ * versions of its contract is the migration the version rule exists for.
+ */
+function siblingProvider(
+  port: AnyPort,
+  ports: ReadonlyMap<symbol, AnyPort>,
+  installed: readonly InstalledPlugin[],
+  replacer?: InstalledPlugin,
+): SiblingProvider | undefined {
+  const replaced = new Set(replacer?.plugin.replaces?.map((p) => p.key));
+  for (const [key, candidate] of ports) {
+    if (!isOtherVersion(candidate, port) || replaced.has(key)) continue;
+    const provider = installed.find(
+      (entry) => entry !== replacer && entry.provides.has(key),
+    );
+    if (provider) return { id: provider.id, port: candidate };
+  }
+  return undefined;
+}
+
+/** The sentence an RC1104 ends with when another version is installed. */
+function otherVersion(sibling: SiblingProvider | undefined): string {
+  return sibling
+    ? ` Plugin "${sibling.id}" provides "${sibling.port.name}", another version of the same port: the two are different contracts, so one side has to move to the other's version.`
+    : "";
 }

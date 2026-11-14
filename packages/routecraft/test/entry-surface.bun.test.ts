@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import ts from "typescript";
+import { repoRoot, typeProgram } from "./helpers/type-program.ts";
 import * as entry from "../src/index.ts";
-
-const repoRoot = new URL("../../../", import.meta.url).pathname;
 
 /** What the 0.8 defer contract took off the entry; each has a public replacement or none. */
 const REMOVED = [
@@ -29,20 +28,8 @@ describe("the main entry's surface", () => {
    * @expectedResult No export's declaration carries an `@internal` tag, so a sibling package or a third party importing from the entry can only reach public names
    */
   test("exports no @internal declaration", () => {
-    const parsed = ts.getParsedCommandLineOfConfigFile(
-      join(repoRoot, "tsconfig.bun-test.json"),
-      {},
-      {
-        ...ts.sys,
-        onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
-          throw new Error(
-            ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
-          );
-        },
-      },
-    );
     const file = join(repoRoot, "packages/routecraft/src/index.ts");
-    const program = ts.createProgram([file], parsed!.options);
+    const program = typeProgram([file]);
     const checker = program.getTypeChecker();
     const module = checker.getSymbolAtLocation(program.getSourceFile(file)!)!;
     const exported = checker.getExportsOfModule(module);
