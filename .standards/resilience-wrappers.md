@@ -114,7 +114,7 @@ that state its identity: `wrapperKind`, a stable name, and
 `identityOptions()`, returning the options the wrapper was built with.
 
 A wrapper that is a chain position at route scope (`retry`, `timeout`,
-`circuitBreaker`, `concurrency`, `throttle`, `cache`) holds no behaviour
+`circuitBreaker`, `concurrency`, `throttle`) holds no behaviour
 of its own: the behaviour is the provider's position, and the wrapper
 resolves the provider through the port when the exchange runs
 (both helpers live in `operations/position-run.ts` and build once per
@@ -122,9 +122,11 @@ application, except the throttle position, which `positionFor` builds once
 per route through `perRoute` because its gate bakes the route id into its
 events). `runStepPosition` resolves a `Position` from `RESILIENCE` and
 runs it with a `PositionRun` whose `attempt` is the wrapped step and whose
-`scope` is `"step"`; the cache wrapper resolves its position from `CACHE`
-through `positionFor` and runs it with a `CacheRun`, that port's own run
-shape. A step-scope wrapper declares the port it depends on through
+`scope` is `"step"`. The cache wrapper is the kernel's own at both scopes:
+it binds its store with `bindCacheStore` (the call site's `provider`, else
+the `CACHE_STORE` port, else an in-memory store per application) and runs
+the policy itself, so it declares no required position. A resilience
+wrapper declares the port it depends on through
 `WrapperStep.requiredPosition`; the route checks at start that a provider
 for it is installed (`RC1111` otherwise, nested sub-pipelines and wrapper
 stacks included) and resolves the provider on first use, so the position's
@@ -352,8 +354,8 @@ accordingly.
   refused at build on a
   route whose pipeline contains `.authenticate()`, because a hit would
   skip it. Route scope is
-  configured on `RouteDefinition.cache` and filled by the `CACHE`
-  provider as the `cache-check` (position #9) and `cache-store`
+  configured on `RouteDefinition.cache` and run by the kernel over the
+  `CACHE_STORE` store as the `cache-check` (position #9) and `cache-store`
   (position #10) steps; see
   [Pre-from Filter Chain](./pre-from-filter-chain.md) for the full
   composition contract. Routes with an unbalanced `.split()` (no

@@ -80,22 +80,37 @@ export interface ResolvedRetryOptions {
 }
 
 /**
- * Default `retryOn` predicate: a `RoutecraftError` registered (or
- * overridden) as `retryable: false` is not re-attempted; every other
- * error is. Unknown third-party errors are retried (optimistic
- * default).
+ * Whether a failure is worth another attempt: a `RoutecraftError`
+ * registered (or overridden) as `retryable: false` is not, every other
+ * error is. An error Routecraft does not know is treated as transient.
+ *
+ * This is the rule `.retry()` and `.circuitBreaker()` apply by default, so
+ * a custom `retryOn` can extend it instead of restating it.
+ *
+ * @example
+ * ```ts
+ * .retry({ retryOn: (e) => isTransient(e) && !isQuotaExceeded(e) })
+ * ```
+ */
+export function isTransient(error: Error): boolean {
+  return isRoutecraftError(error) ? error.retryable !== false : true;
+}
+
+/**
+ * Default `retryOn` predicate: {@link isTransient} under a stable identity.
  *
  * @internal
  */
 export const defaultRetryOn = identified(
-  (error: Error): boolean => {
-    if (isRoutecraftError(error)) {
-      return error.retryable !== false;
-    }
-    return true;
-  },
+  (error: Error): boolean => isTransient(error),
   { kind: "routecraft.retry.defaultRetryOn", version: 1 },
 );
+
+/**
+ * Why a retry loop gave up: the attempts ran out, `retryOn` refused the
+ * error, or the route stopped during the backoff.
+ */
+export type RetryStopReason = "exhausted" | "not-retryable" | "aborted";
 
 /**
  * Resolve user-supplied {@link RetryOptions} into a fully populated
@@ -188,8 +203,16 @@ export interface RetryHooks {
    * not the Error normalised for the `retryOn` check.
    */
   onAttempt(attemptNumber: number, waitMs: number, lastError: unknown): void;
-  /** Final outcome. `error` is the final raw thrown value on failure. */
-  onStopped(attemptNumber: number, success: boolean, error?: unknown): void;
+  /**
+   * Final outcome. On failure `error` is the final raw thrown value and
+   * `reason` says why no further attempt was made.
+   */
+  onStopped(
+    attemptNumber: number,
+    success: boolean,
+    error?: unknown,
+    reason?: RetryStopReason,
+  ): void;
 }
 
 /**
@@ -224,8 +247,14 @@ export async function executeWithRetry<R>(
       return result;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      if (attemptNumber >= options.maxAttempts || !options.retryOn(error)) {
-        hooks.onStopped(attemptNumber, false, err);
+      // A refused error is reported as refused even on the last attempt:
+      // more attempts would not have changed the outcome.
+      if (!options.retryOn(error)) {
+        hooks.onStopped(attemptNumber, false, err, "not-retryable");
+        throw err;
+      }
+      if (attemptNumber >= options.maxAttempts) {
+        hooks.onStopped(attemptNumber, false, err, "exhausted");
         throw err;
       }
       // base * factor^(n-1), clamped to maxBackoffMs. A zero base stays
@@ -250,7 +279,7 @@ export async function executeWithRetry<R>(
         if (!(sleepErr instanceof SleepAbortedError)) throw sleepErr;
         // Shutdown during backoff: surface the last real failure
         // instead of attempting work on a stopping route.
-        hooks.onStopped(attemptNumber, false, err);
+        hooks.onStopped(attemptNumber, false, err, "aborted");
         throw err;
       }
     }

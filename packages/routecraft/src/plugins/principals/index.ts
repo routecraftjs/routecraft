@@ -2,11 +2,7 @@ import { authenticate } from "../../auth/authenticate.ts";
 import { isAuthentic, markAuthentic } from "../../auth/authentic.ts";
 import { isRestored, markRestored } from "../../auth/restored.ts";
 import { principalOf } from "../../exchange.ts";
-import {
-  AUTHORITY,
-  setFallbackAuthority,
-  type Authority,
-} from "../../kernel/authority.ts";
+import { AUTHORITY, type Authority } from "../../kernel/authority.ts";
 import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import { definePlugin } from "../../kernel/plugin.ts";
 
@@ -36,5 +32,4 @@ export function principalsPlugin() {
   });
 }
 
-setFallbackAuthority(defaultAuthority);
 registerShippedPlugin(principalsPlugin, { default: true });

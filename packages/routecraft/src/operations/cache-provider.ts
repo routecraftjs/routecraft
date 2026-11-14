@@ -133,7 +133,7 @@ export interface MemoryCacheProviderOptions {
  * Promise map for stampede protection.
  *
  * Two instances are independent stores; the framework does not share
- * state across `MemoryCacheProvider` instances. The default `CACHE` plugin
+ * state across `MemoryCacheProvider` instances. The default cache plugin
  * keeps one per application for every `.cache()` call that does not supply
  * its own provider, so two applications in one process never read each
  * other's entries.

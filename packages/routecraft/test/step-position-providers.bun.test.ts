@@ -7,7 +7,7 @@ import {
   rcCodeOf,
   when,
   otherwise,
-  CACHE,
+  CACHE_STORE,
   RESILIENCE,
   type RouteBuilder,
 } from "@routecraft/routecraft";
@@ -71,33 +71,34 @@ describe("step-scope positions are validated at route start", () => {
   });
 
   /**
-   * @case A missing CACHE provider fails start at both scopes of .cache()
-   * @preconditions The default cache plugin is displaced by an empty descriptor; one route places .cache() before .from(), another after it
-   * @expectedResult Both contexts refuse to start with RC1111 naming .cache() and the routecraft.cache port
+   * @case An application with no cache store still caches
+   * @preconditions The default cache plugin is displaced by an empty descriptor, so nothing provides CACHE_STORE; one route places .cache() before .from(), another after it
+   * @expectedResult Both applications start and serve the second call from the cache: the policy is the kernel's, and without a store it keeps the entries in memory per application
    */
-  test(".cache() at route scope and step scope both fail start with RC1111", async () => {
+  test(".cache() at both scopes runs without a provided store", async () => {
+    let runs = 0;
+    const work = () => {
+      runs++;
+      return "ok";
+    };
     const routes: Record<string, RouteBuilder> = {
-      route: craft()
-        .id("work")
-        .cache()
-        .from(direct())
-        .transform(() => "ok"),
-      step: craft()
-        .id("work")
-        .from(direct())
-        .cache()
-        .transform(() => "ok"),
+      route: craft().id("work").cache().from(direct()).transform(work),
+      step: craft().id("work").from(direct()).cache().transform(work),
     };
     for (const [scope, route] of Object.entries(routes)) {
+      runs = 0;
       t = await testContext()
         .with({ plugins: [without("routecraft.cache")] })
         .routes([route])
         .build();
-      const failure = await startFailure(t);
-      expect([scope, failure.code]).toEqual([scope, "RC1111"]);
-      expect(failure.message).toContain(".cache()");
-      expect(failure.message).toContain(CACHE.name);
-      await t.stop().catch(() => undefined);
+      await t.startAndWaitReady();
+      expect(t.ctx.lookup(CACHE_STORE)).toBeUndefined();
+
+      await t.client.sendDirect("work", "a");
+      await t.client.sendDirect("work", "a");
+
+      expect([scope, runs]).toEqual([scope, 1]);
+      await t.stop();
       t = undefined;
     }
   });

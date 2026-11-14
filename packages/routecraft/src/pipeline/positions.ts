@@ -1,12 +1,9 @@
 import { rcError } from "../error.ts";
 import type { AnyPort, Port, PortLookup } from "../kernel/port.ts";
-import {
-  CACHE,
-  ENFORCEMENT,
-  RESILIENCE,
-  type Position,
-} from "../kernel/positions.ts";
+import { ENFORCEMENT, RESILIENCE, type Position } from "../kernel/positions.ts";
 import type { RouteDefinition } from "../route.ts";
+import { bindCacheStore } from "../operations/cache-wrapper.ts";
+import { buildCacheCheckStep, buildCacheStoreStep } from "./synthetic-steps.ts";
 import type { Adapter, Step } from "../types.ts";
 
 /**
@@ -133,8 +130,12 @@ export function compilePositions(
     ),
     ...(cache
       ? {
-          cacheCheck: provider(CACHE, "cache", "check").check(cache),
-          cacheStore: provider(CACHE, "cache", "store").store(cache),
+          cacheCheck: buildCacheCheckStep(
+            bindCacheStore(cache, context, definition),
+          ),
+          cacheStore: buildCacheStoreStep(
+            bindCacheStore(cache, context, definition),
+          ),
         }
       : {}),
   };

@@ -111,28 +111,28 @@ describe("HTTP MCP clients reuse one connection", () => {
   /**
    * @case A second 404 on the resent call is a failure, not another resend
    * @preconditions The remote answers every tools/call with the stale-session 404, while its handshake still succeeds
-   * @expectedResult The call fails with RC5003 after one reconnect, the remote saw the call and its one resend, and no third attempt
+   * @expectedResult The call fails with RC5014 after one reconnect, the remote saw the call and its one resend, and no third attempt
    */
   test("a second 404 fails", async () => {
     const { remote, service } = await start();
     remote.staleOnEveryCall();
     await expect(
       dispatchMcpCall(service, "remote", "echo", {}),
-    ).rejects.toMatchObject({ rc: "RC5003" });
+    ).rejects.toMatchObject({ rc: "RC5014" });
     expect(remote.counts).toMatchObject({ initialize: 2, stale: 2 });
   });
 
   /**
    * @case An HTTP error status is reported, not resent, and keeps the connection
    * @preconditions The remote answers the next tools/call with HTTP 500
-   * @expectedResult The call fails with RC5003, the remote ran no second attempt, and the next call reuses the session (no new initialize)
+   * @expectedResult The call fails with RC5010, the remote ran no second attempt, and the next call reuses the session (no new initialize)
    */
   test("an HTTP error status keeps the connection without a resend", async () => {
     const { remote, service } = await start();
     remote.failNextCall();
     await expect(
       dispatchMcpCall(service, "remote", "echo", {}),
-    ).rejects.toMatchObject({ rc: "RC5003" });
+    ).rejects.toMatchObject({ rc: "RC5010" });
     expect(remote.counts).toMatchObject({ initialize: 1, call: 1 });
     expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");
     expect(remote.counts).toMatchObject({ initialize: 1, call: 2 });
@@ -141,14 +141,14 @@ describe("HTTP MCP clients reuse one connection", () => {
   /**
    * @case A failure with no answer is reported, not resent, and evicts the connection
    * @preconditions The next tools/call fails before the remote answers, as a refused socket does
-   * @expectedResult The call fails with RC5003 and nothing reached the tool; the next call reconnects
+   * @expectedResult The call fails with RC5010 and nothing reached the tool; the next call reconnects
    */
   test("a failure without an answer evicts without a resend", async () => {
     const { remote, service } = await start();
     remote.throwNextCall();
     await expect(
       dispatchMcpCall(service, "remote", "echo", {}),
-    ).rejects.toMatchObject({ rc: "RC5003" });
+    ).rejects.toMatchObject({ rc: "RC5010" });
     expect(remote.counts).toMatchObject({ initialize: 1, call: 0 });
     expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");
     expect(remote.counts.initialize).toBe(2);
@@ -169,7 +169,7 @@ describe("HTTP MCP clients reuse one connection", () => {
     remote.throwNextCall();
     await expect(
       dispatchMcpCall(service, "remote", "echo", {}),
-    ).rejects.toMatchObject({ rc: "RC5003" });
+    ).rejects.toMatchObject({ rc: "RC5010" });
     remote.releaseSlow();
     expect(await slow).toBe("slow done");
     expect(await dispatchMcpCall(service, "remote", "echo", {})).toBe("pong");

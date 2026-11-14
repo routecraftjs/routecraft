@@ -7,6 +7,7 @@ import type { OnParseError } from "./adapters/shared/parse.ts";
 import type { DeferTicket } from "./kernel/continuation/sites.ts";
 import type { DeferHandle, ResumeFn } from "./kernel/continuation/handles.ts";
 import type { ForwardFn } from "./route.ts";
+import type { RetryStopReason } from "./operations/retry-wrapper.ts";
 import { rcError } from "./error.ts";
 import type { PrincipalRef } from "./kernel/continuation/types.ts";
 
@@ -826,6 +827,14 @@ export interface EventDetailsMap {
      * last failure when shutdown interrupted the backoff).
      */
     error?: unknown;
+    /**
+     * Present when `success` is false: why no further attempt was made.
+     * `not-retryable` means `retryOn` refused the error, so a retry that
+     * never re-attempted is visible rather than silent.
+     */
+    reason?: RetryStopReason;
+    /** The final error's `RC` code, when it is a `RoutecraftError`. */
+    code?: string;
   };
 
   // -- Delay (step-scope wrapper) --

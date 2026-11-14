@@ -10,6 +10,7 @@ import { clipText } from "@routecraft/routecraft/internal";
 import "../errors.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
 import { extractContent } from "./extract-content.ts";
+import { transportFailure } from "./transport-failure.ts";
 import type { McpPinRefusal } from "./pins.ts";
 import type { McpService } from "./port.ts";
 import type { McpHttpConnections } from "./http-connections.ts";
@@ -50,9 +51,11 @@ export interface McpCallTrace {
  *   holds a call costs no handshake and a stateful remote sees one
  *   session per client.
  *
- * Throws `RC5003` when the server is not registered, when a stdio
+ * Throws `RC5003` when the server is not registered, or when a stdio
  * server is registered but its manager is absent (mcpPlugin
- * teardown raced ahead, etc.), or when an HTTP call fails.
+ * teardown raced ahead, etc.). A call that fails on the wire throws the
+ * code {@link transportFailure} gives it: retryable for a timeout, a lost
+ * connection or a rate limit, final for a refused credential.
  *
  * @internal
  */
@@ -324,9 +327,10 @@ export async function dispatchMcpCallRaw(
       return await manager.callToolRaw(toolName, args, meta);
     } catch (cause) {
       if (isRoutecraftError(cause)) throw cause;
-      throw rcError("RC5003", cause, {
-        message: `mcp dispatch: stdio call to "${serverId}:${toolName}" failed.`,
-      });
+      throw transportFailure(
+        cause,
+        `mcp dispatch: stdio call to "${serverId}:${toolName}" failed.`,
+      );
     }
   }
 
@@ -335,9 +339,10 @@ export async function dispatchMcpCallRaw(
     return await connections.callTool(serverId, http, toolName, args, meta);
   } catch (cause) {
     if (isRoutecraftError(cause)) throw cause;
-    throw rcError("RC5003", cause, {
-      message: `mcp dispatch: failed to call tool "${toolName}" on client "${serverId}".`,
-    });
+    throw transportFailure(
+      cause,
+      `mcp dispatch: failed to call tool "${toolName}" on client "${serverId}".`,
+    );
   }
 }
 
@@ -416,17 +421,11 @@ export async function callRemoteToolRaw(
       ...(meta !== undefined ? { _meta: meta } : {}),
     })) as McpRawToolResult;
   } catch (cause) {
-    // Wrap SDK / transport / network errors as RC5003 with the original
-    // attached as `cause`, matching the Error and Logging Policy
-    // (`level 1`: throw rcError with the right framework code so the
-    // dispatch boundary always surfaces an MCP-tagged error rather than
-    // a bare TypeError or SDK-specific class). `RoutecraftError`s
-    // thrown by called helpers pass through unchanged so caller-facing
-    // error codes are preserved.
     if (isRoutecraftError(cause)) throw cause;
-    throw rcError("RC5003", cause, {
-      message: `mcp dispatch: failed to call tool "${toolName}" at "${serverUrl}".`,
-    });
+    throw transportFailure(
+      cause,
+      `mcp dispatch: failed to call tool "${toolName}" at "${serverUrl}".`,
+    );
   } finally {
     // `connection` stays undefined when URL parsing or the handshake threw;
     // a failed handshake already closed its own transport. Cleanup errors are

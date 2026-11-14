@@ -106,6 +106,21 @@ name under another key is `RC1103`, at install when a plugin declares it
 and at lookup when it is presented at runtime. A plugin requires a
 capability, never a plugin.
 
+**The version is a promise.** From the 0.8.0 release the value a consumer
+reads under `name@N` keeps its shape for as long as that name exists.
+Removing or retyping a member, adding a member a provider must implement, or
+changing what a member means ships as `name@N+1`, declared as a new token
+beside or instead of the old one. Two versions of one port are two ports: a
+`replaces` naming a version nobody provides while a sibling version is
+installed is `RC1119`, and an unmet `requires` names the installed sibling
+in `RC1104`. `test/port-contracts.bun.test.ts` holds every port exported
+from an entry against a committed snapshot of its value type's members, so a
+change of shape fails until the version is bumped and the snapshot
+regenerated (`UPDATE_PORT_CONTRACTS=1`). The snapshot reads one level:
+a change inside a type a member names is the reviewer's to catch.
+`RESILIENCE@1` and `ENFORCEMENT@1` are provisional and outside the promise;
+see [API Stability](./api-stability.md#port-versions).
+
 One copy of the kernel per process is the supported configuration. Ports
 resolve across copies, but the bindings a door trusts for a refusal
 (`RC5068`, `RC5065`, `RC5049`, `RC5038`) are module-local, so a refusal
@@ -194,9 +209,9 @@ The chain around every route has a fixed order. Two kinds of place:
 | `throttle`, `circuitBreaker`, `retry` | positions | `RESILIENCE`                                 |
 | `perAttempt`                          | slot      | wrappers                                     |
 | `timeout`, `concurrency`              | positions | `RESILIENCE`                                 |
-| `cacheCheck`                          | position  | `CACHE`                                      |
+| `cacheCheck`                          | position  | the kernel, over `CACHE_STORE` |
 | the pipeline                          |           | the route's steps                            |
-| `cacheStore`                          | position  | `CACHE`                                      |
+| `cacheStore`                          | position  | the kernel, over `CACHE_STORE` |
 | `exit`                                | slot      | hooks, over completed exchanges only         |
 
 ### Phases and order
@@ -363,7 +378,7 @@ a step of yours, is seen the same way.
 | ------------------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------- |
 | `routecraft.direct`                                                      | `DIRECT` (endpoint registry, options)                                |                                                   |
 | `routecraft.resilience`                                                  | `RESILIENCE` (throttle, circuitBreaker, retry, timeout, concurrency) |                                                   |
-| `routecraft.cache`                                                       | `CACHE`                                                              |                                                   |
+| `routecraft.cache`                                                       | `CACHE_STORE` (where `.cache()` keeps its entries) |                                                   |
 | `routecraft.principals`                                                  | `AUTHORITY` (mint, brand, isAuthentic, restore, isRestored, read)    |                                                   |
 | `routecraft.auth`                                                        | `ENFORCEMENT`                                                        | steps `authenticate`, `delegate`; facet `ex.auth` |
 | `routecraft.credentials`                                                 | `CREDENTIALS` (upstream credentials by owner, compare-and-swap)      |                                                   |
@@ -395,13 +410,13 @@ position whose provider is missing refuses to start (`RC1111`).
 Replacing a security-relevant port moves the invariants written against the
 shipped provider. The kernel keeps what it can enforce structurally; the rest
 is the replacement's obligation, and delegating to the exported default
-(`defaultAuthority`, `enforcementProvider`, `cacheProvider`) keeps it.
+(`defaultAuthority`, `enforcementProvider`) keeps it.
 
 | Port            | The kernel still guarantees                                                                                                               | The replacement must guarantee                                                                                                                                                                                                                                                                                                              |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AUTHORITY`     | every mint, brand, restore and trust check goes through the one provider (`authorityOf`); restored principals come back through `restore` | `isAuthentic` is true only for what it minted or branded, and never for a `restore`d record (`keep()` and `delegate()` trust on `isAuthentic` alone); `restore` returns a new object `isRestored` recognises                                                                                                                                |
 | `ENFORCEMENT`   | the position runs where the chain puts it, and on the run kinds `CHAIN_SURVIVAL` allows                                                   | the refusal codes keep their meaning (`RC5012` no principal, `RC5023` not authentic, `RC5043` restored, `RC5015` role or predicate, `RC5038` scope, `RC5034`-`RC5036` actor); a door maps a refusal to the caller only when it was bound to the exchange at the raise site with `authorizationRefusal(exchange, error)`, which the shipped gate uses, so a replacement binds the refusals it raises itself or composes `enforcementProvider`'s gate |
-| `CACHE`         | check runs after `authorize` and `input`, store after the pipeline                                                                        | the default key carries the principal and the route, or one caller's cached body serves another                                                                                                                                                                                                                                             |
+| `CACHE_STORE` | the whole policy: the key (principal and route included), `when`, which outcomes are stored, the restore and the events; check after `authorize` and `input`, store after the pipeline | an entry is returned only under the key it was stored under, and `getOrCompute` runs one loader per key |
 | `CONTINUATIONS` | the door order, the compare-and-swap, the continuation hash, the outcome cache and expiry through the error channel                       | the signer refuses a forged or expired token, and the secret policy holds: no secret is `RC5040` outside a named `NODE_ENV`                                                                                                                                                                                                                 |
 
 The application names every replaced port at boot, at warn for `AUTHORITY`
@@ -567,6 +582,7 @@ The rows the design left open, decided:
 | RC1116 | two plugins declare one step, or a step shadows a builder method                                                                                                                                                                                  |
 | RC1117 | an invalid plugin descriptor: a missing plugin or hook id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what only a single install may: `provides`, `replaces`, `hooks`, `points`, `steps` or a `facet` |
 | RC1118 | a `bind` or `start` hook awaited `c.execution.whenStarted()`, which resolves only once every hook returned, so the hook was waiting on itself |
+| RC1119 | a `replaces` that displaces nobody while an installed plugin provides the same `owner.capability` at another version |
 | RC5068 | a `validate` hook or a route's `.validate()` step refused the exchange with `refuse()`                                                                                                                                                             |
 
 ## Related

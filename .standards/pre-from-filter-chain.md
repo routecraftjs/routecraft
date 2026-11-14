@@ -52,10 +52,12 @@ As of 0.8 (see [plugin-architecture.md](./plugin-architecture.md) section 3):
 - **Providers fill the positions per application.** When a route compiles
   (before any route starts), `compilePositions()` in
   `packages/routecraft/src/pipeline/positions.ts` asks the application's
-  `RESILIENCE`, `CACHE` and `ENFORCEMENT` providers for each configured
-  position. The defaults (`routecraft.resilience`, `routecraft.cache`,
-  `routecraft.auth`) are installed in every application; a plugin that
-  `replaces` the port fills the position instead. A configured position
+  `RESILIENCE` and `ENFORCEMENT` providers for each configured position,
+  and builds the two cache positions itself over the store `CACHE_STORE`
+  provides. The defaults (`routecraft.resilience`, `routecraft.auth`,
+  and `routecraft.cache` for the store) are installed in every
+  application; a plugin that `replaces` a port fills the position, or
+  holds the entries, instead. A configured position
   with no provider is `RC1111` and the application does not start. A
   breaker's window and a bulkhead's slots are built once per route by the
   provider, so they are the route's own.

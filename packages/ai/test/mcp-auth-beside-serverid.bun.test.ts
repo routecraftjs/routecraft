@@ -105,7 +105,7 @@ describe("mcp() auth beside serverId", () => {
     capture.seen.length = 0;
     await expect(
       dispatchMcpCall(t.ctx.lookup(MCP), "remote", "echo", {}),
-    ).rejects.toMatchObject({ rc: "RC5003" });
+    ).rejects.toMatchObject({ rc: "RC5010" });
     expect(capture.seen.length).toBeGreaterThan(0);
     expect(new Set(capture.seen)).toEqual(new Set(["Bearer token-a"]));
   });
