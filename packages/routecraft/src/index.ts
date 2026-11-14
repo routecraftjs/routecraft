@@ -344,7 +344,7 @@ export {
   isSplitChild,
 } from "./operations/split.ts";
 
-export { type Aggregator } from "./operations/aggregate.ts";
+export { type Aggregator, failedChildrenOf } from "./operations/aggregate.ts";
 
 export {
   type Transformer,

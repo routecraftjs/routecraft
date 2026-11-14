@@ -15,6 +15,8 @@ import {
   peekRevival,
   setRevival,
   getStartedAt,
+  splitGroupOf,
+  splitHierarchyOf,
   setStartedAt,
   emitExchangeStarted,
   emitExchangeCompleted,
@@ -43,6 +45,11 @@ import { DeferralHeaders } from "../kernel/continuation/exchange-state.ts";
 import { insufficientAuthorityOf } from "../authorization-refusal.ts";
 import { parseDuration } from "../shared/duration.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
+import {
+  failedChildrenOf,
+  joinFailure,
+  type FailedChild,
+} from "../operations/aggregate.ts";
 import { processError, rcError, type RoutecraftError } from "../error.ts";
 import {
   type Adapter,
@@ -337,7 +344,7 @@ export async function runPipeline(
   const seenChildExchanges = new Set<string>();
   const childStartTimes = new Map<string, number>();
   const failedChildExchanges = new Set<string>();
-  const groupFailures = new Map<string, ChildFailure[]>();
+  const groupFailures = new Map<string, FailedChild[]>();
   /**
    * Record a split child that failed with nothing handling it. When a join
    * follows, the child is parked at it, so the join still happens (and
@@ -346,12 +353,15 @@ export async function runPipeline(
   const noteChildFailure = (
     child: Exchange,
     error: RoutecraftError,
+    failedAt: Step<Adapter>,
     remaining: Step<Adapter>[],
   ): void => {
     failedChildExchanges.add(child.id);
     const group = splitGroupOf(child);
     if (group === undefined) return;
-    const join = joinIndex(remaining);
+    // A split that failed opened no group, so its own aggregate is not this child's join.
+    const depth = failedAt.operation === OperationType.SPLIT ? 1 : 0;
+    const join = joinIndex(remaining, depth);
     if (join < 0) return;
     const failures = groupFailures.get(group) ?? [];
     failures.push({ exchangeId: child.id, error });
@@ -512,7 +522,6 @@ export async function runPipeline(
       // Siblings still on their way to the join finish their own steps first.
       const stillRunning = queue.some(
         (entry) =>
-          !entry.failed &&
           entry.steps[0] !== step &&
           splitHierarchyOf(entry.exchange).includes(joined),
       );
@@ -538,28 +547,18 @@ export async function runPipeline(
         routeId: deps.routeId,
         exchangeId: exchange.id,
         correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-        operation: step.label ?? step.operation,
+        operation: step.operation,
       });
       for (const child of arrived) {
         emitExchangeCompleted(
           deps.context,
           deps.routeId,
           child,
-          Date.now() - (childStartTimes.get(child.id) ?? startTime),
+          Date.now() - (getStartedAt(child) ?? startTime),
         );
       }
       groupFailures.delete(joined);
-      childFailure = rcError("RC5001", failures[0].error, {
-        message:
-          failures.length +
-          " of the children of a split failed, so the aggregate after it did not run",
-        suggestion:
-          "Read the cause for the first child's error. To accept a partial result, handle the failure on the child's path with .error().",
-      });
-      failedChildrenOf.set(
-        childFailure,
-        failures.map((failure) => failure.exchangeId),
-      );
+      childFailure = joinFailure(failures);
     }
 
     // Prefer the DSL label (e.g., "log") over the raw OperationType (e.g., "tap")
@@ -832,9 +831,9 @@ export async function runPipeline(
           if (decided) {
             settle(decided);
           } else {
-            announceFailure(deps, exchange, handlerErr, duration);
+            announceFailure(deps, exchange, handlerErr, duration, err);
             if (exchange.id !== parentExchangeId) {
-              noteChildFailure(exchange, handlerErr, remainingSteps);
+              noteChildFailure(exchange, handlerErr, step, remainingSteps);
             } else {
               failed = true;
               stepError = handlerErr;
@@ -891,7 +890,7 @@ export async function runPipeline(
       );
       announceFailure(deps, exchange, err, duration);
       if (exchange.id !== parentExchangeId) {
-        noteChildFailure(exchange, err, remainingSteps);
+        noteChildFailure(exchange, err, step, remainingSteps);
       } else {
         failed = true;
         stepError = err;
@@ -908,10 +907,8 @@ export async function runPipeline(
       if (preExistingGroups.has(groupId)) continue;
       const parentEx = parentMap.get(groupId);
       if (parentEx) {
-        const hierarchy = parentEx.headers[HeadersKeys.SPLIT_HIERARCHY] as
-          string[] | undefined;
         // Only clean up groups that are NOT part of a nested hierarchy
-        if (!hierarchy || !hierarchy.includes(groupId)) {
+        if (!splitHierarchyOf(parentEx).includes(groupId)) {
           parentMap.delete(groupId);
         }
       }
@@ -939,28 +936,11 @@ interface QueueEntry {
   failed?: true;
 }
 
-interface ChildFailure {
-  exchangeId: string;
-  error: RoutecraftError;
-}
-
-/** The children behind a join's failure, keyed by the error the join raised. */
-const failedChildrenOf = new WeakMap<RoutecraftError, readonly string[]>();
-
-function splitHierarchyOf(exchange: Exchange): readonly string[] {
-  return (
-    (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[] | undefined) ??
-    []
-  );
-}
-
-function splitGroupOf(exchange: Exchange): string | undefined {
-  return splitHierarchyOf(exchange).at(-1);
-}
-
-/** Where the join of the innermost open split sits in `steps`, or -1. */
-function joinIndex(steps: readonly Step<Adapter>[]): number {
-  let depth = 0;
+/**
+ * Where the join of the innermost open split sits in `steps`, or -1.
+ * `depth` counts splits already opened ahead of `steps`.
+ */
+function joinIndex(steps: readonly Step<Adapter>[], depth = 0): number {
   for (let i = 0; i < steps.length; i++) {
     const operation = steps[i].operation;
     if (operation === OperationType.SPLIT) depth++;
@@ -1822,6 +1802,8 @@ function announceFailure(
   exchange: Exchange,
   error: RoutecraftError,
   duration: number,
+  /** The failure a handler was asked about, when `error` is what the handler threw. */
+  handled?: RoutecraftError,
 ): void {
   deps.context.emit(
     "route:error",
@@ -1844,7 +1826,7 @@ function announceFailure(
     exchange,
     duration,
     error,
-    failedChildrenOf.get(error),
+    failedChildrenOf(error) ?? failedChildrenOf(handled),
   );
 }
 

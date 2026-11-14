@@ -11,6 +11,7 @@ import {
   direct,
   isDeferred,
   noop,
+  failedChildrenOf,
   recovery,
   isRecovery,
   type CraftConfig,
@@ -560,7 +561,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
         craft()
           .id("fanned")
           .error((error) =>
-            (error as Error).message.includes("aggregate")
+            failedChildrenOf(error)
               ? recovery.rethrow()
               : recovery.defer({
                   ttl: "1h",

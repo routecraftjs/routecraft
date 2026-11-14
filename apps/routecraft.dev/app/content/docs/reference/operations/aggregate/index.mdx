@@ -46,4 +46,20 @@ A child can miss the aggregate in three ways, and they are not the same outcome:
 | It failed and a handler recovered or dropped it | Joins the others. The handler decided. |
 | It failed and nothing handled it | Does not run. The parent exchange fails with [`RC5001`](/docs/reference/errors#rc-5001). |
 
-In the last case the siblings still finish their own steps first. The parent's error carries the first child's error as its `cause`, and `route:exchange:failed` lists the ids of the failed children in `failedChildren`. The route's `.error()` handler is asked about the parent's failure like any other, so a route that wants a partial answer says so there or on the child's path.
+In the last case the siblings still finish their own steps first. The parent's error carries the first child's error as its `cause`, and `route:exchange:failed` lists the ids of the failed children in `failedChildren`. The parent's error is retryable only when every failed child's is. The route's `.error()` handler is asked about the parent's failure like any other, so a route that wants a partial answer says so there or on the child's path. `failedChildrenOf(error)` returns the failed children's ids for this failure and `undefined` for any other:
+
+```ts
+import { craft, direct, failedChildrenOf, recovery } from '@routecraft/routecraft'
+
+export default craft()
+  .id('price-order')
+  .error((error) =>
+    failedChildrenOf(error) ? { priced: false } : recovery.rethrow(),
+  )
+  .from(direct())
+  .split()
+  .to(direct('price-check'))
+  .aggregate()
+```
+
+A child that fails ahead of a `.choice()` whose branch holds the aggregate is not joined to it, and is left out as before.

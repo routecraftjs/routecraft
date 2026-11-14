@@ -15,6 +15,7 @@ import {
   type ExchangeHeaders,
   OperationType,
   HeadersKeys,
+  splitHierarchyOf,
   DefaultExchange,
   getExchangeContext,
   getExchangeRoute,
@@ -209,9 +210,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     }
     parentMap.set(groupId, exchange);
 
-    const existingHierarchy =
-      (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[]) || [];
-    const splitHierarchy = [...existingHierarchy, groupId];
+    const splitHierarchy = [...splitHierarchyOf(exchange), groupId];
 
     const children: Exchange<R>[] = [];
     for (const result of splitResults) {

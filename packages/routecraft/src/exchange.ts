@@ -947,6 +947,27 @@ export function setStartedAt(exchange: Exchange, ts: number): void {
  *
  * @internal
  */
+export function splitHierarchyOf(exchange: Exchange): readonly string[] {
+  return (
+    (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[] | undefined) ??
+    []
+  );
+}
+
+/**
+ * The split group an exchange is a child of: the innermost open split.
+ *
+ * @internal
+ */
+export function splitGroupOf(exchange: Exchange): string | undefined {
+  return splitHierarchyOf(exchange).at(-1);
+}
+
+/**
+ * When the exchange started, for a child's duration at its terminal event.
+ *
+ * @internal
+ */
 export function getStartedAt(exchange: Exchange): number | undefined {
   return internalsOf(exchange)?.startedAt;
 }
