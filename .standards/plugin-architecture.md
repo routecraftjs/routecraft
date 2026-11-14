@@ -143,6 +143,21 @@ a change inside a type a member names is the reviewer's to catch.
 `RESILIENCE@1` and `ENFORCEMENT@1` are provisional and outside the promise;
 see [API Stability](./api-stability.md#port-versions).
 
+**Known equal-reach exception.** The shipped throttle and authorize
+providers return raw `Step`s and read route and context internals
+(`pipeline/synthetic-steps.ts`), which a third-party provider cannot do with
+public exports. This is the one place a first-party plugin has more reach
+than an outsider, it is why the two ports are provisional, and it closes when
+they are reshaped. The kernel's own cache policy reads exchange internals
+too; that is kernel code, not a provider.
+
+**`@routecraft/routecraft/internal` is not part of equal reach.** It holds
+what sibling `@routecraft/*` packages share (the adapter-override hooks
+behind `@routecraft/testing`, shared build helpers) and nothing a plugin
+needs to be written: the outsider suites build against the main entry alone.
+A capability an outsider needs gets a public export there; see
+[API Stability](./api-stability.md).
+
 One copy of the kernel per process is the supported configuration. Ports
 resolve across copies, but the bindings a door trusts for a refusal
 (`RC5068`, `RC5065`, `RC5049`, `RC5038`) are module-local, so a refusal

@@ -91,6 +91,7 @@ Every application installs these ahead of its own plugins:
 | `routecraft.cache` | `CACHE_STORE`: where `.cache()` keeps its entries |
 | `routecraft.principals` | `AUTHORITY`: minting, branding and reading principals |
 | `routecraft.auth` | the authorize position, the `.authenticate()` and `.delegate()` steps, and the `ex.auth` facet |
+| `routecraft.credentials` | where the credentials `craft connect` obtains are kept |
 
 An application plugin with the same id takes a default's place. A plugin that declares `replaces` for a default's port is selected over it, which is how you [replace a position](#replacing-a-position). Replacing selects a provider and never removes a plugin: the displaced one still binds, starts and stops, so one that owns a resource keeps it. To replace the listener, provide `WEB_INGRESS` and leave the `servers` key out; a displaced `servers` plugin with nothing mounted refuses to start.
 
