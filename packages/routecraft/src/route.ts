@@ -286,7 +286,7 @@ export type RouteDefinition<T = unknown> = {
 
   /**
    * The resume-payload schema of a park `errorHandler` raises, from
-   * `.error(handler, { schema })`. On the definition so the resume door
+   * `.error(handler, { input })`. On the definition so the resume door
    * reads it live; a handler's own code cannot be asked.
    */
   readonly errorPathSchema?: StandardSchemaV1;

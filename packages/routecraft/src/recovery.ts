@@ -49,7 +49,7 @@ export interface RecoveryRethrow {
  * The schema is absent for the opposite reason: a resume payload is
  * validated against a schema read back live at resume, and handler code
  * cannot be asked for one. It is declared where the handler is: on the
- * route-scope `.error(handler, { schema })`, or on the error hook's `schema`.
+ * route-scope `.error(handler, { input })`, or on the error hook's `schema`.
  */
 export interface ErrorPathDeferRequest extends Omit<
   DeferRequest,

@@ -83,7 +83,7 @@ Instead of a recovery body the handler may return a branded directive built with
 
 Turns an error into a deferral. This is what lets a failure be waited on rather than reported: a handler that recognises an authorization refusal can park the call, have a human lend the missing scope, and let the continuation finish, without the route that refused knowing any of it happened.
 
-The request takes everything `.defer()` declares except `input` (`ttl`, `meta`, `callBinding`, `stepState`) plus `notify`. The schema is declared where the handler is, so the resume door can read it back: `.error(handler, { schema })` at route scope, or `schema` on an [error hook](/docs/reference/plugins#hook-fields).
+The request takes everything `.defer()` declares except `input` (`ttl`, `meta`, `callBinding`, `stepState`) plus `notify`. The schema is declared where the handler is, so the resume door can read it back: `.error(handler, { input })` at route scope, or `schema` on an [error hook](/docs/reference/plugins#hook-fields).
 
 **Where it parks is the framework's decision, not the handler's.** A handler runs outside the step tree and has no position of its own, so the executor resolves one from the step that actually failed:
 
