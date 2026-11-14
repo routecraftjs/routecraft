@@ -111,11 +111,11 @@ craft()
 
 ### Agent mode: an agent is a route too
 
-`agent()` runs a tool-calling loop as a step in a route. Tools are an allowlist of your own capabilities (`Direct(<route-id>)`), registered MCP tools (`MCP(<server>:<tool>)`) and plain functions; nothing else is reachable.
+`agent()` runs a tool-calling loop as a step in a route. Tools are an allowlist of your own capabilities (`Direct(<route-id>)`), registered MCP tools (`MCP(<server>:<tool>)`) and plain functions; nothing else is reachable. The step runs on the agent plugin: set `agent: {}` on `defineProject` (or install `agentPlugin()`), or it refuses with `RC5003`.
 
 ```typescript
 import { craft, direct } from '@routecraft/routecraft';
-import { agent, agentPlugin, tools } from '@routecraft/ai';
+import { agent, tools } from '@routecraft/ai';
 import { z } from 'zod';
 
 export default craft()
