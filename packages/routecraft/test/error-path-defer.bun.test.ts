@@ -547,7 +547,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
 
   /**
    * @case A park the framework refuses sends nothing external
-   * @preconditions A handler answering recovery.defer with notify, for a step inside a .split() fan-out
+   * @preconditions A handler answering recovery.defer with notify, for a step inside a .split() fan-out, and rethrowing the failure the aggregate then raises for the parent
    * @expectedResult The park is refused with RC5051 and notify never runs, so no token exists for a record that never will
    */
   test("a park refused with RC5051 runs no notify", async () => {
@@ -559,13 +559,15 @@ describe("recovery.defer: parking an exchange from the error path", () => {
       .routes([
         craft()
           .id("fanned")
-          .error(() =>
-            recovery.defer({
-              ttl: "1h",
-              notify: () => {
-                notified += 1;
-              },
-            }),
+          .error((error) =>
+            (error as Error).message.includes("aggregate")
+              ? recovery.rethrow()
+              : recovery.defer({
+                  ttl: "1h",
+                  notify: () => {
+                    notified += 1;
+                  },
+                }),
           )
           .from(direct())
           .split()

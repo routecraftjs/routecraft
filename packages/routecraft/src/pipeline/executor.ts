@@ -529,6 +529,17 @@ export async function runPipeline(
           i++;
         }
       }
+      const parents = splitParents();
+      // The failure is the parent's: its error path and its caller see it.
+      exchange = parents?.get(joined) ?? exchange;
+      parents?.delete(joined);
+      // The aggregate announces its own start; it never runs here.
+      deps.context.emit("route:step:started", {
+        routeId: deps.routeId,
+        exchangeId: exchange.id,
+        correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+        operation: step.label ?? step.operation,
+      });
       for (const child of arrived) {
         emitExchangeCompleted(
           deps.context,
@@ -549,10 +560,6 @@ export async function runPipeline(
         childFailure,
         failures.map((failure) => failure.exchangeId),
       );
-      // The failure is the parent's: its error path and its caller see it.
-      const parents = splitParents();
-      exchange = parents?.get(joined) ?? exchange;
-      parents?.delete(joined);
     }
 
     // Prefer the DSL label (e.g., "log") over the raw OperationType (e.g., "tap")

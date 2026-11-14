@@ -940,11 +940,11 @@ describe("Route Behavior", () => {
   });
 
   /**
-   * @case Verifies that aggregation handles errors in individual exchanges correctly
-   * @preconditions Split exchanges where some processing fails
-   * @expectedResult Failed exchanges should not prevent aggregation of successful ones
+   * @case A split child that fails with nothing handling it stops the aggregation
+   * @preconditions Three split children, the second throws in a process step, a custom aggregator, then a destination
+   * @expectedResult The error is logged and the destination receives nothing: the aggregator does not run on the two survivors
    */
-  test("aggregation handles failed split processing gracefully", async () => {
+  test("a failed split child fails the aggregation", async () => {
     const s = spy();
 
     t = await testContext({ fn: mock })
@@ -977,9 +977,8 @@ describe("Route Behavior", () => {
       "Simulated processing error",
     );
 
-    // Verify successful exchanges were aggregated
-    expect(s.received).toHaveLength(1);
-    expect(s.receivedBodies()).toEqual(["success1,success2"]);
+    // The aggregate did not run on the two survivors.
+    expect(s.received).toHaveLength(0);
   });
 
   /**
