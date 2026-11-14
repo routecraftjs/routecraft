@@ -70,7 +70,22 @@ The `recommended` preset enables all rules at their default levels. See the [Lin
 
 ## Presets
 
-The plugin ships two presets: `recommended` (rules at their default levels) and `all` (convention rules as errors, except `single-to-per-route`, which stays a warning). Use `recommended` for most projects; use `all` to enforce the conventions strictly from the start. Both presets cover the general convention rules and the security rule `restrict-principal-minting` (an error in both); the opt-in `capability-boundaries` rule is excluded from both and must be enabled explicitly (see below). See the [Linting reference](/docs/reference/linting#presets) for the full preset and rule catalog.
+The plugin ships two presets: `recommended` (rules at their default levels) and `all` (convention rules as errors, except `single-to-per-route`, which stays a warning). Use `recommended` for most projects; use `all` to enforce the conventions strictly from the start. Both presets cover the general convention rules and the security rules `restrict-principal-minting` and `restrict-continuation-minting` (errors in both); the opt-in `capability-boundaries` rule is excluded from both and must be enabled explicitly (see below). See the [Linting reference](/docs/reference/linting#presets) for the full preset and rule catalog.
+
+## Continuation acts are a sanctioned exception
+
+`restrict-continuation-minting` (error in both presets) covers the three acts a plugin can
+take on a parked exchange outside a step: `continuations.mintToken()` hands out a credential
+that resumes an exchange, `continuations.resume()` resumes one with no door, so no
+`authorize` runs, and `continuations.rewriteStepState()` changes what a parked step is
+handed when it runs again. A step that declares `defers` or `resumes` and uses `ctx.defer`
+or `ctx.resume` is not flagged: there the kernel owns the exchange and the principal.
+Sanction a legitimate site the same way as a principal mint:
+
+```ts skip="fragment: not a complete statement on its own"
+// eslint-disable-next-line @routecraft/routecraft/restrict-continuation-minting -- reminder mail to the approver on record
+const token = c.continuations.mintToken(record.id)
+```
 
 ## Principal minting is a sanctioned exception
 

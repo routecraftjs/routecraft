@@ -78,7 +78,9 @@ The `direct` adapter also supports a context-level `channelType` to swap all end
 
 ## How it works
 
-Under the hood, merged options travel through a **port**: a named, typed token one plugin provides and anything else can look up. A config key such as `cron` installs a small plugin that provides the defaults through the adapter's port. When an adapter needs its options (in `subscribe()` or `send()`), it looks the port up on the context it runs in and combines the defaults with its own per-adapter options. Per-adapter values always win.
+Under the hood, a config key such as `cron` installs a small plugin that holds the defaults for the application. When an adapter needs its options (in `subscribe()` or `send()`), it reads its plugin's defaults for the application it runs in and combines them with its own per-adapter options. Per-adapter values always win.
+
+The shipped `cron()` source publishes its defaults through a **port**: a named, typed token one plugin provides and another plugin can look up.
 
 ```
 ┌──────────────┐  provide()   ┌─────────────────┐
@@ -111,22 +113,22 @@ export interface MyAdapterOptions {
 }
 ```
 
-### 2. Declare a port
+### 2. Keep the defaults per application
 
-Call `port()` once, at module scope, and export the token. The name is `owner.capability@version`:
+Call `applicationState()` once, at module scope. It holds one value per application, so two applications in one process (two test contexts, say) never read each other's defaults:
 
 ```ts skip="fragment: MyAdapterOptions is illustrative"
-import { port } from '@routecraft/routecraft'
+import { applicationState } from '@routecraft/routecraft'
 
-export const MY_ADAPTER_DEFAULTS = port<Partial<MyAdapterOptions>>('acme.my-adapter.defaults@1')
+const defaults = applicationState<Partial<MyAdapterOptions>>()
 ```
 
-### 3. Implement `MergedOptions<T>` on your adapter class
+### 3. Merge them in your adapter
 
-```ts skip="fragment: MyAdapterOptions, MY_ADAPTER_DEFAULTS are illustrative"
-import { type MergedOptions, type CraftContext } from '@routecraft/routecraft'
+A destination or an enricher reads the defaults of the application its exchange runs in with `.of(exchange)`:
 
-class MyAdapter implements Destination<unknown>, MergedOptions<MyAdapterOptions> {
+```ts skip="fragment: MyAdapterOptions, defaults are illustrative"
+class MyAdapter implements Destination<unknown> {
   readonly adapterId = 'acme.adapter.my-adapter'
   public options: Partial<MyAdapterOptions>
 
@@ -134,34 +136,31 @@ class MyAdapter implements Destination<unknown>, MergedOptions<MyAdapterOptions>
     this.options = options ?? {}
   }
 
-  mergedOptions(context: CraftContext): MyAdapterOptions {
-    return {
-      timeout: 5000,                               // built-in default
-      ...context.lookup(MY_ADAPTER_DEFAULTS),      // context defaults
-      ...this.options,                             // per-adapter overrides
-    }
-  }
-
   async send(exchange) {
-    const opts = this.mergedOptions(getExchangeContext(exchange))
+    const opts = {
+      timeout: 5000,                // built-in default
+      ...defaults.of(exchange),     // application defaults
+      ...this.options,              // per-adapter overrides
+    }
     // use opts.apiKey, opts.baseUrl, opts.timeout ...
   }
 }
 ```
 
+A source has no exchange yet when it subscribes. It reads the same state with `defaults.get(sub.context.application)`.
+
 ### 4. Create a plugin factory
 
-Ship a companion plugin that provides the port, so users have a typed, discoverable API:
+Ship a companion plugin that stores the defaults in `bind`, so users have a typed, discoverable API:
 
-```ts skip="fragment: MyAdapterOptions, MY_ADAPTER_DEFAULTS are illustrative"
+```ts skip="fragment: MyAdapterOptions, defaults are illustrative"
 import { definePlugin } from '@routecraft/routecraft'
 
 export function myAdapterPlugin(defaultOptions: Partial<MyAdapterOptions>) {
   return definePlugin({
     id: 'acme.my-adapter',
-    provides: [MY_ADAPTER_DEFAULTS],
     bind(c) {
-      c.provide(MY_ADAPTER_DEFAULTS, defaultOptions)
+      defaults.set(c.application, defaultOptions)
     },
   })
 }
@@ -169,12 +168,12 @@ export function myAdapterPlugin(defaultOptions: Partial<MyAdapterOptions>) {
 
 To offer a config key instead (`defineProject({ myAdapter: {...} })`), register the same factory with `registerConfigApplier('myAdapter', myAdapterPlugin)` and augment `CraftConfig` with the key.
 
-### 5. Export both
+### 5. Export the plugin
 
-Export the plugin and the port from your package, so another plugin can provide the defaults itself or read them.
+Export the plugin from your package. The state stays private to your module: if another plugin should be able to provide or read the defaults, publish them through a [port](/docs/advanced/plugins#ports) as well.
 
-```ts skip="fragment: myAdapterPlugin, MY_ADAPTER_DEFAULTS are illustrative"
-export { myAdapterPlugin, MY_ADAPTER_DEFAULTS }
+```ts skip="fragment: myAdapterPlugin is illustrative"
+export { myAdapterPlugin }
 ```
 
 ---

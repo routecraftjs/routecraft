@@ -8,7 +8,7 @@ title: defer
 
 ```ts skip="fragment: not a complete statement on its own"
 defer(options: {
-  schema?: StandardSchemaV1
+  input?: StandardSchemaV1
   ttl?: Duration
   meta?: JsonValue
 }): RouteBuilder<Current>
@@ -41,7 +41,7 @@ craft()
 
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
-| `schema` | `StandardSchemaV1` | -- | No | What a valid resume payload looks like. Types `ex.deferral.input` for every step after the defer, and is what the submitted payload is validated against at resume time. Omit to declare no contract: nothing is validated at the ingress and `ex.deferral.input` types `unknown`. |
+| `input` | `StandardSchemaV1` | -- | No | What a valid resume payload looks like. Types `ex.deferral.input` for every step after the defer, and is what the submitted payload is validated against at resume time. Omit to declare no contract: nothing is validated at the ingress and `ex.deferral.input` types `unknown`. |
 | `ttl` | `Duration`: milliseconds, or `"<n><unit>"` with unit `ms` / `s` / `m` / `h` / `d` | [`deferral.defaultTtl`](/docs/reference/configuration#deferral), itself `72h` | No | How long the deferral stays resumable, for example `"500ms"`, `"30s"`, `"72h"`, `"7d"`. Omit to inherit the context default. A deferral with no deadline at all needs `defaultTtl: 'never'` on the context, because a deferred exchange nothing will ever retire is a leak rather than a default. A malformed value fails at the call site with `RC5003`, on `.defer()` and `ctx.defer()` alike; code that computes a ttl can validate it under the same rules with the exported `parseDuration(value, field)`. |
 | `meta` | plain JSON | -- | No | Anything the resuming route needs to decide who may resume, or an operator needs to read off the record. Persisted verbatim, never interpreted, and never surfaced on the acknowledgment. See [Who may resume](#who-may-resume). |
 
@@ -139,7 +139,7 @@ A defer branch rejoins the main flow only if it restored the main flow's contrac
 | `token` | always | Signed, single-use resume token for that id. Mintable before the defer runs, which is what makes a notification step useful. |
 | `tokenFor(call)` | always | A credential bound to one call on the record. Only a step that can raise several calls against one deferral needs it; see [Durable agents](/docs/advanced/durable-agents). |
 | `sequence` | always | How many times this exchange has already deferred. |
-| `result` | after a resume | The validated payload, typed by `schema`. `unknown` when the site declared none. |
+| `input` | after a resume | The validated payload, typed by the `input` option. `unknown` when the site declared none. |
 | `resumedBy` | after a resume | Who resumed it, when the resume ingress had an authenticated principal. |
 | `resumedAt` | after a resume | When the resume was accepted. |
 
@@ -189,10 +189,10 @@ Retiring a deferral emits [`route:exchange:expired`](/docs/reference/events) and
 
 ## Deferral raised from a step
 
-`.defer()` is one of two ways an exchange defers. The other is a **defer-capable step** raising a deferral from inside its own execution; the shipped case is the agent step, whose tool handlers defer through `ctx.defer()` (see [Durable agents](/docs/advanced/durable-agents)). The differences are worth knowing:
+`.defer()` is one of two ways an exchange defers. The other is a **deferring step**: one that declares [`DEFERS`](/docs/reference/plugins#continuations) and raises a deferral from inside its own execution through `ctx.defer()`. The shipped case is the agent step, whose tool handlers defer the same way (see [Durable agents](/docs/advanced/durable-agents)). The differences are worth knowing:
 
 - **Resume re-enters the step itself**, not the step after it: the step must finish the work it deferred in the middle of. Its own definition is therefore covered by the continuation hash, so editing an inline agent's options (system prompt, model, tools) invalidates its deferred runs through the [`RC5048`](/docs/reference/errors#rc-5048) re-ask path, exactly as editing a continuation step does.
-- **Positional refusals move to runtime.** Whether a capable step ever defers is dynamic, so a route that fans an agent out over a `.split()` or into a `.multicast()` path builds fine; the first actual deferral from such a position is refused with [`RC5051`](/docs/reference/errors#rc-5051), carrying the same explanation the build-time refusal gives a static `.defer()`.
+- **Positional refusals move to runtime.** Whether a deferring step ever defers is dynamic, so a route that fans an agent out over a `.split()` or into a `.multicast()` path builds fine; the first actual deferral from such a position is refused with [`RC5051`](/docs/reference/errors#rc-5051), carrying the same explanation the build-time refusal gives a static `.defer()`.
 - **The startup runtime check stays static.** A context needs a [`deferral`](/docs/reference/configuration#deferral) block at startup only for static `.defer()` (and `.resume()`) routes; an agent route without one starts fine, and a `ctx.defer()` there fails as an ordinary step error with [`RC5052`](/docs/reference/errors#rc-5052) naming the one config line.
 - **A cancelled run cannot leave a live link.** A run aborted around its own deferral (an elapsed route-scope `.timeout()`) refuses to defer, or immediately denies the just-written deferral, failing with [`RC5054`](/docs/reference/errors#rc-5054); a token presented later reads [`RC5050`](/docs/reference/errors#rc-5050). `context.stop()` is not cancellation: a deferred exchange survives the stop, which is the store's entire purpose.
 

@@ -255,14 +255,14 @@ See the [testing guide](/docs/introduction/testing#mocking-external-adapters) fo
 
 ## Supporting merged options
 
-If your adapter has options that users might want to set once for the entire context (connection strings, timeouts, credentials), implement `MergedOptions<T>`. Users then provide defaults through a plugin while still overriding them per adapter. The defaults reach the adapter through a [port](/docs/advanced/plugins#ports):
+If your adapter has options that users might want to set once for the entire context (connection strings, timeouts, credentials), keep them per application with `applicationState()`. Users then provide defaults through a plugin while still overriding them per adapter:
 
 ```ts skip="fragment: MyOptions are illustrative"
-import { getExchangeContext, port, rcError, type MergedOptions, type CraftContext } from '@routecraft/routecraft'
+import { applicationState } from '@routecraft/routecraft'
 
-export const MY_DEFAULTS = port<Partial<MyOptions>>('acme.my-adapter.defaults@1')
+const defaults = applicationState<Partial<MyOptions>>()
 
-class MyAdapter implements Destination<unknown>, MergedOptions<MyOptions> {
+class MyAdapter implements Destination<unknown> {
   readonly adapterId = 'acme.adapter.my-adapter'
   public options: Partial<MyOptions>
 
@@ -270,32 +270,25 @@ class MyAdapter implements Destination<unknown>, MergedOptions<MyOptions> {
     this.options = options ?? {}
   }
 
-  mergedOptions(context: CraftContext): MyOptions {
-    return { ...context.lookup(MY_DEFAULTS), ...this.options }
-  }
-
   async send(exchange) {
-    const context = getExchangeContext(exchange)
-    if (!context) {
-      throw rcError('RC5001', undefined, { message: 'exchange has no context' })
-    }
-    const opts = this.mergedOptions(context)
+    const opts = { ...defaults.of(exchange), ...this.options }
     // ...
   }
 }
 ```
 
-Then ship a companion plugin that provides the port, so users have a typed, discoverable API:
+An adapter is handed the exchange, never the application: the plugin that owns the state stores it in `bind`, and the adapter reads it back for the application its exchange runs in. A source reads it in `subscribe` with `defaults.get(sub.context.application)`.
 
-```ts skip="fragment: MyOptions, MY_DEFAULTS are illustrative"
+Then ship a companion plugin that stores the defaults, so users have a typed, discoverable API:
+
+```ts skip="fragment: MyOptions, defaults are illustrative"
 import { definePlugin } from '@routecraft/routecraft'
 
-export function myAdapterPlugin(defaults: Partial<MyOptions>) {
+export function myAdapterPlugin(options: Partial<MyOptions>) {
   return definePlugin({
     id: 'acme.my-adapter',
-    provides: [MY_DEFAULTS],
     bind(c) {
-      c.provide(MY_DEFAULTS, defaults)
+      defaults.set(c.application, options)
     },
   })
 }
@@ -305,7 +298,7 @@ See the [Merged Options guide](/docs/advanced/merged-options) for the full walkt
 
 ## Sharing state between adapters
 
-Adapters keep per-context state of their own (a connection pool, a registry) in the context store, `context.getStore()` / `context.setStore()`, under keys they own. State a plugin offers to adapters crosses as a port, read with `context.lookup(PORT)` or `context.require(PORT)`, never as a store key another package writes. See [Plugins](/docs/advanced/plugins#ports).
+Adapters keep per-application state of their own (a connection pool, a registry) with `applicationState()`: their plugin stores it in `bind` under `c.application`, and the adapter reads it with `.of(exchange)`. State a plugin offers to other plugins crosses as a port, read with `c.lookup(PORT)` or `c.require(PORT)`, never as a key another package writes. See [Plugins](/docs/advanced/plugins#ports).
 
 ---
 

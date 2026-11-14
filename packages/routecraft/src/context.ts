@@ -38,7 +38,10 @@ import {
   type Continuations,
   continuationsFacade,
 } from "./kernel/continuation/facade.ts";
-import { applicationKeyFor } from "./kernel/application.ts";
+import {
+  applicationKeyFor,
+  type ApplicationKey,
+} from "./kernel/application.ts";
 import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
 import {
@@ -670,6 +673,15 @@ export class CraftContext {
         `Plugin "${by}" replaces the provider of "${port.name}".`,
       );
     }
+  }
+
+  /**
+   * The key a plugin module holds this application's state under: what
+   * `c.application` is to a plugin and `applicationOf(exchange)` to an
+   * adapter, for a source reading its plugin's state in `subscribe`.
+   */
+  get application(): ApplicationKey {
+    return applicationKeyFor(this);
   }
 
   private continuationSweeper: ContinuationSweeper | undefined;

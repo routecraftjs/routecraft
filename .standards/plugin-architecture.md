@@ -78,12 +78,17 @@ that adds none of them is still a plugin:
 | `observe(event, handler)` / `emit(event, details)` | the event bus                                                                                                                  |
 | `onDispose(fn)`                                    | released at stop, LIFO, every one run even when another throws; also when this plugin's own `bind` throws after registering it |
 | `routes`                                           | `register(...definitions)` in `bind`; `list()`, `get(id)` and `hooksOf(id)` read views, read-only down the graph (a write is `RC1110`); `canDefer(id)`, whether an exchange on that route can park (false for an unknown id; complete from `start` on, since hooks are placed after `bind`) |
-| `execution`                                        | `deliver` (resolves `unknown`; the caller narrows), `resume(request, options?)` (a plugin that re-verified the parked identity passes `reidentified`, see section 6), `sweep`, `capabilities`, `whenStarted`, `requestStop` |
+| `execution`                                        | `deliver` (resolves `unknown`; the caller narrows), `trackTask`, `capabilities`, `whenStarted`, `requestStop` |
+| `continuations`                                    | the read view of parked exchanges and the acts on them: `resume(request, options?)` (a plugin that re-verified the parked identity passes `reidentified`, see section 6), `sweep`, `mintToken`, `rewriteStepState` |
+| `application`                                      | the key `applicationState()` files a value under                                                                               |
 | `frozen`                                           | true once the last `bind` returned; a provider collecting contributions through its port refuses later ones with `RC1110`      |
 | `logger`, `id`, `namespace`                        |                                                                                                                                |
 
 **Adapters** keep their per-context state in `CraftContext.getStore()` /
-`setStore()`; that is adapter memory, not a plugin contract. Whenever a plugin
+`setStore()`; that is adapter memory, not a plugin contract. State a plugin
+resolves in `bind` for its own adapters is an `applicationState<T>()` holder:
+`set(c.application, value)` in `bind`, `of(exchange)` in the adapter. An
+adapter never reads the `CraftContext` off an exchange to get at it. Whenever a plugin
 offers something an adapter or another plugin uses, it is a port: the adapter
 calls `context.require(PORT)` or `context.lookup(PORT)` at runtime. No store
 key crosses a plugin boundary.
@@ -406,7 +411,32 @@ the application's own config never mentions.
 The kernel owns park, resume and sweep (`kernel/continuation/`): the record
 write, the site and tail hash, the door order, the compare-and-swap, the
 outcome cache, expiry through the error channel, claim healing and retention.
-It reaches storage only through `CONTINUATIONS`.
+It reaches storage only through `CONTINUATIONS` (`routecraft.continuations@2`),
+and it encodes `stepState`, `meta` and the settled outcome before the store
+sees them, so a store persists JSON and `c.continuations.get()` hands back
+the values the route held.
+
+Only the kernel parks or revives. A step asks by declaring it and is handed
+the handle: `DEFERS` (`step(fn, { defers })`) gives it `ctx.defer`, `RESUMES`
+(`step(fn, { resumes: true })`) gives it `ctx.resume`. `"next-step"` is the
+shape of `.defer()`: the step always parks and a revival continues after it,
+with the payload validated against the declared `input` before the claim.
+`"this-step"` is the shape of the agent step: it may park, a revival runs it
+again with `ctx.defer.revived`, and it validates its own payload. A step
+result that names a deferral the kernel did not issue is `RC5032`, so the
+builder's positional refusals and the digest see every site. The shipped
+`.defer()`, `.resume()` and the agent step use exactly this, and the outsider
+suite `continuations.bun.test.ts` holds that a third party can.
+
+A parked exchange finds its site by the digest of what follows it, with the
+stored position as the tie-break and the fallback, so an edit ahead of the
+defer point refuses nothing. Two candidate sites with one digest that both
+moved are refused as ambiguous (`RC5048`).
+
+The acts a plugin holds outside a step (`mintToken`, `resume`,
+`rewriteStepState`) run no door policy. They are in-process capabilities, as
+principal minting is, and `restrict-continuation-minting` makes each call
+site a sanctioned exception.
 
 ### Step identity
 
@@ -467,7 +497,7 @@ An `.error()` handler that parks without declaring a schema is not walked. `.log
 not by its label. The stored `continuationHash` is `d2:<sha256>/<per-step digests>`;
 a record in an older format is refused with `RC5048`. The deferral plugin provides
 that port over the memory or SQLite store, mints and verifies resume tokens,
-sets the default deadline, calls `execution.sweep()` on its cadence, and
+sets the default deadline, calls `continuations.sweep()` on its cadence, and
 contributes `.defer()`, `.resume()`, the `ex.deferral` facet and the
 `/ops/deferrals` resource.
 
@@ -477,7 +507,7 @@ live tail, payload, compare-and-swap, `elevate` applied after the claim, the
 suffix, the recorded outcome.
 
 A plugin can also revive a continuation itself, through
-`execution.resume(request, { reidentified })`, when it has re-verified the
+`continuations.resume(request, { reidentified })`, when it has re-verified the
 parked identity from live state (the agent plugin does this when a background
 settlement wakes a session). The kernel applies the re-identified principal
 after the claim, in the slot `elevate` uses, and only when it is live-branded

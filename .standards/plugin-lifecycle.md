@@ -35,7 +35,7 @@ The deferral plugin is the worked example. `bind` resolves the store and the
 token signer and provides `CONTINUATIONS`, so a missing signing secret fails
 while the application is still being installed rather than after it has
 accepted traffic. `start` runs the kernel's boot sweep through
-`c.execution.sweep({ boot: true })`, which retires deferrals that came due
+`c.continuations.sweep({ boot: true })`, which retires deferrals that came due
 while the process was down and re-enters each one's route error channel: a
 route that has not started cannot serve that, so doing it in `bind` would
 drop the escalations it exists to deliver. `start` then arms the plugin's

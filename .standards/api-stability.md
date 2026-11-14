@@ -46,7 +46,7 @@ merge into one, its JSDoc says so.
 
 ## The `/internal` subpath
 
-`@routecraft/routecraft/internal` is where a name lives when a sibling `@routecraft/*` package needs it and a third party must not build on it. It holds two kinds of thing: the hooks `@routecraft/testing` uses to override an adapter, and build helpers the first-party packages share so they apply one rule rather than a copy of it. The list is `packages/routecraft/src/internal.ts`, and a test holds it.
+`@routecraft/routecraft/internal` is where a name lives when a sibling `@routecraft/*` package needs it and a third party must not build on it. It holds three kinds of thing: the hooks `@routecraft/testing` uses to override an adapter, build helpers the first-party packages share so they apply one rule rather than a copy of it, and the two exchange accessors (`getExchangeContext`, `getExchangeRoute`) the agent tier still reads the application through. The accessors are a debt: `kernel-boundary.bun.test.ts` lists the files allowed to import them, and the list only shrinks. The list is `packages/routecraft/src/internal.ts`, and a test holds it.
 
 - It carries no compatibility promise. A name there may change or go in any release, and an import from outside the `@routecraft` scope is unsupported.
 - It is not a way around the main entry. A capability an outsider needs (reaching a plugin's state from an adapter, deferring, resuming) gets a public export; it never arrives through the subpath. The outsider suites cannot import it.

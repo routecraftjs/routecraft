@@ -72,9 +72,9 @@ declare module "@routecraft/routecraft" {
  * working resume link in the message it sends (n8n's `$execution.resumeUrl`
  * has the same property).
  *
- * `result`, `resumedBy` and `resumedAt` are the other half: they are absent
+ * `input`, `resumedBy` and `resumedAt` are the other half: they are absent
  * on execution one and populated by the resume path before the continuation
- * runs. `result` is typed `unknown` here and narrowed by the builder, which
+ * runs. `input` is typed `unknown` here and narrowed by the builder, which
  * threads the `schema` option's output type into every step after the
  * `.defer()`, the way `.input()` types the body.
  *
