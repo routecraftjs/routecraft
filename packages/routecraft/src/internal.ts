@@ -32,6 +32,12 @@ export {
   type SourceMessage,
   type SourceOverrideBehavior,
 } from "./testing-hooks.ts";
+export {
+  describeSteps,
+  identified,
+  type InferredNode,
+  type StepsDescription,
+} from "./kernel/continuation/identity.ts";
 export { clipText } from "./shared/text.ts";
 export { rejectStaleOptions } from "./shared/stale-options.ts";
 export { isDevelopmentRuntime } from "./shared/runtime-env.ts";

@@ -299,6 +299,33 @@ Each entry of a plugin's `steps` becomes a builder method of that name. The entr
 
 A route that uses a plugin's step refuses to start unless the plugin is installed (`RC1111`). Two plugins declaring one step, or a step named after a builder method, is `RC1116`. So is a step named `then` or `toJSON`, which the language reads off every object.
 
+### Step identity \{#step-identity}
+
+The continuation digest ([`RC5048`](/docs/reference/errors#rc-5048)) and the default `.cache()` key read one identity per step: `{ kind, version?, options? }`.
+
+| Export | What it is |
+|--------|------------|
+| `step(fn, { identity })` | `identity.version` marks a behaviour change the arguments and callback do not show. `identity.options` replaces the derived options (the method's arguments and the callback). The kind is always `<pluginId>.<stepName>`. |
+| `IDENTITY` | The registered symbol `Symbol.for("routecraft.identity")`. A raw step implementing `[IDENTITY](): Identity` states its whole identity; an adapter implementing it states its options, and its `kind` defaults to its `adapterId`. |
+| `Identity`, `IdentifiedStep`, `IdentifiedAdapter` | The types of the above. |
+| `secret(value)` | Marks a value that configures a step without defining it. Digests as a constant. |
+| `versioned(value, id)` | States a value's identity by hand. `id` is digested and the value is not. |
+| `describeIdentity(steps)` (`@routecraft/testing`) | The digest, one short digest and kind per step, and every value the digest could not see. |
+
+Without `[IDENTITY]()`, a raw step is identified by its operation and its adapter, and an adapter by the factory arguments `tagAdapter` recorded, or by its own enumerable properties.
+
+| Value in `options` | Digested as |
+|--------------------|-------------|
+| `null`, `undefined`, string, boolean, number, bigint | Itself |
+| `Date`, `URL`, `RegExp` | ISO time, href, source and flags |
+| Array, `Map`, `Set` | Its members, in order |
+| Plain object | Its own enumerable string keys, sorted |
+| Standard Schema | Its JSON Schema rendering |
+| Function | Its source as the runtime reports it, unless a Routecraft helper returned it, which is digested by the helper's name and arguments |
+| A class instance, a native or bound function, a schema with no JSON Schema rendering, a symbol-keyed or accessor property, a value that contains itself, anything nested more than five deep | A placeholder. The value is reported by `describeIdentity` and by [`RC5071`](/docs/reference/errors#rc-5071) on a route that defers. |
+
+The digest does not cover what a function captured, what a `direct()` target or a named agent does, or an environment variable. `.log()` and `.debug()` are left out of it.
+
 ### Structural steps
 
 A raw step that runs steps of its own (a branch, a fan-out, a plugin's own sub-pipeline) reports them through the `NESTED_STEPS` protocol, so the walks of a route's step tree see inside it: which plugins the route uses (`RC1111` at start), which positions it needs, the continuation digest, and where a `.defer()` may land. A step that runs nested steps without reporting them hides them from every one of those, and a park inside it is `RC5051`.

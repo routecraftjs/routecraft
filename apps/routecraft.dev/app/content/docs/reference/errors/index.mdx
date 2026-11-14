@@ -802,7 +802,7 @@ The steps after the defer point, or the declared `schema`, changed while the exc
 Editing a step BEFORE the defer point does not trigger this: those steps already ran, and changing them cannot affect what happens after the resume.
 
 **Suggestion**  
-Catch it in the deferred route's route-scope `.error()` and re-ask. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so a deployment that defers approvals for days should pin those; see [Configuration → deferral](/docs/reference/configuration#deferral).
+Catch it in the deferred route's route-scope `.error()` and re-ask. The message names the first step that differs. The digest covers each step's [identity](/docs/reference/plugins#step-identity): Routecraft's own steps by their options, never their source, so upgrading Routecraft within a release line does not move it. A function you wrote is digested by its source as the runtime reports it, so the digest also moves for edits that change that text without changing behaviour (a different transpiler or build setting), and a deployment that defers approvals for days should pin those; see [Configuration → deferral](/docs/reference/configuration#deferral). A deferral parked by a release that digested steps differently (before 0.8) is refused with this code once and re-asked.
 
 ## RC5049
 Deferral result rejected

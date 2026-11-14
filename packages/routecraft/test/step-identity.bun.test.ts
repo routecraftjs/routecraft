@@ -4,14 +4,19 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import { asDeferred, deferring, storeWith } from "./helpers/deferral.ts";
 import {
   MemoryDeferralStore,
+  authorize,
+  cosine,
   craft,
   definePlugin,
   defineProject,
   direct,
+  group,
   http,
+  jwt,
   IDENTITY,
   keep,
   mask,
+  none,
   noop,
   only,
   OperationType,
@@ -527,6 +532,39 @@ describe("step identity: steps and adapters", () => {
   });
 
   /**
+   * @case The roles a mid-pipeline authorization admits change
+   * @preconditions `.validate(authorize({ roles }))` with two role lists, and the first list twice
+   * @expectedResult The digests differ: the closure `authorize()` returns reads the same for every option, so its options are its identity
+   */
+  test("authorize() is identified by its options", () => {
+    const route = (roles: string[]) =>
+      digestOf((r) => r.validate(authorize({ roles })));
+    expect(route(["admin"])).not.toBe(route(["admin", "clerk"]));
+    expect(route(["admin"])).toBe(route(["admin"]));
+  });
+
+  /**
+   * @case A JWT validator's signing secret rotates, or its issuer changes
+   * @preconditions `jwt()` with two secrets under one issuer, and one secret under two issuers
+   * @expectedResult Rotating the secret keeps the encoding; changing the issuer moves it; nothing is inferred
+   */
+  test("jwt() keeps its secret out of the digest", () => {
+    const validator = (issuer: string, key: string) =>
+      encodeIdentityValue(
+        jwt({ secret: key, issuer, audience: "https://api.example" }).validator,
+      );
+    const base = validator("https://idp.example", "a".repeat(40));
+    expect(base.inferred).toEqual([]);
+    expect(base.encoded).toBe(
+      validator("https://idp.example", "b".repeat(40)).encoded,
+    );
+    expect(base.encoded).not.toBe(
+      validator("https://other.example", "a".repeat(40)).encoded,
+    );
+    expect(base.encoded).not.toContain("a".repeat(40));
+  });
+
+  /**
    * @case A log line is added to a tail
    * @preconditions The same route with and without `.log()` and `.debug()`
    * @expectedResult The digests match: a log line re-asks no parked approval
@@ -566,6 +604,14 @@ describe("step identity: steps and adapters", () => {
             only(() => mine.USER, "x"),
           )
           .enrich(() => mine.USER)
+          .enrich(http({ url: "https://c.example" }), none())
+          .validate(authorize({ roles: ["admin"] }))
+          .transform(
+            group({
+              comparator: cosine({ field: "embedding" }),
+              from: () => [mine.USER],
+            }),
+          )
           .retry({ maxAttempts: 2 })
           .timeout("1s")
           .throttle({ rate: 1, per: "1s" })

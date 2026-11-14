@@ -140,3 +140,10 @@ export {
   waitFor,
   type BootedServer,
 } from "./http-context";
+
+// Step identity as the continuation digest and the cache read it
+export {
+  describeIdentity,
+  type InferredNode,
+  type StepsDescription,
+} from "./identity";

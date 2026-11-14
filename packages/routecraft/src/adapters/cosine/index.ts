@@ -1,3 +1,4 @@
+import { identified } from "../../kernel/continuation/identity.ts";
 import type { Comparator, CosineOptions } from "./types.ts";
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -32,7 +33,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
  */
 export function cosine<T = unknown>(options: CosineOptions): Comparator<T> {
   const { field, threshold = 0.82 } = options;
-  return {
+  const comparator: Comparator<T> = {
     compare(a: T, b: T): boolean {
       const va = (a as Record<string, unknown>)[field];
       const vb = (b as Record<string, unknown>)[field];
@@ -40,6 +41,10 @@ export function cosine<T = unknown>(options: CosineOptions): Comparator<T> {
       return cosineSimilarity(va as number[], vb as number[]) > threshold;
     },
   };
+  return identified(comparator, {
+    kind: "routecraft.cosine",
+    options: { field, threshold },
+  });
 }
 
 // Re-export types

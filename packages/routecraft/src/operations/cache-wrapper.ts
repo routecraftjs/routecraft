@@ -128,7 +128,7 @@ export interface CacheOptions<Current = unknown> {
  * change the output.
  *
  * At route scope there is no site; `pipeline` is the
- * {@link pipelineFingerprint} of every step a hit skips, nested branches
+ * digest (`stepsDigest`) of every step a hit skips, nested branches
  * and wrapper options included, so editing any of them misses rather than
  * replaying what the old pipeline produced. The route's `.input()` and
  * `.output()` schemas stay out: input validation runs before the cache

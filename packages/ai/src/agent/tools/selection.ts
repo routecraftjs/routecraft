@@ -1,3 +1,4 @@
+import { identified } from "@routecraft/routecraft/internal";
 import { randomUUID } from "node:crypto";
 import {
   rcError,
@@ -379,6 +380,13 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
       message: `tools(): argument must be an array of ToolsItem or a (catalog) => ToolsItem[] builder.`,
     });
   }
+  return identified(selection(arg), {
+    kind: "routecraft.ai.tools",
+    options: { items: arg },
+  });
+}
+
+function selection(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
   return {
     [TOOL_SELECTION_BRAND]: true,
     resolve(ctx) {

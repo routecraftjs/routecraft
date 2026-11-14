@@ -476,6 +476,80 @@ A route that uses a plugin's step refuses to start unless that plugin is install
 
 The `.log()`, `.debug()`, `.map()` and `.schema()` methods are ordinary builder methods. `.authenticate()` and `.delegate()` are the auth plugin's steps, and `.defer()` and `.resume()` are the deferral plugin's.
 
+### Step identity \{#step-identity}
+
+A route that defers resumes only into the steps that were approved. Routecraft decides that by comparing a digest of each remaining step's identity, and the same digest keys `.cache()`. Your step takes part without any work: its identity is the plugin id, the step name, the arguments the method was called with and the callback you gave `step()`. `.withTax(0.21)` and `.withTax(0.19)` are different steps, and so is an edited callback.
+
+Two things the digest cannot see are yours to state. The first is a change in behaviour that changes neither the arguments nor the callback's text, such as a helper the callback calls. Bump a version:
+
+```ts
+import { definePlugin, step } from '@routecraft/routecraft'
+
+interface Order {
+  readonly id: string
+  readonly total: number
+}
+
+export const pricing = definePlugin({
+  id: 'acme.pricing',
+  steps: {
+    withTax: (rate: number) =>
+      step<Order, Order & { readonly gross: number }>(
+        (exchange) => ({
+          ...exchange.body,
+          gross: Math.round(exchange.body.total * (1 + rate)),
+        }),
+        { identity: { version: 2 } },
+      ),
+  },
+})
+```
+
+The second is an argument that is not plain data. A class instance, a bound function or a schema with no JSON Schema rendering digests as a placeholder, and a route that defers warns at start with [`RC5071`](/docs/reference/errors#rc-5071), naming where the value sits. State what defines the step in `identity.options`, which replaces the derived arguments:
+
+```ts
+import { definePlugin, secret, step, versioned } from '@routecraft/routecraft'
+
+interface LedgerClient {
+  readonly apiVersion: string
+  post(entry: unknown): Promise<void>
+}
+
+export const books = definePlugin({
+  id: 'acme.books',
+  steps: {
+    post: (client: LedgerClient, account: string, token: string) =>
+      step<unknown, unknown>(
+        async (exchange) => {
+          await client.post({ account, token, entry: exchange.body })
+          return exchange.body
+        },
+        {
+          identity: {
+            options: {
+              account,
+              client: versioned(client, client.apiVersion),
+              token: secret(token),
+            },
+          },
+        },
+      ),
+  },
+})
+```
+
+`versioned(value, id)` digests `id` and never looks at the value. `secret(value)` digests as a constant, so rotating a credential re-asks no parked approval and misses no cache entry. A step or adapter written by hand states the same thing by implementing `[IDENTITY]()`; the [reference](/docs/reference/plugins#step-identity) lists the protocol and how each kind of value is encoded.
+
+The digest reads a function's source and never what it captured. A value your callback closes over is invisible to it, so anything that changes what the step does belongs in the method's arguments.
+
+To check a step you ship, `describeIdentity` from `@routecraft/testing` returns the digest and the values it could not see:
+
+```ts skip="fragment: steps is a built route's step list"
+import { describeIdentity } from '@routecraft/testing'
+
+expect(describeIdentity(steps).inferred).toEqual([])
+```
+
 ## Facets
 
 A plugin's `facet` makes a typed view of the exchange readable as `ex.<namespace>` in route callables. It is computed from the body and headers on every read and never stored, so it cannot disagree with what it derives from.

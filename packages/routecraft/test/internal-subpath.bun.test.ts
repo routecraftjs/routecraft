@@ -12,6 +12,8 @@ const INTERNAL_NAMES = [
   "SOURCE_FIXTURE",
   "clipText",
   "compareRuntimeVersion",
+  "describeSteps",
+  "identified",
   "isDevelopmentRuntime",
   "isSourceFixture",
   "parseRuntimeVersion",

@@ -171,12 +171,10 @@ export function only<T = unknown, R = unknown, V = unknown>(
  * .enrich(http({ url: 'https://api.example.com/ping' }), none())
  * ```
  */
-export const none = <T = unknown, R = unknown>(): EnrichAggregator<T, R> => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- second param required by signature, intentionally unused
-  return (original: Exchange<T>, _ignored: R): Exchange<T> => {
-    return original;
-  };
-};
+export const none = <T = unknown, R = unknown>(): EnrichAggregator<T, R> =>
+  identified((original: Exchange<T>): Exchange<T> => original, {
+    kind: "routecraft.none",
+  });
 
 /**
  * Aggregator type accepted by EnrichStep. Includes `only()` return type (with [ENRICH_MERGE_TYPE]) for body-type inference.

@@ -5,6 +5,7 @@ import type {
 } from "../principal.ts";
 import { assertIssuerAudience, principalFromJwtPayload } from "./jwt-utils.ts";
 import { loadOptionalPeer } from "../adapters/shared/optional-peer.ts";
+import { identified } from "../kernel/continuation/identity.ts";
 
 /**
  * Loader for the `jose` driver. Exposed as a mutable seam so tests can
@@ -147,41 +148,41 @@ export function jwks(options: JwksOptions): OAuthValidatorAuthOptions {
     ...(options.clockToleranceSec !== undefined && {
       clockToleranceSec: options.clockToleranceSec,
     }),
-    validator: async (token: string) => {
-      if (joseMod === null) {
-        joseMod = await __jwksLoaders.loadJose();
-      }
-      if (jwkSet === null) {
-        jwkSet = joseMod.createRemoteJWKSet(
-          new URL(options.jwksUrl.toString()),
-        );
-      }
-
-      const joseOptions: {
-        issuer?: string | string[];
-        audience?: string | string[];
-        algorithms?: string[];
-        clockTolerance?: number;
-        requiredClaims?: string[];
-      } = {
-        issuer: options.issuer,
-        algorithms,
-        requiredClaims: ["exp"],
-      };
-
-      if (options.audience !== "*") {
-        joseOptions.audience = options.audience as string | string[];
-      }
-      if (options.clockToleranceSec !== undefined) {
-        joseOptions.clockTolerance = options.clockToleranceSec;
-      }
-
-      const { payload } = await joseMod.jwtVerify(token, jwkSet, joseOptions);
-
-      return principalFromJwtPayload(payload as Record<string, unknown>, {
-        kind: "jwks",
-        ...(options.claims !== undefined && { claims: options.claims }),
-      });
-    },
+    validator: identified(validate, { kind: "routecraft.jwks", options }),
   };
+
+  async function validate(token: string) {
+    if (joseMod === null) {
+      joseMod = await __jwksLoaders.loadJose();
+    }
+    if (jwkSet === null) {
+      jwkSet = joseMod.createRemoteJWKSet(new URL(options.jwksUrl.toString()));
+    }
+
+    const joseOptions: {
+      issuer?: string | string[];
+      audience?: string | string[];
+      algorithms?: string[];
+      clockTolerance?: number;
+      requiredClaims?: string[];
+    } = {
+      issuer: options.issuer,
+      algorithms,
+      requiredClaims: ["exp"],
+    };
+
+    if (options.audience !== "*") {
+      joseOptions.audience = options.audience as string | string[];
+    }
+    if (options.clockToleranceSec !== undefined) {
+      joseOptions.clockTolerance = options.clockToleranceSec;
+    }
+
+    const { payload } = await joseMod.jwtVerify(token, jwkSet, joseOptions);
+
+    return principalFromJwtPayload(payload as Record<string, unknown>, {
+      kind: "jwks",
+      ...(options.claims !== undefined && { claims: options.claims }),
+    });
+  }
 }
