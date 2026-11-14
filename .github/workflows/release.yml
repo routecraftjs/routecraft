@@ -41,7 +41,7 @@ jobs:
       github.event_name == 'workflow_run'
       && github.event.workflow_run.conclusion == 'success'
       && github.event.workflow_run.event == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       # Push the v* core tag and create the GitHub Releases.
       contents: write
@@ -139,7 +139,7 @@ jobs:
       && github.event.workflow_run.conclusion == 'success'
       && github.event.workflow_run.event == 'push'
     needs: [release]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       # Download the push-base artifact from the (different) CI run.
       actions: read
@@ -228,7 +228,7 @@ jobs:
       github.event_name == 'workflow_run'
       && github.event.workflow_run.event == 'push'
       && github.event.workflow_run.conclusion != 'cancelled'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: read
     outputs:

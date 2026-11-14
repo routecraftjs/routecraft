@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       # The queue runs everything: it is the last check before main.
       packages: ${{ github.event_name == 'merge_group' || steps.filter.outputs.packages }}
@@ -85,7 +85,7 @@ jobs:
           retention-days: 1
 
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,6 +106,15 @@ jobs:
                <(yq '.jobs["ci-passed"].needs[]' .github/workflows/ci.yml | sort) \
             || { echo "::error::ci-passed must need every job in ci.yml"; exit 1; }
 
+      - name: Check every job names a runner version
+        run: |
+          for workflow in .github/workflows/*.yml; do
+            labels=$(yq '[.jobs[] | [.["runs-on"], .strategy.matrix]]' "$workflow")
+            if grep -n -- "-latest" <<<"$labels"; then
+              echo "::error file=$workflow::name a runner version (ubuntu-24.04), never a -latest label"; exit 1
+            fi
+          done
+
       - name: Run checks
         run: |
           bun run format
@@ -114,7 +123,7 @@ jobs:
           bunx madge --circular .
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -138,7 +147,7 @@ jobs:
           if-no-files-found: error
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -183,7 +192,7 @@ jobs:
   docs-site:
     needs: [changes]
     if: needs.changes.outputs.docs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -263,7 +272,7 @@ jobs:
   docs-release-shape:
     needs: [changes]
     if: needs.changes.outputs.docs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -368,7 +377,7 @@ jobs:
   security:
     needs: [changes, build]
     if: needs.changes.outputs.packages == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       # Upload the SARIF to code scanning.
@@ -477,8 +486,8 @@ jobs:
   site-image-security:
     needs: [changes]
     if: needs.changes.outputs.docs == 'true'
-    # Pinned: on ubuntu-26.04 the daemon keeps images in containerd and Trivy
-    # fails reading this image's layers. The release builds it on 24.04 too.
+    # ubuntu-26.04 cannot run this job yet: the daemon keeps images in containerd
+    # and Trivy fails reading this image's layers (#951).
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -522,7 +531,7 @@ jobs:
   scaffolder-smoke:
     needs: [changes, build]
     if: needs.changes.outputs.packages == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: scaffolder-smoke
     steps:
       - name: Checkout
@@ -564,7 +573,7 @@ jobs:
   embedding-smoke:
     needs: [changes, build]
     if: needs.changes.outputs.packages == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: embedding-smoke
     steps:
       - name: Checkout
@@ -592,7 +601,7 @@ jobs:
   isolation-smoke:
     needs: [changes]
     if: needs.changes.outputs.packages == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: isolation-smoke
     steps:
       - name: Checkout
@@ -657,7 +666,7 @@ jobs:
   adapter-cross-runtime:
     needs: [changes, build]
     if: needs.changes.outputs.packages == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -709,7 +718,7 @@ jobs:
       - isolation-smoke
       - adapter-cross-runtime
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # always(): without it the `if` is ANDed with success(), which is false
       # once a needed job was cancelled, and the step is skipped.

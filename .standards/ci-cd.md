@@ -78,6 +78,10 @@ Docs-only PRs skip the smoke jobs. If you add a new code path that should gate o
 
 CI runs on `pull_request`, so a PR's CI run uses the workflow definition from the PR's merge ref; workflow file changes in a PR take effect for that PR's own run.
 
+### 3.5. Jobs name a runner version
+
+Every job runs on a named image (`ubuntu-24.04`, or `ubuntu-24.04-arm` for the release image built for ARM), never a `-latest` label, and `validate` fails on one, whether the label is written on the job or reaches it through a matrix. A `-latest` label moves when GitHub moves it, so a runner image change arrives mid-day on an unrelated PR; a named version makes it a reviewed diff. Moving to a newer image is one PR that changes every job together, except a job a comment pins lower for a stated reason.
+
 ## 4. Adding a new package (the checklist)
 
 Packages are created by hand; there is no generator. Copy the shape of an existing package (`packages/ai` is the worked example for an ecosystem package that peers on core). CI, versioning, and publishing all discover packages automatically, so the checklist is short:
