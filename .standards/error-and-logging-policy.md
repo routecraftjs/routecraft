@@ -143,8 +143,8 @@ A new door reuses the shared classification (`callerRefusalOf`) rather than re-d
 
 - **Take the next number in the series and reserve it here first.** A series is the codes that share their first two digits (`RC10xx`, `RC11xx`, `RC50xx`), numbered from `01`. Two branches that each take "the next free code" collide only as a text conflict in this table, which is the cheap place to find out.
 - **A reserved row leaves the table in the change that adds the code to `error.ts`.** A code in both fails the test.
-- **A retired code is never reused.** A log line, an alert rule or a user's `catch` may still match it, so a retired row stays for good.
-- **No gaps.** Every number between the start of a series and its highest code is registered, reserved or retired, and no source file names a code that is none of the three.
+- **A retired code is never reused.** A log line, an alert rule or a user's `catch` may still match it, so a retired row stays for good, and code may name one only in a comment. `RC5025` and `RC5026` were reused before this ledger existed (they were `@routecraft/ai`'s before 0.6, now `AI1001` and `AI1002`); that stands, and it is the last time.
+- **No gaps.** Every number between the start of a series and its highest code is registered, reserved or retired, and no file under `packages/*/src` names a code that is none of the three.
 
 ### JSON-RPC refusals on the ACP mount
 

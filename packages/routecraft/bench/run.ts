@@ -17,7 +17,7 @@
  *   --head <path> names the build under test when it is not this checkout's
  */
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 type Api = typeof import("../src/index.ts");
 
@@ -117,7 +117,7 @@ async function load(path: string, copy: string): Promise<Api> {
 // Two builds in one process trip the two-copy warning; it is not a result.
 process.env["LOG_LEVEL"] ??= "silent";
 
-const here = new URL("../dist/index.js", import.meta.url).pathname;
+const here = fileURLToPath(new URL("../dist/index.js", import.meta.url));
 const head = await load(flag("--head") ?? here, "head");
 const basePath = flag("--base");
 const base = basePath ? await load(basePath, "base") : undefined;
@@ -157,4 +157,4 @@ for (const scenario of SCENARIOS) {
 }
 
 process.stdout.write(`${lines.join("\n")}\n`);
-process.exit(failed ? 1 : 0);
+process.exitCode = failed ? 1 : 0;

@@ -88,7 +88,10 @@ if (mode === "internal") {
       process.exit(1);
     }
   }
-  const main = await import("@routecraft/routecraft");
+  const mains = [
+    ["esm", await import("@routecraft/routecraft")],
+    ["cjs", createRequire(import.meta.url)("@routecraft/routecraft")],
+  ];
   for (const [format, built] of [
     ["esm", esm],
     ["cjs", cjs],
@@ -99,11 +102,13 @@ if (mode === "internal") {
     } catch (error) {
       raised = error;
     }
-    if (!main.isRoutecraftError(raised) || raised.rc !== "RC5003") {
-      console.error(
-        `verify-dist: an error raised through the ${format} build of ./internal is not recognised by the main entry.`,
-      );
-      process.exit(1);
+    for (const [mainFormat, main] of mains) {
+      if (!main.isRoutecraftError(raised) || raised.rc !== "RC5003") {
+        console.error(
+          `verify-dist: an error raised through the ${format} build of ./internal is not recognised by the ${mainFormat} main entry.`,
+        );
+        process.exit(1);
+      }
     }
   }
   console.log(
@@ -189,7 +194,7 @@ if (mode === "mixed") {
 const entry = ENTRIES[mode];
 if (entry === undefined) {
   console.error(
-    `verify-dist: unknown mode "${mode}"; expected one of ${Object.keys(ENTRIES).join(", ")}.`,
+    `verify-dist: unknown mode "${mode}"; expected one of ${[...Object.keys(ENTRIES), "mixed", "internal"].join(", ")}.`,
   );
   process.exit(1);
 }

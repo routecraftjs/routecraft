@@ -644,8 +644,6 @@ export { logger, logFileDiversion, type LogFileDiversion } from "./logger.ts";
 
 export { shutdownHandler } from "./shutdown.ts";
 
-export { isSourceFixture, type SourceMessage } from "./testing-hooks.ts";
-
 export { tagAdapter, factoryArgs } from "./adapters/shared/factory-tag.ts";
 export { loadOptionalPeer } from "./adapters/shared/optional-peer.ts";
 

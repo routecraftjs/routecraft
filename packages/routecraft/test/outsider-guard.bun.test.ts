@@ -7,7 +7,7 @@ const repoRoot = new URL("../../../", import.meta.url).pathname;
 const outsiderDir = join(repoRoot, "packages/routecraft/test/outsider");
 const suites = readdirSync(outsiderDir, { recursive: true })
   .map(String)
-  .filter((name) => name.endsWith(".ts"))
+  .filter((name) => /\.tsx?$/.test(name))
   .map((name) => join(outsiderDir, name));
 
 /** Everything an outsider suite may import from. */
@@ -20,9 +20,9 @@ const ALLOWED_SPECIFIERS = new Set([
 ]);
 
 /**
- * Every module a file reaches, by any syntax: a static import, a re-export,
- * `import()`, `require()` and `import x = require()`. A specifier that is
- * not a string literal is reported as such, since it cannot be checked.
+ * Every module a file reaches. Only a static import can be checked name by
+ * name against `@internal`, so a re-export, an `import()` and a `require()`
+ * are reported as themselves and match nothing allowed.
  */
 function specifiersOf(file: string): string[] {
   const source = ts.createSourceFile(
@@ -35,20 +35,19 @@ function specifiersOf(file: string): string[] {
   const literal = (node: ts.Node | undefined): string =>
     node && ts.isStringLiteralLike(node) ? node.text : "<computed>";
   const visit = (node: ts.Node): void => {
-    if (
-      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-      node.moduleSpecifier
-    ) {
+    if (ts.isImportDeclaration(node)) {
       found.push(literal(node.moduleSpecifier));
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+      found.push(`re-export of ${literal(node.moduleSpecifier)}`);
     } else if (
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
         (ts.isIdentifier(node.expression) &&
           node.expression.text === "require"))
     ) {
-      found.push(literal(node.arguments[0]));
+      found.push(`dynamic import of ${literal(node.arguments[0])}`);
     } else if (ts.isExternalModuleReference(node)) {
-      found.push(literal(node.expression));
+      found.push(`require of ${literal(node.expression)}`);
     }
     ts.forEachChild(node, visit);
   };
@@ -60,7 +59,7 @@ describe("outsider harness guard", () => {
   /**
    * @case The outsider suites import by package name only
    * @preconditions Every file under `test/outsider/`
-   * @expectedResult Each static import, re-export, `import()` and `require()` names `bun:test` or a published `@routecraft/*` package: no relative path, no `/src/`, no `/internal`, no other package
+   * @expectedResult Each import is static and names `bun:test` or a published `@routecraft/*` package: no relative path, no `/src/`, no `/internal`, no other package, and no re-export, `import()` or `require()`
    */
   test("imports only published package names", () => {
     expect(suites.length).toBeGreaterThan(0);
@@ -78,11 +77,11 @@ describe("outsider harness guard", () => {
   /**
    * @case An outsider suite cannot reach a kernel symbol by its registered name
    * @preconditions Every file under `test/outsider/`
-   * @expectedResult No file mentions `Symbol.for("routecraft.`, the one way to reach a mark without importing it
+   * @expectedResult No file calls `Symbol.for` at all: a registered key is the one way to reach a mark without importing it, and a computed key cannot be told from one
    */
   test("forges no registered symbol", () => {
     const strays = suites.filter((file) =>
-      /Symbol\.for\(\s*["'`]routecraft\./.test(readFileSync(file, "utf8")),
+      /\bSymbol\s*(\.\s*for|\[)/.test(readFileSync(file, "utf8")),
     );
     expect(strays).toEqual([]);
   });

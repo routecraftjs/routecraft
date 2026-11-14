@@ -51,7 +51,7 @@ merge into one, its JSDoc says so.
 - It carries no compatibility promise. A name there may change or go in any release, and an import from outside the `@routecraft` scope is unsupported.
 - It is not a way around the main entry. A capability an outsider needs (reaching a plugin's state from an adapter, deferring, resuming) gets a public export; it never arrives through the subpath. The outsider suites cannot import it.
 - It is bundled apart from the main entry, so everything it reaches exists twice at runtime. A module it re-exports holds no state (a registry or a cache reached through it would be a second copy), and identity crosses the two bundles through `Symbol.for` and brands, never `instanceof`. The build holds the second half: `verify-dist.mjs internal` raises an error through the subpath and has the main entry recognise it.
-- A sibling imports it from its `src/` or `test/` only. Examples, templates, skills and the docs never name it.
+- A sibling imports it from its `src/` or `test/` only. Examples, templates, skills and the docs never import it; a resolver map that points the name at source for a test run is not an import.
 
 ## Related
 

@@ -13,10 +13,14 @@ const INTERNAL_NAMES = [
   "clipText",
   "compareRuntimeVersion",
   "isDevelopmentRuntime",
+  "isSourceFixture",
   "parseRuntimeVersion",
   "rejectStaleOptions",
 ];
 
+/** An import, re-export, `import()` or `require()` of the subpath; a resolver map naming it is none of these. */
+const IMPORTS_SUBPATH =
+  /(from|import|require)\s*\(?\s*["']@routecraft\/routecraft\/internal["']/;
 /** The sibling packages that may import the subpath. */
 const ALLOWED_IMPORTERS = /^packages\/(ai|cli|os|testing)\/(src|test)\//;
 
@@ -59,11 +63,9 @@ describe("@routecraft/routecraft/internal", () => {
         if (/(^|\/)(node_modules|dist|\.output|baseline)\//.test(file))
           continue;
         if (file.startsWith("packages/routecraft/")) continue;
-        // A resolver alias names the subpath without importing from it.
-        if (/\.config\.(mjs|ts)$/.test(file)) continue;
         if (ALLOWED_IMPORTERS.test(file)) continue;
         const source = readFileSync(`${repoRoot}${file}`, "utf8");
-        if (source.includes("@routecraft/routecraft/internal")) {
+        if (IMPORTS_SUBPATH.test(source)) {
           strays.push(file);
         }
       }

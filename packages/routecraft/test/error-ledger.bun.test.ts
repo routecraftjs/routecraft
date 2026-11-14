@@ -19,9 +19,16 @@ function readLedger(): LedgerRow[] {
   const rows: LedgerRow[] = [];
   for (const line of section.split("\n### ")[0]!.split("\n")) {
     const cells = line.split("|").map((cell) => cell.trim());
-    if (/^RC\d{4}$/.test(cells[1] ?? "")) {
-      rows.push({ code: cells[1]!, status: cells[2] as LedgerRow["status"] });
+    const [, code, status] = cells;
+    if (cells.length < 4 || code === "Code" || /^-+$/.test(code ?? ""))
+      continue;
+    if (
+      !/^RC\d{4}$/.test(code!) ||
+      !["reserved", "retired"].includes(status!)
+    ) {
+      throw new Error(`The RC code ledger holds a malformed row: ${line}`);
     }
+    rows.push({ code: code!, status: status as LedgerRow["status"] });
   }
   return rows;
 }
@@ -86,20 +93,24 @@ describe("RC code ledger", () => {
   /**
    * @case Source names only codes that exist or once existed
    * @preconditions Every `.ts` and `.tsx` file under `packages/*\/src`
-   * @expectedResult Each `RCnnnn` literal is a registered or a retired code, so a reserved code cannot be used before it is registered and a typo cannot ship
+   * @expectedResult Each `RCnnnn` literal is a registered code, or a retired one named in a comment, so a reserved code cannot be used before it is registered, a retired one cannot be raised again and a typo cannot ship
    */
   test("no source file names an unregistered code", async () => {
-    const allowed = new Set([
-      ...registered,
-      ...ledger.filter((row) => row.status === "retired").map((r) => r.code),
-    ]);
+    const known = new Set(registered);
+    const retired = new Set(
+      ledger.filter((row) => row.status === "retired").map((r) => r.code),
+    );
     const strays: string[] = [];
     for await (const file of new Glob("packages/*/src/**/*.{ts,tsx}").scan({
       cwd: repoRoot,
     })) {
       const source = readFileSync(`${repoRoot}${file}`, "utf8");
-      for (const [code] of source.matchAll(/\bRC\d{4}\b/g)) {
-        if (!allowed.has(code)) strays.push(`${file}: ${code}`);
+      for (const line of source.split("\n")) {
+        const comment = /^\s*(\*|\/\/|\/\*)/.test(line);
+        for (const [code] of line.matchAll(/\bRC\d{4}\b/g)) {
+          if (known.has(code) || (comment && retired.has(code))) continue;
+          strays.push(`${file}: ${code}`);
+        }
       }
     }
     expect(strays).toEqual([]);

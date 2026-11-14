@@ -16,16 +16,22 @@
  * Usage: bun .github/scripts/outsider-tarballs.mjs
  */
 
-import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const workDir = join(
-  process.env.RUNNER_TEMP ?? tmpdir(),
-  "routecraft-outsider-tarballs",
+const workDir = mkdtempSync(
+  join(process.env.RUNNER_TEMP ?? tmpdir(), "routecraft-outsider-"),
 );
 const packDir = join(workDir, "packs");
 const projectDir = join(workDir, "project");
@@ -35,7 +41,6 @@ function run(command, args, cwd) {
   execFileSync(command, args, { cwd, stdio: "inherit" });
 }
 
-rmSync(workDir, { recursive: true, force: true });
 mkdirSync(packDir, { recursive: true });
 mkdirSync(projectDir, { recursive: true });
 
@@ -83,5 +88,6 @@ cpSync(
   { recursive: true },
 );
 run("bun", ["test", "./outsider"], projectDir);
+rmSync(workDir, { recursive: true, force: true });
 
 console.log("outsider-tarballs: the outsider suites pass on the tarballs.");

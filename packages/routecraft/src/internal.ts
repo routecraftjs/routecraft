@@ -23,11 +23,13 @@
 export {
   RC_ADAPTER_OVERRIDES,
   SOURCE_FIXTURE,
+  isSourceFixture,
   type AdapterOverride,
   type AdapterSendCall,
   type AdapterSourceCall,
   type SendOverrideHandler,
   type SourceFixture,
+  type SourceMessage,
   type SourceOverrideBehavior,
 } from "./testing-hooks.ts";
 export { clipText } from "./shared/text.ts";
