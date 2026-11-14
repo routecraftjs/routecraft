@@ -5,7 +5,7 @@ import type {
   HttpMountDefinition,
   HttpPluginOptions,
 } from "../../adapters/http/types";
-import { missingCredentialReason } from "./auth";
+import { apiKeyLocationOf, missingCredentialReason } from "./auth";
 import {
   buildReadyResponse,
   createBuiltins,
@@ -253,6 +253,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
             }
           : undefined;
 
+        const apiKeyAt = apiKeyLocationOf(mount.auth);
         const dispatcher = createDispatcher({
           registry: runtime.registry,
           walled,
@@ -263,6 +264,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
           ...(onRequestCompleted !== undefined ? { onRequestCompleted } : {}),
           shutdownSignal: shutdown.signal,
           traceContext: mount.traceContext,
+          ...(apiKeyAt !== undefined ? { apiKeyAt } : {}),
           onAuthAbsent,
           onSignatureRejected,
           logger: c.logger,

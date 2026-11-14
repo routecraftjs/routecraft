@@ -120,7 +120,7 @@ export const account = craft()
 - `routecraft.http.url` -- raw request URL (path + query).
 - `routecraft.http.params` -- `Record<string, string>` of URL-decoded path params.
 - `routecraft.http.query` -- `Record<string, string>` of query params.
-- `routecraft.http.rawHeaders` -- `Record<string, string>` of the raw request headers, lower-cased. This is the open-ended pass-through wire-header remainder (the parsed envelope above is promoted to its own keys); it mirrors `routecraft.mail.rawHeaders`.
+- `routecraft.http.rawHeaders` -- `Record<string, string>` of the raw request headers, lower-cased. This is the open-ended pass-through wire-header remainder (the parsed envelope above is promoted to its own keys); it mirrors `routecraft.mail.rawHeaders`. An API key the mount's `apiKey()` verified is left out, and out of `routecraft.http.query` and `routecraft.http.url` when it is read from the query string.
 - `routecraft.http.cookies` -- `Record<string, string>` of the request's cookies by name, parsed from its `Cookie` header. See [Cookies](#cookies).
 - `routecraft.http.rawBody` -- `Uint8Array` of the exact wire bytes of the request body. Only present when the route opted in via `http({ rawBody: true })`; empty-body requests carry an empty array. Opt-in because of retention and exposure, not cost: the bytes already exist in memory during parsing, but attaching them pins a buffer of up to `maxBodySize` for the exchange lifetime and surfaces raw payload bytes to anything that logs the exchange headers.
 - `routecraft.auth.principal` -- the authenticated `Principal` (when auth is configured). `ex.auth.principal` reads this header in a route; `principalOf(exchange)` reads it elsewhere.

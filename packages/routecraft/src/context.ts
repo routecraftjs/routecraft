@@ -1268,6 +1268,18 @@ export class CraftContext {
   }
 
   /**
+   * The header names that carry a credential in this application, lowercased:
+   * the built-in ones and every plugin's `secretHeaders`. What copies an
+   * exchange out of the run (an event snapshot, a parked record) leaves them
+   * out.
+   *
+   * @internal
+   */
+  get secretHeaderNames(): ReadonlySet<string> {
+    return this.events.secretHeaderNames;
+  }
+
+  /**
    * Subscribe to lifecycle and system events.
    *
    * Takes an exact event name, or `"*"` for every event. Patterns such as
