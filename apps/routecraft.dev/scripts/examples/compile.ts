@@ -100,6 +100,9 @@ function compilerOptions(
     noUnusedParameters: false,
     baseUrl: repoRoot,
     paths: {
+      '@routecraft/routecraft/internal': [
+        'packages/routecraft/src/internal.ts',
+      ],
       '@routecraft/testing': ['packages/testing/src/index.ts'],
       '@routecraft/*': ['packages/*/src/index.ts'],
     },
