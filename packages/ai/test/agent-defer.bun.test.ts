@@ -660,7 +660,39 @@ describe("agent durable deferral (ctx.defer)", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
-    expect(deferred.input).toBeDefined();
+    expect(deferred.input).toMatchObject({
+      type: "object",
+      properties: { approved: { type: "boolean" } },
+    });
+  });
+
+  /**
+   * @case The 0.7 name of the resume schema is refused where an agent tool defers
+   * @preconditions new DeferError({ schema }) and ctx.defer({ schema }) on a wired handler context, both from JS
+   * @expectedResult RC5003 from each: dropped silently, the tool would defer with no contract
+   */
+  test("schema on DeferError and ctx.defer is refused with RC5003", () => {
+    const stale = { schema: Approval } as never;
+    const thrown = (run: () => unknown): unknown => {
+      try {
+        run();
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    };
+    const ctx = makeFnHandlerContext(
+      "ask",
+      new AbortController().signal,
+      undefined,
+      { id: "def-1", mintToken: () => "token" },
+      undefined,
+      undefined,
+      authorityOf(undefined),
+    );
+
+    expect(thrown(() => new DeferError(stale))).toMatchObject({ rc: "RC5003" });
+    expect(thrown(() => ctx.defer(stale))).toMatchObject({ rc: "RC5003" });
   });
 
   /**

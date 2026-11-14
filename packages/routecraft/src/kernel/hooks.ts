@@ -548,7 +548,7 @@ export class HookTable {
         });
       }
     }
-    if (slot === "error" && Object.hasOwn(hook, "schema")) {
+    if (slot === "error" && "schema" in hook) {
       throw rcError("RC1115", undefined, {
         message: `${where} declares "schema", which was renamed: the schema a resume payload must satisfy is declared as "input". Left as it is, the hook would park with no contract.`,
       });

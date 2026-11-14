@@ -2,7 +2,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
-  CraftContext,
   MemoryDeferralStore,
   craft,
   direct,
@@ -10,8 +9,7 @@ import {
   type CraftConfig,
 } from "../src/index.ts";
 import * as entry from "../src/index.ts";
-import { isExchange } from "../src/brand.ts";
-import { DefaultRoute } from "../src/route.ts";
+import { isCraftContext, isExchange, isRoute } from "../src/brand.ts";
 import { asDeferred } from "./helpers/deferral.ts";
 
 const SECRET = "deferral-leaks-test-secret-key-0123456789";
@@ -40,11 +38,7 @@ describe("what the defer and resume paths write down", () => {
     );
     const visited = new WeakSet<object>();
     return JSON.stringify([logged, seen], (_key, value: unknown) => {
-      if (
-        isExchange(value) ||
-        value instanceof DefaultRoute ||
-        value instanceof CraftContext
-      ) {
+      if (isExchange(value) || isRoute(value) || isCraftContext(value)) {
         return undefined;
       }
       if (value instanceof Error) {

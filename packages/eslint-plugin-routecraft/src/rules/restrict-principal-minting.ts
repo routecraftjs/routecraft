@@ -121,10 +121,13 @@ const rule: Rule.RuleModule = {
       );
     };
 
+    // Aliases already followed, so `var a = b, b = a` ends instead of recursing.
+    const followed = new Set<unknown>();
+
     /**
      * Whether an expression yields the application's principal authority:
      * `authorityOf(...)`, `x.require(AUTHORITY)` / `x.lookup(AUTHORITY)`,
-     * the exported `defaultAuthority`, or a `const` initialised from one of
+     * the exported `defaultAuthority`, or a variable initialised from one of
      * them.
      */
     const isAuthority = (node: Rule.Node, expression: unknown): boolean => {
@@ -133,7 +136,9 @@ const rule: Rule.RuleModule = {
           return true;
         }
         const init = variableInit(context, node, expression);
-        return init !== undefined && isAuthority(node, init);
+        if (init === undefined || followed.has(init)) return false;
+        followed.add(init);
+        return isAuthority(node, init);
       }
       if (
         isMemberExpression(expression) &&
@@ -157,6 +162,7 @@ const rule: Rule.RuleModule = {
 
     return {
       CallExpression(node) {
+        followed.clear();
         const callee: unknown = node.callee;
 
         // authenticate(...) via a (possibly aliased) named import, resolved
