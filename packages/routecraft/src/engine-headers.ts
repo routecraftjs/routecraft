@@ -12,6 +12,8 @@ import { JOINED_HEADER, TRACE_PARENT_HEADER } from "./journey-headers.ts";
  *   reflect the current operation; a write is equally futile.
  * - `routecraft.route`: set at exchange construction; a write would
  *   persist but lie about which route owns the exchange.
+ * - `routecraft.source`: stamped at ingress with the admitting source; a
+ *   write would let an exchange claim a door it did not come through.
  * - `routecraft.split_hierarchy`: maintained by split/aggregate to
  *   correlate children with their parent; a write corrupts joins.
  * - `routecraft.correlation_id` and `routecraft.causation_id`: the logger
@@ -71,6 +73,10 @@ const ENGINE_OWNED_HEADERS: ReadonlyMap<string, string> = new Map([
   [
     HeadersKeys.ROUTE_ID,
     "The route id is bound when the exchange is constructed. To hand work to another route, use forward() or a direct() destination.",
+  ],
+  [
+    HeadersKeys.SOURCE,
+    "The engine stamps which source admitted the exchange at every ingress; read it with sourceOf(exchange).",
   ],
   [
     HeadersKeys.SPLIT_HIERARCHY,

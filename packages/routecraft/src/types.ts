@@ -757,6 +757,12 @@ export interface EventDetailsMap {
     remoteParent?: string;
     /** Who the exchange runs as, when it was admitted with a principal. */
     principal?: PrincipalRef;
+    /**
+     * The `adapterId` of the source that admitted the exchange
+     * (`sourceOf(exchange)`). A resumed run's start names the source the
+     * exchange was first admitted through.
+     */
+    source?: string;
   };
   "route:exchange:completed": ExchangeLifecycle &
     ExchangeSnapshotEnvelope & {

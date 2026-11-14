@@ -51,7 +51,12 @@ import {
 } from "./kernel/host.ts";
 import { applicationPlugins } from "./kernel/defaults.ts";
 import { installFacet } from "./kernel/facets.ts";
-import { HeadersKeys, principalOf, type Exchange } from "./exchange.ts";
+import {
+  HeadersKeys,
+  principalOf,
+  sourceOf,
+  type Exchange,
+} from "./exchange.ts";
 import { principalRef } from "./kernel/continuation/principal-ref.ts";
 import { existingLineageOf } from "./lineage.ts";
 import type { TraceContextConfig } from "./trace-context.ts";
@@ -2307,10 +2312,17 @@ function withExchangeFacts<D>(
     !("principal" in scoped)
       ? principalOf(exchange)
       : undefined;
+  const source =
+    event === "route:exchange:started" &&
+    exchange !== undefined &&
+    !("source" in scoped)
+      ? sourceOf(exchange)
+      : undefined;
   if (
     typeof cause !== "string" &&
     remoteParent === undefined &&
-    principal === undefined
+    principal === undefined &&
+    source === undefined
   ) {
     return details;
   }
@@ -2319,6 +2331,7 @@ function withExchangeFacts<D>(
     ...(typeof cause === "string" ? { causationId: cause } : {}),
     ...(remoteParent !== undefined ? { remoteParent } : {}),
     ...(principal !== undefined ? { principal: principalRef(principal) } : {}),
+    ...(source !== undefined ? { source } : {}),
   } as D;
 }
 

@@ -1183,7 +1183,10 @@ export class DefaultRoute implements Route {
               markReady(index); // fallback: fire before first message if adapter never called ready()
               return channel.enqueue({
                 message: msg.message,
-                headers: msg.headers ?? {},
+                headers: {
+                  ...msg.headers,
+                  [HeadersKeys.SOURCE]: activeSource.adapterId ?? "inline",
+                },
                 ...(msg.parse
                   ? {
                       parse: msg.parse,
