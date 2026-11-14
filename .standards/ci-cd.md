@@ -80,7 +80,7 @@ CI runs on `pull_request`, so a PR's CI run uses the workflow definition from th
 
 ### 3.5. Jobs name a runner version
 
-Every job runs on a named image (`ubuntu-24.04`), never a `-latest` label, and `validate` fails on one. A `-latest` label moves when GitHub moves it, so a runner image change arrives mid-day on an unrelated PR; a named version makes it a reviewed diff. Moving to a newer image is one PR that changes every job together, except a job a comment pins lower for a stated reason.
+Every job runs on a named image (`ubuntu-24.04`, or `ubuntu-24.04-arm` for the release image built for ARM), never a `-latest` label, and `validate` fails on one, whether the label is written on the job or reaches it through a matrix. A `-latest` label moves when GitHub moves it, so a runner image change arrives mid-day on an unrelated PR; a named version makes it a reviewed diff. Moving to a newer image is one PR that changes every job together, except a job a comment pins lower for a stated reason.
 
 ## 4. Adding a new package (the checklist)
 

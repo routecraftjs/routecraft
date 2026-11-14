@@ -108,9 +108,12 @@ jobs:
 
       - name: Check every job names a runner version
         run: |
-          if grep -rnE "^\s*runs-on:.*-latest" .github/workflows; then
-            echo "::error::name a runner version (ubuntu-24.04), never a -latest label"; exit 1
-          fi
+          for workflow in .github/workflows/*.yml; do
+            labels=$(yq '[.jobs[] | [.["runs-on"], .strategy.matrix]]' "$workflow")
+            if grep -n -- "-latest" <<<"$labels"; then
+              echo "::error file=$workflow::name a runner version (ubuntu-24.04), never a -latest label"; exit 1
+            fi
+          done
 
       - name: Run checks
         run: |
