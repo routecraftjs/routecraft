@@ -294,7 +294,7 @@ function printable(text: string): string {
 export function mcpPinCommand(options: McpPluginOptions): ToolingCommand {
   return {
     summary:
-      "Write the tools the MCP clients list now to mcp.lock, for review and commit",
+      "Write the tools the MCP clients list now to the lockfile, for review and commit",
     usage: "[client]",
     run: (args, context) => runPin(options, args, context),
   };

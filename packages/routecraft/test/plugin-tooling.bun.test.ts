@@ -129,7 +129,7 @@ describe("plugin tooling", () => {
 
   /**
    * @case Every wrong shape of tooling is an invalid descriptor
-   * @preconditions Descriptors whose tooling is not an object, whose logins is not a function, whose commands is not an object, whose command key holds a space, whose command lacks run or summary, a repeatable plugin with a command, and logins that return something other than logins
+   * @preconditions Descriptors whose tooling is not an object, whose logins is not a function, whose commands is not an object, whose command key holds a space, whose command lacks run or summary or has a usage that is not a string, whose namespace is not a string, a repeatable plugin with a command, and logins that return nothing, a sparse array or something other than logins
    * @expectedResult RC1117 for each, raised when the plugin list is resolved (the last when the logins are read)
    */
   test("a malformed tooling is RC1117", () => {
@@ -141,22 +141,26 @@ describe("plugin tooling", () => {
       { id: "x.e", tooling: { commands: { pin: { summary: "no run" } } } },
       { id: "x.f", tooling: { commands: { pin: { run: echo.run } } } },
       { id: "x.g", repeatable: true, tooling: { commands: { echo } } },
+      { id: "x.i", tooling: { commands: { pin: { ...echo, usage: 3 } } } },
+      { id: "x.j", namespace: 5, tooling: { commands: { echo } } },
     ];
     for (const plugin of invalid) {
       expect(() => new PluginHost([plugin])).toThrow(
         expect.objectContaining({ rc: "RC1117" }),
       );
     }
-    expect(() =>
-      pluginTooling({
-        plugins: [
-          definePlugin({
-            id: "x.h",
-            tooling: { logins: () => [{ id: "mail" }] as never },
-          }),
-        ],
-      }),
-    ).toThrow(expect.objectContaining({ rc: "RC1117" }));
+    for (const logins of [[{ id: "mail" }], null, new Array<unknown>(1)]) {
+      expect(() =>
+        pluginTooling({
+          plugins: [
+            definePlugin({
+              id: "x.h",
+              tooling: { logins: () => logins as never },
+            }),
+          ],
+        }),
+      ).toThrow(expect.objectContaining({ rc: "RC1117" }));
+    }
   });
 
   /**

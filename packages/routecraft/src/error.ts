@@ -895,7 +895,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Adapter",
     message: "Credential outside a plugin's tooling scope",
     suggestion:
-      "A plugin's tooling command asked the credential store for an owner none of that plugin's own tooling.logins declares. A command reaches only its own plugin's credentials. Declare the login on the plugin whose command needs it, or read the credential from the plugin that owns it.",
+      "A plugin's tooling command asked the credential store for an owner none of that plugin's own tooling.logins declares. A command reaches only its own plugin's credentials. Declare the login on the plugin whose command needs it, or move the command to the plugin that owns the credential.",
     docs: `${DOCS_BASE}#rc-5072`,
     retryable: false,
   },

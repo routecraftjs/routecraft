@@ -110,6 +110,9 @@ function validateTooling(p: Plugin, where: string): void {
   ) {
     invalidPlugin(where, "tooling.commands must be an object of commands");
   }
+  if (p.namespace !== undefined && typeof p.namespace !== "string") {
+    invalidPlugin(where, "namespace must be a string");
+  }
   const namespace = namespaceOf(p);
   if (Object.keys(commands).length > 0 && !TOOLING_COMMAND.test(namespace)) {
     invalidPlugin(
@@ -124,16 +127,21 @@ function validateTooling(p: Plugin, where: string): void {
         `tooling.commands key "${key}" must be one word of letters, digits, "-" and "_"`,
       );
     }
-    const shaped = command as { summary?: unknown; run?: unknown } | null;
+    const shaped = command as {
+      summary?: unknown;
+      usage?: unknown;
+      run?: unknown;
+    } | null;
     if (
       typeof shaped !== "object" ||
       shaped === null ||
       typeof shaped.summary !== "string" ||
+      (shaped.usage !== undefined && typeof shaped.usage !== "string") ||
       typeof shaped.run !== "function"
     ) {
       invalidPlugin(
         where,
-        `tooling.commands.${key} must be { summary, run(args, context) }`,
+        `tooling.commands.${key} must be { summary, usage?, run(args, context) }`,
       );
     }
   }

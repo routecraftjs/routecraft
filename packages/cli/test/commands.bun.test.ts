@@ -35,6 +35,47 @@ async function help(...args: string[]): Promise<string> {
 
 describe("the craft command surface", () => {
   /**
+   * @case A plugin's command is reached through the craft binary itself
+   * @preconditions A project whose craft.config.ts installs a plugin with one tooling command; `craft greet hello a --loud` and `craft greet nope` run in it as subprocesses
+   * @expectedResult The command's output on stdout with exit 0, its arguments and unknown flag forwarded as given; the unknown key exits non-zero and names the plugin's commands
+   */
+  test("a plugin command runs from the binary", async () => {
+    const root = join(import.meta.dir, `tmp-commands-${Date.now()}`);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(
+      join(root, "craft.config.ts"),
+      [
+        `import { defineProject, definePlugin } from "@routecraft/routecraft";`,
+        `export default defineProject({ plugins: [definePlugin({`,
+        `  id: "test.greet", namespace: "greet",`,
+        `  tooling: { commands: { hello: {`,
+        `    summary: "Say the arguments back",`,
+        `    run: async (args) => ({ code: 0, output: args.join(",") }),`,
+        `  } } },`,
+        `})] });`,
+        "",
+      ].join("\n"),
+    );
+    const craft = (...args: string[]) =>
+      spawnSync("bun", [ENTRY, ...args], {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, CRAFT_LOG_LEVEL: "silent" },
+      });
+    try {
+      const ran = craft("greet", "hello", "a", "--loud");
+      expect(ran.stdout.trim()).toBe("a,--loud");
+      expect(ran.status).toBe(0);
+
+      const unknown = craft("greet", "nope");
+      expect(unknown.status).not.toBe(0);
+      expect(unknown.stderr).toContain("hello");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  /**
    * @case The editor bridge is registered and described
    * @preconditions `craft --help`
    * @expectedResult `acp` is listed, so an editor configured to run it finds it

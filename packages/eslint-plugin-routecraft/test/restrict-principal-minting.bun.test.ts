@@ -21,7 +21,7 @@ const ruleTester = new RuleTester({
 });
 
 /**
- * @case restrict-principal-minting rule: every minting form is flagged with a branch-identifying message (route .authenticate() on craft chains including aliased and namespace craft, a project's craft() whether the project is defined in the file or imported from one of the codebase's own modules, and a craft a local module re-exports, named, aliased, computed-member, and namespace imports of authenticate from @routecraft/routecraft, import-after-use, and mint()/brand() on the authority from authorityOf(), a const holding it, require(AUTHORITY), or the exported defaultAuthority as a named or namespace import); non-minting chains, same-named symbols from other modules, shadowing locals, foreign craft(), and a project or craft from a bare package pass; the chain report anchors on the .authenticate property so the documented eslint-disable-next-line placement suppresses it
+ * @case restrict-principal-minting rule: every minting form is flagged with a branch-identifying message (route .authenticate() on craft chains including aliased and namespace craft, a project's craft() whether the project is defined in the file or imported from one of the codebase's own modules, and a craft a local module re-exports by name or as its default, named, aliased, computed-member, and namespace imports of authenticate from @routecraft/routecraft, import-after-use, and mint()/brand() on the authority from authorityOf(), a const holding it, require(AUTHORITY), or the exported defaultAuthority as a named or namespace import); non-minting chains, same-named symbols from other modules, shadowing locals, foreign craft(), and a project or craft from a bare package pass; the chain report anchors on the .authenticate property so the documented eslint-disable-next-line placement suppresses it
  * @preconditions Source snippets covering craft chains with and without .authenticate, helper imports from routecraft and from unrelated modules, aliased, namespace, computed-member and hoisted import call forms, shadowed bindings, and a multi-line chain with line/column expectations
  * @expectedResult Valid cases produce no errors; each invalid case produces one restrictedMint error per mint call carrying the expected data.what, and the multi-line chain error anchors on the .authenticate line
  */
@@ -331,6 +331,16 @@ export default craft()
       `,
       errors: [
         { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+      ],
+    },
+    {
+      // a craft a local module default-exports
+      code: `
+        import craft from "./project";
+        export default craft().id("d").authenticate(mint);
+      `,
+      errors: [
         { messageId: "restrictedMint", data: { what: ".authenticate()" } },
       ],
     },

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
   CACHE_STORE,
   MemoryCacheProvider,
@@ -27,6 +27,8 @@ const login: CredentialLogin = {
   },
 };
 
+const shelf = new MemoryCacheProvider();
+
 /** One plugin using every extension point a third party is given at once. */
 const warehouse = definePlugin({
   id: "acme.warehouse",
@@ -34,7 +36,7 @@ const warehouse = definePlugin({
   provides: [CACHE_STORE],
   replaces: [CACHE_STORE],
   bind(c) {
-    c.provide(CACHE_STORE, new MemoryCacheProvider());
+    c.provide(CACHE_STORE, shelf);
   },
   steps: {
     shelve: (aisle: string) =>
@@ -112,14 +114,16 @@ describe("outsider: a plugin with tooling, built on the published entry", () => 
 
   /**
    * @case The same plugin's step and replaced port work in a running application
-   * @preconditions The project's craft() builds a route with the plugin's step; the application starts with the plugin's cache store in place of the default
-   * @expectedResult The application starts with the replacement installed and the step's result reaches the caller
+   * @preconditions The project's craft() builds a cached route with the plugin's step; the application starts with the plugin's cache store in place of the default; the same body is sent twice
+   * @expectedResult The step's result reaches the caller both times, and the plugin's own store was written once: the route's cache is the replacement
    */
   test("its step runs on a route of the same project", async () => {
     const project = defineProject({ plugins: [warehouse] });
+    const stored = spyOn(shelf, "set");
     const route = project
       .craft()
       .id("stock")
+      .cache()
       .from(direct<{ readonly sku: string }>())
       .shelve("A3")
       .to(noop());
@@ -127,9 +131,12 @@ describe("outsider: a plugin with tooling, built on the published entry", () => 
     t = await testContext().with(project.config).routes(route).build();
     await t.startAndWaitReady();
 
-    expect(await t.client.sendDirect("stock", { sku: "s-1" })).toEqual({
-      sku: "s-1",
-      aisle: "A3",
-    });
+    for (let sends = 0; sends < 2; sends++) {
+      expect(await t.client.sendDirect("stock", { sku: "s-1" })).toEqual({
+        sku: "s-1",
+        aisle: "A3",
+      });
+    }
+    expect(stored).toHaveBeenCalledTimes(1);
   });
 });

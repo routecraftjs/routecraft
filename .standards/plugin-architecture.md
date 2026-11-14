@@ -210,8 +210,8 @@ the package never installs its defaults into the first copy's applications.
 Ahead, so the application's plugins keep their relative order: a plugin that
 requires a default binds after it either way.
 
-A third party cannot be a default plugin. It reaches every position a default
-fills through `replaces`, and an application opts into it by listing it. A
+A third party cannot be a default plugin. It reaches any position a default
+fills by naming that port in `replaces`, one port at a time, and an application opts into it by listing it. A
 shipped plugin that is not a default and whose steps or facet a route can
 reach registers a remedy sentence (`registerShippedPlugin(factory, { remedy
 })`), which the `RC1111` raised for its facet quotes, so the fault names the

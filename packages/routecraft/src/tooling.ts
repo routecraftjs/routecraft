@@ -41,13 +41,15 @@ export function pluginTooling(config: CraftConfig): InstalledTooling[] {
   for (const { plugin, id, namespace } of host.listed) {
     const tooling = plugin.tooling;
     if (tooling === undefined) continue;
-    const logins = tooling.logins?.() ?? [];
-    if (!Array.isArray(logins) || !logins.every(isLogin)) {
+    const logins: unknown =
+      tooling.logins === undefined ? [] : tooling.logins();
+    // Array.from fills a sparse array's holes, which `every` would skip.
+    if (!Array.isArray(logins) || !Array.from(logins).every(isLogin)) {
       throw rcError("RC1117", undefined, {
         message: `Invalid plugin "${id}": tooling.logins must return an array of { id, owner, description, login(store, io) }.`,
       });
     }
-    for (const login of logins) {
+    for (const login of logins as CredentialLogin[]) {
       if (ids.has(login.id) || owners.has(login.owner)) {
         throw rcError("RC5003", undefined, {
           message: `Two logins are named "${login.id}" or keep their credential as "${login.owner}"; give the clients distinct names.`,
@@ -62,7 +64,7 @@ export function pluginTooling(config: CraftConfig): InstalledTooling[] {
       plugin: id,
       namespace,
       commands: tooling.commands ?? {},
-      logins,
+      logins: logins as CredentialLogin[],
     });
   }
   return out;

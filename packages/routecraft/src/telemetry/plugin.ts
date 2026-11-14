@@ -647,7 +647,15 @@ export function telemetryPlugin(options: TelemetryOptions = {}): Plugin {
     async bind(c) {
       const run = new TelemetryRun(options, settings);
       runs.set(c.application, run);
-      await run.bind(c);
+      try {
+        await run.bind(c);
+      } catch (error) {
+        // A plugin whose bind threw is never stopped, and the run may
+        // already hold the database open.
+        runs.delete(c.application);
+        await run.stop().catch(() => undefined);
+        throw error;
+      }
     },
     async stop(c) {
       const run = runs.get(c.application);

@@ -10,7 +10,7 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 
 1. **Plugins are descriptors.** `CraftPlugin`, `apply(ctx)` and `teardown(ctx, info)` are removed; a plugin is `definePlugin({ id, bind, start, stop, ... })` and never receives the `CraftContext`. [Section 1](#1-plugins).
 2. **`ex.principal` is `ex.auth.principal`.** [Section 2](#2-principal).
-3. **`craft.config.ts` default-exports `defineProject(...)`.** A plain config still loads. [Section 3](#3-define-project).
+3. **`craft.config.ts` default-exports `defineProject(...)`.** A plain config is refused; see [section 19](#19-project-export). [Section 3](#3-define-project).
 4. **`registerDsl` is removed.** Route methods come from a plugin's `steps`. [Section 4](#4-steps).
 5. **Store keys that crossed plugins are ports.** [Section 5](#5-ports).
 6. **A custom `DeferralStore` fences its claims.** `renewClaim` is new, and `markExpired` and `markDenied` take the claim id. The shipped SQLite and memory stores migrate themselves. [Section 6](#6-deferral-store).

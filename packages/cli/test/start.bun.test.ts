@@ -301,7 +301,7 @@ describe("CLI start command", () => {
 
   /**
    * @case A default-exported plain object is not a project
-   * @preconditions craft.config.ts default-exports a config object, then exports the pre-0.8 craftConfig const
+   * @preconditions Two projects: one craft.config.ts default-exports a config object, the other exports the pre-0.8 craftConfig const
    * @expectedResult Start fails with RC1120 each time, and the message says how to rewrite that shape with defineProject
    */
   test("refuses a config that is not a project with RC1120", async () => {

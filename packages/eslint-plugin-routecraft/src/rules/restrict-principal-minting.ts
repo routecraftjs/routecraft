@@ -113,6 +113,13 @@ const rule: Rule.RuleModule = {
           );
         }
         if (binding.kind === "unresolved") return root.name === "craft";
+        // A default import carries no exported name, so the local one decides.
+        if (
+          root.name === "craft" &&
+          isProjectModule(importSource(context, node, root) ?? "")
+        ) {
+          return true;
+        }
         return isProjectCraft(node, variableInit(context, node, root));
       }
       if (isMemberExpression(root)) {

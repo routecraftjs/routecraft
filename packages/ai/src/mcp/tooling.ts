@@ -15,7 +15,12 @@ export function mcpTooling(options: McpPluginOptions): PluginTooling {
     logins: () => {
       const logins: CredentialLogin[] = [];
       for (const [serverId, client] of Object.entries(options.clients ?? {})) {
-        if ("url" in client && isConnectAuth(client.auth)) {
+        // A url read from an unset environment variable is no client to log in to.
+        if (
+          "url" in client &&
+          typeof client.url === "string" &&
+          isConnectAuth(client.auth)
+        ) {
           logins.push(
             connectLogin(serverId, client.url, client.auth, {
               allowHttp: client.allowHttp,
