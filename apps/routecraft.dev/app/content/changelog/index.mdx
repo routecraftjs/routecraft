@@ -58,6 +58,7 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 ### CLI
 
 - **`argv()`** -- `craft run <file> --field=value`, or JSON on stdin, reaches the route as one exchange, with `--help` from the `.input()` schema. See [argv](/docs/next/reference/adapters/argv).
+- **Hooks scoped by source** -- `sources: ["routecraft.adapter.argv"]` on a hook runs it only for exchanges that source admitted, and `sourceOf(exchange)` reads the same value, so a plugin can supply the operator's principal on the command line without opening the route's other doors. See [argv](/docs/next/reference/adapters/argv#no-principal).
 - **Plugin tooling** -- a plugin declares commands and logins; `craft <namespace> <command>` and `craft connect` run them without starting the project.
 - **`craft run --config <path>` and `--no-config`** -- a route file run on its own runs in the project it was built with.
 

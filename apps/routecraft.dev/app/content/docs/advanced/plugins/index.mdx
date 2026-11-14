@@ -302,6 +302,8 @@ export const sameTenant = definePlugin({
 
 `routes` and `tags` scope a hook to some routes, by id or by tag; with neither it applies to every route, the routes other plugins register and the targets of an `.error()` forward included. A validate hook that demands a principal with no selector refuses the route whose pipeline would have established one with `.authenticate()`, and the direct endpoint its error handler forwards to; scope such a hook by tag. `exit` has no validate phase.
 
+`sources` narrows a hook further, to the exchanges one kind of source admitted: `sources: ["routecraft.adapter.argv"]` runs for a `craft run` command line and not for a `direct()` or `mcp()` call to the same route. It must match as well as `routes` and `tags`, and inside any hook `sourceOf(exchange)` reads the same value. The source is where the exchange was first admitted, so a resumed exchange keeps it whichever door carried the resume, and a hand-off to another route is a new admission through `direct()`.
+
 ### The `error` slot \{#the-error-slot}
 
 An `error` hook hears every failure the route's own `.error()` did not settle. In `observe` it only hears. In `mutate` it may decide: return a recovery body, `recovery.drop()`, `recovery.defer(...)` or `recovery.rethrow()`, or `undefined` to pass to the next hook. The first answer decides.

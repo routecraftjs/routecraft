@@ -53,6 +53,7 @@ export {
   isDropped,
   OperationType,
   principalOf,
+  sourceOf,
   wasOutputValidated,
   type RoutecraftHeaders,
 } from "./exchange.ts";

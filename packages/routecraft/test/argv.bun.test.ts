@@ -544,4 +544,60 @@ describe("argv() source", () => {
     expect(answer).toEqual({ id: "9" });
     expect(step).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * @case A plugin supplies the operator's principal for argv() only
+   * @preconditions A route with .authorize({ scopes }) fed by argv() and direct(); a beforeAuth mutate hook with sources naming the argv adapter mints the principal
+   * @expectedResult The command line run completes as the operator, and a direct() call to the same route with no principal is still refused
+   */
+  test("a sources-scoped hook admits argv() without opening direct()", async () => {
+    const run = invocation(["--id", "7"]);
+    const step = mock((body: unknown) => body);
+    t = await testContext()
+      .store(RUNNER_INVOCATION, run.invocation)
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.cli-operator",
+            hooks: {
+              beforeAuth: {
+                id: "operator",
+                phase: "mutate",
+                sources: ["routecraft.adapter.argv"],
+                run: (exchange) => ({
+                  headers: {
+                    [HeadersKeys.AUTH_PRINCIPAL]: authorityOf(exchange).mint({
+                      kind: "custom",
+                      scheme: "local",
+                      subject: "jaco",
+                      scopes: ["boards:read"],
+                    }),
+                  },
+                }),
+              },
+            },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("work-item")
+          .authorize({ scopes: ["boards:read"] })
+          .input({ body: WorkItemQuery })
+          .from(argv(), direct())
+          .transform(step),
+      )
+      .build();
+    await t.startAndWaitReady();
+    for (let i = 0; run.outcomes.length === 0 && i < 100; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(run.outcomes[0]?.outcome).toBe("completed");
+    expect(step).toHaveBeenCalledTimes(1);
+
+    await expect(t.client.sendDirect("work-item", { id: "9" })).rejects.toThrow(
+      "no authenticated principal",
+    );
+    expect(step).toHaveBeenCalledTimes(1);
+  });
 });
