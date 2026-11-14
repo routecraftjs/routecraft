@@ -67,7 +67,7 @@ const SQLITE_CONSUMER = "deferral store (sqlite)";
  * Schema version this build writes. Bumped whenever
  * {@link MIGRATIONS} grows an entry.
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /**
  * How long a writer waits for a competing write lock before giving up.
@@ -165,6 +165,8 @@ const MIGRATIONS: ReadonlyArray<string> = [
    UPDATE deferrals
       SET claim_id = lower(hex(randomblob(16))), claim_renewed_at = claimed_at
     WHERE claimed_at IS NOT NULL;`,
+  // Version 4: the record format. A row an earlier build wrote reads as 0.
+  `ALTER TABLE deferrals ADD COLUMN format INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 /**
@@ -239,8 +241,8 @@ export class SqliteDeferralStore implements DeferralStore {
           `INSERT INTO deferrals (
              id, route_id, position, continuation_hash, action_fingerprint,
              exchange, "schema", call_binding, meta, error_path,
-             step_state, state, waiting_for, deferred_at, expires_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             step_state, state, waiting_for, deferred_at, expires_at, format
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           record.id,
@@ -262,6 +264,7 @@ export class SqliteDeferralStore implements DeferralStore {
           record.waitingFor,
           record.deferredAt.getTime(),
           record.expiresAt ? record.expiresAt.getTime() : null,
+          record.format,
         );
     } catch (cause) {
       // RC5042 passes through unwrapped, as the memory backend reports it.
@@ -728,6 +731,7 @@ function guard<T>(what: string, run: () => T): T {
  */
 interface DeferralRow {
   id: string;
+  format?: number | null;
   route_id: string;
   position: number;
   continuation_hash: string;
@@ -859,6 +863,7 @@ function toDeferral(row: DeferralRow): Deferral {
     : undefined;
   return {
     id: row.id,
+    format: row.format ?? 0,
     routeId: row.route_id,
     position: row.position,
     continuationHash: row.continuation_hash,

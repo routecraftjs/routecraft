@@ -211,17 +211,20 @@ export function deferHandleFor(
     }
     const schema = resolved.input ?? input;
     throw new DeferSignal(
-      mintDeferTicket({
-        site: resolved.site,
-        ...(schema !== undefined ? { schema } : {}),
-        ...(ttl !== undefined
-          ? { expiresInMs: parseDuration(ttl, "defer({ ttl })") }
-          : {}),
-        ...(meta !== undefined ? { meta } : {}),
-        ...(callBinding !== undefined ? { callBinding } : {}),
-        ...(stepState !== undefined ? { stepState } : {}),
-        ...(notify !== undefined ? { notify } : {}),
-      }),
+      mintDeferTicket(
+        {
+          site: resolved.site,
+          ...(schema !== undefined ? { schema } : {}),
+          ...(ttl !== undefined
+            ? { expiresInMs: parseDuration(ttl, "defer({ ttl })") }
+            : {}),
+          ...(meta !== undefined ? { meta } : {}),
+          ...(callBinding !== undefined ? { callBinding } : {}),
+          ...(stepState !== undefined ? { stepState } : {}),
+          ...(notify !== undefined ? { notify } : {}),
+        },
+        exchange.id,
+      ),
     );
   };
   const defer = (request: DeferRequest = {}): Promise<never> => {
