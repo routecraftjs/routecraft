@@ -123,6 +123,29 @@ A new door reuses the shared classification (`callerRefusalOf`) rather than re-d
 - **Generic RC codes are ecosystem-throwable.** Adapters and ecosystem packages may throw these core codes directly (with message/suggestion/retryable overrides) instead of minting their own: `RC5001` (step failed, catch-all), `RC5003` (adapter misconfigured), `RC5004` (no handler available), `RC5010` (connection failed), `RC5011` (timeout), `RC5012` (authentication failed), `RC5013` (rate limited), `RC5014` (resource not found), `RC5015` (permission denied), `RC5016` (source payload parse failed), `RC5017` (optional peer missing), and `RC1110` when a plugin's port provider refuses a contribution that arrives after the application froze (the kernel's contract for `PluginContext.frozen`). The remaining RC codes are engine-internal; do not throw them from ecosystem code.
 - **A code earns its place** when its docs page can provide specific, actionable troubleshooting steps. Otherwise, use the catch-all (RC5001) and put specifics in the message override; register a namespaced code only when the failure pattern is genuinely package-specific.
 
+### The `RC` code ledger
+
+`error.ts` is the list of codes in use. This table is the list of codes that are **not** in it and must not be picked: a code a planned change has claimed, and a code that was issued once and is gone. `packages/routecraft/test/error-ledger.bun.test.ts` holds the two together.
+
+| Code | Status | Held for | Note |
+| --- | --- | --- | --- |
+| RC1119 | reserved | #961 | a `replaces` that targets another version of a port |
+| RC1120 | reserved | #961 | no project export found by the CLI |
+| RC1121 | reserved | #961 | a config key with two owners |
+| RC1122 | reserved | #942 | an entry kind the source may not claim |
+| RC5005 | retired | | never reissued |
+| RC5006 | retired | | never reissued |
+| RC5007 | retired | | never reissued |
+| RC5008 | retired | | never reissued |
+| RC5009 | retired | | never reissued |
+| RC5027 | retired | | `@routecraft/ai`'s code before 0.6, now `AI1003` |
+| RC5071 | reserved | #854 | a continuation tail that holds an inferred node |
+
+- **Take the next number in the series and reserve it here first.** A series is the codes that share their first two digits (`RC10xx`, `RC11xx`, `RC50xx`), numbered from `01`. Two branches that each take "the next free code" collide only as a text conflict in this table, which is the cheap place to find out.
+- **A reserved row leaves the table in the change that adds the code to `error.ts`.** A code in both fails the test.
+- **A retired code is never reused.** A log line, an alert rule or a user's `catch` may still match it, so a retired row stays for good.
+- **No gaps.** Every number between the start of a series and its highest code is registered, reserved or retired, and no source file names a code that is none of the three.
+
 ### JSON-RPC refusals on the ACP mount
 
 The ACP mount answers a refused request with a JSON-RPC error, and a client branches on the code rather than the message. The taxonomy is decided once for the mount, not per method, and it is the contract `craft acp` is written against:

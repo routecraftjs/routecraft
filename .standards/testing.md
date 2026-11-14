@@ -265,7 +265,24 @@ The `:node` script resolves to `node node_modules/vitest/vitest.mjs run --passWi
 - `scaffolder-smoke` first runs `packages/cli/test/log-flags.bun.test.ts` and `packages/cli/test/relaunch.bun.test.ts` against the built CLI (`CRAFT_CLI_ENTRY=packages/cli/dist/index.js`), then runs `bun run test:integration` twice -- once with `TEST_PACKAGE_MANAGER=bun` (full scaffold + `craft run` dispatch) and once with `TEST_PACKAGE_MANAGER=npm` (install + typecheck only; the dispatch test skips because the CLI is Bun-only).
 - `embedding-smoke` runs `node .github/scripts/smoke-test-embedding.mjs` to verify the Node embedding path, including a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed.
 - `adapter-cross-runtime (bun)` and `adapter-cross-runtime (node)` run the cross-runtime suite under each runtime; both arms must pass for a PR to be mergeable.
+- `outsider-tarballs` runs the outsider suites (section 14) against the packed tarballs.
 - See [CI/CD](./ci-cd.md) for the full job graph.
+
+## 14. Outsider suites
+
+`packages/routecraft/test/outsider/` holds what a third party can build with the published packages: a plugin, a step, an adapter, written the way someone outside this repository would write them. A contract is public when a suite here exercises it, and a first-party feature that an outsider could not have written is a finding.
+
+- A suite imports `bun:test` and the published package names (`@routecraft/routecraft`, `@routecraft/testing`, `@routecraft/ai`, `@routecraft/os`) and nothing else: no relative path, no `/src/`, no `/internal`, no `Symbol.for("routecraft.` and no name whose declaration is tagged `@internal`. `outsider-guard.bun.test.ts` fails on each.
+- The suites run twice: in `test` against the workspace sources, and in `outsider-tarballs` against the packed tarballs in an empty project. Keep each file self-contained, with no helper outside the directory, so it can be copied there as is.
+- One file per contract. A change that makes a contract public adds or extends its suite in the same PR.
+
+## 15. Benchmarks
+
+`bun run bench` times the costs a contract change can move: an exchange through the hot path, the same with a listener attached, and building and starting a corpus of routes. `packages/routecraft/bench/run.ts` is the list.
+
+- **Compare, never assert.** Two separate runs differ by 10% or more on a shared machine. `bun run bench --base <path to another checkout's packages/routecraft/dist/index.js>` loads both builds into one process, alternates between them round by round and judges the median of the per-round ratios; two builds of the same commit then agree within about 2%.
+- **Each scenario carries a budget**, the largest slowdown against the base before the run exits 1: 3% on the hot path, 5% with a listener, 100% on build.
+- **Nothing runs it for you.** It is no CI job: a shared runner is too noisy for a 3% budget to mean anything. A PR that touches the pipeline executor, the event emitter or route compilation runs it against `main` and reports the table in its description, and it is run against the last stable tag before a Version Packages PR merges ([CI/CD § 9](./ci-cd.md#9-release-flow-changesets)).
 
 ---
 

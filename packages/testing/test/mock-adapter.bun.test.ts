@@ -14,8 +14,8 @@ import {
   type Exchange,
   type ExchangeHeaders,
   type Subscription,
-  type AdapterOverride,
 } from "@routecraft/routecraft";
+import { type AdapterOverride } from "@routecraft/routecraft/internal";
 import {
   mockAdapter,
   sourceMessage,

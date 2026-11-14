@@ -8,9 +8,9 @@ import {
   type PluginContext,
   type EventName,
   parseDuration,
-  rejectStaleOptions,
   WEB_INGRESS,
 } from "@routecraft/routecraft";
+import { rejectStaleOptions } from "@routecraft/routecraft/internal";
 import { McpServer } from "./server.ts";
 import {
   MCP,

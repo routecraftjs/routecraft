@@ -44,6 +44,15 @@ merge into one, its JSDoc says so.
 - Put it on the original declaration (the `export function` / `const` / `class` / `interface` / `type`), never on a re-export line in `index.ts`.
 - Place it as a standalone line in the symbol's JSDoc block, after the description and any `@param` / `@example` lines.
 
+## The `/internal` subpath
+
+`@routecraft/routecraft/internal` is where a name lives when a sibling `@routecraft/*` package needs it and a third party must not build on it. It holds two kinds of thing: the hooks `@routecraft/testing` uses to override an adapter, and build helpers the first-party packages share so they apply one rule rather than a copy of it. The list is `packages/routecraft/src/internal.ts`, and a test holds it.
+
+- It carries no compatibility promise. A name there may change or go in any release, and an import from outside the `@routecraft` scope is unsupported.
+- It is not a way around the main entry. A capability an outsider needs (reaching a plugin's state from an adapter, deferring, resuming) gets a public export; it never arrives through the subpath. The outsider suites cannot import it.
+- It is bundled apart from the main entry, so everything it reaches exists twice at runtime. A module it re-exports holds no state (a registry or a cache reached through it would be a second copy), and identity crosses the two bundles through `Symbol.for` and brands, never `instanceof`. The build holds the second half: `verify-dist.mjs internal` raises an error through the subpath and has the main entry recognise it.
+- A sibling imports it from its `src/` or `test/` only. Examples, templates, skills and the docs never name it.
+
 ## Related
 
 - [Type Safety and Schemas](./type-safety-and-schemas.md) -- factory option types and type-flow policy

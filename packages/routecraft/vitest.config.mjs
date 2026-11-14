@@ -7,6 +7,10 @@ export default defineConfig({
     alias: {
       "@routecraft/testing": new URL("../testing/src/index.ts", import.meta.url)
         .pathname,
+      "@routecraft/routecraft/internal": new URL(
+        "./src/internal.ts",
+        import.meta.url,
+      ).pathname,
       "@routecraft/routecraft": new URL("./src/index.ts", import.meta.url)
         .pathname,
       routecraft: new URL("./src/index.ts", import.meta.url).pathname,

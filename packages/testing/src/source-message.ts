@@ -1,8 +1,8 @@
+import type { ExchangeHeaders } from "@routecraft/routecraft";
 import {
   SOURCE_FIXTURE,
-  type ExchangeHeaders,
   type SourceFixture,
-} from "@routecraft/routecraft";
+} from "@routecraft/routecraft/internal";
 
 /**
  * Wrap a message body with the headers a real source would have attached, for

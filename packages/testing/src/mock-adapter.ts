@@ -1,11 +1,11 @@
+import type { Source } from "@routecraft/routecraft";
 import type {
   AdapterOverride,
   AdapterSendCall,
   AdapterSourceCall,
   SendOverrideHandler,
-  Source,
   SourceOverrideBehavior,
-} from "@routecraft/routecraft";
+} from "@routecraft/routecraft/internal";
 
 /**
  * Brand symbol stamped on the handles returned by `mockAdapter()`.
