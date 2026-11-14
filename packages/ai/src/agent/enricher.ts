@@ -12,10 +12,9 @@ import {
 } from "@routecraft/routecraft";
 import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
-import { resolveModel, resolvePrompt } from "../llm/shared.ts";
+import { buildUserPrompt, resolveModel, resolvePrompt } from "../llm/shared.ts";
 import {
   AgentRun,
-  buildUserPrompt,
   dispatchIdentityFrom,
   type AgentDispatchIdentity,
   type AgentRunInput,

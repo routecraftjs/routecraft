@@ -17,7 +17,7 @@ Within a namespace, the leading digit reserves a range for one subsystem, so two
 | Range | Owner | Covers |
 | --- | --- | --- |
 | `RC****` | `@routecraft/routecraft` | Core: routes, exchanges, adapters, auth, deferral. The digit after `RC` is the category, not a subsystem range. |
-| `AI1xxx` | `@routecraft/ai` | Agent blocks, configuration, and runtime (run cancellation, deferral surface, the editor surface) |
+| `AI1xxx` | `@routecraft/ai` | Agent blocks, configuration, and runtime (run cancellation, deferral surface, the editor surface, model outcomes) |
 | `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client, a remote's result received by one, and a call refused before it reaches a remote (pinning) |
 | `AI3xxx` | `@routecraft/ai` | Built-in agent tools |
 | `OS1xxx` | `@routecraft/os` | Subprocess execution and isolation tiers |
@@ -1335,6 +1335,21 @@ A surface update did not match the protocol
 **Suggestion**  
 - Fix the callback so it returns a shape the protocol defines: a `sessionUpdate` discriminator the protocol names, with the fields that go with it.
 - The shapes come from the SDK's types, so a value that typechecks and still fails here was built from data at runtime; validate that data before building the update from it.
+
+## AI1020
+Model call cut off before it produced anything
+
+**Why it happens**  
+The provider ended a model call with finish reason `length` or `content-filter`, and the model had produced nothing by then: no text, no tool call and no structured output. `agent()` and `llm()` both refuse it, because passed on it reads as a model that chose to say nothing.
+
+The usual cause is the output cap. On a model that thinks, the thinking tokens count against `maxTokens`, so the cap can be spent before the answer starts. This is why a call that sets a `reasoning` level of `'low'` or above and no `maxTokens` is sent without a cap. A model that thinks by default, with no `reasoning` set, still gets the 1024 default and can still land here.
+
+A call that was cut off after producing something is not refused: a partial answer reaches the route with `finishReason` on the result. For an agent, `route:agent:error` fires and `route:agent:finished` does not.
+
+**Suggestion**  
+- For `length`: raise `maxTokens`, lower `reasoning`, or set a `reasoning` level and leave `maxTokens` unset so the provider's own maximum applies.
+- For `content-filter`: the provider refused the content. Change the prompt or the model.
+- Do not retry the same input. It is cut off the same way.
 
 ## AI2001
 MCP tool output violated its declared schema

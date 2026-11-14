@@ -131,11 +131,12 @@ describe("llm() carries its sampling block to the provider call", () => {
   /**
    * @case A context-level default reasoning applies to a call that omits it
    * @preconditions llmPlugin({ defaultOptions: { reasoning: "high" } }) and an llm() call with no reasoning
-   * @expectedResult The dispatched options carry the default
+   * @expectedResult The dispatched options carry the default, and no output cap since the call now thinks
    */
   test("a plugin default reasoning applies", async () => {
     await run(undefined, { reasoning: "high" });
     expect(dispatchedOptions().reasoning).toBe("high");
+    expect(dispatchedOptions().maxTokens).toBeUndefined();
   });
 
   /**

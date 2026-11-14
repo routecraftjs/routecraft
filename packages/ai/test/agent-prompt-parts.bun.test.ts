@@ -264,11 +264,11 @@ describe("content parts on the user prompt", () => {
   });
 
   /**
-   * @case An empty parts array means "the author said nothing", like an empty string
+   * @case An empty parts array is sent as the empty prompt it is, never replaced by the body
    * @preconditions llm({ user: () => [] }) over a body the default derivation can render
-   * @expectedResult The body-derived default prompt is used, matching what user: () => "" already does
+   * @expectedResult The user prompt is empty, matching what agent() does with the same callback
    */
-  test("an empty parts array falls back to the body-derived prompt", async () => {
+  test("an empty parts array is sent as an empty prompt", async () => {
     scripted.script.push({ text: "ok" });
     t = await testContext()
       .with({
@@ -286,7 +286,7 @@ describe("content parts on the user prompt", () => {
 
     await t.test();
 
-    expect(firstPrompt()).toBe("the body itself");
+    expect(firstPrompt()).toBe("");
   });
 
   /**

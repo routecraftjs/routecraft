@@ -274,6 +274,15 @@ export type LlmRawProviderOptions = Record<string, Record<string, unknown>>;
  */
 export interface LlmSamplingOptions {
   temperature?: number;
+  /**
+   * The most tokens the model may generate in one call. On a model that
+   * thinks, the thinking tokens count against it, so a cap sized for the
+   * answer alone can be spent before the answer starts.
+   *
+   * Unset, the framework sends 1024, except when `reasoning` asks the model
+   * to think (`"low"`, `"medium"` or `"high"`): then nothing is sent and the
+   * provider's own maximum applies.
+   */
   maxTokens?: number;
   topP?: number;
   frequencyPenalty?: number;
@@ -314,14 +323,15 @@ export interface LlmOptions<T = unknown> extends LlmSamplingOptions {
 }
 
 /**
- * The sampling block after defaults are applied: `temperature` and
- * `maxTokens` always have a value, everything else is present only when the
- * author asked for it. This is what reaches the provider call.
+ * The sampling block after defaults are applied: `temperature` always has a
+ * value, everything else is present only when the author asked for it or a
+ * default filled it. `maxTokens` is absent when `reasoning` asks the model
+ * to think and the author set no cap. This is what reaches the provider call.
  */
 export type LlmSamplingOptionsMerged = Required<
-  Pick<LlmSamplingOptions, "temperature" | "maxTokens">
+  Pick<LlmSamplingOptions, "temperature">
 > &
-  Omit<LlmSamplingOptions, "temperature" | "maxTokens">;
+  Omit<LlmSamplingOptions, "temperature">;
 
 /** Internal merged type for adapter and store. */
 export type LlmOptionsMerged<T = unknown> = LlmSamplingOptionsMerged &

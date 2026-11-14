@@ -18,7 +18,13 @@ import type { LlmService } from "./types.ts";
  */
 export const DEFAULT_TEMPERATURE = 0;
 
-/** @internal See {@link DEFAULT_TEMPERATURE}. */
+/**
+ * The output cap sent when the author set none and the call does not ask the
+ * model to think. Sized for a classic completion; see {@link resolveSampling}
+ * for why a thinking call gets no cap instead.
+ *
+ * @internal
+ */
 export const DEFAULT_MAX_TOKENS = 1024;
 
 /**
@@ -51,6 +57,11 @@ export const SAMPLING_OPTION_KEYS = Object.keys({
  * unset stay absent so the provider's own default applies rather than a value
  * the framework invented.
  *
+ * `maxTokens` gets no default when `reasoning` asks the model to think.
+ * Thinking tokens count against the cap, so 1024 can be spent before the
+ * answer starts and the call ends with nothing in it. The provider's own
+ * maximum is the only cap that fits a budget the framework cannot see.
+ *
  * @internal
  */
 export function resolveSampling(
@@ -58,8 +69,10 @@ export function resolveSampling(
 ): LlmSamplingOptionsMerged {
   const out: LlmSamplingOptionsMerged = {
     temperature: options.temperature ?? DEFAULT_TEMPERATURE,
-    maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
+  const thinks =
+    options.reasoning !== undefined && options.reasoning !== "none";
+  if (!thinks) out.maxTokens = DEFAULT_MAX_TOKENS;
   for (const key of SAMPLING_OPTION_KEYS) {
     const value = options[key];
     if (value !== undefined) Object.assign(out, { [key]: value });
@@ -142,8 +155,8 @@ export function resolvePrompt<T = unknown>(
 /**
  * Resolves a user prompt source against an exchange. Same contract as
  * {@link resolvePrompt}, widened to the parts array. An empty source (absent,
- * `""`, or `[]`) returns `""`, which is what the callers treat as "the author
- * said nothing, derive the prompt from the body".
+ * `""`, or `[]`) returns `""`. Whether the body stands in for an absent
+ * source is {@link buildUserPrompt}'s call, never this function's.
  */
 export function resolveUserPrompt<T = unknown>(
   source: LlmUserPromptSource<T> | undefined,
@@ -182,6 +195,24 @@ export function toPromptInput(
   user: string | LlmPromptPart[],
 ): string | LlmUserMessage[] {
   return typeof user === "string" ? user : [{ role: "user", content: user }];
+}
+
+/**
+ * The user prompt of one model call, for `llm()` and `agent()` alike. The
+ * body stands in only when `user:` is absent. A `user:` that is present and
+ * resolves to nothing is sent as the empty prompt it is: what reaches a model
+ * must be what the author put on the prompt, and substituting the body would
+ * send content the author never chose to send.
+ *
+ * @internal
+ */
+export function buildUserPrompt<T>(
+  options: { user?: LlmUserPromptSource<T> },
+  exchange: Exchange<T>,
+): string | LlmPromptPart[] {
+  return options.user !== undefined
+    ? resolveUserPrompt(options.user, exchange)
+    : resolveUserPromptDefault(exchange);
 }
 
 /** Default user-prompt derivation: string body as-is, JSON for objects, String() otherwise. */

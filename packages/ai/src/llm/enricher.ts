@@ -7,15 +7,13 @@ import {
   type Exchange,
 } from "@routecraft/routecraft";
 import { callLlm } from "./providers/index.ts";
+import { assertNotCutOffEmpty } from "./cut-off.ts";
 import {
-  DEFAULT_MAX_TOKENS,
-  DEFAULT_TEMPERATURE,
+  buildUserPrompt,
   parseProviderModel,
   resolveModel,
   resolvePrompt,
   resolveSampling,
-  resolveUserPrompt,
-  resolveUserPromptDefault,
   toPromptInput,
 } from "./shared.ts";
 import { toAiOutputSpec } from "./structured-output.ts";
@@ -74,14 +72,9 @@ export class LlmEnricherAdapter<
 
   public options: Partial<LlmOptionsMerged<T>>;
 
-  private merged(exchange: Exchange<T>): LlmOptionsMerged<T> {
+  private merged(exchange: Exchange<T>): LlmOptions<T> {
     const store = lookupOf(exchange, LLM)?.defaults;
-    return {
-      temperature: DEFAULT_TEMPERATURE,
-      maxTokens: DEFAULT_MAX_TOKENS,
-      ...store,
-      ...this.options,
-    } as LlmOptionsMerged<T>;
+    return { ...store, ...this.options } as LlmOptions<T>;
   }
 
   async fetch(exchange: Exchange<T>): Promise<LlmResultWithOutput<S>> {
@@ -92,9 +85,7 @@ export class LlmEnricherAdapter<
     const merged = this.merged(exchange);
 
     const system = resolvePrompt(merged.system, exchange);
-    const resolvedUser = resolveUserPrompt(merged.user, exchange);
-    const user =
-      resolvedUser === "" ? resolveUserPromptDefault(exchange) : resolvedUser;
+    const user = buildUserPrompt(merged, exchange);
 
     const output =
       merged.output !== undefined ? toAiOutputSpec(merged.output) : undefined;
@@ -107,6 +98,7 @@ export class LlmEnricherAdapter<
       user: toPromptInput(user),
       output,
     });
+    assertNotCutOffEmpty(result, this.modelId);
 
     if (
       result.output === undefined &&
