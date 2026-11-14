@@ -5,10 +5,8 @@ import {
   HeadersKeys,
   MemoryDeferralStore,
   authenticate,
-  authorityOf,
   craft,
   definePlugin,
-  deferredPrincipal,
   direct,
   noop,
   type Continuations,
@@ -113,11 +111,10 @@ describe("a plugin-driven revival with a re-identified principal", () => {
   test("a restored, re-roled, widened or narrowed principal is refused", async () => {
     const seen: Array<Principal | undefined> = [];
     const { store, host, park } = await build(seen);
-    const authority = authorityOf(t!.ctx);
 
     const candidates: Array<(parked: string) => Promise<Principal>> = [
       async (deferralId) =>
-        deferredPrincipal((await store.get(deferralId))!, authority)!,
+        t!.ctx.continuations.deferredPrincipal((await store.get(deferralId))!)!,
       async () => member({ roles: ["admin"] }),
       async () =>
         member({ scopes: ["orders:read", "orders:write", "orders:delete"] }),

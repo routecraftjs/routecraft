@@ -138,7 +138,11 @@ A step never calls `resume` to answer a caller: it declares `resumes` and is han
 
 ### Per-application state \{#per-application-state}
 
-A plugin descriptor may serve more than one application in a process, so a value a plugin's adapters need is filed per application, never in a module variable. `applicationState<T>()` returns the holder:
+A plugin descriptor may serve more than one application in a process, so a value a plugin's adapters need is kept per application, never in a module variable.
+
+A value another plugin may use or replace is a [port](#ports). An adapter reads it with `lookupOf(exchange, PORT)`, which resolves the way `context.lookup(PORT)` does for the application the exchange runs in, `replaces` included, and is `undefined` when nothing provides it.
+
+State private to one module is an `applicationState<T>()` holder:
 
 | Member | Meaning |
 | --- | --- |
@@ -146,7 +150,7 @@ A plugin descriptor may serve more than one application in a process, so a value
 | `get(application)` | Read it by key: `c.application` in a plugin, `context.application` in a source. |
 | `of(exchange)` | Read what the application an exchange runs in holds. What an adapter calls. |
 
-The value is released with the application. `applicationOf(exchange)` returns the key itself.
+`set` replaces what the application held and is not tied to a lifecycle stage. The value is released with the application, because the holder keeps it weakly under the key. `applicationOf(exchange)` returns the key itself.
 
 ## Lifecycle
 
@@ -326,7 +330,7 @@ Each entry of a plugin's `steps` becomes a builder method of that name. The entr
 | --- | --- |
 | `step<In, Out>((exchange, ctx) => body)` | A step that replaces the body with what the function returns. The method exists only on a route whose body is assignable to `In`, and leaves the route at `Out`. |
 | `step<In, Out>(rawStep)` | Wraps a step written against `Step` directly, for one that drops or branches rather than continuing. |
-| `step(impl, { defers })` | The step defers the exchange and is handed `ctx.defer`. See [deferring and resuming steps](#deferring-and-resuming-steps). |
+| `step(impl, { defers })` | The step defers the exchange and is handed `ctx.defer`, typed by the revival it declares (`DeferHandleFor<D>`). See [deferring and resuming steps](#deferring-and-resuming-steps). |
 | `step(impl, { resumes: true })` | The step resumes deferred exchanges and is handed `ctx.resume`. |
 | `Body` | A placeholder for the body at the call site. `step<Body, Body>` with `(fn: (body: Body) => ...)` in the factory's arguments gives a body-preserving method whose callback is typed at the route's current body. |
 | `StepMethods<S, This>` | An interface a plugin merges its method types into, under its namespace, for a method generic at the call site. The `steps` entry of the same name still provides the runtime. `BuilderState`, `Retyped` and `SetBody` are exported for writing these. |
@@ -368,13 +372,13 @@ Only the kernel parks and revives an exchange. A step asks for either by declari
 
 | Declaration | Handle | Meaning |
 | --- | --- | --- |
-| `defers: { revival: "next-step", input? }` | `ctx.defer` | The step always defers, and a revival continues with the step after it. `input` is the schema a resume payload is validated against before the claim ([`RC5049`](/docs/reference/errors#rc-5049)). |
+| `defers: { revival: "next-step", input? }` | `ctx.defer` | The step defers, and a revival continues with the step after it. A run that returns without calling `ctx.defer` lets the exchange continue with no deferral. `input` is the schema a resume payload is validated against before the claim ([`RC5049`](/docs/reference/errors#rc-5049)). |
 | `defers: { revival: "this-step" }` | `ctx.defer` | The step may defer, and a revival runs it again with what it stored. It names its `input` when it defers and validates the payload itself. |
 | `resumes: true` | `ctx.resume` | The step is a resume door. |
 
 | `ctx.defer` member | Meaning |
 | --- | --- |
-| `ctx.defer({ ttl?, meta?, callBinding?, stepState?, input?, notify? })` | End the run deferred. The promise never resolves: return or await it, and let its rejection through a `catch` (`isDeferSignal`). `stepState` and `input` belong to a `"this-step"` site ([`RC5003`](/docs/reference/errors#rc-5003) otherwise). `notify` is awaited with the acknowledgment after the record is written; a throw is [`RC5067`](/docs/reference/errors#rc-5067) and the record is denied. |
+| `ctx.defer({ ttl?, meta?, callBinding?, stepState?, input?, notify? })` | End the run deferred. The promise never resolves: return or await it, and let its rejection through a `catch` (`isDeferSignal`). A step that calls it and then returns is [`RC5032`](/docs/reference/errors#rc-5032), and nothing is parked. `stepState` and `input` belong to a `"this-step"` site: `step()` leaves them off the type for a `"next-step"` declaration, and passing one anyway is [`RC5003`](/docs/reference/errors#rc-5003). `notify` is awaited with the acknowledgment after the record is written; a throw is [`RC5067`](/docs/reference/errors#rc-5067) and the record is denied. |
 | `ctx.defer.revived` | Set when this run is a revival of a deferral this step raised: `{ deferralId, stepState, input }`. |
 | `ctx.defer.refused` | Why a deferral from this position cannot be revived (inside a `.split()` fan-out, a `.multicast()` path or a `.dispatch()` target), when it cannot. Deferring anyway is `RC5051` with this text. |
 | `ctx.defer.aside({ stepState, announce? })` | Store a continuation for an exchange that goes on to complete: a way to run this step again later. No acknowledgment, no token, no `route:exchange:deferred`. A `"this-step"` site only. |

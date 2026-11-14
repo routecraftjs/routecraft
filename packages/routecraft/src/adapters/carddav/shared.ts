@@ -10,7 +10,7 @@ import { port } from "../../kernel/port.ts";
 import { isRoutecraftError } from "../../brand.ts";
 import { rcError } from "../../error.ts";
 import type { Exchange } from "../../exchange.ts";
-import { applicationState } from "../../kernel/application.ts";
+import { lookupOf } from "../../kernel/application.ts";
 import type { CarddavClientManager } from "./client-manager.ts";
 
 /** Default CardDAV server for iCloud Contacts. */
@@ -114,14 +114,11 @@ export function getClientManager(
   return context.lookup(CARDDAV) ?? null;
 }
 
-/** The carddav plugin's manager, per application; its adapters read it from the exchange. */
-export const carddavManagers = applicationState<CarddavClientManager>();
-
 /** The manager of the application an exchange runs in, when it has carddav configuration. */
 export function clientManagerOf(
   exchange: Exchange,
 ): CarddavClientManager | null {
-  return carddavManagers.of(exchange) ?? null;
+  return lookupOf(exchange, CARDDAV) ?? null;
 }
 
 /** The manager, or RC5003 when the application has no carddav configuration. */

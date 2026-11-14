@@ -6,7 +6,7 @@ import type { CraftContext } from "../../context.ts";
 import { port } from "../../kernel/port.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
-import { applicationState } from "../../kernel/application.ts";
+import { lookupOf } from "../../kernel/application.ts";
 import { isRoutecraftError } from "../../brand.ts";
 import type {
   MailBody,
@@ -97,12 +97,9 @@ export function getClientManager(
   return context.lookup(MAIL) ?? null;
 }
 
-/** The mail plugin's manager, per application; its adapters read it from the exchange. */
-export const mailManagers = applicationState<MailClientManager>();
-
 /** The manager of the application an exchange runs in; null in standalone mode. */
 export function clientManagerOf(exchange: Exchange): MailClientManager | null {
-  return mailManagers.of(exchange) ?? null;
+  return lookupOf(exchange, MAIL) ?? null;
 }
 
 /**

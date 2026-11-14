@@ -300,8 +300,9 @@ One word names a resume payload everywhere, and only the kernel parks or revives
 | `.defer({ schema })`, and `schema` on `.error(handler, { ... })` | `.defer({ input })`, `.error(handler, { input })` |
 | A resume mapper returning `{ token, result }`, and an unmapped `.resume()` body of `{ token, result }` | `{ token, input }` |
 | `ex.deferral.result` | `ex.deferral.input` |
+| `schema` on the `Deferred` acknowledgment | `input` |
 
-A caller that posts to a resume door sends `input` too, so update whatever builds the approval link or form. The header `routecraft.deferral.result` is `routecraft.deferral.input`. A mapper that returns `resumedBy` for a caller the route did not verify is unchanged; a plugin step's `ctx.resume` refuses it ([`RC5003`](/docs/reference/errors#rc-5003)), because the kernel records the principal the route verified.
+A caller that posts to a resume door sends `input` too, so update whatever builds the approval link or form. The header `routecraft.deferral.result` is `routecraft.deferral.input`. A `.resume()` mapper, like a plugin step's `ctx.resume`, no longer names `resumedBy`: the kernel records the principal the route verified, and a request that names one is refused ([`RC5003`](/docs/reference/errors#rc-5003)).
 
 **A step that defers declares it.** Throwing `DeferSignal`, returning a step result with `kind: 'defer'` built by hand, and `markDeferCapable` are removed. The step declares `defers` (or `[DEFERS]()` on a raw step or an adapter) and calls the handle the kernel gives it:
 
@@ -320,6 +321,7 @@ A step result that names a deferral the kernel did not issue is refused with [`R
 
 | 0.7 | 0.8 |
 |-----|-----|
+| `getExchangeContext(ex).lookup(PORT)` | `lookupOf(exchange, PORT)` |
 | `getExchangeContext(ex).getStore(KEY)` for a plugin's own state | `applicationState<T>()`: `state.set(c.application, value)` in `bind`, `state.of(exchange)` in the adapter ([merged options](/docs/advanced/merged-options)) |
 | `getExchangeContext(ex).logger` | `exchange.logger` |
 | `getExchangeContext(ex)` to read a parked record or verify a token | `continuationsOf(exchange)` |
@@ -343,7 +345,7 @@ deferralStoreConformance('my store', () => openMyStore(), {
 **The rest:**
 
 - **The `CONTINUATIONS` port is `routecraft.continuations@2`.** A plugin that provides it under the `@1` name declares the port again from the exported token. Its `signer` is typed `ResumeTokenSigning`.
-- **A parked exchange finds its defer site by what follows it.** A step added or removed ahead of a `.defer()` no longer refuses the exchanges parked there. Two sites followed by identical steps that both moved are refused with [`RC5048`](/docs/reference/errors#rc-5048) as ambiguous.
+- **A parked exchange finds its defer site by what follows it.** A step added or removed ahead of a `.defer()` no longer refuses the exchanges parked there. Two sites of one kind followed by identical steps (a `.defer()` in each of two sibling branches, say) that both moved are refused with [`RC5048`](/docs/reference/errors#rc-5048) as ambiguous. A `.defer()` and a step that defers itself are never confused: the digest carries which of the two parked.
 - **`restrict-continuation-minting` is an error in both lint presets.** It flags `continuations.mintToken()`, `resume()` and `rewriteStepState()`; see [linting](/docs/advanced/linting#continuation-acts-are-a-sanctioned-exception).
 - **Six more names leave the entry**, none of which a route needs: `ResolvedSampleOptions`, `ResolvedDedupeOptions`, `ResolvedThrottleOptions`, `ResolvedCircuitBreakerOptions`, `RouteEnablement` and `hashExchangeBody`.
 

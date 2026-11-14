@@ -298,7 +298,7 @@ See the [Merged Options guide](/docs/advanced/merged-options) for the full walkt
 
 ## Sharing state between adapters
 
-Adapters keep per-application state of their own (a connection pool, a registry) with `applicationState()`: their plugin stores it in `bind` under `c.application`, and the adapter reads it with `.of(exchange)`. State a plugin offers to other plugins crosses as a port, read with `c.lookup(PORT)` or `c.require(PORT)`, never as a key another package writes. See [Plugins](/docs/advanced/plugins#ports).
+Adapters keep per-application state of their own (a connection pool, a registry) with `applicationState()`: their plugin stores it in `bind` under `c.application`, and the adapter reads it with `.of(exchange)`. State a plugin offers to other plugins crosses as a port, read with `c.lookup(PORT)` or `c.require(PORT)` in a plugin and `lookupOf(exchange, PORT)` in an adapter, never as a key another package writes. See [Plugins](/docs/advanced/plugins#ports).
 
 ---
 

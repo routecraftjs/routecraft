@@ -7,6 +7,8 @@ import {
   craft,
   direct,
   noop,
+  otherwise,
+  when,
   type CraftConfig,
   type DeferringAdapter,
   type Enricher,
@@ -137,11 +139,11 @@ describe("a parked exchange finds its defer site by what follows it", () => {
   });
 
   /**
-   * @case Two defer sites share one continuation and the route is unchanged
-   * @preconditions A .defer() with no input directly ahead of a step that defers itself with no input: both sites are followed by the same steps
-   * @expectedResult The first resume continues from the .defer() and parks again at the step; the second re-enters the step with its state, so each record resolved to its own site by position
+   * @case A .defer() directly ahead of a step that defers itself, both followed by the same steps
+   * @preconditions A .defer() with no input ahead of a step that defers itself with no input, on an unchanged route
+   * @expectedResult The first resume continues from the .defer() and parks again at the step; the second re-enters the step with its state, so each record resolved to its own kind of site
    */
-  test("two sites with one continuation resolve by position", async () => {
+  test("a .defer() and the step after it are told apart", async () => {
     const sink = spy();
     const hold = holding();
     t = await testContext()
@@ -174,11 +176,58 @@ describe("a parked exchange finds its defer site by what follows it", () => {
   });
 
   /**
-   * @case Two defer sites share one continuation and both moved while an exchange was parked
-   * @preconditions The exchange parks at the .defer() of the route above; a second application adds a step ahead of both sites, sharing the store
-   * @expectedResult The resume is refused with RC5048 saying the site cannot be told apart, before any continuation step runs
+   * @case A step parked itself, then a step is added ahead so the .defer() before it now sits at the position the record stored
+   * @preconditions The exchange passes a .defer() with no input and parks at the step after it; a second application adds a tap ahead of both, sharing the store, so the .defer() holds the record's stored position and is followed by the same steps
+   * @expectedResult The resume re-enters the step with the state it stored: the record is never handed to the .defer(), which would run the step from the start
    */
-  test("two moved sites with one continuation are refused as ambiguous", async () => {
+  test("a moved .defer() does not take the record of the step after it", async () => {
+    const sink = spy();
+    const hold = holding();
+    const store = new MemoryDeferralStore();
+    const shared: CraftConfig = { deferral: { store, secret: SECRET } };
+    const first = await testContext()
+      .with(shared)
+      .routes([
+        craft().id("work").from(direct()).defer().to(hold).to(sink),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await first.startAndWaitReady();
+    const atDefer = asDeferred(await first.client.sendDirect("work", "go"));
+    await first.client.sendDirect("answers", {
+      token: atDefer.token,
+      input: undefined,
+    });
+    await first.stop();
+
+    t = await testContext()
+      .with(shared)
+      .routes([
+        craft().id("work").from(direct()).tap(noop()).defer().to(hold).to(sink),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+    const parked = await t.ctx.continuations.list({ limit: 10 });
+    const waiting = parked.find((record) => record.state === "waiting")!;
+
+    const ack = (await t.client.sendDirect("answers", {
+      token: t.ctx.continuations.mintToken(waiting.id),
+      input: undefined,
+    })) as { status: string };
+
+    expect(ack.status).toBe("resumed");
+    expect(sink.received).toHaveLength(1);
+    expect(sink.received[0]!.body).toEqual({ held: { n: 1 } });
+    expect(t.errors).toHaveLength(0);
+  });
+
+  /**
+   * @case A .defer() ahead of a step that defers itself moved while an exchange was parked at the .defer()
+   * @preconditions The exchange parks at the .defer(); a second application adds a step ahead of both sites, sharing the store
+   * @expectedResult The resume is accepted at the .defer() and the exchange parks again at the step, because the step's own site is a different kind and is not a candidate
+   */
+  test("a moved .defer() is found although the step after it shares its tail", async () => {
     const sink = spy();
     const hold = holding();
     const token = await parkThenRestart(
@@ -190,6 +239,50 @@ describe("a parked exchange finds its defer site by what follows it", () => {
         .tap(noop())
         .defer()
         .to(hold)
+        .to(sink)
+        .build(),
+      "go",
+    );
+
+    const ack = (await t!.client.sendDirect("answers", {
+      token,
+      input: undefined,
+    })) as { status: string; continuation: { status: string } };
+
+    expect(ack.status).toBe("resumed");
+    expect(ack.continuation.status).toBe("deferred");
+    expect(sink.received).toHaveLength(0);
+    expect(t!.errors).toHaveLength(0);
+  });
+
+  /**
+   * @case Two .defer() sites in sibling branches are followed by the same steps and both moved while an exchange was parked
+   * @preconditions A .choice() whose two branches each hold a bare .defer(), with one step after the choice; the exchange parks in the first branch; a second application adds a step ahead of the choice, sharing the store
+   * @expectedResult The resume is refused with RC5048 saying the site cannot be told apart, before any continuation step runs
+   */
+  test("two moved sites of one kind with one continuation are refused as ambiguous", async () => {
+    const sink = spy();
+    const branches = () =>
+      [
+        when<string>(
+          (ex) => ex.body === "go",
+          (b) => b.defer(),
+        ),
+        otherwise<string>((b) => b.defer()),
+      ] as const;
+    const token = await parkThenRestart(
+      new MemoryDeferralStore(),
+      craft()
+        .id("work")
+        .from<string>(direct())
+        .choice(...branches())
+        .to(sink)
+        .build(),
+      craft()
+        .id("work")
+        .from<string>(direct())
+        .tap(noop())
+        .choice(...branches())
         .to(sink)
         .build(),
       "go",

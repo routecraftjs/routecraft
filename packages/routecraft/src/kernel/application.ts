@@ -1,5 +1,6 @@
 import type { CraftContext } from "../context.ts";
 import { type Exchange, getExchangeContext } from "../exchange.ts";
+import type { Port } from "./port.ts";
 
 declare const APPLICATION_BRAND: unique symbol;
 
@@ -36,6 +37,17 @@ export function applicationOf(exchange: Exchange): ApplicationKey | undefined {
   return context && applicationKeyFor(context);
 }
 
+/**
+ * The provider of a port in the application an exchange runs in, or
+ * `undefined` when none provides it or the exchange was built outside one.
+ * What an adapter calls to reach what a plugin provides: it resolves the
+ * way `context.lookup(port)` does, so a plugin that replaces the port is
+ * the one an adapter gets.
+ */
+export function lookupOf<T>(exchange: Exchange, port: Port<T>): T | undefined {
+  return getExchangeContext(exchange)?.lookup(port);
+}
+
 /** One plugin module's state, kept per application. See {@link applicationState}. */
 export interface ApplicationState<T> {
   /** Keep `value` for an application. A plugin calls it in `bind` with `c.application`. */
@@ -50,6 +62,10 @@ export interface ApplicationState<T> {
  * `bind`, its adapters read it from the exchange they are handed. It is a
  * `WeakMap` keyed by {@link ApplicationKey}, so the state goes with the
  * application.
+ *
+ * For state private to one module. A value another plugin may use or
+ * replace is a port, read with {@link lookupOf}: this holder knows nothing
+ * of `replaces`.
  *
  * @example
  * ```ts

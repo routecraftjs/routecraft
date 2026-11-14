@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { isAbsolute, posix } from "node:path";
 import {
   HeadersKeys,
+  lookupOf,
   parseDuration,
   rcError,
   type Enricher,
@@ -18,7 +19,7 @@ import {
   type ProcessIo,
 } from "./isolation/index.ts";
 import { loadExeca } from "./peers.ts";
-import { shellDefaults, type ShellPluginOptions } from "./plugin.ts";
+import { SHELL, type ShellPluginOptions } from "./plugin.ts";
 import {
   BoundedOutput,
   buildEnv,
@@ -66,7 +67,7 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
     exchange: Exchange<T>,
     ctx?: StepSignalContext,
   ): Promise<ShellResult> {
-    const defaults = shellDefaults.of(exchange) ?? ({} as ShellPluginOptions);
+    const defaults = lookupOf(exchange, SHELL) ?? ({} as ShellPluginOptions);
 
     const tier = resolveIsolation(this.options.isolation, defaults.isolation);
     await tier.ensureAvailable();

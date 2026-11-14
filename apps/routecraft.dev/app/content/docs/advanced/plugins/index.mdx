@@ -672,12 +672,13 @@ Every `cron()` source and `llm()` destination in the application inherits those 
 
 ### State an adapter reads \{#state-an-adapter-reads}
 
-A plugin that resolves something in `bind` for its own adapters files it per application with `applicationState()`, because one plugin descriptor can serve several applications in a process:
+What a plugin offers its adapters is a port: the plugin provides it in `bind`, and an adapter reads it off the exchange it is handed with `lookupOf()`. One plugin descriptor can serve several applications in a process, and a port is resolved per application, so nothing lives in a module variable:
 
 ```ts
 import {
-  applicationState,
   definePlugin,
+  lookupOf,
+  port,
   type Destination,
 } from '@routecraft/routecraft'
 
@@ -685,13 +686,14 @@ interface Mailer {
   send(to: string, text: string): Promise<void>
 }
 
-const mailers = applicationState<Mailer>()
+export const MAILER = port<Mailer>('acme.mailer@1')
 
 export function mailerPlugin(mailer: Mailer) {
   return definePlugin({
     id: 'acme.mailer',
+    provides: [MAILER],
     bind(c) {
-      mailers.set(c.application, mailer)
+      c.provide(MAILER, mailer)
     },
   })
 }
@@ -700,7 +702,7 @@ export function notify(to: string): Destination<string> {
   return {
     adapterId: 'acme.notify',
     async send(exchange) {
-      const mailer = mailers.of(exchange)
+      const mailer = lookupOf(exchange, MAILER)
       if (!mailer) throw new Error('acme.mailer is not installed')
       await mailer.send(to, exchange.body)
     },
@@ -708,7 +710,9 @@ export function notify(to: string): Destination<string> {
 }
 ```
 
-A source reads the same holder with `mailers.get(context.application)`.
+A source reads the same port with `context.lookup(MAILER)`. Because it is a port, a plugin that declares `replaces: [MAILER]` is the one both get.
+
+State that is private to one module and that nothing else may replace (an adapter's merged defaults, say) needs no port: [`applicationState()`](/docs/reference/plugins#per-application-state) keeps one value per application.
 
 ## Managing external services
 

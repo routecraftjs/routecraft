@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { applicationState, port, type Exchange } from "@routecraft/routecraft";
+import { port, type Exchange } from "@routecraft/routecraft";
 
 /**
  * A model object the active LLM engine can drive (today an AI SDK
@@ -21,14 +21,6 @@ export interface LlmService {
 
 /** The LLM providers and defaults the `llm` plugin provides. */
 export const LLM = port<LlmService>("routecraft.ai.llm@1");
-
-/**
- * What the `llm` plugin provides, per application, for the adapters that
- * resolve a model from the exchange they are handed.
- *
- * @internal
- */
-export const llmServices = applicationState<LlmService>();
 
 export type LlmProviderType =
   | "openai"

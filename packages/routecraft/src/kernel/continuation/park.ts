@@ -258,6 +258,7 @@ function describeRecord(
     request.site.continuation,
     schema,
     request.errorPath?.origin,
+    request.site.reentrant,
   );
   // Encoded here, once: a store persists what it is handed and never encodes.
   const stepState = encodePersistable(request.stepState, "stepState");

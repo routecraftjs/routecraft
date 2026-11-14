@@ -115,6 +115,26 @@ const approvals = definePlugin({
           input: exchange.body.input,
         });
       }),
+    swallowing: () =>
+      step<unknown, unknown>(
+        async (_exchange, ctx) => {
+          try {
+            await ctx.defer();
+          } catch {
+            // The mistake under test: a blanket catch around the call.
+          }
+          return "carried on";
+        },
+        { defers: { revival: "next-step" } },
+      ),
+    floating: () =>
+      step<unknown, unknown>(
+        (_exchange, ctx) => {
+          void ctx.defer();
+          return "carried on";
+        },
+        { defers: { revival: "next-step" } },
+      ),
     forged: () =>
       step<unknown, unknown>({
         operation: OperationType.PROCESS,
@@ -424,6 +444,33 @@ describe("outsider: steps that defer and resume, on the published entry", () => 
     await expect(t.client.sendDirect("forging", "work")).rejects.toMatchObject({
       rc: "RC5032",
     });
+    expect(await t.ctx.continuations.list({ limit: 10 })).toHaveLength(0);
+  });
+
+  /**
+   * @case A step calls ctx.defer() and then returns anyway
+   * @preconditions One step that wraps the call in a blanket catch and one that never awaits it, each ahead of a sink
+   * @expectedResult Both are RC5032 saying the step returned after deferring: nothing is parked, the sink never runs, and no rejection is left unhandled
+   */
+  test("a deferral the step did not let through is RC5032", async () => {
+    const sink = spy();
+    t = await testContext()
+      .with(shipped)
+      .routes([
+        project.craft().id("swallows").from(direct()).swallowing().to(sink),
+        project.craft().id("floats").from(direct()).floating().to(sink),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    for (const route of ["swallows", "floats"]) {
+      const sent = t.client.sendDirect(route, "work");
+      await expect(sent).rejects.toMatchObject({ rc: "RC5032" });
+      await expect(sent).rejects.toThrow(
+        /called ctx\.defer\(\) and then returned/,
+      );
+    }
+    expect(sink.received).toHaveLength(0);
     expect(await t.ctx.continuations.list({ limit: 10 })).toHaveLength(0);
   });
 

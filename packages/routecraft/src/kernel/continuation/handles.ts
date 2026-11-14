@@ -16,7 +16,11 @@ import {
   reviveDeferral,
 } from "./resume.ts";
 import { DeferSignal } from "./signal.ts";
-import { type DeclaredDeferSite, mintDeferTicket } from "./sites.ts";
+import {
+  type DeclaredDeferSite,
+  type DeferDeclaration,
+  mintDeferTicket,
+} from "./sites.ts";
 
 /** What a step hands `ctx.defer()` when it defers the exchange. */
 export interface DeferRequest {
@@ -113,6 +117,23 @@ export interface DeferHandle {
 }
 
 /**
+ * `ctx.defer` as a `"next-step"` site holds it: the step does not run
+ * again, so it has no state to store, no revival to read and no
+ * continuation to set aside, and its `input` is the one it declared.
+ */
+export interface NextStepDeferHandle {
+  (request?: Omit<DeferRequest, "stepState" | "input">): Promise<never>;
+  readonly refused?: string;
+}
+
+/** `ctx.defer` for a step, by the revival it declared. */
+export type DeferHandleFor<D extends DeferDeclaration> = D extends {
+  readonly revival: "next-step";
+}
+  ? NextStepDeferHandle
+  : DeferHandle;
+
+/**
  * Handed as `ctx.resume` to a step that declares `RESUMES`. The exchange,
  * the principal it carries, the route and `resumedBy` are the kernel's: the
  * resuming party recorded is the principal this route verified, and a
@@ -123,8 +144,29 @@ export type ResumeFn = (
   door?: Pick<ResumeDoor, "authorize" | "elevate" | "signal">,
 ) => Promise<ResumeAcknowledgment>;
 
-const UNBUILT =
-  "This step declares DEFERS but is not reachable from a built route, so the framework cannot work out what would run when it resumes. Build the route through craft()...build() rather than assembling a RouteDefinition by hand.";
+/**
+ * The `RC5051` text for a deferring step the site walk never resolved.
+ *
+ * @internal
+ */
+export function unbuiltRefusal(what: string): string {
+  return `${what} is not reachable from a built route, so the framework cannot work out what would run when it resumes. Build the route through craft()...build() rather than assembling a RouteDefinition by hand.`;
+}
+
+const raised = new WeakSet<DeferHandle>();
+
+/**
+ * Whether `ctx.defer()` was called on this handle. A step that called it
+ * and still returned caught the rejection or never awaited it, and the
+ * exchange would run on past the point it asked to stop at.
+ *
+ * @internal
+ */
+export function deferWasRaised(handle: DeferHandle): boolean {
+  return raised.has(handle);
+}
+
+const UNBUILT = unbuiltRefusal("This step declares DEFERS but");
 
 /**
  * Build the handle for one execution of a step that declares `DEFERS`.
@@ -151,7 +193,7 @@ export function deferHandleFor(
     }
     return declared;
   };
-  const defer = async (request: DeferRequest = {}): Promise<never> => {
+  const raise = async (request: DeferRequest): Promise<never> => {
     const resolved = siteOf();
     const { ttl, meta, callBinding, stepState, input, notify } = request;
     if (
@@ -177,6 +219,14 @@ export function deferHandleFor(
       }),
     );
   };
+  const defer = (request: DeferRequest = {}): Promise<never> => {
+    const rejection = raise(request);
+    // Observed here so a call nobody awaited is reported by the kernel, not as an unhandled rejection.
+    rejection.catch((err: unknown) => {
+      if (err instanceof DeferSignal) raised.add(handle);
+    });
+    return rejection;
+  };
   const handle: DeferHandle = Object.defineProperties(defer, {
     revived: {
       get: () =>
@@ -185,14 +235,12 @@ export function deferHandleFor(
     },
     refused: { value: refused, enumerable: true },
     aside: {
-      value: (request: DeferAsideRequest) => {
+      value: async (request: DeferAsideRequest) => {
         const resolved = siteOf();
         if (resolved.revival !== "this-step") {
-          return Promise.reject(
-            rcError("RC5003", undefined, {
-              message: `ctx.defer.aside() on route "${routeId}" was called from a "next-step" site. A continuation stored aside runs its step again, so only a "this-step" site can store one.`,
-            }),
-          );
+          throw rcError("RC5003", undefined, {
+            message: `ctx.defer.aside() on route "${routeId}" was called from a "next-step" site. A continuation stored aside runs its step again, so only a "this-step" site can store one.`,
+          });
         }
         return deferAside(
           context,

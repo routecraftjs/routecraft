@@ -80,6 +80,9 @@ that resumes an exchange, `continuations.resume()` resumes one with no door, so 
 `authorize` runs, and `continuations.rewriteStepState()` changes what a parked step is
 handed when it runs again. A step that declares `defers` or `resumes` and uses `ctx.defer`
 or `ctx.resume` is not flagged: there the kernel owns the exchange and the principal.
+The rule sees direct calls only. A facade that is destructured, read through a computed
+member or handed to a helper in another file is not followed, so the rule makes an act
+visible in review and is not a sandbox.
 Sanction a legitimate site the same way as a principal mint:
 
 ```ts skip="fragment: not a complete statement on its own"

@@ -12,7 +12,7 @@
  */
 
 import {
-  applicationState,
+  lookupOf,
   port,
   type Exchange,
   type Logger,
@@ -122,13 +122,6 @@ export interface SurfaceState {
 export const SURFACES = port<SurfaceState>("routecraft.ai.surfaces@1");
 
 /**
- * The surfaces plugin's state, per application.
- *
- * @internal
- */
-export const surfaceStates = applicationState<SurfaceState>();
-
-/**
  * The application's surfaces, or `undefined` when no backend is installed.
  *
  * @internal
@@ -136,7 +129,7 @@ export const surfaceStates = applicationState<SurfaceState>();
 export function surfacesOf(
   exchange: Exchange<unknown>,
 ): SurfaceState | undefined {
-  return surfaceStates.of(exchange);
+  return lookupOf(exchange, SURFACES);
 }
 
 /** @internal */

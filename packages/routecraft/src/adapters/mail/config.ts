@@ -1,7 +1,7 @@
 import { registerConfigApplier } from "../../config-applier.ts";
 import { definePlugin } from "../../kernel/plugin.ts";
 import { MailClientManager } from "./client-manager.ts";
-import { MAIL, mailManagers } from "./shared.ts";
+import { MAIL } from "./shared.ts";
 import type { MailContextConfig } from "./types.ts";
 
 declare module "@routecraft/routecraft" {
@@ -26,7 +26,6 @@ registerConfigApplier("mail", (options) =>
     bind(c) {
       const manager = new MailClientManager(options);
       c.provide(MAIL, manager);
-      mailManagers.set(c.application, manager);
       c.onDispose(() => manager.drain());
     },
   }),

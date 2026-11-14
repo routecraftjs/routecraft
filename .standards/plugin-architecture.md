@@ -87,11 +87,13 @@ that adds none of them is still a plugin:
 **Adapters** keep their per-context state in `CraftContext.getStore()` /
 `setStore()`; that is adapter memory, not a plugin contract. State a plugin
 resolves in `bind` for its own adapters is an `applicationState<T>()` holder:
-`set(c.application, value)` in `bind`, `of(exchange)` in the adapter. An
-adapter never reads the `CraftContext` off an exchange to get at it. Whenever a plugin
-offers something an adapter or another plugin uses, it is a port: the adapter
-calls `context.require(PORT)` or `context.lookup(PORT)` at runtime. No store
-key crosses a plugin boundary.
+`set(c.application, value)` in `bind`, `of(exchange)` in the adapter. That
+holder is for state private to one module: it knows nothing of `replaces`.
+Whenever a plugin offers something an adapter or another plugin uses, it is a
+port, and the port is the only registry it lives in: a source calls
+`context.require(PORT)` or `context.lookup(PORT)`, and an adapter handed an
+exchange calls `lookupOf(exchange, PORT)`. An adapter never reads the
+`CraftContext` off an exchange, and no store key crosses a plugin boundary.
 
 ### Ports
 
@@ -430,7 +432,9 @@ suite `continuations.bun.test.ts` holds that a third party can.
 
 A parked exchange finds its site by the digest of what follows it, with the
 stored position as the tie-break and the fallback, so an edit ahead of the
-defer point refuses nothing. Two candidate sites with one digest that both
+defer point refuses nothing. The digest binds which kind of site parked,
+because a `"this-step"` site and a `.defer()` directly ahead of it are
+followed by the same steps. Two candidate sites with one digest that both
 moved are refused as ambiguous (`RC5048`).
 
 The acts a plugin holds outside a step (`mintToken`, `resume`,

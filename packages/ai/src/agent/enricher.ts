@@ -2,6 +2,7 @@ import {
   authorityOf,
   deferralOf,
   DEFERS,
+  lookupOf,
   rcError,
   type CraftContext,
   type Enricher,
@@ -39,7 +40,7 @@ import { anySignal } from "@routecraft/routecraft";
 import { streamAgentDeltas, type AgentStream } from "./delta-stream.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import {
-  llmServices,
+  LLM,
   type LlmModelId,
   type LlmReasoningEffort,
   type LlmService,
@@ -200,7 +201,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     }
     const model = merged.model;
 
-    const llm = llmServices.of(exchange);
+    const llm = lookupOf(exchange, LLM);
     const { config, modelName } = resolveModel(model, llm);
     // Registered agents carry their own id (used to attribute runs in
     // observability, and to name the agent in a tool-policy denial);

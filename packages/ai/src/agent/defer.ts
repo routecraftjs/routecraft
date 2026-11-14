@@ -115,7 +115,7 @@ export function isDeferSentinel(value: unknown): value is AgentDeferSentinel {
  *   input: z.object({ request: z.string() }),
  *   handler: async (input, ctx) => {
  *     await sendApprovalRequest({ request: input.request, ctx })
- *     throw new DeferError({ schema: Approval, ttl: "72h" })
+ *     throw new DeferError({ input: Approval, ttl: "72h" })
  *   },
  * })
  * ```

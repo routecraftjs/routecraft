@@ -84,6 +84,10 @@ export interface Continuations extends ContinuationsView {
    * settled records past retention, retire what is overdue through each
    * route's error channel. A pass already running is joined.
    *
+   * @param options.boot - The first pass of an application: it also logs a
+   *   summary of the resumes a previous process left stranded, and throws
+   *   on a store failure where a later pass logs it. The deferral plugin's
+   *   `start` passes it; a pass a plugin drives leaves it out
    * @returns How many parked exchanges this pass retired; zero without a
    *   provider or while the application stops
    */
@@ -124,8 +128,7 @@ function live(record: Deferral): Deferral {
   };
 }
 
-/** @internal */
-export function continuationsView(
+function continuationsView(
   context: CraftContext | undefined,
 ): ContinuationsView {
   const runtime = (attempted: string) =>

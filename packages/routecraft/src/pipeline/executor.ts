@@ -23,7 +23,11 @@ import {
   type RecoveryDefer,
 } from "../recovery.ts";
 import { deferExchange } from "../kernel/continuation/park.ts";
-import { deferHandleFor, resumeFnFor } from "../kernel/continuation/handles.ts";
+import {
+  deferHandleFor,
+  deferWasRaised,
+  resumeFnFor,
+} from "../kernel/continuation/handles.ts";
 import { isDeferSignal } from "../kernel/continuation/signal.ts";
 import {
   declaresResume,
@@ -526,19 +530,13 @@ export async function runPipeline(
       const defers =
         declared !== undefined ||
         (resolvedSites === undefined && deferDeclarationOf(step) !== undefined);
+      const deferHandle = defers
+        ? deferHandleFor(deps.context, deps.routeId, stepExchange, declared)
+        : undefined;
       const perStep: StepContext = {
         ...stepContext,
         forward: deps.buildForward(stepExchange),
-        ...(defers
-          ? {
-              defer: deferHandleFor(
-                deps.context,
-                deps.routeId,
-                stepExchange,
-                declared,
-              ),
-            }
-          : {}),
+        ...(deferHandle ? { defer: deferHandle } : {}),
         ...(declaresResume(step)
           ? { resume: resumeFnFor(deps.context, deps.route, stepExchange) }
           : {}),
@@ -554,6 +552,13 @@ export async function runPipeline(
           exchange: stepExchange,
           request: err.ticket,
         };
+      }
+      if (deferHandle && outcome?.kind !== "defer") {
+        if (deferWasRaised(deferHandle)) {
+          throw rcError("RC5032", undefined, {
+            message: `Step "${stepLabel}" called ctx.defer() and then returned, so the exchange would have run on past the point it asked to stop at. Await or return the call, and let its rejection through any catch (isDeferSignal).`,
+          });
+        }
       }
       if (step === admissionStep) pendingSourceParse = false;
       if (step === lastPreAdmission) admitted = true;
@@ -1188,7 +1193,7 @@ async function applyErrorDecision(
  * not make never reaches the record and its `notify` never runs:
  *
  * - the failing position cannot be revived (`RC5051`), which is exactly the
- *   set a `DeferSignal` is refused from;
+ *   set a `ctx.defer()` is refused from;
  * - the failure was raised after admission at a position the walk does not
  *   address (`RC5051`), which is a framework-owned carrier around the
  *   pipeline: a route-scope `.timeout()` raising its deadline, a bulkhead

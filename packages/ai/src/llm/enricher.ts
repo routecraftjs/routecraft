@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   isStandardSchema,
+  lookupOf,
   validateAgainst,
   type Enricher,
   type Exchange,
@@ -23,7 +24,7 @@ import type {
   LlmOptionsMerged,
   LlmResultWithOutput,
 } from "./types.ts";
-import { llmServices } from "./types.ts";
+import { LLM } from "./types.ts";
 
 /**
  * When the AI SDK doesn't set result.output (e.g. it threw on the getter), try to
@@ -74,7 +75,7 @@ export class LlmEnricherAdapter<
   public options: Partial<LlmOptionsMerged<T>>;
 
   private merged(exchange: Exchange<T>): LlmOptionsMerged<T> {
-    const store = llmServices.of(exchange)?.defaults;
+    const store = lookupOf(exchange, LLM)?.defaults;
     return {
       temperature: DEFAULT_TEMPERATURE,
       maxTokens: DEFAULT_MAX_TOKENS,
@@ -86,7 +87,7 @@ export class LlmEnricherAdapter<
   async fetch(exchange: Exchange<T>): Promise<LlmResultWithOutput<S>> {
     const { config, modelName } = resolveModel(
       this.modelId,
-      llmServices.of(exchange),
+      lookupOf(exchange, LLM),
     );
     const merged = this.merged(exchange);
 

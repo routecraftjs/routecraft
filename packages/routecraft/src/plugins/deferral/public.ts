@@ -66,11 +66,6 @@ export type {
   DeferralRecordView,
 } from "../../kernel/continuation/door.ts";
 export {
-  deferredPrincipal,
-  reidentificationDeviation,
-} from "../../kernel/continuation/door.ts";
-
-export {
   BUFFER_TAG,
   BYTES_TAG,
   DATE_TAG,
@@ -114,6 +109,8 @@ export type {
 export type {
   DeferAsideRequest,
   DeferHandle,
+  DeferHandleFor,
+  NextStepDeferHandle,
   DeferRequest,
   DeferRevival,
   ResumeFn,

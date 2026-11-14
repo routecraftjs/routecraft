@@ -2,6 +2,7 @@ import { IDENTITY, type Identity } from "../../kernel/continuation/identity.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { rcError } from "../../error.ts";
 import { DEFERS } from "../../dsl-symbol.ts";
+import { unbuiltRefusal } from "../../kernel/continuation/handles.ts";
 import { type Exchange, OperationType } from "../../exchange.ts";
 import type { Adapter, StepContext, StepOutcome } from "../../types.ts";
 import type { Duration } from "../../shared/duration.ts";
@@ -125,8 +126,7 @@ export class DeferStep implements DeferringStep {
   async execute(_exchange: Exchange, ctx?: StepContext): Promise<StepOutcome> {
     if (!ctx?.defer) {
       throw rcError("RC5051", undefined, {
-        message:
-          "This .defer() is not reachable from a built route, so the framework cannot work out what would run when it resumes. Build the route through craft()...build() rather than assembling a RouteDefinition by hand.",
+        message: unbuiltRefusal("This .defer()"),
       });
     }
     return ctx.defer({

@@ -413,7 +413,7 @@ export type RouteDefinition<T = unknown> = {
    * tree and has no position of its own, so a park it raises borrows the
    * position of whatever failed, and any step can fail. A step inside a
    * `.split()` fan-out or a sealed side flow carries a refusal instead, so
-   * an error-path park is refused from exactly the positions a `DeferSignal`
+   * an error-path park is refused from exactly the positions a `ctx.defer()`
    * is.
    *
    * Says nothing about whether this route defers. A route with no handler
@@ -1574,8 +1574,7 @@ export class DefaultRoute implements Route {
    *
    * Exposed (`@internal`) so step-scope `WrapperStep` subclasses can hand
    * the same forward callable to a user-supplied error / fallback handler
-   * as the route-level pipeline does. Resolve via
-   * `getExchangeRoute(exchange).getForward(exchange)`.
+   * as the route-level pipeline does.
    *
    * @returns A forward function
    */

@@ -702,7 +702,16 @@ export class CraftContext {
 
   private readonly backgroundTasks = new Set<Promise<void>>();
 
-  private trackTask(task: Promise<unknown>, routeId?: string): void {
+  /**
+   * Hold shutdown open for work that outlives the exchange that started
+   * it. Named for a route, the task is drained with that route; otherwise
+   * the application waits for it when it stops. A rejection is logged.
+   */
+  trackTask(
+    task: Promise<unknown>,
+    options?: { readonly route?: string },
+  ): void {
+    const routeId = options?.route;
     const route =
       routeId === undefined ? undefined : this.getRouteById(routeId);
     if (route) {
@@ -827,7 +836,7 @@ export class CraftContext {
         trackTask: (
           task: Promise<unknown>,
           options?: { readonly route?: string },
-        ) => this.trackTask(task, options?.route),
+        ) => this.trackTask(task, options),
         capabilities: () => this.capabilities(),
         whenStarted: () =>
           this.lifecycleHooksRunning === 0

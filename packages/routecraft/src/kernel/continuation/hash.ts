@@ -50,6 +50,9 @@ import {
  * @param errorPath - The origin of an error-path park, bound so a store
  *   that drops it cannot hand the resume to a defer site at the same
  *   position
+ * @param reentrant - The site runs its own step again. Bound because a
+ *   `"this-step"` site and a `.defer()` directly ahead of it are followed
+ *   by the same steps
  *
  * @internal
  */
@@ -57,8 +60,13 @@ export function describeContinuation(
   tail: ReadonlyArray<Step<Adapter>>,
   schema: DeferralSchema,
   errorPath?: string,
+  reentrant?: boolean,
 ): StepsDescription {
-  return describeSteps(tail, { input: schema.hash, errorPath });
+  return describeSteps(tail, {
+    input: schema.hash,
+    errorPath,
+    revival: reentrant && errorPath === undefined ? "this-step" : undefined,
+  });
 }
 
 /**
@@ -74,8 +82,9 @@ export function continuationTailHash(
   tail: ReadonlyArray<Step<Adapter>>,
   schema: DeferralSchema,
   errorPath?: string,
+  reentrant?: boolean,
 ): string {
-  const described = describeContinuation(tail, schema, errorPath);
+  const described = describeContinuation(tail, schema, errorPath, reentrant);
   return `${described.digest}/${described.stepDigests.join(".")}`;
 }
 

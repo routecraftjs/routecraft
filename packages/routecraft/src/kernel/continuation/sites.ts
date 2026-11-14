@@ -288,7 +288,7 @@ export interface NestingStep extends Step<Adapter> {
  * The walk resolves that for EVERY step rather than only for defer hosts,
  * because any step can fail; the two arms mirror the two answers the walk
  * already computes for a defer host, so an error-path park is refused from
- * exactly the positions a `DeferSignal` is.
+ * exactly the positions a `ctx.defer()` is.
  *
  * @internal
  */

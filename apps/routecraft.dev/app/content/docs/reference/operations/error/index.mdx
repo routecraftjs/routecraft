@@ -7,7 +7,7 @@ title: error
 </Lead>
 
 ```ts skip="signature: a type signature, not a statement"
-error(handler: (error: unknown, exchange: Exchange, forward: ForwardFn) => unknown | Promise<unknown>, options?: { schema?: StandardSchemaV1 }): this
+error(handler: (error: unknown, exchange: Exchange, forward: ForwardFn) => unknown | Promise<unknown>, options?: { input?: StandardSchemaV1 }): this
 ```
 
 Define a catch-all error handler for unhandled errors in the route's step pipeline. Must be called before `.from()`. When any step throws an unhandled error, this handler is invoked instead of the default log-and-swallow behavior. The pipeline does not resume after the handler runs; its return value becomes the route's final exchange body.

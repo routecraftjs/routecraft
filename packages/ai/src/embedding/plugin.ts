@@ -1,6 +1,6 @@
 import { definePlugin, type Plugin } from "@routecraft/routecraft";
 import { disposeEmbeddingPipelineCache } from "./providers/index.ts";
-import { EMBEDDING, embeddingServices } from "./types.ts";
+import { EMBEDDING } from "./types.ts";
 import type {
   EmbeddingModelConfig,
   EmbeddingPluginOptions,
@@ -49,7 +49,6 @@ export function embeddingPlugin(
         ...(defaults !== undefined ? { defaults } : {}),
       };
       c.provide(EMBEDDING, service);
-      embeddingServices.set(c.application, service);
     },
     async stop() {
       await disposeEmbeddingPipelineCache();

@@ -1150,6 +1150,7 @@ function liveTailHash(found: FoundSite, deferral: Deferral): string {
     found.site.continuation,
     found.schemaIsLive ? describeSchema(found.schema) : deferral.schema,
     deferral.errorPath?.origin,
+    found.site.reentrant,
   );
 }
 

@@ -45,13 +45,13 @@ The runtime awaits the batch's in-flight sibling tool calls (their real results 
 
 | `ctx.defer` option | Required | Description |
 |---------------------|----------|-------------|
-| `schema` | No | What a valid resume payload looks like. Rendered onto the acknowledgment for the caller; see the trust note below for what it does not do. |
+| `input` | No | What a valid resume payload looks like. Rendered onto the acknowledgment for the caller; see the trust note below for what it does not do. |
 | `ttl` | No | How long the deferral stays resumable. Defaults to the context's [`defaultTtl`](/docs/reference/configuration#deferral); expiry re-enters the route's error channel with [`RC5047`](/docs/reference/errors#rc-5047). |
 | `meta` | No | Anything the resuming route needs to decide [who may resume](/docs/reference/operations/resume#securing-resume), persisted verbatim on the record and never surfaced on the acknowledgment. |
 
 There is no agent-shaped variant of any of this. `ctx.defer()` takes exactly what `.defer()` takes, defers the same record, and is resumed through the same `.resume({ authorize })` hook: an agent-raised deferral and a route-raised one are one mechanism, so there is nothing extra to learn and nothing that only half works on one surface.
 
-`throw new DeferError({ schema, ttl, meta })` is honoured as an escape hatch for handlers that cannot thread a return value out. Prefer the sentinel: a handler that wraps its work in `try/catch` silently swallows a thrown deferral and hands the model a garbage tool result, a footgun the returned sentinel cannot reproduce. A `DeferError` with no `schema` defers with no declared contract at all, which is the same thing `ctx.defer()` does when you omit it.
+`throw new DeferError({ input, ttl, meta })` is honoured as an escape hatch for handlers that cannot thread a return value out. Prefer the sentinel: a handler that wraps its work in `try/catch` silently swallows a thrown deferral and hands the model a garbage tool result, a footgun the returned sentinel cannot reproduce. A `DeferError` with no `schema` defers with no declared contract at all, which is the same thing `ctx.defer()` does when you omit it.
 
 ## What survives, and how the loop continues
 
@@ -76,7 +76,7 @@ Because resume re-enters the agent step itself, the step's own definition is cov
 
 `meta` is composed by a tool handler running inside a model loop that has read whatever untrusted tool output is in its thread. Design the resuming route's hook so `meta` is never the only thing standing between a caller and an approval.
 
-An agent-raised deferral also cannot re-validate the payload against its `schema` after a restart: the schema lives in the handler's own code. Revival delivers whatever JSON the resume carried as an ordinary tool result, so a resume-token holder can send the agent arbitrary data. That is the trust level every tool result already has; treat it accordingly in the prompt and in what the loop is allowed to do with it.
+An agent-raised deferral also cannot re-validate the payload against its `input` schema after a restart: the schema lives in the handler's own code. Revival delivers whatever JSON the resume carried as an ordinary tool result, so a resume-token holder can send the agent arbitrary data. That is the trust level every tool result already has; treat it accordingly in the prompt and in what the loop is allowed to do with it.
 
 </Callout>
 

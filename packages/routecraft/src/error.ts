@@ -552,7 +552,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Unsupported step outcome",
     suggestion:
-      "A step returned a StepOutcome the engine cannot schedule. Either the kind is one this build does not know, or a 'defer' outcome arrived without a ticket the kernel issued. A step defers by declaring `DEFERS` and calling `ctx.defer()`, which carries where the exchange resumes; a hand-built defer outcome is refused. If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
+      "A step returned a StepOutcome the engine cannot schedule. Either the kind is one this build does not know, a 'defer' outcome arrived without a ticket the kernel issued, or a step called `ctx.defer()` and then returned. A step defers by declaring `DEFERS` and calling `ctx.defer()`, which carries where the exchange resumes; a hand-built defer outcome is refused, and so is a call whose rejection the step caught or never awaited. If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
     docs: `${DOCS_BASE}#rc-5032`,
     retryable: false,
   },

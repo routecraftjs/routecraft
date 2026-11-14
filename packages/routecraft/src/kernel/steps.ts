@@ -1,6 +1,6 @@
 import { DEFERS, RESUMES, STEP_IDENTITY } from "../dsl-symbol.ts";
 import type { DeferDeclaration } from "./continuation/sites.ts";
-import type { DeferHandle, ResumeFn } from "./continuation/handles.ts";
+import type { DeferHandleFor, ResumeFn } from "./continuation/handles.ts";
 import type { IdentityValue } from "./continuation/identity.ts";
 import { rcError } from "../error.ts";
 import { shippedPlugins } from "./defaults.ts";
@@ -80,12 +80,16 @@ interface CallbackAdapter<In, Out> extends Adapter {
  *   route whose body is assignable to it
  * @template Out - The body the route has after the step
  */
-export function step<In, Out>(
+export function step<
+  In,
+  Out,
+  const D extends DeferDeclaration = DeferDeclaration,
+>(
   execute: (
     exchange: Exchange<In>,
-    ctx: StepSignalContext & { readonly defer: DeferHandle },
+    ctx: StepSignalContext & { readonly defer: DeferHandleFor<D> },
   ) => Out | Promise<Out>,
-  options: StepOptions & { readonly defers: DeferDeclaration },
+  options: StepOptions & { readonly defers: D },
 ): TypedStep<In, Out>;
 export function step<In, Out>(
   execute: (

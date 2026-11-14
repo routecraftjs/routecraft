@@ -114,7 +114,7 @@ export type ResumeElevator = (
  * The first half of reviving a parked exchange under a re-verified
  * identity: a plugin reads who parked it here, verifies that identity
  * against live state (a directory, a session, its own registry), and hands
- * the live result to `execution.resume(request, { reidentified })`, which
+ * the live result to `continuations.resume(request, { reidentified })`, which
  * {@link reidentificationDeviation} then holds to being the same identity.
  * A resume door's `authorize` and `elevate` hooks receive the same value as
  * `deferred`.
@@ -136,7 +136,7 @@ export type ResumeElevator = (
  * const record = await store.get(deferralId);
  * const parked = record && deferredPrincipal(record, authority);
  * const live = parked && (await directory.verify(parked.subject));
- * await c.execution.resume({ token, input: result }, { reidentified: live });
+ * await c.continuations.resume({ token, input: result }, { reidentified: live });
  * ```
  */
 export function deferredPrincipal(
@@ -458,7 +458,7 @@ function comparableIdentity(
  * Check a principal re-minted for the SAME identity a parked exchange
  * carried, and name the first way it is not.
  *
- * `execution.resume(request, { reidentified })` runs this itself and
+ * `continuations.resume(request, { reidentified })` runs this itself and
  * refuses with `RC5056` on any answer but `undefined`, so a plugin calls it
  * only to learn, before resuming, whether its re-verification would pass:
  * to report a refusal in its own terms, or to skip a revival that would be

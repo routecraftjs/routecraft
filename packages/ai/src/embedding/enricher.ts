@@ -1,4 +1,4 @@
-import type { Enricher, Exchange } from "@routecraft/routecraft";
+import { lookupOf, type Enricher, type Exchange } from "@routecraft/routecraft";
 import { callEmbedding } from "./providers/index.ts";
 import type {
   EmbeddingModelConfig,
@@ -6,7 +6,7 @@ import type {
   EmbeddingResult,
   EmbeddingService,
 } from "./types.ts";
-import { embeddingServices } from "./types.ts";
+import { EMBEDDING } from "./types.ts";
 
 function parseProviderModel(id: string): {
   providerId: string;
@@ -74,7 +74,7 @@ export class EmbeddingEnricherAdapter<T = unknown> implements Enricher<
   public options: Partial<EmbeddingOptions>;
 
   async fetch(exchange: Exchange<T>): Promise<EmbeddingResult> {
-    const service = embeddingServices.of(exchange);
+    const service = lookupOf(exchange, EMBEDDING);
     const { config, modelName } = resolveProviderAndModel(
       this.modelId,
       service,

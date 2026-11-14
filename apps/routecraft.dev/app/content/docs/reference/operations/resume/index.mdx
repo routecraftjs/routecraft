@@ -51,9 +51,9 @@ This route owns **authorization**, through `authorize`. See [Securing resume](#s
 |-------|------|-------------|
 | `token` | `string` | The signed token minted when the exchange deferred. |
 | `input` | `unknown` | The submitted payload, validated against the deferring site's `input` schema when it declared one. |
-| `resumedBy` | `PrincipalRef` | Who resumed it. Defaults to the ingress exchange's own principal, which is the value worth recording: it was verified live here. Set it explicitly only when the resuming principal is not the caller. |
+Who resumed it is not the mapper's to say. The kernel records the ingress exchange's own principal as `resumedBy`, because it was verified live here, and a mapper that returns `resumedBy` is refused with [`RC5003`](/docs/reference/errors#rc-5003). A plugin that resumes on someone's behalf calls [`continuations.resume()`](/docs/reference/plugins#continuations) in its own code.
 
-The door's own options are deliberately not on the mapper's request: the mapper shapes an attacker-controlled payload, so letting it supply the hook or name the principal would let the untrusted half of an ingress choose what the trusted half checks.
+The door's own options are deliberately not on the mapper's request either: the mapper shapes an attacker-controlled payload, so letting it supply the hook or name the principal would let the untrusted half of an ingress choose what the trusted half checks.
 
 | Option | Type | Description |
 |--------|------|-------------|

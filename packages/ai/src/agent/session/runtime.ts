@@ -87,16 +87,8 @@ export function sessionHostOf(context: CraftContext): SessionHost {
     },
     deferrals: () => context.lookup(CONTINUATIONS),
     continuations: context.continuations,
-    trackTask: (task, route) => {
-      const owner =
-        route === undefined ? undefined : context.getRouteById(route);
-      if (owner) owner.trackTask(task);
-      else {
-        void task.catch((err: unknown) => {
-          context.logger.error({ err }, "Background task failed");
-        });
-      }
-    },
+    trackTask: (task, route) =>
+      context.trackTask(task, route === undefined ? undefined : { route }),
     agent: (name) => context.lookup(AGENTS)?.agents.get(name),
     reidentify: () => context.lookup(AGENTS)?.reidentify,
   };

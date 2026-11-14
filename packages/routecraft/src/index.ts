@@ -929,8 +929,6 @@ export {
   isDeferSignal,
   isDeferred,
   continuationsOf,
-  deferredPrincipal,
-  reidentificationDeviation,
   routeCanDefer,
   stepStateFingerprint,
   deferredSchema,
@@ -943,6 +941,8 @@ export type {
   DeferAsideRequest,
   DeferRevival,
   DeferHandle,
+  DeferHandleFor,
+  NextStepDeferHandle,
   ResumeFn,
   DeferDeclaration,
   DeferringStep,
@@ -1076,6 +1076,7 @@ export { principalRef } from "./kernel/continuation/principal-ref.ts";
 export {
   applicationOf,
   applicationState,
+  lookupOf,
   type ApplicationKey,
   type ApplicationState,
 } from "./kernel/application.ts";
