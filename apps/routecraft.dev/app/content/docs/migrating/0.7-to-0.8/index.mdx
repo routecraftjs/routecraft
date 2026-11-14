@@ -20,7 +20,7 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 10. **The correlation id is engine-owned, and `event()` continues the causing journey.** `.header()` refuses `routecraft.correlation_id`; `.correlate()` re-stamps it. [Section 10](#10-journeys).
 11. **`agentBrowser()` is removed** from `@routecraft/os`. [Section 11](#11-agent-browser).
 12. **`craft run` logs to stderr, and `RUNNER_ARGV` is `RUNNER_INVOCATION`.** [Section 12](#12-craft-run-argv).
-13. **Two optional peers need a newer major.** `mailauth` is `^8.0.6` and `@ai-sdk/openai-compatible` is `^2.0.0`. [Section 13](#13-optional-peers).
+13. **Three optional peers need a newer major.** `mailauth` is `^8.0.6`, `@ai-sdk/openai-compatible` is `^2.0.0` and `@huggingface/transformers` is `^4.3.1`. [Section 13](#13-optional-peers).
 14. **An MCP tool call's arguments ride in `_snapshot`.** A subscriber to `plugin:mcp:tool:called` reads `details._snapshot?.args`, and asks for snapshots. [Section 14](#14-mcp-tool-called-args).
 15. **A remote MCP server is reached over `https`.** A client on plain `http` to a host that is not loopback sets `allowHttp: true`. [Section 15](#15-mcp-outbound).
 16. **Parked deferrals are re-asked once.** The continuation digest changed format and covers more, so a deferral parked on 0.7 is refused with `RC5048` on its first resume, and a custom `WrapperStep` implements `wrapperKind` and `identityOptions()`. [Section 16](#16-step-identity).
@@ -238,14 +238,17 @@ A route that drove a browser calls a browser MCP server's tools instead. Registe
 
 The `RUNNER_ARGV` store key is removed. No adapter read it; a runner of your own sets `RUNNER_INVOCATION` to a `RunnerInvocation` (the id of the route to run, the arguments, a stdin reader and a `settle` callback) instead, and `craft start` sets nothing, which is what keeps `argv()` inert there.
 
-## 13. Two optional peers need a newer major \{#13-optional-peers}
+## 13. Three optional peers need a newer major \{#13-optional-peers}
 
-Both ranges dropped majors whose every release carries a high-severity advisory in a pinned dependency, so the vulnerable versions no longer satisfy the peer:
+Each range dropped majors whose releases carry a high-severity advisory in a pinned dependency, so the vulnerable versions no longer satisfy the peer:
 
 - `mailauth`, used by the mail adapter's `verify: 'strict'`, is `^8.0.6`. Run `bun add mailauth@^8.0.6`.
 - `@ai-sdk/openai-compatible`, used by LM Studio and other OpenAI-compatible providers, is `^2.0.0`, the line that matches `ai` 6. Run `bun add @ai-sdk/openai-compatible@^2`.
+- `@huggingface/transformers`, used by Hugging Face embeddings, is `^4.3.1`. Run `bun add @huggingface/transformers@^4.3.1`, then check that `sharp` resolves to 0.35.5 or later (`bun update sharp` if the lockfile holds 0.35.4).
 
-Neither changes how the adapter or the provider behaves.
+None changes how the adapter or the provider behaves.
+
+Four peers keep their major and need a newer release of it: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` are `^2.3.0`, `@modelcontextprotocol/node` is `^2.1.1`, `@agentclientprotocol/sdk` is `^1.7.0` and `imapflow` is `^1.0.77`. Three take a new major beside the old one, so nothing changes for a project that stays: `croner` 10 or 11, `imapflow` 1 or 2, and `execa` 9 or 10.
 
 ## 14. An MCP tool call's arguments ride in `_snapshot` \{#14-mcp-tool-called-args}
 
