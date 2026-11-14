@@ -10,12 +10,8 @@ import {
 import { isBlockLoaderCall, summariseBlockLoads } from "../block/resolve.ts";
 import { callLlm, streamLlm } from "../llm/providers/index.ts";
 import type { CallLlmParams } from "../llm/providers/llm-utils.ts";
-import {
-  resolveUserPrompt,
-  toPromptInput,
-  resolveSampling,
-  resolveUserPromptDefault,
-} from "../llm/shared.ts";
+import { assertNotCutOffEmpty } from "../llm/cut-off.ts";
+import { toPromptInput, resolveSampling } from "../llm/shared.ts";
 import type {
   LlmModelConfig,
   LlmPromptPart,
@@ -519,6 +515,7 @@ export class AgentRun<T = unknown> {
             accumulatedUsage,
           );
         }
+        assertNotCutOffEmpty(result, this.input.model);
         if (!validate) {
           this.emitFinished(result);
           return this.sayFinalText(
@@ -1037,6 +1034,7 @@ function toAgentResult(
   if (result.output !== undefined) out.output = result.output;
   if (result.reasoning !== undefined) out.reasoning = result.reasoning;
   if (result.usage) out.usage = result.usage;
+  if (result.finishReason !== undefined) out.finishReason = result.finishReason;
   // Cumulative across all validate retries so post-dispatch assertions
   // like "must have called X" see the agent's full tool history rather
   // than only the last call's. Synthetic block-loader invocations are
@@ -1054,21 +1052,4 @@ function toAgentResult(
   if (userCalls.length > 0) out.toolCalls = userCalls;
   if (blockCalls.length > 0) out.blocksLoaded = summariseBlockLoads(blockCalls);
   return out;
-}
-
-/**
- * Build the user prompt for an agent dispatch from the merged options
- * and the incoming exchange. Uses the agent's `user:` resolver when
- * present, otherwise derives a default from `exchange.body`
- * (matches the existing LLM destination behaviour).
- *
- * @internal
- */
-export function buildUserPrompt<T>(
-  options: AgentOptions<T> | AgentRegisteredOptions<T>,
-  exchange: Exchange<T>,
-): string | LlmPromptPart[] {
-  return options.user !== undefined
-    ? resolveUserPrompt(options.user, exchange)
-    : resolveUserPromptDefault(exchange);
 }

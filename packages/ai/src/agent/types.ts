@@ -541,6 +541,12 @@ export interface AgentResult {
    */
   usage?: LlmUsage;
   /**
+   * Why the model's last step ended (`"stop"`, `"length"`,
+   * `"content-filter"`, ...), when the provider reported it. `"length"` next
+   * to a non-empty `text` means the answer was cut short at the output cap.
+   */
+  finishReason?: string;
+  /**
    * Flat summary of every tool the agent called during the dispatch,
    * in invocation order. Empty (or absent) when the agent ran without
    * invoking any tools.

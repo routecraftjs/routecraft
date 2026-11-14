@@ -58,10 +58,10 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `system` | `string \| (exchange) => string` | -- | System prompt (static or derived from exchange) |
-| `user` | `string \| LlmPromptPart[] \| (exchange) => string \| LlmPromptPart[]` | -- | User prompt (static or derived from exchange). The array form sends content parts: audio, images, files. See [Content parts](#content-parts) |
+| `user` | `string \| LlmPromptPart[] \| (exchange) => string \| LlmPromptPart[]` | body as-is / JSON | User prompt (static or derived from exchange). The body is used only when `user` is not given: an explicit `user` that resolves to nothing sends nothing. The array form sends content parts: audio, images, files. See [Content parts](#content-parts) |
 | `output` | `StandardSchemaV1` | -- | Zod/Valibot/ArkType schema for structured output |
 | `temperature` | `number` | `0` | Sampling temperature |
-| `maxTokens` | `number` | `1024` | Maximum tokens to generate |
+| `maxTokens` | `number` | `1024`, or none when `reasoning` is `'low'` or above | Maximum tokens to generate. Thinking tokens count against it. See [The output cap](#the-output-cap) |
 | `topP` | `number` | -- | Top-p sampling |
 | `frequencyPenalty` | `number` | -- | Frequency penalty |
 | `presencePenalty` | `number` | -- | Presence penalty |
@@ -77,6 +77,7 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | `usage.inputTokens` | `number` | Input token count |
 | `usage.outputTokens` | `number` | Output token count |
 | `usage.totalTokens` | `number` | Total token count |
+| `finishReason` | `string` | Why the model stopped (when reported). `length` beside a non-empty `text` means the answer was cut short at the output cap |
 
 Provider credentials are configured once in `llmPlugin()` and shared across all `llm()` calls. See [Plugins reference](/docs/reference/plugins).
 
@@ -107,7 +108,22 @@ craft()
 
 `system` stays string-only. No provider accepts content parts there.
 
-An empty parts array reads as "the author said nothing", exactly as an empty string does. The two destinations then differ, as they already did for strings: `llm()` falls back to the body-derived prompt, while `agent()` sends the empty prompt as given. A callback that maps attachments to parts returns `[]` on an exchange that carries none, so give it an explicit fallback rather than relying on the destination's.
+An explicit `user` that resolves to nothing sends nothing; the body is used only when `user` is not given. An empty parts array and an empty string are both sent as an empty prompt, by `llm()` and `agent()` alike, and the body is never substituted: what reaches a model is what the route put on the prompt. A callback that maps attachments to parts returns `[]` on an exchange that carries none, so give it an explicit fallback when an empty prompt is not what you want. Some providers refuse a request whose user prompt is empty, and that refusal reaches the route as the provider's own error.
+
+#### The output cap
+
+`maxTokens` caps what the model may generate in one call, and on a model that thinks the thinking tokens count against it. A cap sized for the answer alone can be spent on thinking before the answer starts.
+
+| `reasoning` | `maxTokens` unset | 
+|-------------|-------------------|
+| not set, or `'none'` | `1024` is sent |
+| `'low'`, `'medium'`, `'high'` | nothing is sent; the provider's own maximum applies |
+
+An authored `maxTokens` is always sent as written. A model that thinks by default, or whose thinking is switched on through `providerOptions` alone, still gets `1024`: set `maxTokens` or a `reasoning` level for it. The rule reads `reasoning` and nothing else, so it also applies on `custom`, where `reasoning` maps to nothing.
+
+What "the provider's own maximum" means depends on the provider. The hosted ones apply the model's output limit. `ollama` and `lmstudio` apply none, so a route-level [`.timeout()`](/docs/reference/operations/timeout) or an authored `maxTokens` is the bound on a local model that does not stop.
+
+A call the provider cuts off (finish reason `length` or `content-filter`) with no text, tool call or structured output in its last step fails with [`AI1020`](/docs/reference/errors#ai-1020). A call cut off after writing something is returned as it is.
 
 **Which providers accept what is theirs to say, not ours.** Nothing is pre-validated per provider: the parts are forwarded, and a provider that cannot read one fails through its own error rather than a framework guard that would go stale. The AI SDK's own [prompts documentation](https://ai-sdk.dev/docs/foundations/prompts) is the current list, and at the time of writing names Google Generative AI, Google Vertex AI, Anthropic, and OpenAI (PDFs, plus wav and mp3 on the audio-preview models) as the providers taking file parts. Image parts are broadly supported. Support is per model as well as per provider, so check the model you are actually calling.
 

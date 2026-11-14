@@ -18,7 +18,7 @@ import {
  * Numbering: AI1xxx = agent blocks, configuration, and runtime (formerly
  * core RC5025-RC5027, renumbered when the codes moved into this package;
  * charter widened to runtime with AI1005/AI1006/AI1007, and to the editor
- * surface with AI1013-AI1019), AI2xxx = MCP
+ * surface with AI1013-AI1019, and to model outcomes with AI1020), AI2xxx = MCP
  * boundary, AI3xxx = built-in agent tools. Ranges are claimed in the
  * range-allocation table on the error reference page before use, so two
  * lanes landing in parallel cannot mint the same code.
@@ -552,6 +552,8 @@ declare module "@routecraft/routecraft" {
     AI1018: RCMeta;
     /** A route built a surface update that is not a shape the protocol defines */
     AI1019: RCMeta;
+    /** The provider cut a model call off before it produced anything */
+    AI1020: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
@@ -718,6 +720,14 @@ registerErrorCodes(
       suggestion:
         "surface.notify() checks the update a route built against the protocol's session/update schema before sending it, and this one did not conform; the issues are on the error's cause. Nothing was sent. This is a defect in the route: fix the callback so the update is a shape the protocol defines (the sessionUpdate discriminator and the fields that go with it).",
       docs: `${DOCS_BASE}#ai-1019`,
+      retryable: false,
+    },
+    AI1020: {
+      category: "Adapter",
+      message: "Model call cut off before it produced anything",
+      suggestion:
+        "The provider ended the call with finish reason length or content-filter, and the last step of the call had produced no text, no tool call and no structured output. Tool calls made in earlier steps of an agent turn have already run. For length, the output cap was spent first: thinking tokens count against maxTokens, so raise maxTokens, lower reasoning, or leave maxTokens unset next to a reasoning level so the provider's own maximum applies. For content-filter, the provider refused the content; change the prompt or the model. The same input will be cut off the same way, so a retry does not help.",
+      docs: `${DOCS_BASE}#ai-1020`,
       retryable: false,
     },
     AI2001: {
