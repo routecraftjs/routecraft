@@ -70,6 +70,24 @@ export interface RequiredPosition {
 }
 
 /**
+ * What a step digests of the options it was given: a copy of a plain
+ * object, so a caller that edits it afterwards cannot move the identity away
+ * from the behaviour already resolved, and without `label`, which only
+ * names events. Anything else is kept as it is, so the walk still sees, and
+ * reports, a class instance.
+ *
+ * @internal
+ */
+export function givenOptions(options: unknown): unknown {
+  if (options === null || typeof options !== "object") return options;
+  const proto: unknown = Object.getPrototypeOf(options);
+  if (proto !== Object.prototype && proto !== null) return options;
+  const behaviour = { ...(options as Record<string, unknown>) };
+  delete behaviour["label"];
+  return behaviour;
+}
+
+/**
  * Abstract base for "dual-mode wrapper" operations: a single concept
  * (`.error()`, `.retry()`, `.timeout()`, `.cache()`, ...) that
  * applies at either route scope (when staged before `.from()`) or step
@@ -93,21 +111,6 @@ export interface RequiredPosition {
  * authors land additional operations (retry, cache, timeout, circuit
  * breaker, etc.).
  */
-/**
- * What a wrapper digests of the options it was given: a copy, so a caller
- * that edits its object afterwards cannot move the identity away from the
- * behaviour already resolved, and without `label`, which only names events.
- *
- * @internal
- */
-export function givenOptions(options: unknown): unknown {
-  if (options === null || typeof options !== "object") return options;
-  if (Array.isArray(options)) return [...(options as unknown[])];
-  const behaviour = { ...(options as Record<string, unknown>) };
-  delete behaviour["label"];
-  return behaviour;
-}
-
 export abstract class WrapperStep<
   T extends Adapter = Adapter,
 > implements Step<T> {

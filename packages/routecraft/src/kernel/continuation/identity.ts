@@ -210,9 +210,7 @@ function hasClassMethods(value: object): boolean {
     proto !== null && proto !== Object.prototype;
     proto = Object.getPrototypeOf(proto)
   ) {
-    if (
-      Object.getOwnPropertyNames(proto).some((key) => key !== "constructor")
-    ) {
+    if (Reflect.ownKeys(proto).some((key) => key !== "constructor")) {
       return true;
     }
   }
