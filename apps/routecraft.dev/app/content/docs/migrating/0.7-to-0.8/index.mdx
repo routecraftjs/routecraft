@@ -157,12 +157,13 @@ The internal `RouteDefinition` fields `preParseFilters`, `postParseFilters` and 
 
 ## 6. A custom `DeferralStore` fences its claims \{#6-deferral-store}
 
-A store supplied through `deferral: { store }` implements a claim with an identity, so a claimant that outlived its lease cannot renew or finalize the claim that replaced it. The shipped backends migrate themselves (the SQLite file moves to schema version 3 on open); a store of your own changes four members:
+A store supplied through `deferral: { store }` implements a claim with an identity, so a claimant that outlived its lease cannot renew or finalize the claim that replaced it. The shipped backends migrate themselves (the SQLite file moves to schema version 4 on open); a store of your own changes five members:
 
 | 0.7 | 0.8 |
 |-----|-----|
 | `Deferral.claimedAt?: Date` | `Deferral.claim?: DeferralClaim`, which is `{ id, at, renewedAt }`: `id` is a `DeferralClaimId` minted by the store (`randomUUID() as DeferralClaimId`) and distinct for every claim taken on a record, `at` never moves, and `renewedAt` is what `releaseClaims` compares |
 | `claimExpiry(id, at): DeferralCasResult` | `claimExpiry(id, at): DeferralClaimResult`, which carries the `claim` the caller now holds when it won; `claimResultOf(result)` builds it from the compare-and-swap result |
+| (absent) | `Deferral.format: number`, the record format the kernel wrote: persist it as given and return it unchanged. A record your store wrote before it kept one reads back as `0` |
 | (absent) | `renewClaim(id, claimId, at)`: moves `renewedAt` to `at`, and wins only while `claimId` names the live claim on a waiting record |
 | `markExpired(id)` and `markDenied(id, reason?)` | `markExpired(id, claimId)` and `markDenied(id, claimId, reason?)`: settle only while `claimId` names the live claim, so a stale holder loses |
 
@@ -360,6 +361,8 @@ deferralStoreConformance('my store', () => openMyStore(), {
 
 - **The `CONTINUATIONS` port is `routecraft.continuations@2`.** A plugin that provides it under the `@1` name declares the port again from the exported token. Its `signer` is typed `ResumeTokenSigning`.
 - **A parked exchange finds its defer site by what follows it.** A step added or removed ahead of a `.defer()` no longer refuses the exchanges parked there. Two sites of one kind followed by identical steps (a `.defer()` in each of two sibling branches, say) that both moved are refused with [`RC5048`](/docs/reference/errors#rc-5048) as ambiguous. A `.defer()` and a step that defers itself are never confused: the digest carries which of the two parked.
+- **A record carries its format, and a resume reads only its own.** Every deferral is written with an integer `format`. A record in any other format, older or newer, is refused with [`RC5048`](/docs/reference/errors#rc-5048) and re-asked, so a rolled-back deployment does not resume what a newer release parked. A record parked by a 0.8 canary is refused once for this reason.
+- **A deferral parks the exchange it was raised for, once.** A step that keeps the signal `ctx.defer()` rejected with and throws it on another exchange, or a second time, is [`RC5032`](/docs/reference/errors#rc-5032).
 - **`restrict-continuation-minting` is an error in both lint presets.** It flags `continuations.mintToken()`, `resume()` and `rewriteStepState()`; see [linting](/docs/advanced/linting#continuation-acts-are-a-sanctioned-exception).
 - **Six more names leave the entry**, none of which a route needs: `ResolvedSampleOptions`, `ResolvedDedupeOptions`, `ResolvedThrottleOptions`, `ResolvedCircuitBreakerOptions`, `RouteEnablement` and `hashExchangeBody`.
 

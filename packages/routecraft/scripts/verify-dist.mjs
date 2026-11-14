@@ -183,6 +183,22 @@ if (mode === "internal") {
     );
     process.exit(1);
   }
+  // What ./internal describes must be what the main entry's kernel compares,
+  // so a step the main entry left out of the digest is left out here too.
+  for (const [format, main] of mains) {
+    const describe = (format === "esm" ? esm : cjs).describeSteps;
+    const tail = (route) => route.to(main.noop()).build()[0].steps;
+    const plain = tail(main.craft().id("logged").from(main.direct()));
+    const logged = tail(
+      main.craft().id("logged").from(main.direct()).log("info", "Seen"),
+    );
+    if (describe(plain).digest !== describe(logged).digest) {
+      console.error(
+        `verify-dist: a .log() step built by the ${format} main entry is digested by the ${format} build of ./internal.`,
+      );
+      process.exit(1);
+    }
+  }
   console.log(
     `verify-dist: ./internal resolves in ESM and CJS with ${expected.length} runtime exports, and step identity agrees across the two.`,
   );

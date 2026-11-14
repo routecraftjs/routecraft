@@ -24,7 +24,7 @@ import { CONTINUATIONS, requireContinuations } from "./port.ts";
 import { encodePersistable, serializeExchange } from "./serialize.ts";
 import { deferralScope } from "./resume.ts";
 import { type Deferred, createDeferred } from "./deferred.ts";
-import type { NewDeferral } from "./types.ts";
+import { DEFERRAL_FORMAT, type NewDeferral } from "./types.ts";
 
 /**
  * Deferring an exchange: everything that happens between a `.defer()`
@@ -272,6 +272,7 @@ function describeRecord(
   const deferredAt = new Date();
   const record: NewDeferral = {
     id,
+    format: DEFERRAL_FORMAT,
     routeId,
     position: request.site.position,
     continuationHash: hash,

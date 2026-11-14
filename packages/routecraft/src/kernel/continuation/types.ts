@@ -301,9 +301,24 @@ export interface SerializedOutcome {
  * opaque slot is what lets the agent tier (#258) share this store instead
  * of growing a second one.
  */
+/**
+ * The shape the kernel writes a deferral record in. It moves whenever a
+ * release changes what a stored field means, so a record is only ever read
+ * by the release line that wrote it.
+ */
+export const DEFERRAL_FORMAT = 3;
+
 export interface Deferral {
   /** Deferral identity. Distinct from the deferred exchange's own id. */
   readonly id: string;
+  /**
+   * {@link DEFERRAL_FORMAT} as the writing release knew it. A store persists
+   * it as given, and reports `0` for a record written before records
+   * carried one. A resume refuses any value but the running release's own
+   * (`RC5048`), newer as well as older: a rolled-back deployment must not
+   * read a field whose meaning it does not know.
+   */
+  readonly format: number;
   /** Route the deferred exchange belongs to. Resume re-enters this route. */
   readonly routeId: string;
   /** Index of the deferring step. Execution two resumes at `position + 1`. */

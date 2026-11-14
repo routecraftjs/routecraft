@@ -209,26 +209,42 @@ export interface DeferTicket {
   readonly stepState?: unknown;
 }
 
-const tickets = new WeakSet<object>();
+const tickets = new WeakMap<object, string>();
 
 /**
- * Mint the ticket a `defer` outcome carries.
+ * Mint the ticket a `defer` outcome carries, good once and only for the
+ * exchange it was minted for.
+ *
+ * A ticket is readable off the signal a step catches, so "the kernel minted
+ * it" is not enough to accept one: a step that kept a ticket could hand it
+ * back on a later exchange and park that exchange at a site it never
+ * reached, skipping every step in between.
  *
  * @internal
  */
-export function mintDeferTicket(fields: DeferTicket): DeferTicket {
+export function mintDeferTicket(
+  fields: DeferTicket,
+  exchangeId: string,
+): DeferTicket {
   const ticket = Object.freeze({ ...fields });
-  tickets.add(ticket);
+  tickets.set(ticket, exchangeId);
   return ticket;
 }
 
 /**
- * Whether a value is a ticket {@link mintDeferTicket} minted.
+ * Spend a ticket: true when {@link mintDeferTicket} minted this value for
+ * this exchange and nothing has spent it yet.
  *
  * @internal
  */
-export function isDeferTicket(value: unknown): value is DeferTicket {
-  return typeof value === "object" && value !== null && tickets.has(value);
+export function redeemDeferTicket(
+  value: unknown,
+  exchangeId: string,
+): value is DeferTicket {
+  if (typeof value !== "object" || value === null) return false;
+  if (tickets.get(value) !== exchangeId) return false;
+  tickets.delete(value);
+  return true;
 }
 
 /**

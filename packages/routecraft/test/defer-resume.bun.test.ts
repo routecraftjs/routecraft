@@ -21,7 +21,10 @@ import {
   deferralOf,
 } from "../src/index.ts";
 import { asDeferred, storeWith, deferring } from "./helpers/deferral.ts";
-import { MAX_STORED_MESSAGE } from "../src/kernel/continuation/types.ts";
+import {
+  DEFERRAL_FORMAT,
+  MAX_STORED_MESSAGE,
+} from "../src/kernel/continuation/types.ts";
 
 /**
  * A signing secret for the two-context tests, which share one store across
@@ -508,6 +511,82 @@ describe("defer and resume", () => {
     expect(paid).toHaveLength(0);
     expect(caught).toHaveLength(1);
     expect(caught[0]).toMatchObject({ rc: "RC5048" });
+  });
+
+  /**
+   * @case A stored record carries a record format this release does not write
+   * @preconditions Three deferred payouts whose records read back with format 0 (written before records carried one), one lower than the current format, and one higher (a rollback reading a newer release's record)
+   * @expectedResult Each resume is RC5048 naming both formats, nothing after the defer runs, the deferred route's .error() handler is told, and each record is denied with reason "record format changed". A record already resumed that reads back in another format is RC5048 on a duplicate resume too: its stored result is not decoded, and nothing is re-asked
+   */
+  test("a record in another format is refused with RC5048, older and newer", async () => {
+    const backing = new MemoryDeferralStore();
+    const formats = new Map<string, number>();
+    const store = storeWith(backing, {
+      get: async (id: string) => {
+        const read = await backing.get(id);
+        const format = formats.get(id);
+        return read && format !== undefined ? { ...read, format } : read;
+      },
+    });
+    const ran: unknown[] = [];
+    const caught: unknown[] = [];
+    t = await testContext()
+      .with({ deferral: { store, secret: SECRET } })
+      .routes([
+        craft()
+          .id("payout")
+          .error((err) => {
+            caught.push(err);
+            return { reasked: true };
+          })
+          .from(direct())
+          .defer({ input: Approval })
+          .tap((ex) => {
+            ran.push(ex.body);
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    for (const format of [0, DEFERRAL_FORMAT - 1, DEFERRAL_FORMAT + 1]) {
+      const deferred = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+      expect((await backing.get(deferred.deferralId))?.format).toBe(
+        DEFERRAL_FORMAT,
+      );
+      formats.set(deferred.deferralId, format);
+
+      const answered = t.client.sendDirect("answers", {
+        token: deferred.token,
+        input: { approved: true },
+      });
+      await expect(answered).rejects.toMatchObject({ rc: "RC5048" });
+      await expect(answered).rejects.toThrow(
+        `record format ${format} and this release reads format ${DEFERRAL_FORMAT}`,
+      );
+      expect((await backing.get(deferred.deferralId))?.outcome).toMatchObject({
+        kind: "denied",
+        reason: "record format changed",
+      });
+    }
+
+    expect(ran).toHaveLength(0);
+    expect(caught).toHaveLength(3);
+
+    const settled = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const answer = () =>
+      t!.client.sendDirect("answers", {
+        token: settled.token,
+        input: { approved: true },
+      });
+    expect(await answer()).toMatchObject({ status: "resumed" });
+    formats.set(settled.deferralId, DEFERRAL_FORMAT + 1);
+    const replayed = answer();
+    await expect(replayed).rejects.toMatchObject({ rc: "RC5048" });
+    await expect(replayed).rejects.toThrow(/not read back/);
+    expect(ran).toHaveLength(1);
+    expect(caught).toHaveLength(3);
   });
 
   /**

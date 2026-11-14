@@ -49,6 +49,7 @@ export interface ConformanceRunner {
 function record(overrides: Partial<NewDeferral> = {}): NewDeferral {
   return {
     id: "def-1",
+    format: 7,
     routeId: "payout",
     position: 3,
     continuationHash: "c".repeat(64),
@@ -149,6 +150,7 @@ export function deferralStoreConformance(
 
       const read = await store.get("def-1");
       expect(read).toBeDefined();
+      expect(read?.format).toBe(7);
       expect(read?.routeId).toBe("payout");
       expect(read?.position).toBe(3);
       expect(read?.continuationHash).toBe(written.continuationHash);

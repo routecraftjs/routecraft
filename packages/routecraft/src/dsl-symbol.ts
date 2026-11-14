@@ -160,14 +160,3 @@ export const STEP_IDENTITY: unique symbol = Symbol.for(
 export const WRAPPER_IDENTITY: unique symbol = Symbol.for(
   "routecraft.step.wrapperIdentity",
 );
-
-/**
- * Marks a step the digest leaves out: `.log()`, which changes nothing a
- * resumed exchange or a cached result depends on. Adding or editing a log
- * line re-asks no parked approval.
- *
- * @internal
- */
-export const DIGEST_EXEMPT: unique symbol = Symbol.for(
-  "routecraft.step.digestExempt",
-);
