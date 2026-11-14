@@ -2,7 +2,7 @@ import { port } from "@routecraft/routecraft";
 import type { AgentSessionRuntime } from "./session/runtime.ts";
 import type { ReidentifyHook } from "./session/types.ts";
 import type { AgentToolPolicy } from "./tools/policy.ts";
-import type { FnEntry, RegisteredFn } from "./tools/types.ts";
+import type { AgentRuntimeHost, FnEntry, RegisteredFn } from "./tools/types.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 
 /**
@@ -79,6 +79,13 @@ export interface AgentRegistry {
    * @internal
    */
   recordLateResolution(id: string, fn: RegisteredFn): boolean;
+  /**
+   * What a dispatch reads the application through, built when the runtime
+   * binds.
+   *
+   * @internal
+   */
+  readonly host: AgentRuntimeHost;
 }
 
 /** The agent registry the agent runtime plugin provides. */

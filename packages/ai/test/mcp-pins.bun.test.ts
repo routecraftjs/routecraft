@@ -34,6 +34,7 @@ import type { McpPins, McpRawToolResult, McpTool } from "../src/mcp/types.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
 import { statefulRemote } from "./helpers/stateful-remote.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 const READ: McpTool = {
   name: "get_document",
@@ -456,11 +457,13 @@ describe("pinning on every path to a remote MCP tool", () => {
     ).toEqual(["docs_delete_document", "docs_get_document"]);
     expect(
       tools(["MCP(docs:*)"])
-        .resolve(t!.ctx)
+        .resolve(agentHostOf(t!.ctx))
         .map((tool) => tool.name)
         .sort(),
     ).toEqual(["mcp__docs__delete_document", "mcp__docs__get_document"]);
-    expect(tools(["MCP(docs:create_document)"]).resolve(t!.ctx)).toEqual([]);
+    expect(
+      tools(["MCP(docs:create_document)"]).resolve(agentHostOf(t!.ctx)),
+    ).toEqual([]);
     expect((await callTool(srv, "docs_create_document", {})).isError).toBe(
       true,
     );
@@ -524,7 +527,7 @@ describe("pinning on every path to a remote MCP tool", () => {
     }
     expect(
       tools(["MCP(docs:*)"])
-        .resolve(t.ctx)
+        .resolve(agentHostOf(t.ctx))
         .map((tool) => tool.name),
     ).toEqual(["mcp__docs__get_document"]);
     expect((await callTool(server, "docs_delete_document", {})).isError).toBe(

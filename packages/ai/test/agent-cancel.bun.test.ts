@@ -18,8 +18,8 @@ import {
   type FnHandlerContext,
 } from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
-import { toolHostOf } from "../src/agent/tools/types.ts";
 import { callable } from "./helpers/callable-fn.ts";
+import { toolHostOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({

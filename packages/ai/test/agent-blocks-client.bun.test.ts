@@ -8,7 +8,7 @@ import {
   type Source,
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
-import { agent, llmPlugin } from "../src/index.ts";
+import { agentPlugin, agent, llmPlugin } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 let capturedSystem: string | undefined;
@@ -47,6 +47,7 @@ describe("agent blocks: resolver client.forward()", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -116,6 +117,7 @@ describe("agent blocks: resolver client.forward()", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

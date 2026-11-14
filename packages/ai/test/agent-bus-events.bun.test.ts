@@ -310,6 +310,7 @@ describe("agent context-bus events", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -352,6 +353,7 @@ describe("agent context-bus events", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -393,6 +395,7 @@ describe("agent context-bus events", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -450,6 +453,7 @@ describe("agent context-bus events", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

@@ -40,7 +40,6 @@ export {
   type InferredNode,
   type StepsDescription,
 } from "./kernel/continuation/identity.ts";
-export { getExchangeContext, getExchangeRoute } from "./internal-accessors.ts";
 export { clipText } from "./shared/text.ts";
 export {
   RENAMED_TO_INPUT,

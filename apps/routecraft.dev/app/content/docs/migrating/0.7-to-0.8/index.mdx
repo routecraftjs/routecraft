@@ -29,8 +29,9 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 
 19. **The command line reads a project, and only a project.** `craft.config.ts` default-exports `defineProject({ ... })`; `defineConfig`, a plain default-exported object and the `craftConfig` named export are refused with `RC1120`. `telemetry()` is the `telemetry` key or `telemetryPlugin()`. [Section 19](#19-project-export).
 20. **Events carry ids, and bodies only on request.** `details.exchange` is gone from every event: read `details.exchangeId`, and subscribe with `{ snapshots: true }` to read `details._snapshot`. [Section 20](#20-event-bodies).
+21. **`agent()` and `mcp()` need their plugin.** An inline `agent({ ... })` needs `agent: {}`, and a call to a remote tool by URL needs `mcp: {}`. A block resolver's second argument is a `BlockContext`. [Section 21](#21-required-plugins).
 
-Projects that write no plugin of their own typically need sections 2, 17 and 19 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`, section 14 if they subscribe to `plugin:mcp:tool:called` and read `details.args`, section 15 if an MCP client is reached over plain `http`, section 16 if an approval can be parked across the upgrade, section 18 if a route defers or resumes, and section 20 if a subscriber reads `details.exchange` or `details._snapshot`. [Section 21](#21-what-is-new-in-080) lists what is new, for context.
+Projects that write no plugin of their own typically need sections 2, 17 and 19 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`, section 14 if they subscribe to `plugin:mcp:tool:called` and read `details.args`, section 15 if an MCP client is reached over plain `http`, section 16 if an approval can be parked across the upgrade, section 18 if a route defers or resumes, section 20 if a subscriber reads `details.exchange` or `details._snapshot`, and section 21 if a route dispatches an inline agent or calls a remote MCP tool by URL. [Section 22](#22-what-is-new-in-080) lists what is new, for context.
 
 ---
 
@@ -69,7 +70,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 21](#21-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 22](#22-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -336,6 +337,7 @@ A step result that names a deferral the kernel did not issue is refused with [`R
 | `getExchangeContext(ex)` to read a parked record or verify a token | `continuationsOf(exchange)` |
 | `getExchangeContext(ex)` to decide whether to send trace headers | `sendsTraceContextFor(exchange, ...settings)` |
 | `getExchangeRoute(ex)?.trackTask(p)` from a plugin | `c.execution.trackTask(p, { route })` |
+| `getExchangeRoute(ex)?.signal` and `.definition.id` in an adapter | `context.route.signal` and `context.route.id` on the step context |
 
 **A custom `DeferralStore` stores what it is given.** The kernel encodes `stepState`, `meta` and the settled outcome before the store sees them and decodes them after, so a store persists those fields as the JSON they arrive as and never encodes or decodes them itself. Run the shared suite against it:
 
@@ -413,7 +415,30 @@ The copy is frozen and leaves out `Authorization`, `Cookie`, `Set-Cookie`, `Prox
 
 A telemetry store written by 0.7 with `captureSnapshots` on holds the headers as they were then, credentials included, in `exchange_snapshots` and in the `details` of its error events. Delete the store, or those rows, if it should not keep them. From 0.8 the exchange is stored once, in `exchange_snapshots`, and no event row repeats it.
 
-## 21. What is new in 0.8.0 \{#21-what-is-new-in-080}
+## 21. `agent()` and `mcp()` need their plugin \{#21-required-plugins}
+
+In 0.7 an inline `agent({ ... })` and an `mcp({ url, tool })` call ran in an application that installed neither plugin, on state they created on first use. Both steps now read the application through their plugin, and refuse with [`RC5003`](/docs/reference/errors#rc-5003) when it is absent. A project that registers agents, serves tools or names MCP clients already has the key and changes nothing.
+
+| 0.7 | 0.8 |
+| --- | --- |
+| `.to(agent({ model, system }))` with no `agent` key | add `agent: {}` to `defineProject({ ... })`, or `agentPlugin()` to the plugins of a context built by hand |
+| `.to(mcp({ url, tool }))` with no `mcp` key | add `mcp: {}`, or `mcpPlugin()`. It starts no server: the server starts only when `transport` is set or a route is exposed with `.from(mcp())` |
+| `agent({ session })` with no sessions plugin, on a session store resolved at the first turn | the agent plugin brings the sessions plugin, which resolves the same store when the application binds |
+| a block resolver `(exchange, context) => ...` reading the `CraftContext` | `context` is a `BlockContext`: `context.lookup(PORT)` and `context.logger` |
+| `mcp: { clients }` with no tool route starting a stdio server | no server starts; set `transport: 'stdio'` to keep one |
+
+```ts
+export default defineProject({
+  llm: { providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } } },
+  agent: {},
+})
+```
+
+A test that dispatches an inline agent adds the plugin the same way: `testContext().with({ plugins: [agentPlugin(), llmPlugin({ ... })] })`.
+
+An adapter of your own that read the route off the exchange for its id or its stop signal reads them from the step context it is handed: `context.route.id` and `context.route.signal`, which fires when the route abandons its in-flight work.
+
+## 22. What is new in 0.8.0 \{#22-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()` and the resilience operations are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT` and `RESILIENCE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too. Both ports are provisional in 0.8: they are due to be reshaped, so a replacement pins the minor it was written against.

@@ -17,6 +17,7 @@ import {
 } from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -131,7 +132,7 @@ describe("tools() with imported routes", () => {
       "Direct(lab:hello)",
       "Remote(lab)",
       "labHello",
-    ]).resolve(local.ctx);
+    ]).resolve(agentHostOf(local.ctx));
     const byName = new Map(resolved.map((tool) => [tool.name, tool]));
     expect([...byName.keys()].sort()).toEqual([
       "direct__hello",
@@ -161,12 +162,12 @@ describe("tools() with imported routes", () => {
         line.includes("Remote route id is not usable as a provider tool name"),
       ),
     ).toHaveLength(1);
-    expect(() => tools(["Direct(lab:memory:get)"]).resolve(local!.ctx)).toThrow(
-      /remote__lab__memory:get/,
-    );
-    expect(() => tools(["Remote(nowhere)"]).resolve(local!.ctx)).toThrow(
-      /Remotes with routes: "default", "lab"/,
-    );
+    expect(() =>
+      tools(["Direct(lab:memory:get)"]).resolve(agentHostOf(local!.ctx)),
+    ).toThrow(/remote__lab__memory:get/);
+    expect(() =>
+      tools(["Remote(nowhere)"]).resolve(agentHostOf(local!.ctx)),
+    ).toThrow(/Remotes with routes: "default", "lab"/);
   });
 
   /**
@@ -270,7 +271,8 @@ describe("tools() with imported routes", () => {
       ])
       .build();
     await local.startAndWaitReady();
-    const resolveHello = () => tools(["Direct(hello)"]).resolve(local!.ctx)[0]!;
+    const resolveHello = () =>
+      tools(["Direct(hello)"]).resolve(agentHostOf(local!.ctx))[0]!;
     const localOnly = (tool: ReturnType<typeof resolveHello>): boolean =>
       tool.source.kind === "direct" && tool.source.remote === undefined;
 

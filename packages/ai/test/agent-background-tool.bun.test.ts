@@ -20,9 +20,9 @@ import {
   type FnHandlerContext,
 } from "../src/index.ts";
 import { recordsFor } from "./helpers/session-stores.ts";
-import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
+import { sessionsOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -210,10 +210,9 @@ describe("background tools", () => {
       llm.calls[0]!.tools as Record<string, { description: string }>
     )["sandboxRun"]!;
     expect(advertised.description).toContain("runs in the background");
-    expect(
-      (await AgentSessionRuntime.for(t.ctx).summary("s", "operator"))
-        ?.background,
-    ).toBe(1);
+    expect((await sessionsOf(t.ctx).summary("s", "operator"))?.background).toBe(
+      1,
+    );
     expect(chatSink.received).toHaveLength(1);
 
     llm.script.push({ text: "green, opening the PR" });
@@ -249,10 +248,7 @@ describe("background tools", () => {
       status: "replied",
       queued: 0,
     });
-    const summary = await AgentSessionRuntime.for(t.ctx).summary(
-      "s",
-      "operator",
-    );
+    const summary = await sessionsOf(t.ctx).summary("s", "operator");
     expect(summary).toMatchObject({ background: 0, inbox: 0, turns: 2 });
 
     llm.script.push({ text: "yes" });
@@ -295,9 +291,11 @@ describe("background tools", () => {
     expect((chatSink.received[0]!.body as AgentResult).text).toBe(
       "the build was lost, starting it again",
     );
-    expect(
-      await AgentSessionRuntime.for(t.ctx).summary("s", "operator"),
-    ).toMatchObject({ background: 0, inbox: 0, turn: "idle" });
+    expect(await sessionsOf(t.ctx).summary("s", "operator")).toMatchObject({
+      background: 0,
+      inbox: 0,
+      turn: "idle",
+    });
   });
 
   /**
@@ -336,10 +334,9 @@ describe("background tools", () => {
     expect(parts[0]!.text).toContain('"brokenRun" failed');
     expect(parts[0]!.text).toContain(`Handle: ${receipt.handle}`);
     expect(parts[0]!.text).toContain("the build host is gone");
-    expect(
-      (await AgentSessionRuntime.for(t.ctx).summary("s", "operator"))
-        ?.background,
-    ).toBe(0);
+    expect((await sessionsOf(t.ctx).summary("s", "operator"))?.background).toBe(
+      0,
+    );
   });
 
   /**
@@ -378,8 +375,7 @@ describe("background tools", () => {
         "sensitive-accessor-error",
       );
       expect(
-        (await AgentSessionRuntime.for(t.ctx).summary("s", "operator"))
-          ?.background,
+        (await sessionsOf(t.ctx).summary("s", "operator"))?.background,
       ).toBe(0);
     },
   );

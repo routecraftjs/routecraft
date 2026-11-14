@@ -9,6 +9,7 @@ import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { mcp, tools } from "../src/index.ts";
 import type { McpClientConfig } from "../src/mcp/port.ts";
 import type { McpServerOptions } from "../src/mcp/types.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 /**
  * `mcp()` for a combination its types already refuse, to reach the check
@@ -200,7 +201,9 @@ describe("proxy routes advertise their own schemas", () => {
     expect(result.isError).toBeFalsy();
     expect(sent).toEqual([{ id: "c-1", workspace: "acme" }]);
 
-    const [agentTool] = tools(["MCP(crm:get_contact)"]).resolve(t!.ctx);
+    const [agentTool] = tools(["MCP(crm:get_contact)"]).resolve(
+      agentHostOf(t!.ctx),
+    );
     const rendered = (
       agentTool!.input["~standard"] as unknown as {
         jsonSchema: { input: () => { properties: Record<string, unknown> } };

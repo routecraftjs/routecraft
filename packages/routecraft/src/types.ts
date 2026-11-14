@@ -215,6 +215,12 @@ export type StepOutcome =
 export interface StepRouteView {
   readonly id: string;
   readonly tags: readonly string[];
+  /**
+   * Fires when the route abandons its in-flight work: a stop past its
+   * drain, or the application shutting down. Absent on a step run by hand
+   * with no route.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /**

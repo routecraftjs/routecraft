@@ -17,10 +17,11 @@ import {
   type FnEntry,
   type FnHandlerContext,
 } from "../src/index.ts";
-import { isLazyFn, toolHostOf } from "../src/agent/tools/types.ts";
+import { isLazyFn } from "../src/agent/tools/types.ts";
 import { AGENTS } from "../src/agent/port.ts";
 import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
 import { callable } from "./helpers/callable-fn.ts";
+import { agentHostOf, toolHostOf } from "./helpers/hosts.ts";
 
 /**
  * A handler context as the tool bridge would have made it: the principal is
@@ -618,7 +619,7 @@ describe("tool builders - a deferred tool is not a lesser tool", () => {
       seen = catalog.fns.map((fn) => ({ ...fn }));
       return ["Bash"];
     });
-    selection.resolve(t.ctx);
+    selection.resolve(agentHostOf(t.ctx));
 
     const bash = seen.find((fn) => fn.name === "Bash");
     expect(bash?.description).toBe("Run a shell command");
@@ -646,7 +647,9 @@ describe("tool builders - a deferred tool is not a lesser tool", () => {
         .filter((fn) => fn.tags?.includes("host"))
         .map((fn) => fn.name),
     );
-    expect(selection.resolve(t.ctx).map((tool) => tool.name)).toEqual(["Bash"]);
+    expect(
+      selection.resolve(agentHostOf(t.ctx)).map((tool) => tool.name),
+    ).toEqual(["Bash"]);
   });
 
   /**
@@ -741,7 +744,7 @@ describe("tool builders - a deferred tool is not a lesser tool", () => {
       .build();
     await t.startAndWaitReady();
 
-    const [bash] = tools(["Bash"]).resolve(t.ctx);
+    const [bash] = tools(["Bash"]).resolve(agentHostOf(t.ctx));
     expect(bash).toBeDefined();
     await expect(
       bash!.handler(

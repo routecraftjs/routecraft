@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { craft, simple } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
-import { agent, llmPlugin, type AgentResult } from "../src/index.ts";
+import {
+  agentPlugin,
+  agent,
+  llmPlugin,
+  type AgentResult,
+} from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 // Mock the LLM provider so the validator can drive deterministic
@@ -61,6 +66,7 @@ describe("agent.validate: pre-finish hook with corrective retry", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -120,6 +126,7 @@ describe("agent.validate: pre-finish hook with corrective retry", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -188,6 +195,7 @@ describe("agent.validate: pre-finish hook with corrective retry", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -269,6 +277,7 @@ describe("agent.validate: pre-finish hook with corrective retry", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -316,6 +325,7 @@ describe("agent.validate: pre-finish hook with corrective retry", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

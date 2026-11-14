@@ -6,6 +6,7 @@ import {
   llmPlugin,
   type AgentDelta,
   type AgentResult,
+  agentPlugin,
 } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
@@ -71,6 +72,7 @@ describe("agent streaming: onDelta -> streamLlm wiring", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -102,6 +104,7 @@ describe("agent streaming: onDelta -> streamLlm wiring", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -136,6 +139,7 @@ describe("agent streaming: onDelta -> streamLlm wiring", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -171,6 +175,7 @@ describe("agent streaming: onDelta -> streamLlm wiring", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -210,6 +215,7 @@ describe("agent streaming: onDelta -> streamLlm wiring", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -247,6 +253,7 @@ describe("agent streaming: onDelta -> streamLlm wiring", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

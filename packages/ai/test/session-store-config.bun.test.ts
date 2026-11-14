@@ -14,7 +14,6 @@ import {
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, llmPlugin } from "../src/index.ts";
 import {
-  AgentSessionRuntime,
   DEFAULT_SESSION_DB_PATH,
   MemorySessionStore,
   SESSION_STORE,
@@ -25,7 +24,6 @@ import {
   createSessionStore,
   LazySqliteSessionStore,
 } from "../src/agent/session/config.ts";
-import { ADAPTER_AGENT_SESSION_STORE } from "../src/agent/store.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-sessions-config-"));
@@ -219,56 +217,6 @@ describe("session store resolution", () => {
         /RC5003|takes a file path/,
       );
     }
-  });
-
-  /**
-   * @case The lazy fallback reports no backend until something resolves it
-   * @preconditions A context with a deferral block and no session-owning plugin, read before any session work
-   * @expectedResult The resolved store reports the unresolved backend rather than guessing sqlite
-   */
-  test("the inline fallback reports no backend before it resolves", async () => {
-    t = await testContext()
-      .with({ deferral: { store: new MemoryDeferralStore() } })
-      .build();
-    AgentSessionRuntime.for(t.ctx);
-    expect(t.ctx.getStore(ADAPTER_AGENT_SESSION_STORE)?.backend).toBe(
-      "unresolved",
-    );
-  });
-
-  /**
-   * @case An inline session with no session-owning plugin resolves its store the way the plugins do, environment included
-   * @preconditions A context with a deferral block and neither agentPlugin() nor a sessions key; ROUTECRAFT_SESSION_STORE=memory; the runtime is created for the context and used once
-   * @expectedResult The context's resolved store reports the memory backend after that use and is unconfigured
-   */
-  test("the inline fallback resolves like the plugins", async () => {
-    process.env[SESSION_STORE_ENV] = "memory";
-    t = await testContext()
-      .with({ deferral: { store: new MemoryDeferralStore() } })
-      .build();
-    const runtime = AgentSessionRuntime.for(t.ctx);
-    expect(await runtime.store.list()).toEqual([]);
-    const resolved = t.ctx.getStore(ADAPTER_AGENT_SESSION_STORE);
-    expect(resolved?.backend).toBe("memory");
-    expect(resolved?.configured).toBe(false);
-  });
-
-  /**
-   * @case The inline fallback refuses work once the context has stopped, rather than reopening a store it released
-   * @preconditions A context with a deferral block and no session-owning plugin; the runtime is created, the context is stopped, and a session read is attempted afterwards
-   * @expectedResult The read rejects with AI1012 naming a call after teardown
-   */
-  test("the inline fallback stays closed after the context stops", async () => {
-    process.env[SESSION_STORE_ENV] = "memory";
-    const ctx = await testContext()
-      .with({ deferral: { store: new MemoryDeferralStore() } })
-      .build();
-    const runtime = AgentSessionRuntime.for(ctx.ctx);
-    await ctx.stop();
-    await expect(runtime.store.list()).rejects.toMatchObject({
-      rc: "AI1012",
-      message: expect.stringContaining("after teardown"),
-    });
   });
 
   /**

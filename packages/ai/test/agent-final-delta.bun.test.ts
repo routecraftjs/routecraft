@@ -10,7 +10,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { craft, simple } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
-import { agent, llmPlugin, type AgentDelta } from "../src/index.ts";
+import {
+  agentPlugin,
+  agent,
+  llmPlugin,
+  type AgentDelta,
+} from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 
@@ -51,6 +56,7 @@ describe("the final delta", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -91,6 +97,7 @@ describe("the final delta", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

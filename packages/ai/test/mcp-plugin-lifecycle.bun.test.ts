@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { mcpPlugin } from "@routecraft/ai";
+import { craft, direct, noop, simple } from "@routecraft/routecraft";
+import { mcp, mcpPlugin } from "@routecraft/ai";
+import { McpServer } from "../src/mcp/server.ts";
 import { MCP } from "../src/mcp/port.ts";
 import { StdioClientManager } from "../src/mcp/stdio-client-manager.ts";
 
@@ -11,11 +13,19 @@ import { StdioClientManager } from "../src/mcp/stdio-client-manager.ts";
 describe("mcpPlugin lifecycle", () => {
   const originalStart = StdioClientManager.prototype.start;
   const originalStop = StdioClientManager.prototype.stop;
+  const originalServerStart = McpServer.prototype.start;
+  let serverStarts: number;
   let stopped: StdioClientManager[];
   const contexts: TestContext[] = [];
 
   beforeEach(() => {
     stopped = [];
+    serverStarts = 0;
+    // No stdio transport on the test process: what is under test is whether
+    // the plugin starts the server at all.
+    McpServer.prototype.start = async function () {
+      serverStarts += 1;
+    };
     // No subprocess: what is under test is who releases the manager.
     StdioClientManager.prototype.start = async function () {};
     StdioClientManager.prototype.stop = async function (
@@ -29,6 +39,7 @@ describe("mcpPlugin lifecycle", () => {
     for (const t of contexts.splice(0)) await t.stop();
     StdioClientManager.prototype.start = originalStart;
     StdioClientManager.prototype.stop = originalStop;
+    McpServer.prototype.start = originalServerStart;
   });
 
   /**
@@ -125,5 +136,73 @@ describe("mcpPlugin lifecycle", () => {
     expect(stopped).toHaveLength(1);
     expect(armed.size).toBe(1);
     for (const id of armed) expect(cleared.has(id)).toBe(true);
+  });
+
+  /**
+   * @case An application that only calls remote tools starts no MCP server
+   * @preconditions mcpPlugin() with no transport and no route exposed as a tool; the server's start is stubbed and counted
+   * @expectedResult The context starts and the server's start is never called
+   */
+  test("leaves the server stopped when nothing is served", async () => {
+    const t = await testContext()
+      .with({ plugins: [mcpPlugin()] })
+      .routes([craft().id("idle").from(direct()).to(noop())])
+      .build();
+    contexts.push(t);
+    await t.startAndWaitReady();
+    expect(serverStarts).toBe(0);
+  });
+
+  /**
+   * @case A route exposed as a tool starts the server without a transport being set
+   * @preconditions mcpPlugin() with no transport and one .from(mcp()) route; the server's start is stubbed and counted
+   * @expectedResult The server's start is called once
+   */
+  test("starts the server for a route exposed as a tool", async () => {
+    const t = await testContext()
+      .with({ plugins: [mcpPlugin()] })
+      .routes([
+        craft().id("echo").description("Echo the input").from(mcp()).to(noop()),
+      ])
+      .build();
+    contexts.push(t);
+    await t.startAndWaitReady();
+    expect(serverStarts).toBe(1);
+  });
+
+  /**
+   * @case A transport set by hand starts the server although no route is exposed yet
+   * @preconditions mcpPlugin({ transport: "stdio" }) and no route exposed as a tool; the server's start is stubbed and counted
+   * @expectedResult The server's start is called once
+   */
+  test("starts the server when a transport is set", async () => {
+    const t = await testContext()
+      .with({ plugins: [mcpPlugin({ transport: "stdio" })] })
+      .routes([craft().id("idle").from(direct()).to(noop())])
+      .build();
+    contexts.push(t);
+    await t.startAndWaitReady();
+    expect(serverStarts).toBe(1);
+  });
+
+  /**
+   * @case A call to a remote tool in an application without the MCP plugin is refused
+   * @preconditions No mcpPlugin; a route whose .to(mcp({ url, tool })) runs once
+   * @expectedResult The exchange fails with RC5003 naming the missing plugin and how to add it
+   */
+  test("refuses a remote call without the plugin", async () => {
+    const t = await testContext()
+      .routes([
+        craft()
+          .id("call")
+          .from(simple({}))
+          .to(mcp({ url: "https://remote.example/mcp", tool: "echo" })),
+      ])
+      .build();
+    contexts.push(t);
+    await t.test();
+    expect(t.errors[0]?.rc).toBe("RC5003");
+    expect(t.errors[0]?.message).toMatch(/MCP plugin is not installed/);
+    expect(t.errors[0]?.meta.suggestion).toMatch(/mcpPlugin\(\)/);
   });
 });

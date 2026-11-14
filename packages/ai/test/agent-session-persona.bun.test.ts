@@ -29,8 +29,8 @@ import {
   type AgentResult,
   type SessionStore,
 } from "../src/index.ts";
-import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import { sessionsOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -152,7 +152,7 @@ describe("one conversation, one agent", () => {
   test("a dispatch naming another persona is refused", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
 
     llm.script.push({ text: "max here" }, { text: "zoe here" });
     await send(t, "to-max", { session: "shared", message: "hello" });
@@ -180,7 +180,7 @@ describe("one conversation, one agent", () => {
   test("the agent on the record survives turns, failure and interrupt", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     const session = "lifelong";
 
     llm.script.push({ text: "max here" });
@@ -222,7 +222,7 @@ describe("one conversation, one agent", () => {
   test("an empty conversation is still its agent's", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     const session = "empty";
 
     await runtime.open(session, "max", { owner: null });
@@ -249,7 +249,7 @@ describe("one conversation, one agent", () => {
   test("a model chosen under one agent never reaches another", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     const session = "chosen";
 
     await runtime.open(session, "max", { owner: null });

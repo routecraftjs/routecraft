@@ -10,6 +10,7 @@ import {
   WEB_INGRESS,
 } from "@routecraft/routecraft";
 import { rejectStaleOptions } from "@routecraft/routecraft/internal";
+import { isMcpAdapter } from "../brand.ts";
 import { McpServer } from "./server.ts";
 import {
   MCP,
@@ -49,7 +50,8 @@ import {
  * Optional clients: register named remote MCP servers so routes can use .to(mcp("name:tool")) without passing url.
  * Stdio clients are spawned as subprocesses with auto-restart; each HTTP client keeps one connection, shared by its tool listing and its calls.
  * All discovered external tools (stdio, HTTP) are stored in a unified McpToolRegistry for agent adapter discovery.
- * Required when any route uses .from(mcp(...)); the route will fail at start if this plugin is not applied.
+ * Required when any route uses mcp(...), as a source or as a call to a remote tool; either fails with RC5003 if this plugin is not applied.
+ * An application that only calls remote tools serves nothing: with no `transport` set and no route exposed as a tool when the plugin starts, the server is left stopped, so its stdio transport never takes over the process's standard streams. Set `transport` when the routes that serve tools are added after start.
  *
  * Everything bind acquires (subprocesses, HTTP clients, refresh timers, the
  * server) belongs to the application that bound it and is released through
@@ -91,6 +93,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         disabledClients,
         http: createMcpHttpConnections({ authProviders, disabledClients }),
         declaredProxies: declaredExactProxies(c),
+        routes: c,
+        emit: (event, details) => c.emit(event, details),
       });
 
       // A client that logs in and has lost its credential is switched off
@@ -213,7 +217,14 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       await server.prepare();
     },
     async start(c: PluginContext) {
-      await servers.get(c)?.start();
+      if (options.transport !== undefined || servesTool(c)) {
+        await servers.get(c)?.start();
+      } else {
+        c.logger.debug(
+          {},
+          "MCP server not started: no transport is set and no route is exposed as a tool",
+        );
+      }
       reportProxyCoverage(c);
     },
   };
@@ -453,4 +464,11 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     }, interval);
     c.onDispose(() => clearInterval(timer));
   }
+}
+
+/** Whether any route, enabled or not, is exposed as a tool through `.from(mcp())`. */
+function servesTool(c: PluginContext): boolean {
+  return c.routes
+    .list()
+    .some((route) => route.definition.sources.some(isMcpAdapter));
 }

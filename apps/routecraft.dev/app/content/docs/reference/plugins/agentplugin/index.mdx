@@ -12,6 +12,8 @@ import { agentPlugin } from '@routecraft/ai'
 
 Register named agents with the agent runtime so routes can reference them by name via `agent("id")`. Registered agents are distinct from route-backed agents: a registration carries its own description because it is not backed by a route; the id is the record key. Install it as often as you need: each install is one contribution to a single agent runtime, which every install brings along and the application gets once, and which other plugins read through the `AGENTS` port. Duplicate ids across multiple `agentPlugin` installs throw at context init.
 
+Required when any capability uses `agent()`, inline or by name. An install with nothing in it (`agent: {}`, or `agentPlugin()`) is enough for inline agents: it brings the runtime their tools, blocks and sessions run on.
+
 ```ts
 import { agentPlugin, llmPlugin } from '@routecraft/ai'
 import { defineProject } from '@routecraft/routecraft'
@@ -185,7 +187,7 @@ Entries are local paths (relative to the agent file) or `npm:` package refs. `ag
 
 Blocks are an agent's contribution to its system context, expressed as a `Blocks` record (`{ [name: string]: BlockBody | Blocks | false }`) keyed by block name. A value is either a single block (a `BlockBody` leaf) or a nested `Blocks` group. A leaf is either always injected into the system prompt (`mode: "inject"`) or surfaced as a synthetic loader tool the model invokes on demand (`mode: "progressive"`, the default for `skills`). They replace the 0.5 `skills` field and unify with memory, identity, instructions, and any future system-prompt contribution.
 
-```ts skip="fragment: TenantConfig is illustrative"
+```ts skip="fragment: TENANT_CONFIG is illustrative"
 import { agent, skills } from '@routecraft/ai'
 
 agent({
@@ -203,8 +205,8 @@ agent({
       mode: 'inject',
       lifetime: 'context',
       value: (_exchange, context) => {
-        const config = context.services.get(TenantConfig)
-        return `Tenant: ${config.name}`
+        const config = context.lookup(TENANT_CONFIG)
+        return `Tenant: ${config?.name ?? 'unknown'}`
       },
     },
   },
@@ -218,7 +220,7 @@ agent({
 | `description` | `string`                                                                                                 | Yes\*    | Required when `mode === "progressive"` so the model can decide whether to load. Ignored for inject blocks.                                        |
 | `mode`        | `"inject" \| "progressive"`                                                                              | Yes      | `"inject"` concatenates into the system prompt as `## <name>\n\n<content>`. `"progressive"` registers a `_block__load__<name>` tool the model invokes on demand. |
 | `lifetime`    | `"dispatch" \| "context"`                                                                                | No       | Defaults to `"dispatch"` (re-run resolver each call). `"context"` runs the resolver once per `CraftContext` and caches the result (cache key is the body's object identity, so concurrent dispatches share one resolution). |
-| `value`       | `string \| (exchange, context, events, client) => string \| Promise<string>`                             | Yes      | Static string used verbatim, or a function. `client.forward(routeId, payload)` is the same callable route `.error()` handlers receive. `events` is reserved (always `[]`) for a forthcoming exchange-event log. |
+| `value`       | `string \| (exchange, context, events, client) => string \| Promise<string>`                             | Yes      | Static string used verbatim, or a function. `context` is a `BlockContext`: `context.lookup(PORT)` reads what a plugin provides and `context.logger` logs. `client.forward(routeId, payload)` is the same callable route `.error()` handlers receive. `events` is reserved (always `[]`) for a forthcoming exchange-event log. |
 
 The block's name is the record key (not a field on the body). Names starting with the reserved `_block_` prefix are rejected with `AI1002` at every nesting level. An empty-string key is rejected with `AI1002`.
 

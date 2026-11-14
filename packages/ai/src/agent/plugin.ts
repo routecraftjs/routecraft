@@ -264,11 +264,7 @@ function createAgentRuntimePlugin(): Plugin {
           void runtime.stop();
         });
       }
-      const registry: AgentRegistryImpl = new AgentRegistryImpl(
-        () => c.frozen,
-        runtime,
-      );
-      const tools: ToolHost = {
+      const toolsFor = (sessions: () => AgentSessionRuntime): ToolHost => ({
         capabilities: () => c.execution.capabilities(),
         hasRoute: (routeId) => c.routes.get(routeId) !== undefined,
         disabledReason: (routeId) => {
@@ -280,9 +276,18 @@ function createAgentRuntimePlugin(): Plugin {
         canDefer: (routeId) => c.routes.canDefer(routeId),
         deliver: (endpoint, body, headers) =>
           c.execution.deliver(endpoint, body, headers),
-        sessions: () => registry.sessions(),
-      };
-      runs.set(c, { registry, tools, sessions: runtime });
+        sessions,
+      });
+      const registry: AgentRegistryImpl = new AgentRegistryImpl(
+        () => c.frozen,
+        runtime,
+        (self) => ({
+          logger: c.logger,
+          emit: (event, details) => c.emit(event, details),
+          tools: toolsFor(() => self.sessions()),
+        }),
+      );
+      runs.set(c, { registry, tools: registry.host.tools, sessions: runtime });
       c.provide(AGENTS, registry);
       const ops = c.lookup(OPS);
       if (ops !== undefined) registerSessionsResource(runtime, ops);

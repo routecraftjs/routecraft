@@ -32,7 +32,7 @@ import {
   getExchangeRoute,
   type Exchange,
 } from "./exchange.ts";
-import { port } from "./kernel/port.ts";
+import { port, type PortLookup } from "./kernel/port.ts";
 import { existingLineageOf } from "./lineage.ts";
 import { JOINED_HEADER, TRACE_PARENT_HEADER } from "./journey-headers.ts";
 
@@ -266,13 +266,13 @@ export interface TraceContextConfig {
  * client's or remote's), else the context's `traceContext.outbound`, else
  * yes.
  *
- * @param context - The calling exchange's context, if it has one
+ * @param context - What carries the application's `traceContext.outbound`, if anything does
  * @param settings - The call's own settings, most specific first
  * @throws RC5003 when a setting is not a boolean: a string `"false"` would
  *   read as true and send what it was written to stop
  */
 export function sendsTraceContext(
-  context: CraftContext | undefined,
+  context: Pick<CraftContext, "outboundTraceContext"> | undefined,
   ...settings: ReadonlyArray<boolean | undefined>
 ): boolean {
   for (const setting of settings) {
@@ -309,7 +309,7 @@ export function sendsTraceContextFor(
  * handler context.
  *
  * @param ids - The calling exchange's correlation id and exchange id
- * @param context - Its context, which may provide {@link TRACE_SPANS}
+ * @param context - A port lookup for its application, which may provide {@link TRACE_SPANS}
  * @returns The two headers to send
  */
 export function traceContextFor(
@@ -317,7 +317,7 @@ export function traceContextFor(
     readonly correlationId?: string | undefined;
     readonly exchangeId: string;
   },
-  context?: CraftContext,
+  context?: PortLookup,
 ): TraceContextCarrier {
   return carrierFor(
     ids.correlationId ?? ids.exchangeId,
@@ -329,7 +329,7 @@ export function traceContextFor(
 function carrierFor(
   correlation: string,
   sender: string,
-  context: CraftContext | undefined,
+  context: PortLookup | undefined,
 ): TraceContextCarrier {
   const live = context?.lookup(TRACE_SPANS)?.spanOf(sender);
   const span =

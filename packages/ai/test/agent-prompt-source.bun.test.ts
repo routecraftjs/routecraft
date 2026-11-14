@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { craft, simple } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { agent, llmPlugin } from "../src/index.ts";
+import { agentPlugin, agent, llmPlugin } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 // Mock the LLM dispatcher so the runtime tests stay hermetic. Each
@@ -42,6 +42,7 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -71,6 +72,7 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -100,6 +102,7 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -130,6 +133,7 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -160,6 +164,7 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -184,6 +189,7 @@ describe("agent prompt source: string and function forms (llm parity)", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

@@ -25,6 +25,7 @@ import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { validateMcpPluginOptions } from "../src/mcp/validate-options.ts";
 import { dispatchMcpCallRaw } from "../src/mcp/dispatch.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 const PARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 const CARRIER = {
@@ -360,7 +361,7 @@ describe("MCP trace context", () => {
         ],
       })
       .build();
-    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
+    const [tool] = tools(["MCP(docs:search)"]).resolve(agentHostOf(t.ctx));
     await tool!.handler({}, {
       correlationId: "turn-journey",
       exchangeId: "turn-exchange",

@@ -1,4 +1,14 @@
-import type { CraftContext, Exchange, ForwardFn } from "@routecraft/routecraft";
+import type { Exchange, ForwardFn, Logger, Port } from "@routecraft/routecraft";
+
+/**
+ * What a block resolver is handed of the application it runs in: a logger,
+ * and the provider of any port a plugin provides.
+ */
+export interface BlockContext {
+  readonly logger: Logger;
+  /** The provider of a port, or `undefined` when no plugin provides it. */
+  lookup<T>(port: Port<T>): T | undefined;
+}
 
 /**
  * Whether a block's content is always concatenated into the system
@@ -15,7 +25,7 @@ export type BlockMode = "inject" | "progressive";
  *
  * - `"dispatch"` (default): the resolver runs every time the agent
  *   dispatches.
- * - `"context"`: the resolver runs once per `CraftContext` and the
+ * - `"context"`: the resolver runs once per application and the
  *   returned string is reused for every subsequent dispatch in that
  *   context. The cache key is the block's object identity, so two
  *   declarations of the same logical block in separate agents are
@@ -55,7 +65,7 @@ export type BlockResolver =
   | string
   | ((
       exchange: Exchange<unknown>,
-      context: CraftContext,
+      context: BlockContext,
       events: readonly unknown[],
       client: BlockClient,
     ) => string | Promise<string>);

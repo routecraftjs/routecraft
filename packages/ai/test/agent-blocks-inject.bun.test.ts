@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { craft, simple } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
-import { agent, llmPlugin } from "../src/index.ts";
-import type { LlmResult } from "../src/llm/types.ts";
+import { agentPlugin, agent, llmPlugin } from "../src/index.ts";
+import { LLM, type LlmResult } from "../src/llm/types.ts";
 
 let capturedSystem: string | undefined;
 
@@ -39,6 +39,7 @@ describe('agent blocks: mode: "inject" concatenates content into the system prom
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -80,7 +81,7 @@ describe('agent blocks: mode: "inject" concatenates content into the system prom
   /**
    * @case Function-form resolvers receive (exchange, context, events, client) and their string return lands in the prompt
    * @preconditions Inject block whose value is an async function returning a derived string
-   * @expectedResult Captured system prompt carries the function's returned content
+   * @expectedResult Captured system prompt carries the function's returned content, and the context it was handed reads the application's ports and logs
    */
   test("function-form inject resolvers run at dispatch", async () => {
     const sink = spy();
@@ -88,6 +89,7 @@ describe('agent blocks: mode: "inject" concatenates content into the system prom
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -102,8 +104,10 @@ describe('agent blocks: mode: "inject" concatenates content into the system prom
               blocks: {
                 computed: {
                   mode: "inject",
-                  value: async (exchange, _context, events) => {
+                  value: async (exchange, context, events) => {
                     resolverCalls += 1;
+                    expect(context.lookup(LLM)).toBeDefined();
+                    expect(typeof context.logger.info).toBe("function");
                     expect(events).toEqual([]);
                     expect(exchange.id).toBeDefined();
                     return "Derived content.";

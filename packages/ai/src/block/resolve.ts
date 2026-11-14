@@ -1,12 +1,8 @@
-import {
-  rcError,
-  type CraftContext,
-  type Exchange,
-  type ForwardFn,
-} from "@routecraft/routecraft";
+import { rcError, type Exchange, type ForwardFn } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FnOptions } from "../fn/types.ts";
 import type { ResolvedTool } from "../agent/tools/selection.ts";
+import type { AgentHost } from "../agent/tools/types.ts";
 import { TOOL_NAME_CHARSET, TOOL_NAME_SEPARATOR } from "../tool-name.ts";
 import { makeBlockClient } from "./client.ts";
 import type {
@@ -127,7 +123,7 @@ export interface ResolvedBlocks {
  *   demand against the captured exchange and context.
  *
  * Caching for `lifetime: "context"` is keyed by the block object
- * identity on a `WeakMap<CraftContext, Map<Block, string>>`. Two
+ * identity, per application. Two
  * declarations of the same logical block in separate agents are
  * therefore independent caches.
  *
@@ -141,7 +137,7 @@ export interface ResolvedBlocks {
 export async function resolveBlocks(
   blocks: Blocks | undefined,
   exchange: Exchange<unknown>,
-  context: CraftContext | undefined,
+  context: AgentHost,
   forward?: ForwardFn,
 ): Promise<ResolvedBlocks> {
   if (!blocks) return { systemAppend: "", loaderTools: [] };
@@ -277,25 +273,22 @@ function walkBlocks(
 }
 
 /**
- * Per-context, per-block resolution cache. Keyed by `CraftContext`
- * identity at the outer layer and by `BlockBody` object identity at
+ * Per-application, per-block resolution cache. Keyed by the application
+ * at the outer layer and by `BlockBody` object identity at
  * the inner layer. Stores the in-flight promise rather than the
  * resolved string so concurrent dispatches against the same
  * `context`-lifetime block share one resolution instead of racing
- * into N parallel invocations. WeakMap on the outer key so a disposed
- * context does not pin block content in memory.
+ * into N parallel invocations. WeakMap on the outer key so a stopped
+ * application does not pin block content in memory.
  *
  * @internal
  */
-const LIFETIME_CACHE = new WeakMap<
-  CraftContext,
-  Map<BlockBody, Promise<string>>
->();
+const LIFETIME_CACHE = new WeakMap<object, Map<BlockBody, Promise<string>>>();
 
 /**
  * Run a block's resolver, honouring `lifetime`. For
  * `lifetime: "dispatch"` (default) the resolver runs every call. For
- * `lifetime: "context"` the resolver runs once per `CraftContext`
+ * `lifetime: "context"` the resolver runs once per application
  * and the cached value (or in-flight promise) is reused for
  * subsequent calls in that context.
  *
@@ -305,16 +298,16 @@ async function resolveOnce(
   name: string,
   body: BlockBody,
   exchange: Exchange<unknown>,
-  context: CraftContext | undefined,
+  context: AgentHost,
   client: BlockClient,
 ): Promise<string> {
   const lifetime = body.lifetime ?? "dispatch";
-  if (lifetime === "context" && context) {
-    let cache = LIFETIME_CACHE.get(context);
+  if (lifetime === "context") {
+    let cache = LIFETIME_CACHE.get(context.application);
     if (cache?.has(body)) return cache.get(body) as Promise<string>;
     if (!cache) {
       cache = new Map<BlockBody, Promise<string>>();
-      LIFETIME_CACHE.set(context, cache);
+      LIFETIME_CACHE.set(context.application, cache);
     }
     const pending = invokeResolver(name, body, exchange, context, client);
     cache.set(body, pending);
@@ -339,7 +332,7 @@ async function invokeResolver(
   name: string,
   body: BlockBody,
   exchange: Exchange<unknown>,
-  context: CraftContext | undefined,
+  context: AgentHost,
   client: BlockClient,
 ): Promise<string> {
   const { value } = body;
@@ -349,14 +342,16 @@ async function invokeResolver(
       message: `Agent block "${name}": "value" must be a string or a function returning a string.`,
     });
   }
-  if (!context) {
-    throw rcError("AI1001", undefined, {
-      message: `Agent block "${name}": resolver function requires a CraftContext but the exchange has no bound context.`,
-    });
-  }
   let resolved: unknown;
   try {
-    resolved = await Promise.resolve(value(exchange, context, [], client));
+    resolved = await Promise.resolve(
+      value(
+        exchange,
+        { logger: context.logger, lookup: (port) => context.lookup(port) },
+        [],
+        client,
+      ),
+    );
   } catch (cause) {
     throw rcError("AI1001", cause, {
       message: `Agent block "${name}": resolver function threw: ${(cause as Error)?.message ?? String(cause)}`,
@@ -430,7 +425,7 @@ function buildLoaderTool(
   name: string,
   body: BlockBody,
   exchange: Exchange<unknown>,
-  context: CraftContext | undefined,
+  context: AgentHost,
   client: BlockClient,
 ): BlockLoaderTool {
   const description =

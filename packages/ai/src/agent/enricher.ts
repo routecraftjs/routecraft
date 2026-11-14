@@ -4,16 +4,12 @@ import {
   DEFERS,
   lookupOf,
   rcError,
-  type CraftContext,
+  sendsTraceContextFor,
   type Enricher,
   type Exchange,
   type Principal,
   type StepSignalContext,
 } from "@routecraft/routecraft";
-import {
-  getExchangeContext,
-  getExchangeRoute,
-} from "@routecraft/routecraft/internal";
 import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
@@ -28,7 +24,7 @@ import {
 } from "./run.ts";
 import { applyOverrides, type AdvertisingAgent } from "./advertised.ts";
 import { rehydrateSession } from "./deferral-state.ts";
-import { AGENTS } from "./port.ts";
+import { AGENTS, type AgentRegistry } from "./port.ts";
 import { AGENT_DEFAULT_OPTION_KEYS } from "./store.ts";
 import { isGovernableToolKind, policiesAdmit } from "./tools/policy.ts";
 import type {
@@ -46,7 +42,7 @@ import {
   type LlmService,
 } from "../llm/types.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
-import { backgroundReasonOf } from "./tools/types.ts";
+import { backgroundReasonOf, type AgentHost } from "./tools/types.ts";
 import type {
   AgentOptions,
   AgentPrincipalRenderer,
@@ -56,7 +52,6 @@ import type {
   AgentSessionSource,
 } from "./types.ts";
 import {
-  AgentSessionRuntime,
   isSessionDeferralMarker,
   sessionSystemBlock,
   type AgentSessionKey,
@@ -188,9 +183,24 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     exchange: Exchange<T>,
     stepCtx?: StepSignalContext,
   ): Promise<AgentResult | AgentStream> {
-    const context = getExchangeContext(exchange);
-    const baseOptions = this.resolveOptions(context);
-    const merged = mergeWithDefaults(baseOptions, context);
+    const registry = lookupOf(exchange, AGENTS);
+    if (registry === undefined) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "agent(): the agent plugin is not installed in the application this exchange runs in.",
+        suggestion:
+          "Add agent: {} to the config, or agentPlugin() to its plugins. An agent step reads the application through that plugin, so an exchange built by hand outside a route cannot dispatch one.",
+      });
+    }
+    const context: AgentHost = {
+      ...registry.host,
+      application: registry,
+      lookup: (port) => lookupOf(exchange, port),
+      authority: authorityOf(exchange),
+      outboundTraceContext: sendsTraceContextFor(exchange),
+    };
+    const baseOptions = this.resolveOptions(registry);
+    const merged = mergeWithDefaults(baseOptions, registry);
 
     if (merged.model === undefined) {
       throw rcError("RC5003", undefined, {
@@ -211,11 +221,8 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       this.binding.kind === "by-name" ? this.binding.name : undefined;
     // Resolved before tools so a tool-policy denial can be emitted as an
     // exchange-scoped event, not just logged.
-    const route = getExchangeRoute(exchange);
-    const dispatchIdentity = dispatchIdentityFrom(
-      exchange,
-      route?.definition.id,
-    );
+    const routeId = stepCtx?.route.id || undefined;
+    const dispatchIdentity = dispatchIdentityFrom(exchange, routeId);
 
     // Durable deferral is available exactly when the exchange is
     // route-bound: without a dispatch identity there is no site to defer
@@ -306,18 +313,13 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       exchange,
     );
 
-    // Thread cancellation through so the agent dispatch (LLM call plus
-    // in-flight tool handlers) stops when either owner says so: the
-    // route's signal (stop, context shutdown) or the step's signal (a
-    // route-scope .timeout() abandoning this run). Falls back to a
-    // never-firing signal when the exchange has no route binding (rare;
-    // mostly synthetic exchanges in tests).
-    //
-    // A streaming dispatch adds a third owner, the consumer of the delta
-    // stream, so abandoning the stream stops the run (see AgentOptions.stream).
+    // The dispatch (LLM call plus in-flight tool handlers) stops when any
+    // owner says so: the route abandoning its work (stop, shutdown), a
+    // route-scope .timeout() abandoning this run, or, for a streaming
+    // dispatch, the consumer abandoning the delta stream.
     const consumer = new AbortController();
     const abortSignal = anySignal(
-      route?.signal,
+      stepCtx?.route.signal,
       stepCtx?.signal,
       merged.stream === true ? consumer.signal : undefined,
     );
@@ -383,11 +385,6 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
           message: `Agent: "session" records which agent answered the conversation, and this dispatch has no identity to record: it is neither a registered agent nor on a route. Dispatch through a route, or register the agent by name.`,
         });
       }
-      if (!context) {
-        throw rcError("RC5003", undefined, {
-          message: `Agent: "session" needs a CraftContext to keep the conversation in; this exchange has none.`,
-        });
-      }
       if (resume !== undefined) {
         throw rcError("RC5003", undefined, {
           message: `Agent: a resumed deferral cannot re-enter an agent dispatched with "session". A session turn is not deferrable; drop "session" on this route or defer from a sessionless agent.`,
@@ -397,7 +394,6 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       // A later turn can be stored only where this step can be run again:
       // on the primary flow of a built route.
       const handle = stepCtx?.defer;
-      const routeId = route?.definition.id;
       const defer =
         handle !== undefined &&
         handle.refused === undefined &&
@@ -417,7 +413,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
               return { deferralId, routeId };
             }
           : undefined;
-      return await AgentSessionRuntime.for(context).turn({
+      return await registry.sessions().turn({
         key: sessionKey,
         agent: agentIdentity,
         exchange,
@@ -566,29 +562,13 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
 
   /** Pull the agent options for this dispatch, either inline or from the registry. */
   private resolveOptions(
-    context: CraftContext | undefined,
+    registry: AgentRegistry,
   ): AgentOptions<T> | AgentRegisteredOptions<T> {
     if (this.binding.kind === "inline") return this.binding.options;
 
-    if (!context) {
-      throw rcError("RC5004", undefined, {
-        message:
-          `Agent "${this.binding.name}" requires a context to resolve. ` +
-          `Ensure the exchange has context (e.g. from a route) so the ` +
-          `agent registry can be read.`,
-      });
-    }
-    const registry = context.lookup(AGENTS)?.agents;
-    if (!registry) {
-      throw rcError("RC5004", undefined, {
-        message:
-          `Agent "${this.binding.name}" not found: no agents registered. ` +
-          `Add agentPlugin({ agents: { "${this.binding.name}": {...} } }) to your config.`,
-      });
-    }
-    const found = registry.get(this.binding.name);
+    const found = registry.agents.get(this.binding.name);
     if (!found) {
-      const known = Array.from(registry.keys()).join(", ") || "<none>";
+      const known = Array.from(registry.agents.keys()).join(", ") || "<none>";
       throw rcError("RC5004", undefined, {
         message: `Agent "${this.binding.name}" not found in registry. Known agents: ${known}.`,
       });
@@ -701,9 +681,9 @@ function advertisedFrom<T>(
  */
 function mergeWithDefaults<T>(
   base: AgentOptions<T> | AgentRegisteredOptions<T>,
-  context: CraftContext | undefined,
+  registry: AgentRegistry,
 ): AgentOptions<T> | AgentRegisteredOptions<T> {
-  const defaults = context?.lookup(AGENTS)?.defaults;
+  const defaults = registry.defaults;
   if (!defaults) return base;
   const out = { ...base };
   for (const key of AGENT_DEFAULT_OPTION_KEYS) {
@@ -806,16 +786,11 @@ function mergeUserAndLoaderTools(
  */
 function resolveAgentTools<T>(
   options: AgentOptions<T> | AgentRegisteredOptions<T>,
-  context: CraftContext | undefined,
+  context: AgentHost,
   agentId: string | undefined,
   dispatchIdentity: AgentDispatchIdentity | undefined,
 ): ResolvedTool[] {
   if (options.tools === undefined) return [];
-  if (!context) {
-    throw rcError("RC5003", undefined, {
-      message: `Agent: cannot resolve tools without a CraftContext.`,
-    });
-  }
   return applyToolPolicy(
     options.tools.resolve(context),
     context,
@@ -845,7 +820,7 @@ function resolveAgentTools<T>(
  */
 function applyToolPolicy(
   resolved: ResolvedTool[],
-  context: CraftContext,
+  context: AgentHost,
   agentId: string | undefined,
   dispatchIdentity: AgentDispatchIdentity | undefined,
 ): ResolvedTool[] {

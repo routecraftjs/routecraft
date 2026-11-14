@@ -6,12 +6,10 @@ import {
   releaseClaimant,
   resolveDatabasePath,
   resolveSqliteDriver,
-  type CraftContext,
   type Plugin,
   type Logger,
   type SqliteDriverLoaders,
 } from "@routecraft/routecraft";
-import { ADAPTER_AGENT_SESSION_STORE } from "../store.ts";
 import { MemorySessionStore } from "./memory-store.ts";
 import type { AgentSessionKey } from "./types.ts";
 import {
@@ -253,42 +251,6 @@ function announce(
 }
 
 /**
- * The application's session store: the one the sessions plugin provides,
- * or, for the inline `agent({ session })` form in an application with no
- * sessions plugin, a default resolved on first use. The fallback is the
- * same resolution the plugin runs ({@link createSessionStore} with no
- * block: the environment variable, the driver probe, the memory fallback),
- * deferred to the first use because this is called synchronously, and
- * closed once the context has stopped since no plugin owns it.
- *
- * @internal
- */
-export function sessionStoreOf(context: CraftContext): ResolvedSessionStore {
-  const provided = context.lookup(SESSION_STORE);
-  if (provided) return provided;
-  const existing = context.getStore(ADAPTER_AGENT_SESSION_STORE);
-  if (existing) return existing;
-  const fallback = new LazyResolvedSessionStore(() => {
-    // The same path check the sessions plugin makes: a store resolved from
-    // the environment must not open the file the continuations store holds.
-    const continuationsPath = context.lookup(CONTINUATIONS)?.path;
-    return createSessionStore(
-      {
-        logger: context.logger,
-        ...(continuationsPath !== undefined ? { continuationsPath } : {}),
-      },
-      {},
-      false,
-    );
-  });
-  context.setStore(ADAPTER_AGENT_SESSION_STORE, fallback);
-  context.on("context:stopped", () => {
-    void fallback.close();
-  });
-  return fallback;
-}
-
-/**
  * The sessions plugin, wired to the `sessions` config key. Resolves the
  * store during bind so a path that cannot be opened fails at startup, and
  * closes it at stop after every session runtime retained on it has stopped,
@@ -362,98 +324,6 @@ function resolved(
       if (ownsStore) await store.close();
     },
   };
-}
-
-/**
- * A store resolved on first use. Stands in for the context's store until
- * something touches it, then delegates to whatever the resolution chose,
- * and reports that choice from then on.
- */
-class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
-  #inner: Promise<ResolvedSessionStore> | undefined;
-  #closed = false;
-  readonly #writers: SessionWriter[] = [];
-
-  constructor(private readonly open: () => Promise<ResolvedSessionStore>) {}
-
-  get store(): SessionStore {
-    return this;
-  }
-
-  get backend(): ResolvedSessionStore["backend"] {
-    // Reported rather than guessed: which backend this becomes is not
-    // decided until something uses it, and the default is not always sqlite.
-    return this.#chosen?.backend ?? "unresolved";
-  }
-
-  get ownsStore(): boolean {
-    return this.#chosen?.ownsStore ?? true;
-  }
-
-  readonly configured = false;
-
-  /** The resolution once it settled; undefined while it has not run or is still running. */
-  #chosen: ResolvedSessionStore | undefined;
-
-  retain(writer: SessionWriter): void {
-    this.#writers.push(writer);
-  }
-
-  async get(key: AgentSessionKey): Promise<StoredSession | undefined> {
-    return (await this.resolve()).store.get(key);
-  }
-
-  async create(
-    key: AgentSessionKey,
-    value: unknown,
-  ): Promise<SessionCasResult> {
-    return (await this.resolve()).store.create(key, value);
-  }
-
-  async replace(
-    key: AgentSessionKey,
-    expectedVersion: number,
-    value: unknown,
-  ): Promise<SessionCasResult> {
-    return (await this.resolve()).store.replace(key, expectedVersion, value);
-  }
-
-  async keys(): Promise<AgentSessionKey[]> {
-    return (await this.resolve()).store.keys();
-  }
-
-  async remove(key: AgentSessionKey): Promise<void> {
-    await (await this.resolve()).store.remove(key);
-  }
-
-  async close(): Promise<void> {
-    if (this.#closed) return;
-    this.#closed = true;
-    await Promise.allSettled(this.#writers.map((writer) => writer.stop()));
-    if (this.#inner) await (await this.#inner).close();
-  }
-
-  private resolve(): Promise<ResolvedSessionStore> {
-    // A call after the context released the store must not reopen it.
-    if (this.#closed) {
-      throw rcError("AI1012", undefined, {
-        message:
-          "The agent session store is closed; a call arrived after teardown.",
-      });
-    }
-    this.#inner ??= this.open().then(
-      (chosen) => {
-        this.#chosen = chosen;
-        return chosen;
-      },
-      (err: unknown) => {
-        // A failed resolution is not the store's state; the next use retries.
-        this.#inner = undefined;
-        throw err;
-      },
-    );
-    return this.#inner;
-  }
 }
 
 /**

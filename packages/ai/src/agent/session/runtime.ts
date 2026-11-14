@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  CONTINUATIONS,
   anySignal,
   decodeCursor,
   HeadersKeys,
@@ -8,7 +7,6 @@ import {
   rcError,
   takePage,
   type Continuations,
-  type CraftContext,
   type CursorScope,
   type Deferral,
   type DeferralRuntime,
@@ -29,15 +27,12 @@ import { dispatchIdentityFrom } from "../run.ts";
 import { assertOverridesAdvertised } from "../advertised.ts";
 import { isDownstreamDeferred } from "../downstream-deferred.ts";
 import { errorMessage, errorName } from "../error-text.ts";
-import { AGENTS } from "../port.ts";
-import { ADAPTER_AGENT_SESSIONS } from "../store.ts";
 import type { ThreadMessage } from "../deferral-state.ts";
 import { AgentHeadersKeys } from "../tools/headers.ts";
 import type { AgentRegisteredOptions, AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { BoundedMap, SESSION_MEMORY_BOUND } from "./bounded.ts";
 import { AgentSessionStore, emptyAgentSession } from "./store.ts";
-import { sessionStoreOf } from "./config.ts";
 import type { ResolvedSessionStore } from "./port.ts";
 import type {
   AgentBackgroundCall,
@@ -53,8 +48,8 @@ import type {
 
 /**
  * What the session runtime needs from the application it runs in. The agent
- * runtime builds one from its plugin context; the inline fallback builds
- * one from the context, so the runtime itself reaches neither.
+ * runtime builds one from its plugin context, so the runtime itself never
+ * reaches the application.
  *
  * @internal
  */
@@ -77,27 +72,6 @@ export interface SessionHost {
   agent(name: string): AgentRegisteredOptions | undefined;
   /** The application's re-identification hook, when one is registered. */
   reidentify(): ReidentifyHook | undefined;
-}
-
-/**
- * The session host for a running context.
- *
- * @internal
- */
-export function sessionHostOf(context: CraftContext): SessionHost {
-  return {
-    logger: context.logger,
-    emit: (event, details) => context.emit(event, details),
-    observe: (event, handler, options) => {
-      context.on(event, handler, options);
-    },
-    deferrals: () => context.lookup(CONTINUATIONS),
-    continuations: context.continuations,
-    trackTask: (task, route) =>
-      context.trackTask(task, route === undefined ? undefined : { route }),
-    agent: (name) => context.lookup(AGENTS)?.agents.get(name),
-    reidentify: () => context.lookup(AGENTS)?.reidentify,
-  };
 }
 
 /**
@@ -281,32 +255,6 @@ export class AgentSessionRuntime {
     private readonly host: SessionHost,
     readonly store: AgentSessionStore,
   ) {}
-
-  /**
-   * The runtime an application's agents share. With the agent runtime
-   * installed it is the one its registry holds; an application with only
-   * inline agents gets one bound to the context on first use.
-   *
-   * @throws RC5052 when the application has no continuations store
-   */
-  static for(context: CraftContext): AgentSessionRuntime {
-    const agents = context.lookup(AGENTS);
-    if (agents) return agents.sessions();
-    const existing = context.getStore(ADAPTER_AGENT_SESSIONS);
-    if (existing) return existing;
-    const runtime = AgentSessionRuntime.create(
-      sessionHostOf(context),
-      sessionStoreOf(context),
-    );
-    context.setStore(ADAPTER_AGENT_SESSIONS, runtime);
-    // Latched as shutdown begins, before the routes drain, so a completion
-    // or a post landing during the drain starts no turn on it; closing the
-    // store awaits the same stop() again for the revivals in flight.
-    context.on("context:stopping", () => {
-      void runtime.stop();
-    });
-    return runtime;
-  }
 
   /**
    * A runtime over a resolved session store and the continuations store.

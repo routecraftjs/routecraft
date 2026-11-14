@@ -358,6 +358,7 @@ export async function runPipeline(
   const routeView = {
     id: deps.routeId,
     tags: routeTags(deps.route.definition),
+    signal: deps.route.signal,
   };
   const stepContext: Omit<StepContext, "forward"> = {
     route: routeView,

@@ -28,10 +28,10 @@ import {
   type SessionStore,
   type StoredSession,
 } from "../src/index.ts";
-import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import type { AgentSessionKey } from "../src/agent/session/types.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
+import { sessionsOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -162,7 +162,7 @@ describe("a conversation belongs to the person who started it", () => {
     t = await boot();
     await t.startAndWaitReady();
     await threeSessions(t);
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
 
     // The hazard, first: nothing in the store itself withholds a key.
     expect((await store.keys()).sort()).toEqual(["alices", "bobs", "nobodys"]);
@@ -190,7 +190,7 @@ describe("a conversation belongs to the person who started it", () => {
     await t.startAndWaitReady();
     await threeSessions(t);
 
-    const all = await AgentSessionRuntime.for(t.ctx).summaries({
+    const all = await sessionsOf(t.ctx).summaries({
       scope: "operator",
     });
     expect(all.items.map((s) => s.session).sort()).toEqual([
@@ -212,7 +212,7 @@ describe("a conversation belongs to the person who started it", () => {
     await t.startAndWaitReady();
     llm.script.push({ text: "a" });
     await send(t, { session: "alices", message: "hi" }, "alice");
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
 
     const mine = await runtime.summary("alices", { owner: "alice" });
     expect(mine?.session).toBe("alices");
@@ -236,13 +236,10 @@ describe("a conversation belongs to the person who started it", () => {
     await send(t, { session: "shared", message: "hi" }, "alice");
     await send(t, { session: "shared", message: "also me" }, "bob");
 
-    const summary = await AgentSessionRuntime.for(t.ctx).summary(
-      "shared",
-      "operator",
-    );
+    const summary = await sessionsOf(t.ctx).summary("shared", "operator");
     expect(summary).toMatchObject({ owner: "alice", turns: 2 });
     expect(
-      await AgentSessionRuntime.for(t.ctx).summary("shared", { owner: "bob" }),
+      await sessionsOf(t.ctx).summary("shared", { owner: "bob" }),
     ).toBeUndefined();
   });
 
@@ -254,7 +251,7 @@ describe("a conversation belongs to the person who started it", () => {
   test("opening a session records its owner, directory and title", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     const key = "opened";
     await runtime.open(key, "max", {
       owner: "alice",
@@ -282,7 +279,7 @@ describe("a conversation belongs to the person who started it", () => {
   test("a listing narrows to one directory", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     await runtime.open("here", "max", { owner: "alice", cwd: "/work/a" });
     await runtime.open("there", "max", { owner: "alice", cwd: "/work/b" });
 
@@ -301,7 +298,7 @@ describe("a conversation belongs to the person who started it", () => {
   test("a cursor is bound to the scope that minted it", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     for (const session of ["a1", "a2", "a3"]) {
       await runtime.open(session, "max", { owner: "alice" });
     }
@@ -336,7 +333,7 @@ describe("a conversation belongs to the person who started it", () => {
   test("a page cursor cannot carry a foreign session id", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     // Sorted by `agent:session`, so bob's sits between alice's two.
     await runtime.open("a-1", "max", { owner: "alice" });
     await runtime.open("b-1", "max", { owner: "bob" });
@@ -372,7 +369,7 @@ describe("a conversation belongs to the person who started it", () => {
   test("two agents' conversations coexist under one owner", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
 
     await runtime.open("maxs", "max", { owner: "alice" });
     await runtime.open("zoes", "zoe", { owner: "alice" });
@@ -390,7 +387,7 @@ describe("a conversation belongs to the person who started it", () => {
   test("an agent-filtered listing excludes the other agent's sessions", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
 
     await runtime.open("m-1", "max", { owner: "alice" });
     await runtime.open("m-2", "max", { owner: "alice" });
@@ -419,7 +416,7 @@ describe("a conversation belongs to the person who started it", () => {
   test("a bare session id resolves in one read", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
 
     await runtime.open("mine", "max", { owner: "alice" });
     await runtime.open("theirs", "max", { owner: "bob" });

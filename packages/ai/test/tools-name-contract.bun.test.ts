@@ -15,6 +15,7 @@ import {
   DIRECT_TOOL_PREFIX,
   MCP_TOOL_PREFIX,
 } from "../src/agent/tools/selection.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 /**
  * Build a context holding one direct route with the given id, plus any
@@ -110,7 +111,7 @@ describe("Direct(<routeId>) tool-name validation", () => {
     t = await ctxWithRoute("memory:get");
     let caught: unknown;
     try {
-      tools(["Direct(memory:get)"]).resolve(t.ctx);
+      tools(["Direct(memory:get)"]).resolve(agentHostOf(t.ctx));
     } catch (err) {
       caught = err;
     }
@@ -131,9 +132,9 @@ describe("Direct(<routeId>) tool-name validation", () => {
    */
   test("rejects a slash-bearing route id", async () => {
     t = await ctxWithRoute("orders/cancel");
-    expect(() => tools(["Direct(orders/cancel)"]).resolve(t!.ctx)).toThrow(
-      /"\/"/,
-    );
+    expect(() =>
+      tools(["Direct(orders/cancel)"]).resolve(agentHostOf(t!.ctx)),
+    ).toThrow(/"\/"/);
   });
 
   /**
@@ -147,7 +148,9 @@ describe("Direct(<routeId>) tool-name validation", () => {
     );
     expect(isValidToolName(routeId)).toBe(true);
     t = await ctxWithRoute(routeId);
-    expect(() => tools([`Direct(${routeId})`]).resolve(t!.ctx)).toThrow(
+    expect(() =>
+      tools([`Direct(${routeId})`]).resolve(agentHostOf(t!.ctx)),
+    ).toThrow(
       new RegExp(
         `65 characters, over the provider limit of ${TOOL_NAME_MAX_LENGTH}`,
       ),
@@ -164,7 +167,9 @@ describe("Direct(<routeId>) tool-name validation", () => {
       TOOL_NAME_MAX_LENGTH - DIRECT_TOOL_PREFIX.length,
     );
     t = await ctxWithRoute(routeId);
-    const [resolved] = tools([`Direct(${routeId})`]).resolve(t.ctx);
+    const [resolved] = tools([`Direct(${routeId})`]).resolve(
+      agentHostOf(t.ctx),
+    );
     expect(resolved.name).toHaveLength(TOOL_NAME_MAX_LENGTH);
     expect(isValidToolName(resolved.name)).toBe(true);
   });
@@ -178,7 +183,7 @@ describe("Direct(<routeId>) tool-name validation", () => {
     t = await ctxWithRoute("memory:get", {
       memoryGet: directTool("memory:get"),
     });
-    const [resolved] = tools(["memoryGet"]).resolve(t.ctx);
+    const [resolved] = tools(["memoryGet"]).resolve(agentHostOf(t.ctx));
     expect(resolved.name).toBe("memoryGet");
     expect(resolved.description).toBe("A route.");
     expect(isValidToolName(resolved.name)).toBe(true);
@@ -211,7 +216,7 @@ describe("MCP client tool-name validation", () => {
       },
     ]);
 
-    const resolved = tools(["MCP(github)"]).resolve(t.ctx);
+    const resolved = tools(["MCP(github)"]).resolve(agentHostOf(t.ctx));
     expect(resolved.map((r) => r.name)).toEqual(["mcp__github__list_issues"]);
 
     const warned = t.contextLogger.warn.mock.calls.some(
@@ -239,7 +244,9 @@ describe("MCP client tool-name validation", () => {
       },
     ]);
 
-    expect(tools(["MCP(github:issues.create)"]).resolve(t.ctx)).toEqual([]);
+    expect(
+      tools(["MCP(github:issues.create)"]).resolve(agentHostOf(t.ctx)),
+    ).toEqual([]);
   });
 
   /**
@@ -267,13 +274,14 @@ describe("MCP client tool-name validation", () => {
 
     // `resolve()` runs per dispatch, so three resolutions stand in for
     // three dispatches of an agent bound to this server.
-    for (let i = 0; i < 3; i++) tools(["MCP(github)"]).resolve(t.ctx);
+    for (let i = 0; i < 3; i++)
+      tools(["MCP(github)"]).resolve(agentHostOf(t.ctx));
     expect(warnCount()).toBe(1);
 
     // A re-listing that returns the same tools does not bump the
     // registry version, so it must not re-open the report either.
     registry.setToolsForSource("github", "stdio", [bad]);
-    tools(["MCP(github)"]).resolve(t.ctx);
+    tools(["MCP(github)"]).resolve(agentHostOf(t.ctx));
     expect(warnCount()).toBe(1);
 
     // A real change does: the condition may have been fixed, and if it
@@ -285,7 +293,7 @@ describe("MCP client tool-name validation", () => {
         inputSchema: { type: "object" as const, properties: {} },
       },
     ]);
-    tools(["MCP(github)"]).resolve(t.ctx);
+    tools(["MCP(github)"]).resolve(agentHostOf(t.ctx));
     expect(warnCount()).toBe(2);
   });
 
@@ -304,7 +312,7 @@ describe("MCP client tool-name validation", () => {
       { name: "c", inputSchema: { type: "object", properties: {} } },
     ]);
 
-    expect(tools(["MCP(a__b)"]).resolve(t.ctx)).toEqual([]);
+    expect(tools(["MCP(a__b)"]).resolve(agentHostOf(t.ctx))).toEqual([]);
     const warned = t.contextLogger.warn.mock.calls.some(
       (c: unknown[]) =>
         typeof c[1] === "string" &&
@@ -330,11 +338,13 @@ describe("MCP client tool-name validation", () => {
       },
     ]);
 
-    const [resolved] = tools(["MCP(github)"]).resolve(t.ctx);
+    const [resolved] = tools(["MCP(github)"]).resolve(agentHostOf(t.ctx));
     expect(resolved?.name).toBe("mcp__github__issues__create");
     // Splitting at the first separator is unambiguous now that the
     // server half cannot contain one, so the raw form round-trips.
-    const [byRawName] = tools(["mcp__github__issues__create"]).resolve(t.ctx);
+    const [byRawName] = tools(["mcp__github__issues__create"]).resolve(
+      agentHostOf(t.ctx),
+    );
     expect(byRawName?.name).toBe("mcp__github__issues__create");
   });
 
@@ -353,7 +363,7 @@ describe("MCP client tool-name validation", () => {
       { name: longTool, inputSchema: { type: "object", properties: {} } },
     ]);
 
-    expect(tools(["MCP(github)"]).resolve(t.ctx)).toEqual([]);
+    expect(tools(["MCP(github)"]).resolve(agentHostOf(t.ctx))).toEqual([]);
     const warned = t.contextLogger.warn.mock.calls.some(
       (c: unknown[]) =>
         typeof c[1] === "string" &&

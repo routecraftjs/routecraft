@@ -1,14 +1,16 @@
-import {
-  CraftClient,
-  routeCanDefer,
-  type Capability,
-  type CraftContext,
-  type ExchangeHeaders,
-  type Tag,
+import type {
+  Authority,
+  Capability,
+  EventDetailsMap,
+  EventName,
+  ExchangeHeaders,
+  Logger,
+  Port,
+  Tag,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FnHandlerContext } from "../../fn/types.ts";
-import { AgentSessionRuntime } from "../session/runtime.ts";
+import type { AgentSessionRuntime } from "../session/runtime.ts";
 
 /**
  * Discriminator value for {@link LazyFn}. Plain symbol so a
@@ -109,9 +111,9 @@ export interface LazyFn {
 
 /**
  * What resolving and dispatching a deferred tool needs from the
- * application: the routes it can reach and a way to call them. Built from
- * the context at dispatch ({@link toolHostOf}), and from the agent
- * runtime's plugin context at start, so both resolve a tool the same way.
+ * application: the routes it can reach and a way to call them. Built by
+ * the agent runtime from its plugin context, so a dispatch and the runtime's
+ * start resolve a tool the same way.
  *
  * @internal
  */
@@ -144,8 +146,37 @@ export interface ToolHost {
   sessions(): AgentSessionRuntime;
 }
 
-/** The reason reported for a disabled route that recorded none. */
-const DISABLED_ROUTE_REASON = "disabled by its enabled() predicate";
+/**
+ * What the agent runtime holds for every dispatch in the application: its
+ * logger, its event bus and the routes its tools reach.
+ *
+ * @internal
+ */
+export interface AgentRuntimeHost {
+  readonly logger: Logger;
+  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
+  readonly tools: ToolHost;
+}
+
+/**
+ * What one agent dispatch reads the application through: the runtime's
+ * host, and the ports and settings of the application the dispatching
+ * exchange runs in. An agent step is handed no context; it finds the agent
+ * runtime through the exchange and builds this from it.
+ */
+export interface AgentHost extends AgentRuntimeHost {
+  /**
+   * The same object for every dispatch in one application, for a cache or
+   * a report-once set that belongs to the application.
+   */
+  readonly application: object;
+  /** The provider of a port, or `undefined` when no plugin provides it. */
+  lookup<T>(port: Port<T>): T | undefined;
+  /** The application's authority, which reads and stamps principals. */
+  readonly authority: Authority;
+  /** Whether the application sends trace context on outbound calls by default. */
+  readonly outboundTraceContext: boolean;
+}
 
 /**
  * Whether a `directTool` over this route is left out of the agent's tools
@@ -165,29 +196,6 @@ export function withheldRouteReason(
   return host.capabilities().some((c) => c.endpoint === routeId)
     ? undefined
     : reason;
-}
-
-/**
- * The tool host for a running context.
- *
- * @internal
- */
-export function toolHostOf(ctx: CraftContext): ToolHost {
-  return {
-    capabilities: () => ctx.capabilities(),
-    hasRoute: (routeId) => ctx.getRouteById(routeId) !== undefined,
-    disabledReason: (routeId) =>
-      ctx.getRouteById(routeId) === undefined || ctx.isRouteEnabled(routeId)
-        ? undefined
-        : (ctx.disabledRoutes().get(routeId) ?? DISABLED_ROUTE_REASON),
-    canDefer: (routeId) => {
-      const route = ctx.getRouteById(routeId);
-      return route !== undefined && routeCanDefer(route.definition, ctx);
-    },
-    deliver: (endpoint, body, headers) =>
-      new CraftClient(ctx).sendDirect(endpoint, body, headers),
-    sessions: () => AgentSessionRuntime.for(ctx),
-  };
 }
 
 /**

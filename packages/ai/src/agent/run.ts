@@ -3,7 +3,6 @@ import {
   HeadersKeys,
   isDeferSignal,
   rcError,
-  type CraftContext,
   type DeferHandle,
   type DeferRequest,
   type Exchange,
@@ -27,6 +26,7 @@ import type {
 } from "../llm/types.ts";
 import { toAiOutputSpec } from "../llm/structured-output.ts";
 import type { AgentDeltaListener } from "./events.ts";
+import type { AgentHost } from "./tools/types.ts";
 import { closeUnansweredToolCalls } from "./session/render.ts";
 import {
   buildVercelTools,
@@ -133,8 +133,8 @@ export interface AgentRunInput<T = unknown> {
   readonly user: string | LlmPromptPart[];
   /** Final system prompt for this dispatch. */
   readonly system: string;
-  /** Optional context reference passed to tool handlers. */
-  readonly context: CraftContext | undefined;
+  /** The application this dispatch runs in, as the agent runtime sees it. */
+  readonly context: AgentHost;
   /**
    * Source exchange that triggered this dispatch. Forwarded to the
    * `validate` hook (`ctx.exchange`) so validators can correlate the
@@ -732,7 +732,7 @@ export class AgentRun<T = unknown> {
   private emitStarted(maxTurns: number): void {
     const id = this.input.dispatchIdentity;
     const ctx = this.input.context;
-    if (!id || !ctx) return;
+    if (!id) return;
     ctx.emit("route:agent:started", {
       routeId: id.routeId,
       exchangeId: id.exchangeId,
@@ -758,7 +758,7 @@ export class AgentRun<T = unknown> {
   private emitFinished(result: LlmResult): void {
     const id = this.input.dispatchIdentity;
     const ctx = this.input.context;
-    if (!id || !ctx) return;
+    if (!id) return;
     // Both runGenerate (sync) and runStreamGenerate (after awaiting
     // the SDK Promise) populate `result.finishReason` as a normalised
     // string. Falls back to "unknown" only when the provider didn't
@@ -821,7 +821,7 @@ export class AgentRun<T = unknown> {
   private emitError(err: unknown): void {
     const id = this.input.dispatchIdentity;
     const ctx = this.input.context;
-    if (!id || !ctx) return;
+    if (!id) return;
     ctx.emit("route:agent:error", {
       routeId: id.routeId,
       exchangeId: id.exchangeId,

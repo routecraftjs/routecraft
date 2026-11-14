@@ -25,7 +25,12 @@ export function mcpPort(seed: McpSeed = {}): Plugin {
     bind(c) {
       c.provide(
         MCP,
-        createMcpService({ ...seed, declaredProxies: declaredExactProxies(c) }),
+        createMcpService({
+          ...seed,
+          declaredProxies: declaredExactProxies(c),
+          routes: c,
+          emit: (event, details) => c.emit(event, details),
+        }),
       );
     },
   };

@@ -16,6 +16,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { agentPlugin, agents, tools } from "../src/index.ts";
 import { loadAgentFiles } from "../src/agent/loader.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 function tmpDir(): string {
   return mkdtempSync(join(tmpdir(), "rc-agents-"));
@@ -364,7 +365,9 @@ Do it.
       .build();
     await t.startAndWaitReady();
     try {
-      expect(() => sel!.resolve(t.ctx)).toThrow(/unknown tool "fetchOrder"/);
+      expect(() => sel!.resolve(agentHostOf(t.ctx))).toThrow(
+        /unknown tool "fetchOrder"/,
+      );
     } finally {
       await t.stop();
     }
@@ -708,7 +711,9 @@ Do it.
     try {
       const selection = agent?.tools as
         { resolve: (ctx: unknown) => Array<{ name: string }> } | undefined;
-      return (selection?.resolve(t.ctx) ?? []).map((tool) => tool.name).sort();
+      return (selection?.resolve(agentHostOf(t.ctx)) ?? [])
+        .map((tool) => tool.name)
+        .sort();
     } finally {
       await t.stop();
     }

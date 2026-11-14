@@ -1,11 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  authorityOf,
-  rcCodeOf,
-  rcError,
-  type CraftContext,
-  type Principal,
-} from "@routecraft/routecraft";
+import { rcCodeOf, rcError, type Principal } from "@routecraft/routecraft";
 import { isBlockLoaderTool } from "../block/resolve.ts";
 import { toAiInputSchema } from "../llm/structured-output.ts";
 import { makeFnHandlerContext } from "../fn/handler-context.ts";
@@ -19,6 +13,7 @@ import {
 } from "./deferral-state.ts";
 import type { AgentDispatchIdentity, AgentRunSession } from "./run.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
+import type { AgentHost } from "./tools/types.ts";
 
 /**
  * The deferral channel between one agent dispatch and its tools: the
@@ -113,7 +108,7 @@ function toolEventScope(
 
 export async function buildVercelTools(
   resolved: ResolvedTool[],
-  ctx: CraftContext | undefined,
+  ctx: AgentHost,
   abortSignal: AbortSignal,
   dispatchIdentity?: AgentDispatchIdentity,
   principal?: Principal,
@@ -178,9 +173,9 @@ export async function buildVercelTools(
             : undefined,
           session,
           dispatchIdentity?.correlationId,
-          authorityOf(ctx),
+          ctx.authority,
           dispatchIdentity?.exchangeId,
-          ctx?.logger,
+          ctx.logger,
         );
         const start = Date.now();
         // Tracked for the whole call, block loaders included: a turn
@@ -188,7 +183,7 @@ export async function buildVercelTools(
         // see it in the transcript it resumes from.
         inFlight?.set(toolCallId, { toolName: r.name, input });
 
-        if (!isLoader && ctx && dispatchIdentity) {
+        if (!isLoader && dispatchIdentity) {
           ctx.emit("route:agent:tool:invoked", {
             ...toolEventScope(dispatchIdentity, session, toolCallId, r.name),
             // Sensitive payload: only persisted to telemetry when
@@ -204,7 +199,7 @@ export async function buildVercelTools(
             } catch (refusal: unknown) {
               // Emitted before the rethrow so a refusal is countable even
               // though it surfaces to the model as an ordinary tool error.
-              if (ctx && dispatchIdentity) {
+              if (dispatchIdentity) {
                 ctx.emit("route:agent:tool:refused", {
                   ...toolEventScope(
                     dispatchIdentity,
@@ -254,7 +249,7 @@ export async function buildVercelTools(
           // `block:loaded` with the placeholder snapshot would be the same
           // false receipt the MCP surface refuses, and it matches the
           // throw-form path below, which already stays silent for loaders.
-          if (ctx && dispatchIdentity && !(deferred && isLoader)) {
+          if (dispatchIdentity && !(deferred && isLoader)) {
             if (isLoader) {
               ctx.emit("route:agent:block:loaded", {
                 routeId: dispatchIdentity.routeId,
@@ -302,7 +297,7 @@ export async function buildVercelTools(
                 ...(err.meta !== undefined ? { meta: err.meta } : {}),
               },
             });
-            if (!isLoader && ctx && dispatchIdentity) {
+            if (!isLoader && dispatchIdentity) {
               ctx.emit("route:agent:tool:result", {
                 ...toolEventScope(
                   dispatchIdentity,
@@ -321,7 +316,7 @@ export async function buildVercelTools(
             });
             return DEFERRED_TOOL_PLACEHOLDER;
           }
-          if (ctx && dispatchIdentity) {
+          if (dispatchIdentity) {
             if (isLoader) {
               ctx.emit("route:agent:block:error", {
                 routeId: dispatchIdentity.routeId,

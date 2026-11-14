@@ -24,16 +24,6 @@ const KERNEL = [
  */
 const FORBIDDEN = ["plugins", "auth", "adapters/direct"];
 
-/**
- * The files outside the kernel that still read the application off an
- * exchange, through the `/internal` subpath. Entries leave this list; none
- * is added.
- */
-const ACCESSOR_DEBT = [
-  "ai/src/agent/enricher.ts",
-  "ai/src/mcp/adapters/mcp/enricher.ts",
-];
-
 function filesUnder(path: string): string[] {
   const full = join(SRC, path);
   if (!statSync(full).isDirectory()) return [full];
@@ -118,7 +108,7 @@ describe("the kernel boundary", () => {
   /**
    * @case Adapters, plugins and sibling packages do not read the application off an exchange
    * @preconditions Every source file under adapters/, plugins/ and the sibling packages
-   * @expectedResult None names getExchangeContext or getExchangeRoute, except the listed agent-tier files, which still run with no plugin to hold their state
+   * @expectedResult None names getExchangeContext or getExchangeRoute: an adapter reaches its plugin's state through lookupOf and the step context
    */
   test("adapters, plugins and sibling packages do not read an exchange's context or route", () => {
     const packages = join(SRC, "..", "..");
@@ -135,6 +125,6 @@ describe("the kernel boundary", () => {
       )
       .map((file) => relative(packages, file))
       .sort();
-    expect(readers).toEqual(ACCESSOR_DEBT);
+    expect(readers).toEqual([]);
   });
 });

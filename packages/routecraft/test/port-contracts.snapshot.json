@@ -11,7 +11,8 @@
       "contribute": "(contribution: AgentContribution) => void",
       "sessions": "() => AgentSessionRuntime",
       "resolvedFunction": "(id: string) => RegisteredFn | undefined",
-      "recordLateResolution": "(id: string, fn: RegisteredFn) => boolean"
+      "recordLateResolution": "(id: string, fn: RegisteredFn) => boolean",
+      "host": "AgentRuntimeHost"
     }
   },
   "routecraft.ai.embedding@1": {
@@ -40,6 +41,8 @@
       "proxiesVersion": "number",
       "registerProxy": "(registration: McpProxyRegistration) => () => void",
       "isProxyDeclared": "(serverId: string, tool: string) => boolean",
+      "declaredProxy": "(remote: McpToolRegistryEntry) => { routeId: string; tool: string; excluded: boolean; } | undefined",
+      "emit": "<K extends EventName>(event: K, details: EventDetailsMap[K]) => void",
       "onChange": "(listener: () => void) => () => void",
       "tools": "McpToolRegistry",
       "stdio": "ReadonlyMap<string, McpStdioToolCaller>",

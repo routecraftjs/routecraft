@@ -5,6 +5,7 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import { buildVercelTools } from "../src/agent/tool-bridge.ts";
 import { freezePrincipal } from "../src/fn/handler-context.ts";
 import type { ResolvedTool } from "../src/agent/tools/selection.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 let app: TestContext;
 
@@ -25,7 +26,7 @@ describe("buildVercelTools: execute path", () => {
   test("empty resolved tools returns an empty map", async () => {
     const out = await buildVercelTools(
       [],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
     );
     expect(Object.keys(out)).toEqual([]);
@@ -49,7 +50,11 @@ describe("buildVercelTools: execute path", () => {
     };
 
     const sessionSignal = new AbortController().signal;
-    const map = await buildVercelTools([resolved], app.ctx, sessionSignal);
+    const map = await buildVercelTools(
+      [resolved],
+      agentHostOf(app.ctx),
+      sessionSignal,
+    );
     expect(Object.keys(map)).toEqual(["echo"]);
 
     // Exercise the SDK's (input, options) contract; the second arg
@@ -102,7 +107,7 @@ describe("buildVercelTools: execute path", () => {
 
     const map = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
     );
     const tool = map["guarded"] as {
@@ -135,7 +140,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
       undefined,
       principal,
@@ -180,7 +185,7 @@ describe("buildVercelTools: execute path", () => {
     });
     const authenticMap = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
       undefined,
       authentic,
@@ -199,7 +204,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const plainMap = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
       undefined,
       selfAsserted,
@@ -269,7 +274,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
       undefined,
       principal,
@@ -326,7 +331,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
       undefined,
       principal,
@@ -389,7 +394,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
       undefined,
       principal,
@@ -450,7 +455,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
       undefined,
       principal,
@@ -508,7 +513,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
       undefined,
       principal,
@@ -538,7 +543,7 @@ describe("buildVercelTools: execute path", () => {
     };
     const map = await buildVercelTools(
       [resolved],
-      app.ctx,
+      agentHostOf(app.ctx),
       new AbortController().signal,
     );
     const tool = map["ok-guard"] as {

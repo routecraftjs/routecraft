@@ -14,8 +14,6 @@ const INTERNAL_NAMES = [
   "clipText",
   "compareRuntimeVersion",
   "describeSteps",
-  "getExchangeContext",
-  "getExchangeRoute",
   "isDevelopmentRuntime",
   "isSourceFixture",
   "parseRuntimeVersion",
