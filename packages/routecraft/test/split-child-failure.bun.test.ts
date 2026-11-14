@@ -387,4 +387,54 @@ describe("a failed split child at the aggregate", () => {
       }),
     ).toBe(false);
   });
+
+  /**
+   * @case Another route's run finishing first does not take this split's parent away
+   * @preconditions Two routes on one context split at the same time; the quick one completes while the slow one's children are still running, and one of the slow children then throws
+   * @expectedResult The slow route's parent fails with RC5001 naming its failed child, exactly as it does alone
+   */
+  test("a concurrent split on the same context keeps its parent", async () => {
+    const failed: Array<Failed & { routeId: string }> = [];
+    const started = new Map<string, string>();
+    const pause = (ms: number) =>
+      new Promise((resolve) => setTimeout(resolve, ms));
+    t = await testContext()
+      .on("route:exchange:started", ({ details }) => {
+        if (!started.has(details.routeId)) {
+          started.set(details.routeId, details.exchangeId);
+        }
+      })
+      .on("route:exchange:failed", ({ details }) => {
+        failed.push(details);
+      })
+      .routes([
+        craft()
+          .id("quick")
+          .from(simple([[1]]))
+          .split()
+          .transform(async (n: unknown) => {
+            await pause(20);
+            return n;
+          })
+          .aggregate(),
+        craft()
+          .id("slow")
+          .from(simple([[1, 2]]))
+          .split()
+          .transform(async (n: unknown) => {
+            await pause(80);
+            if (n === 2) throw new Error("boom");
+            return n;
+          })
+          .aggregate(),
+      ])
+      .build();
+
+    await t.test();
+
+    const parent = failed.find((f) => f.exchangeId === started.get("slow"));
+    expect(parent).toBeDefined();
+    expect((parent!.error as { rc: string }).rc).toBe("RC5001");
+    expect(parent!.failedChildren).toHaveLength(1);
+  });
 });

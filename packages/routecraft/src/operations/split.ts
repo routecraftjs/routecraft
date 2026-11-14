@@ -201,15 +201,6 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     }
     const groupId = randomUUID();
 
-    // Stash the parent exchange so aggregate can restore it
-    let parentMap = context.getStore(SPLIT_PARENT_STORE) as
-      Map<string, Exchange> | undefined;
-    if (!parentMap) {
-      parentMap = new Map<string, Exchange>();
-      context.setStore(SPLIT_PARENT_STORE, parentMap);
-    }
-    parentMap.set(groupId, exchange);
-
     const splitHierarchy = [...splitHierarchyOf(exchange), groupId];
 
     const children: Exchange<R>[] = [];
@@ -286,6 +277,18 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       duration: Date.now() - stepStart,
       metadata: { childCount: splitResults.length },
     });
+
+    // Stashed for aggregate to restore, and only once there are children to
+    // join: a group with none has nothing that would ever release it.
+    if (children.length > 0) {
+      let parentMap = context.getStore(SPLIT_PARENT_STORE) as
+        Map<string, Exchange> | undefined;
+      if (!parentMap) {
+        parentMap = new Map<string, Exchange>();
+        context.setStore(SPLIT_PARENT_STORE, parentMap);
+      }
+      parentMap.set(groupId, exchange);
+    }
 
     return { kind: "fanOut", exchanges: children };
   }

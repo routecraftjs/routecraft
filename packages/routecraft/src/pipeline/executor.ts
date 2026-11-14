@@ -369,13 +369,13 @@ export async function runPipeline(
     queue.push({ exchange: child, steps: remaining.slice(join), failed: true });
   };
 
-  // Snapshot existing split parent keys so cleanup only touches groups
-  // created during THIS invocation, not groups from concurrent handlers.
   // Read at each use: the first split on a context is what creates the store.
   const splitParents = () =>
     deps.context.getStore(SPLIT_PARENT_STORE) as
       Map<string, Exchange> | undefined;
-  const preExistingGroups = new Set(splitParents()?.keys());
+  // The store is shared by every invocation on the context, so cleanup
+  // touches only the groups this one opened.
+  const ownGroups = new Set<string>();
 
   // Snapshotted by `captureDownstream` so debounce can release a held
   // exchange through its continuation later.
@@ -522,8 +522,11 @@ export async function runPipeline(
       // Siblings still on their way to the join finish their own steps first.
       const stillRunning = queue.some(
         (entry) =>
-          entry.steps[0] !== step &&
-          splitHierarchyOf(entry.exchange).includes(joined),
+          splitHierarchyOf(entry.exchange).includes(joined) &&
+          !(
+            splitGroupOf(entry.exchange) === joined &&
+            entry.steps[0]?.operation === OperationType.AGGREGATE
+          ),
       );
       if (stillRunning) {
         queue.push(popped);
@@ -654,6 +657,10 @@ export async function runPipeline(
           break;
         case "fanOut":
           for (const child of outcome.exchanges) {
+            if (step.operation === OperationType.SPLIT) {
+              const opened = splitGroupOf(child);
+              if (opened !== undefined) ownGroups.add(opened);
+            }
             queue.push({ exchange: child, steps: remainingSteps });
           }
           break;
@@ -900,11 +907,9 @@ export async function runPipeline(
     }
   }
 
-  // Pre-existing groups belong to concurrent handlers on the same context.
   const parentMap = splitParents();
   if (parentMap && parentMap.size > 0) {
-    for (const groupId of Array.from(parentMap.keys())) {
-      if (preExistingGroups.has(groupId)) continue;
+    for (const groupId of ownGroups) {
       const parentEx = parentMap.get(groupId);
       if (parentEx) {
         // Only clean up groups that are NOT part of a nested hierarchy
