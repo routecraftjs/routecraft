@@ -454,7 +454,7 @@ Emitted on every auth attempt by every auth-enabled surface: HTTP routes, the MC
 | `ERR_JWS_SIGNATURE_VERIFICATION_FAILED` | | The signature does not match the key in the key set |
 | `ERR_JWKS_NO_MATCHING_KEY` | | The token names a signing key the key set does not hold |
 
-Both fields are absent for any other error, a custom validator's included: its message and its own `code` are text the framework did not write and never copies into an event. `claim` is only ever one of the registered names (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`, `typ`) and never a claim's value. The same rejection is logged at `debug` with the `jose` error's type, code and message under `err`.
+Both fields are absent for any other error, a custom validator's included: its message and its own `code` are text the framework did not write and never copies into an event. `claim` is only ever one of the registered names (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`, `typ`) and never a claim's value. The ingress logs the same rejection at `debug` with the code under `err`. The error's own message is never logged: `jose` quotes the token's header in some of them.
 
 ## Server events
 

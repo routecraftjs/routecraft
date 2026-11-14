@@ -63,6 +63,27 @@ const isolated = (): { cwd: string; env: NodeJS.ProcessEnv } => ({
   cwd,
   env: {},
 });
+
+/** Dispatch `greet` once against an instance that answers every request with `status` and `body`. */
+async function execAgainst(status: number, body: Record<string, unknown>) {
+  const instance = createServer((_req, res) => {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(body));
+  });
+  await new Promise<void>((resolve) =>
+    instance.listen(0, "127.0.0.1", resolve),
+  );
+  const port = (instance.address() as { port: number }).port;
+  try {
+    return await execCommand("greet", ["--name=world"], {
+      url: `http://127.0.0.1:${String(port)}`,
+      ...isolated(),
+    });
+  } finally {
+    await new Promise<void>((resolve) => instance.close(() => resolve()));
+  }
+}
+
 let context: TestContext | undefined;
 let url: string;
 
@@ -312,65 +333,47 @@ describe("craft exec", () => {
    *   instance says so
    */
   test("names the schema command when the payload was refused", async () => {
-    const refusing = createServer((_req, res) => {
-      res.writeHead(400, { "content-type": "application/json" });
-      res.end(
-        JSON.stringify({
-          error: "bad request",
-          code: "RC5065",
-          in: "body",
-          issues: [{ path: "name", message: "Expected string" }],
-        }),
-      );
+    const result = await execAgainst(400, {
+      error: "bad request",
+      code: "RC5065",
+      in: "body",
+      issues: [{ path: "name", message: "Expected string" }],
     });
-    await new Promise<void>((resolve) =>
-      refusing.listen(0, "127.0.0.1", resolve),
-    );
-    const port = (refusing.address() as { port: number }).port;
-    try {
-      const result = await execCommand("greet", ["--name=world"], {
-        url: `http://127.0.0.1:${String(port)}`,
-        ...isolated(),
-      });
-      expect(result.code).toBe(EXEC_EXIT.usage);
-      expect(result.error).toContain("name: Expected string");
-      expect(result.error).toContain("craft ops routes greet");
-      expect(result.error).not.toMatch(/its own log/);
-    } finally {
-      await new Promise<void>((resolve) => refusing.close(() => resolve()));
-    }
+    expect(result.code).toBe(EXEC_EXIT.usage);
+    expect(result.error).toContain("name: Expected string");
+    expect(result.error).toContain("craft ops routes greet");
+    expect(result.error).not.toMatch(/its own log/);
   });
 
   /**
-   * @case Only a refusal of the caller's own payload is a usage error
-   * @preconditions Instances answering 400 with RC5068 (a validate hook found
-   *   the payload invalid) and 500 with RC5065 (a route further in refused
-   *   what this route sent it)
-   * @expectedResult The first exits 2, the second 1: the 500 is not the
-   *   command line's fault and retyping the command would not fix it
+   * @case A refusal exits the way `craft run` exits for the same refusal
+   * @preconditions Instances answering with each refusal the dispatch door
+   *   can relay: the caller's payload refused as invalid (400 with
+   *   RC5068), a validate hook refusing the caller with another kind (409,
+   *   429 and 503 with RC5068), the door's own 409 for a route with no
+   *   dispatch door, and a refusal raised by a route further in (500)
+   * @expectedResult An invalid payload exits 2, a refused caller 4, the
+   *   door's 409 stays 2, and the 500s stay 1: retyping the command would
+   *   not fix them
    */
-  test("exits 2 only when the caller's own payload was refused", async () => {
-    const answerWith = async (status: number, code: string) => {
-      const refusing = createServer((_req, res) => {
-        res.writeHead(status, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "refused", code }));
-      });
-      await new Promise<void>((resolve) =>
-        refusing.listen(0, "127.0.0.1", resolve),
+  test("maps each relayed refusal to its exit code", async () => {
+    expect((await execAgainst(400, { code: "RC5068" })).code).toBe(
+      EXEC_EXIT.usage,
+    );
+    for (const status of [409, 429, 503]) {
+      expect((await execAgainst(status, { code: "RC5068" })).code).toBe(
+        EXEC_EXIT.refused,
       );
-      const port = (refusing.address() as { port: number }).port;
-      try {
-        return await execCommand("greet", ["--name=world"], {
-          url: `http://127.0.0.1:${String(port)}`,
-          ...isolated(),
-        });
-      } finally {
-        await new Promise<void>((resolve) => refusing.close(() => resolve()));
-      }
-    };
-
-    expect((await answerWith(400, "RC5068")).code).toBe(EXEC_EXIT.usage);
-    expect((await answerWith(500, "RC5065")).code).toBe(EXEC_EXIT.failed);
+    }
+    expect((await execAgainst(409, { error: "conflict" })).code).toBe(
+      EXEC_EXIT.usage,
+    );
+    expect((await execAgainst(500, { code: "RC5065" })).code).toBe(
+      EXEC_EXIT.failed,
+    );
+    expect((await execAgainst(500, { code: "RC5068" })).code).toBe(
+      EXEC_EXIT.failed,
+    );
   });
 
   /**

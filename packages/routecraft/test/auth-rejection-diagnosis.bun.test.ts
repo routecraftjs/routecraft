@@ -96,7 +96,7 @@ describe("auth:rejected diagnosis", () => {
   /**
    * @case The jose error is logged at debug without the token's claims
    * @preconditions The validator throws jose's claim validation error, which holds the whole claims set as `payload`
-   * @expectedResult One debug line carries an `err` binding with the error type, code and message, and no claim value appears in it
+   * @expectedResult One debug line carries an `err` binding with the code alone, and no claim value appears in it
    */
   test("logs the jose error without the claims set", async () => {
     const { logs } = await reject(
@@ -115,11 +115,7 @@ describe("auth:rejected diagnosis", () => {
       source: "surface",
       code: "ERR_JWT_CLAIM_VALIDATION_FAILED",
       claim: "aud",
-      err: {
-        type: "JWTClaimValidationFailed",
-        code: "ERR_JWT_CLAIM_VALIDATION_FAILED",
-        message: 'unexpected "aud" claim value',
-      },
+      err: { type: "JOSEError", code: "ERR_JWT_CLAIM_VALIDATION_FAILED" },
     });
     expect(JSON.stringify(logs)).not.toContain("alice");
   });
@@ -143,6 +139,23 @@ describe("auth:rejected diagnosis", () => {
     expect(logs).toEqual([]);
     expect(JSON.stringify(events)).not.toContain(BEARER);
   });
+
+  /**
+   * @case Text a jose error quotes from the token never reaches the log
+   * @preconditions The validator throws jose's not-supported error, whose message quotes a header parameter the caller chose, here the bearer
+   * @expectedResult The event and the log binding carry the code, and neither contains the quoted text
+   */
+  test("keeps a jose error's own message out of the event and the log", async () => {
+    const { events, logs } = await reject(
+      new errors.JOSENotSupported(
+        `Extension Header Parameter "${BEARER}" is not recognized`,
+      ),
+    );
+
+    expect(events[0]?.["code"]).toBe("ERR_JOSE_NOT_SUPPORTED");
+    expect(logs).toHaveLength(1);
+    expect(JSON.stringify({ events, logs })).not.toContain(BEARER);
+  });
 });
 
 describe("diagnoseRejection", () => {
@@ -156,7 +169,9 @@ describe("diagnoseRejection", () => {
       cause: new errors.JWKSNoMatchingKey(),
     });
 
-    expect(diagnoseRejection(wrapped).code).toBe("ERR_JWKS_NO_MATCHING_KEY");
+    expect(diagnoseRejection(wrapped).fields.code).toBe(
+      "ERR_JWKS_NO_MATCHING_KEY",
+    );
   });
 
   /**
@@ -174,8 +189,9 @@ describe("diagnoseRejection", () => {
       ),
     );
 
-    expect(diagnosis.code).toBe("ERR_JWT_CLAIM_VALIDATION_FAILED");
-    expect(diagnosis.claim).toBeUndefined();
+    expect(diagnosis.fields).toEqual({
+      code: "ERR_JWT_CLAIM_VALIDATION_FAILED",
+    });
   });
 
   /**
@@ -184,7 +200,7 @@ describe("diagnoseRejection", () => {
    * @expectedResult An empty diagnosis for both
    */
   test("returns nothing for an error that is not jose's", () => {
-    expect(diagnoseRejection(new Error("nope"))).toEqual({});
-    expect(diagnoseRejection("nope")).toEqual({});
+    expect(diagnoseRejection(new Error("nope"))).toEqual({ fields: {} });
+    expect(diagnoseRejection("nope")).toEqual({ fields: {} });
   });
 });

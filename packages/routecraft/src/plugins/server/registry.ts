@@ -568,12 +568,12 @@ export class HttpMountRegistry implements WebIngress {
             source: mount.id,
           });
         } else if (auth.kind === "reject") {
-          const { err, ...diagnosis } = diagnoseRejection(auth.cause);
+          const { fields, err } = diagnoseRejection(auth.cause);
           const detail = {
             reason: auth.reason,
             scheme: auth.scheme,
             source: mount.id,
-            ...diagnosis,
+            ...fields,
           };
           if (err !== undefined) {
             this.host.logger.debug(

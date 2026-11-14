@@ -594,6 +594,46 @@ export type ExchangeLifecycle = ExchangeScoped & {
 export type ErrorHandlerScope = "route" | "step" | "slot";
 
 /**
+ * Every code `jose` attaches to an error it throws. A closed list rather than
+ * a pattern, so a custom validator's own `code` never reaches an event field.
+ */
+export const JOSE_CODES = [
+  "ERR_JOSE_ALG_NOT_ALLOWED",
+  "ERR_JOSE_GENERIC",
+  "ERR_JOSE_NOT_SUPPORTED",
+  "ERR_JWE_DECRYPTION_FAILED",
+  "ERR_JWE_INVALID",
+  "ERR_JWK_INVALID",
+  "ERR_JWKS_INVALID",
+  "ERR_JWKS_MULTIPLE_MATCHING_KEYS",
+  "ERR_JWKS_NO_MATCHING_KEY",
+  "ERR_JWKS_TIMEOUT",
+  "ERR_JWS_INVALID",
+  "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+  "ERR_JWT_CLAIM_VALIDATION_FAILED",
+  "ERR_JWT_EXPIRED",
+  "ERR_JWT_INVALID",
+] as const;
+
+/** A `jose` error code, as `auth:rejected` carries it. */
+export type JoseErrorCode = (typeof JOSE_CODES)[number];
+
+/** The registered claim names (RFC 7519 section 4.1, and `typ`) a diagnosis may name. */
+export const DIAGNOSABLE_CLAIMS = [
+  "iss",
+  "sub",
+  "aud",
+  "exp",
+  "nbf",
+  "iat",
+  "jti",
+  "typ",
+] as const;
+
+/** A claim name `auth:rejected` may carry. */
+export type DiagnosableClaim = (typeof DIAGNOSABLE_CLAIMS)[number];
+
+/**
  * Every event the framework emits, mapped to its detail payload.
  *
  * Event names are a FIXED, finite set: identity (route id, plugin id,
@@ -641,9 +681,9 @@ export interface EventDetailsMap {
     scheme: string;
     source: string;
     /** The `jose` error code behind the rejection, when the verifier error was one of `jose`'s. */
-    code?: string;
+    code?: JoseErrorCode;
     /** The name of the claim that failed validation, never its value. */
-    claim?: string;
+    claim?: DiagnosableClaim;
   };
 
   // -- Route lifecycle --

@@ -64,13 +64,11 @@ export function refuseBearer(
     }
   }
   if (auth.kind === "reject") {
-    const { code, claim } = diagnoseRejection(auth.cause);
     const detail = {
       reason: auth.reason,
       scheme: "bearer",
       source,
-      ...(code !== undefined ? { code } : {}),
-      ...(claim !== undefined ? { claim } : {}),
+      ...diagnoseRejection(auth.cause).fields,
     };
     if (auth.reason === "infrastructure") {
       context.logger.warn(detail, "Auth unavailable: validator failed");

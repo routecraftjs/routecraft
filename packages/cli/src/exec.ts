@@ -120,6 +120,21 @@ function introspectionBlame(error: OpsClientError): string {
   return error.message;
 }
 
+/**
+ * The codes the dispatch door answers 400 with when the dispatched route
+ * refused the caller's own payload as invalid: its `.input()` schema or a
+ * validate hook. `craft run` exits 2 for the same refusals.
+ */
+const PAYLOAD_REFUSAL_CODES = new Set(["RC5065", "RC5068"]);
+
+/**
+ * A validate hook's or a `.validate()` step's refusal. Answered with any
+ * status but 400 it refused the caller rather than the payload, which is
+ * exit 4 on `craft run` too. Its 409 is told apart from the door's own 409
+ * (no dispatch door) by this code.
+ */
+const VALIDATE_REFUSAL_CODE = "RC5068";
+
 export function failureCode(error: OpsClientError): number {
   if (error.kind === "unreachable") return EXEC_EXIT.unreachable;
   if (error.kind === "refused" || error.kind === "absent") {
@@ -129,14 +144,16 @@ export function failureCode(error: OpsClientError): number {
   // cannot be asked, not a route that ran and failed. Nothing executed, so
   // reporting it as a failure would send a script's error path looking for
   // an exchange that never existed.
-  if (error.status === 409) return EXEC_EXIT.usage;
-  // A payload the dispatched route itself refused as invalid is the command
-  // line's fault. The same code answered with 500 came from a route that one
-  // called, which the caller's payload never reached.
   const code = (error.detail as { code?: unknown } | undefined)?.code;
-  if (error.status === 400 && (code === "RC5065" || code === "RC5068")) {
-    return EXEC_EXIT.usage;
+  // The same codes answered with 500 came from a route the dispatched one
+  // called, which the caller's payload never reached: a failed route.
+  if (error.status !== 500 && typeof code === "string") {
+    if (error.status === 400 && PAYLOAD_REFUSAL_CODES.has(code)) {
+      return EXEC_EXIT.usage;
+    }
+    if (code === VALIDATE_REFUSAL_CODE) return EXEC_EXIT.refused;
   }
+  if (error.status === 409) return EXEC_EXIT.usage;
   return EXEC_EXIT.failed;
 }
 
