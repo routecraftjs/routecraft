@@ -169,6 +169,39 @@ describe("agent() destination", () => {
   });
 
   /**
+   * @case An agent step in an application without the agent plugin is refused
+   * @preconditions A context with llmPlugin and no agentPlugin; a route whose .to(agent({...})) runs once
+   * @expectedResult The exchange fails with RC5003 naming the missing plugin and how to add it, and no model is called
+   */
+  test("refuses to dispatch without the agent plugin", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("no-plugin")
+          .from(simple("hello"))
+          .to(
+            agent({
+              model: "anthropic:claude-opus-4-7",
+              system: "Be helpful.",
+            }),
+          ),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors[0]?.rc).toBe("RC5003");
+    expect(t.errors[0]?.message).toMatch(/agent plugin is not installed/);
+    expect(t.errors[0]?.meta.suggestion).toMatch(/agentPlugin\(\)/);
+    expect(callLlmMock).not.toHaveBeenCalled();
+  });
+
+  /**
    * @case end-to-end: route with agent calls callLlm with system + body-derived user prompt
    * @preconditions Route from simple body, .to(agent({...})), .to(spy)
    * @expectedResult callLlm is called once with the configured system and the body as user prompt; downstream body is AgentResult
@@ -178,6 +211,7 @@ describe("agent() destination", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -253,6 +287,7 @@ describe("agent() destination", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -311,6 +346,7 @@ describe("agent() destination", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -342,6 +378,7 @@ describe("agent() destination", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -476,6 +513,7 @@ describe("agent(name) by-name destination + agentPlugin", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

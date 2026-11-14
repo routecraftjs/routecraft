@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { craft, simple } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
-import { agent, llmPlugin, type BlockBody } from "../src/index.ts";
+import { agentPlugin, agent, llmPlugin, type BlockBody } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 mock.module("../src/llm/providers/index.ts", () => ({
   callLlm: mock(async (): Promise<LlmResult> => {
@@ -36,6 +37,7 @@ describe("agent blocks: lifetime semantics", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -87,6 +89,7 @@ describe("agent blocks: lifetime semantics", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -130,6 +133,7 @@ describe("agent blocks: lifetime semantics", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -172,6 +176,7 @@ describe("agent blocks: lifetime semantics", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -191,10 +196,10 @@ describe("agent blocks: lifetime semantics", () => {
     const blocks = { flaky: cached };
 
     const exchange = new DefaultExchange(t.ctx, { body: "irrelevant" });
-    await expect(resolveBlocks(blocks, exchange, t.ctx)).rejects.toThrow(
-      /Agent block "flaky".*resolver function threw/,
-    );
-    const second = await resolveBlocks(blocks, exchange, t.ctx);
+    await expect(
+      resolveBlocks(blocks, exchange, agentHostOf(t.ctx)),
+    ).rejects.toThrow(/Agent block "flaky".*resolver function threw/);
+    const second = await resolveBlocks(blocks, exchange, agentHostOf(t.ctx));
     expect(second.systemAppend).toContain("ok");
     // Resolver ran twice: once failed, once succeeded. If the cache
     // poisoned the entry on rejection, the second call would have
@@ -231,6 +236,7 @@ describe("agent blocks: lifetime semantics", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

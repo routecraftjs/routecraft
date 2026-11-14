@@ -26,6 +26,7 @@ import {
 } from "./registry.ts";
 import type { AgentToolPolicy } from "./tools/policy.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
+import { agentHosts } from "./host.ts";
 import {
   isLazyFn,
   resolveFnOptions,
@@ -282,6 +283,12 @@ function createAgentRuntimePlugin(): Plugin {
           c.execution.deliver(endpoint, body, headers),
         sessions: () => registry.sessions(),
       };
+      agentHosts.set(c.application, {
+        application: c.application,
+        logger: c.logger,
+        emit: (event, details) => c.emit(event, details),
+        tools,
+      });
       runs.set(c, { registry, tools, sessions: runtime });
       c.provide(AGENTS, registry);
       const ops = c.lookup(OPS);

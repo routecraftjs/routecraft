@@ -7,6 +7,7 @@ import {
 } from "@routecraft/routecraft";
 import { MCP, createMcpService, type McpService } from "../../src/mcp/port.ts";
 import { declaredExactProxies } from "../../src/mcp/proxy.ts";
+import { mcpRuntime, mcpRuntimeFor } from "../../src/mcp/runtime.ts";
 import { McpServer } from "../../src/mcp/server.ts";
 import type { McpPluginOptions } from "../../src/mcp/types.ts";
 
@@ -27,6 +28,7 @@ export function mcpPort(seed: McpSeed = {}): Plugin {
         MCP,
         createMcpService({ ...seed, declaredProxies: declaredExactProxies(c) }),
       );
+      mcpRuntime.set(c.application, mcpRuntimeFor(c));
     },
   };
 }
@@ -81,6 +83,7 @@ export function mcpServerPlugin(
         declaredProxies: declaredExactProxies(c),
       });
       c.provide(MCP, service);
+      mcpRuntime.set(c.application, mcpRuntimeFor(c));
       const server = new McpServer(
         {
           logger: c.logger,

@@ -2,6 +2,7 @@ export type {
   AgentBlockLoadSummary,
   BlockBody,
   BlockClient,
+  BlockContext,
   BlockLifetime,
   BlockMode,
   BlockResolver,

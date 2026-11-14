@@ -1,7 +1,6 @@
 import {
   HeadersKeys,
   standardSchemaFromJsonSchema,
-  type CraftContext,
   type PluginContext,
 } from "@routecraft/routecraft";
 import { isMcpAdapter } from "../brand.ts";
@@ -234,12 +233,12 @@ function excludes(
  * @internal
  */
 export function declaredProxy(
-  context: CraftContext,
+  c: Pick<PluginContext, "routes">,
   remote: McpToolRegistryEntry,
 ): { routeId: string; tool: string; excluded: boolean } | undefined {
   const { source: serverId, name: tool } = remote;
   let star: { routeId: string; tool: string; excluded: boolean } | undefined;
-  for (const { routeId, ref } of proxyDeclarations(context.getRoutes())) {
+  for (const { routeId, ref } of proxyDeclarations(c.routes.list())) {
     if (ref.serverId !== serverId) continue;
     if (ref.tool === tool) return { routeId, tool, excluded: false };
     if (ref.tool === "*") {

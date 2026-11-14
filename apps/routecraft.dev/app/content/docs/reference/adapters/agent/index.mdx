@@ -15,6 +15,8 @@ Run an LLM with a fixed system prompt on each incoming exchange. Replaces the bo
 - **Inline** (`agent({ model, system, user? })`) -- identity and description come from the enclosing route (`.id()`, `.description()`). Suitable when the route _is_ the agent.
 - **By name** (`agent("summariser")`) -- resolves a registered agent from the context. Register agents via `agentPlugin({ agents: { name: {...} } })` ([`agentPlugin` reference](/docs/reference/plugins/agentplugin)).
 
+Both forms need the `agent` config key (or `agentPlugin()`): an agent step reads the application through the agent runtime that plugin brings. An application with only inline agents sets `agent: {}`. Without it a dispatch fails with [`RC5003`](/docs/reference/errors#rc-5003).
+
 ```ts
 import { agent, agentPlugin } from '@routecraft/ai'
 import { readFileSync } from 'node:fs'

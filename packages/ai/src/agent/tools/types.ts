@@ -1,14 +1,7 @@
-import {
-  CraftClient,
-  routeCanDefer,
-  type Capability,
-  type CraftContext,
-  type ExchangeHeaders,
-  type Tag,
-} from "@routecraft/routecraft";
+import type { Capability, ExchangeHeaders, Tag } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FnHandlerContext } from "../../fn/types.ts";
-import { AgentSessionRuntime } from "../session/runtime.ts";
+import type { AgentSessionRuntime } from "../session/runtime.ts";
 
 /**
  * Discriminator value for {@link LazyFn}. Plain symbol so a
@@ -109,9 +102,9 @@ export interface LazyFn {
 
 /**
  * What resolving and dispatching a deferred tool needs from the
- * application: the routes it can reach and a way to call them. Built from
- * the context at dispatch ({@link toolHostOf}), and from the agent
- * runtime's plugin context at start, so both resolve a tool the same way.
+ * application: the routes it can reach and a way to call them. Built by
+ * the agent runtime from its plugin context, so a dispatch and the runtime's
+ * start resolve a tool the same way.
  *
  * @internal
  */
@@ -144,9 +137,6 @@ export interface ToolHost {
   sessions(): AgentSessionRuntime;
 }
 
-/** The reason reported for a disabled route that recorded none. */
-const DISABLED_ROUTE_REASON = "disabled by its enabled() predicate";
-
 /**
  * Whether a `directTool` over this route is left out of the agent's tools
  * because the route is disabled: registered, held back by `.enabled()`, and
@@ -165,29 +155,6 @@ export function withheldRouteReason(
   return host.capabilities().some((c) => c.endpoint === routeId)
     ? undefined
     : reason;
-}
-
-/**
- * The tool host for a running context.
- *
- * @internal
- */
-export function toolHostOf(ctx: CraftContext): ToolHost {
-  return {
-    capabilities: () => ctx.capabilities(),
-    hasRoute: (routeId) => ctx.getRouteById(routeId) !== undefined,
-    disabledReason: (routeId) =>
-      ctx.getRouteById(routeId) === undefined || ctx.isRouteEnabled(routeId)
-        ? undefined
-        : (ctx.disabledRoutes().get(routeId) ?? DISABLED_ROUTE_REASON),
-    canDefer: (routeId) => {
-      const route = ctx.getRouteById(routeId);
-      return route !== undefined && routeCanDefer(route.definition, ctx);
-    },
-    deliver: (endpoint, body, headers) =>
-      new CraftClient(ctx).sendDirect(endpoint, body, headers),
-    sessions: () => AgentSessionRuntime.for(ctx),
-  };
 }
 
 /**

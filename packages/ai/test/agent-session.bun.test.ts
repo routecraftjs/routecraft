@@ -28,13 +28,13 @@ import {
   type FnHandlerContext,
 } from "../src/index.ts";
 import { AgentSessionRuntime } from "../src/agent/session/index.ts";
-import { sessionHostOf } from "../src/agent/session/runtime.ts";
 import { recordsFor, updateRecord } from "./helpers/session-stores.ts";
 import { AgentSessionStore } from "../src/agent/session/store.ts";
 import { INTERRUPTED_TOOL_MESSAGE } from "../src/agent/run.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 import { sleep, until } from "./helpers/until.ts";
+import { sessionHostOf, sessionsOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -370,7 +370,7 @@ describe("agent sessions", () => {
     // Turn two's thread carries turn one in full.
     expect(JSON.stringify(llm.calls[1]!.user)).toContain("turn one");
     await t.ctx.getRouteById("chat")!.drain();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     const summary = await runtime.summary("s", "operator");
     expect(summary).toMatchObject({ turn: "idle", inbox: 0, turns: 2 });
   });
@@ -498,10 +498,7 @@ describe("agent sessions", () => {
     ]);
     // Turn one's exchange is in the thread too: the transcript survived.
     expect(JSON.stringify(llm.calls[1]!.user)).toContain('"first"');
-    const summary = await AgentSessionRuntime.for(b.ctx).summary(
-      "s",
-      "operator",
-    );
+    const summary = await sessionsOf(b.ctx).summary("s", "operator");
     expect(summary).toMatchObject({ inbox: 0, turns: 2 });
   });
 
@@ -519,7 +516,7 @@ describe("agent sessions", () => {
     const running = send(t, { session: "s", message: "start" });
     await waitForEntry(1);
 
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     expect(runtime.interrupt("s", "max")).toBe(true);
 
     const result = await running;
@@ -544,7 +541,7 @@ describe("agent sessions", () => {
     llm.script.push({ text: "done" });
     await send(t, { session: "s", message: "hello" });
 
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     expect(runtime.interrupt("s", "max")).toBe(false);
     expect(runtime.interrupt("never", "max")).toBe(false);
   });
@@ -596,9 +593,9 @@ describe("agent sessions", () => {
     t.ctx.on("route:agent:session:restored", ({ details }) => {
       restored.push(details);
     });
-    expect(
-      (await AgentSessionRuntime.for(t.ctx).summary("s", "operator"))?.turn,
-    ).toBe("stale");
+    expect((await sessionsOf(t.ctx).summary("s", "operator"))?.turn).toBe(
+      "stale",
+    );
 
     llm.script.push({ text: "picking up" });
     const result = await send(t, { session: "s", message: "still there?" });
@@ -689,8 +686,7 @@ describe("agent sessions", () => {
     }
     expect(llm.calls).toHaveLength(0);
     expect(
-      (await AgentSessionRuntime.for(t.ctx).summaries({ scope: "operator" }))
-        .items,
+      (await sessionsOf(t.ctx).summaries({ scope: "operator" })).items,
     ).toEqual([]);
 
     llm.script.push({ text: "ok" });
@@ -943,15 +939,12 @@ describe("agent sessions", () => {
     await send(t, { session: "s", message: "I am Alice" }, "alice");
     await send(t, { session: "s", message: "I am Bob" }, "bob");
     expect(lastUserOf(llm.calls[1]!).content).toBe("I am Bob");
-    const summary = await AgentSessionRuntime.for(t.ctx).summary(
-      "s",
-      "operator",
-    );
+    const summary = await sessionsOf(t.ctx).summary("s", "operator");
     expect(summary).toMatchObject({ owner: "alice", turns: 2 });
     llm.script.push({ text: "hi nobody" });
     await send(t, { session: "anon", message: "hello" });
     expect(
-      (await AgentSessionRuntime.for(t.ctx).summary("anon", "operator"))?.owner,
+      (await sessionsOf(t.ctx).summary("anon", "operator"))?.owner,
     ).toBeNull();
   });
 
@@ -1000,10 +993,7 @@ describe("agent sessions", () => {
     const transcript = JSON.stringify(record?.messages);
     expect(transcript).toContain("cannot defer");
     expect(transcript).toContain("Defer from a sessionless agent");
-    const summary = await AgentSessionRuntime.for(t.ctx).summary(
-      "s",
-      "operator",
-    );
+    const summary = await sessionsOf(t.ctx).summary("s", "operator");
     expect(summary).toMatchObject({ deferred: false, turns: 1 });
     expect(t.errors).toHaveLength(0);
   });

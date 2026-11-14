@@ -10,7 +10,7 @@ title: mcp
 import { mcp } from '@routecraft/ai'
 ```
 
-Expose capabilities as MCP tools or call remote MCP servers. Requires the `mcp` config key (or `mcpPlugin()`) when used as a source.
+Expose capabilities as MCP tools or call remote MCP servers. Requires the `mcp` config key (or `mcpPlugin()`) in both modes. An application that only calls remote tools sets `mcp: {}`, which starts no server; without it a call fails with [`RC5003`](/docs/reference/errors#rc-5003).
 
 **Source mode -- define a discoverable MCP tool:**
 

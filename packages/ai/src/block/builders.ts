@@ -1,12 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
-import {
-  rcError,
-  type CraftContext,
-  type Exchange,
-  identified,
-} from "@routecraft/routecraft";
+import { rcError, type Exchange, identified } from "@routecraft/routecraft";
 import { readMarkdownSource, requireString } from "./markdown.ts";
+import type { BlockContext } from "./types.ts";
 import type {
   BlockBody,
   BlockClient,
@@ -167,7 +163,7 @@ export function fromFile(
   path: string,
 ): (
   exchange?: Exchange<unknown>,
-  context?: CraftContext,
+  context?: BlockContext,
   events?: readonly unknown[],
   client?: BlockClient,
 ) => Promise<string> {

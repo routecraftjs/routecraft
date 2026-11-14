@@ -94,8 +94,8 @@ export interface ResolvedSessionStore {
   /**
    * `custom` is a store the caller supplied; reporting it as `sqlite` would
    * mislead exactly the operator who configured a backend deliberately.
-   * `unresolved` is the lazy form before anything touched it, which is the
-   * one state where the answer is not yet known.
+   * Nothing reports `unresolved` any longer: a store is resolved when its
+   * plugin binds. The member stays because the port's shape is versioned.
    */
   readonly backend: "sqlite" | "memory" | "custom" | "unresolved";
   /** Which sqlite driver opened it, where one did. */

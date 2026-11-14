@@ -14,7 +14,13 @@ import {
   type Exchange,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { mcp, McpHeadersKeys, mcpPlugin, tools } from "../src/index.ts";
+import {
+  agentPlugin,
+  mcp,
+  McpHeadersKeys,
+  mcpPlugin,
+  tools,
+} from "../src/index.ts";
 import {
   canonicalJson,
   definitionHash,
@@ -34,6 +40,7 @@ import type { McpPins, McpRawToolResult, McpTool } from "../src/mcp/types.ts";
 import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
 import { statefulRemote } from "./helpers/stateful-remote.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 const READ: McpTool = {
   name: "get_document",
@@ -412,6 +419,7 @@ describe("pinning on every path to a remote MCP tool", () => {
       .routes(routes)
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: registry,
             stdio: new Map([["docs", manager]]),
@@ -456,11 +464,13 @@ describe("pinning on every path to a remote MCP tool", () => {
     ).toEqual(["docs_delete_document", "docs_get_document"]);
     expect(
       tools(["MCP(docs:*)"])
-        .resolve(t!.ctx)
+        .resolve(agentHostOf(t!.ctx))
         .map((tool) => tool.name)
         .sort(),
     ).toEqual(["mcp__docs__delete_document", "mcp__docs__get_document"]);
-    expect(tools(["MCP(docs:create_document)"]).resolve(t!.ctx)).toEqual([]);
+    expect(
+      tools(["MCP(docs:create_document)"]).resolve(agentHostOf(t!.ctx)),
+    ).toEqual([]);
     expect((await callTool(srv, "docs_create_document", {})).isError).toBe(
       true,
     );
@@ -505,6 +515,7 @@ describe("pinning on every path to a remote MCP tool", () => {
       ])
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: registry,
             clients: new Map([
@@ -524,7 +535,7 @@ describe("pinning on every path to a remote MCP tool", () => {
     }
     expect(
       tools(["MCP(docs:*)"])
-        .resolve(t.ctx)
+        .resolve(agentHostOf(t.ctx))
         .map((tool) => tool.name),
     ).toEqual(["mcp__docs__get_document"]);
     expect((await callTool(server, "docs_delete_document", {})).isError).toBe(
@@ -626,6 +637,7 @@ describe("the MCP plugin with a pinned client", () => {
       .with({
         on,
         plugins: [
+          agentPlugin(),
           mcpPlugin({
             clients: { remote: { url: "https://remote.test/mcp", pins } },
             lockfile: path,
@@ -680,6 +692,7 @@ describe("the MCP plugin with a pinned client", () => {
       .routes([craft().id("echo").from(direct()).to(mcp("remote:echo"))])
       .with({
         plugins: [
+          agentPlugin(),
           mcpPlugin({
             clients: {
               remote: {
@@ -910,7 +923,7 @@ describe("craft mcp pin over the configured clients", () => {
   test("the mcp plugin declares pin in its tooling", () => {
     for (const config of [
       { mcp: { clients: {} } },
-      { plugins: [mcpPlugin({ clients: {} })] },
+      { plugins: [agentPlugin(), mcpPlugin({ clients: {} })] },
     ] satisfies CraftConfig[]) {
       const owners = pluginTooling(config).filter(
         (each) => each.namespace === "mcp",

@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { craft, simple } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
-import { agent, llmPlugin, type AgentResult } from "../src/index.ts";
+import {
+  agentPlugin,
+  agent,
+  llmPlugin,
+  type AgentResult,
+} from "../src/index.ts";
 import type { LlmResult, LlmToolCallSummary } from "../src/llm/types.ts";
 
 // Captures the tool map the LLM provider received so the test can
@@ -64,6 +69,7 @@ describe('agent blocks: mode: "progressive" surfaces as a loader tool', () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

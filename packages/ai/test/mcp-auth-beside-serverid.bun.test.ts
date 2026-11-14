@@ -118,6 +118,7 @@ describe("mcp() auth beside serverId", () => {
   test("an inline url call sends its own auth", async () => {
     capture = captureAuthorization();
     t = await testContext()
+      .with({ plugins: [mcpPlugin()] })
       .routes([
         craft()
           .id("call")

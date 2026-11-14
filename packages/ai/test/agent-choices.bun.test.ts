@@ -32,9 +32,9 @@ import {
   advertisedReasoning,
   offersAChoice,
 } from "../src/agent/advertised.ts";
-import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { recordsFor } from "./helpers/session-stores.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import { sessionsOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -290,7 +290,7 @@ describe("a conversation's own choices", () => {
     await send(t, { session: "s", message: "hello" });
     expect(llm.calls[0]?.modelId).toBe("claude-sonnet-4-6");
 
-    await AgentSessionRuntime.for(t.ctx).configure("s", "zoe", {
+    await sessionsOf(t.ctx).configure("s", "zoe", {
       model: OPUS,
       reasoning: "high",
     });
@@ -311,7 +311,7 @@ describe("a conversation's own choices", () => {
     llm.script.push({ text: "one" });
     await send(t, { session: "s", message: "hello" });
 
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     const key = "s";
     await expect(
       runtime.configure(key, "zoe", { model: HAIKU }),
@@ -329,7 +329,7 @@ describe("a conversation's own choices", () => {
   test("a stored choice the agent no longer offers is not run", async () => {
     t = await boot();
     await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
+    const runtime = sessionsOf(t.ctx);
     const key = "s";
     // Written straight to the store, which is the only way this state can
     // arise: `configure` refuses it, so the record has to predate the list.

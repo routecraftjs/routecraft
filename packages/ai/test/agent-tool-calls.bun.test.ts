@@ -6,6 +6,7 @@ import {
   llmPlugin,
   type AgentResult,
   type AgentToolCallSummary,
+  agentPlugin,
 } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
@@ -77,6 +78,7 @@ describe("AgentResult.toolCalls: post-dispatch tool-call summary", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -118,6 +120,7 @@ describe("AgentResult.toolCalls: post-dispatch tool-call summary", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -165,6 +168,7 @@ describe("AgentResult.toolCalls: post-dispatch tool-call summary", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -195,6 +199,7 @@ describe("AgentResult.toolCalls: post-dispatch tool-call summary", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -267,6 +272,7 @@ describe("AgentResult.toolCalls: post-dispatch tool-call summary", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })

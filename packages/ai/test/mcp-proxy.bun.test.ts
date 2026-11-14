@@ -14,6 +14,7 @@ import { callTool } from "./helpers/mcp-tool-call.ts";
 import { statefulRemote } from "./helpers/stateful-remote.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import {
+  agentPlugin,
   mcp,
   McpHeadersKeys,
   remoteErrorTextOf,
@@ -24,6 +25,7 @@ import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
 import { MemorySessionStore } from "../src/agent/session/memory-store.ts";
 import type { McpClientConfig } from "../src/mcp/port.ts";
 import type { McpRawToolResult, McpServerOptions } from "../src/mcp/types.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 /**
  * `mcp()` for a combination its types already refuse, to reach the check
@@ -156,6 +158,7 @@ describe("a route that proxies a remote MCP server", () => {
       .routes(routes)
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: options.registry ?? buildRegistry(),
             stdio: buildManagers(options.answer),
@@ -979,6 +982,7 @@ describe("a route that proxies a remote MCP server", () => {
         .routes(routes)
         .with({
           plugins: [
+            agentPlugin(),
             mcpPort({
               tools: buildRegistry(),
               stdio: buildManagers(),
@@ -1040,6 +1044,7 @@ describe("a route that proxies a remote MCP server", () => {
       ])
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: buildRegistry(),
             stdio: buildManagers(),
@@ -1107,6 +1112,7 @@ describe("a route that proxies a remote MCP server", () => {
       ])
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: buildRegistry(),
             stdio: buildManagers(),
@@ -1148,6 +1154,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
             clients: buildClients(),
           }),
           sessionsPlugin({ store: sessions }),
+          agentPlugin(),
         ],
       })
       .with(deferring())
@@ -1188,7 +1195,9 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .to(mcp("docs:*")),
     ]);
 
-    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(
+      agentHostOf(t.ctx),
+    );
     expect(tool.name).toBe("mcp__docs__get_document");
     expect(tool.source).toMatchObject({
       kind: "mcp",
@@ -1222,7 +1231,9 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .filter(() => false)
         .to(mcp("docs:*")),
     ]);
-    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(
+      agentHostOf(t.ctx),
+    );
     await expect(
       tool.handler({ id: "7" }, handlerContext(tool.name)),
     ).rejects.toMatchObject({ rc: "AI2002" });
@@ -1243,7 +1254,9 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .defer({ ttl: "1h" })
         .to(mcp("docs:*")),
     ]);
-    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(
+      agentHostOf(t.ctx),
+    );
     expect(tool.background).toBe(true);
     const session = { id: "s", agent: "bot" };
     const handle = (await tool.handler(
@@ -1281,7 +1294,9 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .from(mcp({ proxy: "docs:*" }))
         .to(mcp("docs:*")),
     ]);
-    expect(tools(["MCP(docs:get_document)"]).resolve(t.ctx)).toEqual([]);
+    expect(
+      tools(["MCP(docs:get_document)"]).resolve(agentHostOf(t.ctx)),
+    ).toEqual([]);
     const warned = t.contextLogger.warn.mock.calls.find(
       (c: unknown[]) => typeof c[1] === "string" && c[1].includes("not live"),
     );
@@ -1301,7 +1316,9 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .defer({ ttl: "1h" })
         .to(mcp("docs:*")),
     ]);
-    const [tool] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const [tool] = tools(["MCP(docs:get_document)"]).resolve(
+      agentHostOf(t.ctx),
+    );
     expect(tool.background).toBe(true);
     expect(tool.description).toContain("runs in the background");
   });
@@ -1318,18 +1335,20 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .from(mcp({ proxy: "docs:*", exclude: ["search"] }))
         .to(mcp("docs:*")),
     ]);
-    expect(tools(["MCP(docs:search)"]).resolve(t.ctx)).toEqual([]);
+    expect(tools(["MCP(docs:search)"]).resolve(agentHostOf(t.ctx))).toEqual([]);
     const warned = t.contextLogger.warn.mock.calls.find(
       (c: unknown[]) => typeof c[1] === "string" && c[1].includes("excluded"),
     );
     expect(warned?.[0]).toMatchObject({ route: "docs", tool: "search" });
     expect(
       tools(["MCP(docs:*)"])
-        .resolve(t.ctx)
+        .resolve(agentHostOf(t.ctx))
         .map((tool) => tool.name)
         .sort(),
     ).toEqual(["mcp__docs__delete_document", "mcp__docs__get_document"]);
-    const [fetched] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const [fetched] = tools(["MCP(docs:get_document)"]).resolve(
+      agentHostOf(t.ctx),
+    );
     expect(fetched.source).toMatchObject({ routeId: "docs" });
   });
 
@@ -1350,12 +1369,14 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .from(mcp({ proxy: "docs:get_document" }))
         .to(mcp("docs:get_document")),
     ]);
-    expect(tools(["MCP(docs:get_document)"]).resolve(t.ctx)).toEqual([]);
+    expect(
+      tools(["MCP(docs:get_document)"]).resolve(agentHostOf(t.ctx)),
+    ).toEqual([]);
     const warned = t.contextLogger.warn.mock.calls.find(
       (c: unknown[]) => typeof c[1] === "string" && c[1].includes("not live"),
     );
     expect(warned?.[0]).toMatchObject({ route: "fetch", tool: "get_document" });
-    const star = tools(["MCP(docs:*)"]).resolve(t.ctx);
+    const star = tools(["MCP(docs:*)"]).resolve(agentHostOf(t.ctx));
     expect(star.map((tool) => tool.name).sort()).toEqual([
       "mcp__docs__delete_document",
       "mcp__docs__search",
@@ -1384,7 +1405,9 @@ describe("an agent's MCP reference to a proxied tool", () => {
       ],
       failing,
     );
-    const [governed] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const [governed] = tools(["MCP(docs:get_document)"]).resolve(
+      agentHostOf(t.ctx),
+    );
     const rejection = (tool: typeof governed): Promise<Error> =>
       Promise.resolve()
         .then(() => tool.handler({ id: "gone" }, handlerContext(tool.name)))
@@ -1399,7 +1422,9 @@ describe("an agent's MCP reference to a proxied tool", () => {
 
     await t.stop();
     await build([], failing);
-    const [direct] = tools(["MCP(docs:get_document)"]).resolve(t.ctx);
+    const [direct] = tools(["MCP(docs:get_document)"]).resolve(
+      agentHostOf(t.ctx),
+    );
     const viaClient = await rejection(direct);
     expect(viaClient.message).toContain("File not found");
     expect(rcCodeOf(viaClient)).toBe("AI2003");
@@ -1420,7 +1445,7 @@ describe("an agent's MCP reference to a proxied tool", () => {
         .from(mcp({ proxy: "docs:get_document" }))
         .to(mcp("docs:get_document")),
     ]);
-    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
+    const [tool] = tools(["MCP(docs:search)"]).resolve(agentHostOf(t.ctx));
     expect(tool.source).not.toHaveProperty("routeId");
     await tool.handler({ q: "x" }, handlerContext(tool.name));
     expect(dispatches).toEqual([
@@ -1452,6 +1477,7 @@ describe("the record of a call toward a remote MCP tool", () => {
       .routes(routes)
       .with({
         plugins: [
+          agentPlugin(),
           mcpPort({
             tools: buildRegistry(),
             stdio: buildManagers(answer),
@@ -1643,7 +1669,7 @@ describe("the record of a call toward a remote MCP tool", () => {
    */
   test("an agent call through a proxy route is recorded once", async () => {
     await build([proxyDocs()]);
-    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
+    const [tool] = tools(["MCP(docs:search)"]).resolve(agentHostOf(t.ctx));
     await tool.handler({ q: "x" }, agentContext(tool.name));
     expect(requested).toHaveLength(1);
     expect(settled).toHaveLength(1);
@@ -1663,7 +1689,7 @@ describe("the record of a call toward a remote MCP tool", () => {
    */
   test("an agent call with no proxy route is recorded as bypassed", async () => {
     await build([]);
-    const [tool] = tools(["MCP(docs:search)"]).resolve(t.ctx);
+    const [tool] = tools(["MCP(docs:search)"]).resolve(agentHostOf(t.ctx));
     await tool.handler({ q: "x" }, agentContext(tool.name));
     expect(settled).toHaveLength(1);
     expect(settled[0]).toMatchObject({

@@ -10,6 +10,7 @@ import {
   WEB_INGRESS,
 } from "@routecraft/routecraft";
 import { rejectStaleOptions } from "@routecraft/routecraft/internal";
+import { isMcpAdapter } from "../brand.ts";
 import { McpServer } from "./server.ts";
 import {
   MCP,
@@ -34,6 +35,7 @@ import {
 import { assertRemoteUrl } from "./sdk.ts";
 import { createMcpHttpConnections } from "./http-connections.ts";
 import { declaredExactProxies, proxyCoverage } from "./proxy.ts";
+import { mcpRuntime, mcpRuntimeFor } from "./runtime.ts";
 import { McpToolRegistry } from "./tool-registry.ts";
 import { mcpTooling } from "./tooling.ts";
 import { isStdioConfig, stdioManagerOptions } from "./client-config.ts";
@@ -49,7 +51,8 @@ import {
  * Optional clients: register named remote MCP servers so routes can use .to(mcp("name:tool")) without passing url.
  * Stdio clients are spawned as subprocesses with auto-restart; each HTTP client keeps one connection, shared by its tool listing and its calls.
  * All discovered external tools (stdio, HTTP) are stored in a unified McpToolRegistry for agent adapter discovery.
- * Required when any route uses .from(mcp(...)); the route will fail at start if this plugin is not applied.
+ * Required when any route uses mcp(...), as a source or as a call to a remote tool; either fails with RC5003 if this plugin is not applied.
+ * An application that only calls remote tools serves nothing: with no `transport` set and no route exposed as a tool when the plugin starts, the server is left stopped, so its stdio transport never takes over the process's standard streams. A route exposed as a tool after start starts the server then.
  *
  * Everything bind acquires (subprocesses, HTTP clients, refresh timers, the
  * server) belongs to the application that bound it and is released through
@@ -62,6 +65,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
 
   const servers = new WeakMap<PluginContext, McpServer>();
   const services = new WeakMap<PluginContext, McpService>();
+  /** A server start still in flight for a tool exposed after the application started. */
+  const lateStarts = new WeakMap<PluginContext, Promise<void>>();
 
   return {
     id: "routecraft.ai.mcp",
@@ -92,6 +97,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         http: createMcpHttpConnections({ authProviders, disabledClients }),
         declaredProxies: declaredExactProxies(c),
       });
+      mcpRuntime.set(c.application, mcpRuntimeFor(c));
 
       // A client that logs in and has lost its credential is switched off
       // where it stands, as `enabled` would have, so the rest runs on.
@@ -202,6 +208,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       c.onDispose(async () => {
         servers.delete(c);
         try {
+          // A start that settles after the stop would leave the transport open.
+          await lateStarts.get(c);
           await server.stop();
         } catch (error) {
           c.logger.error(
@@ -213,7 +221,32 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       await server.prepare();
     },
     async start(c: PluginContext) {
-      await servers.get(c)?.start();
+      const server = servers.get(c);
+      const service = services.get(c);
+      if (options.transport !== undefined || servesTool(c)) {
+        await server?.start();
+      } else if (server !== undefined && service !== undefined) {
+        c.logger.info(
+          {},
+          "MCP server not started: no transport is set and no route is exposed as a tool",
+        );
+        // A route registered after start is still served: the first tool it
+        // exposes starts the server it was skipped for.
+        const stopWaiting = service.onChange(() => {
+          if (service.local.size === 0 && service.proxies.size === 0) return;
+          stopWaiting();
+          lateStarts.set(
+            c,
+            server.start().catch((error: unknown) => {
+              c.logger.error(
+                { err: error, operation: "start" },
+                "Failed to start the MCP server for a tool exposed after start",
+              );
+            }),
+          );
+        });
+        c.onDispose(stopWaiting);
+      }
       reportProxyCoverage(c);
     },
   };
@@ -453,4 +486,11 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     }, interval);
     c.onDispose(() => clearInterval(timer));
   }
+}
+
+/** Whether any route, enabled or not, is exposed as a tool through `.from(mcp())`. */
+function servesTool(c: PluginContext): boolean {
+  return c.routes
+    .list()
+    .some((route) => route.definition.sources.some(isMcpAdapter));
 }

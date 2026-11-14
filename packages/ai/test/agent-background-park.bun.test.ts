@@ -38,13 +38,13 @@ import {
   type BackgroundToolHandle,
   type ToolsItem,
 } from "../src/index.ts";
-import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { REIDENTIFY_TIMEOUT_MS } from "../src/agent/session/runtime.ts";
 import { AgentSessionStore } from "../src/agent/session/store.ts";
 import { recordsFor, updateRecord } from "./helpers/session-stores.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 import { sleep, until } from "./helpers/until.ts";
+import { sessionsOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 /** Shared across the contexts a restart test builds, so a token minted by one verifies on the next. */
@@ -241,7 +241,7 @@ function lastUserOf(call: { user: unknown }): Array<{ text: string }> {
 }
 
 async function summaryOf(t: TestContext, session: string) {
-  return (await AgentSessionRuntime.for(t.ctx).summary(session, "operator"))!;
+  return (await sessionsOf(t.ctx).summary(session, "operator"))!;
 }
 
 async function recordOf(store: MemoryDeferralStore, session: string) {
@@ -1542,7 +1542,7 @@ describe("a reidentify hook is bounded", () => {
     } finally {
       clock.uninstall();
     }
-    const runtime = AgentSessionRuntime.for(t!.ctx) as unknown as {
+    const runtime = sessionsOf(t!.ctx) as unknown as {
       reviving: Set<string>;
     };
     await until(() => runtime.reviving.size === 0);

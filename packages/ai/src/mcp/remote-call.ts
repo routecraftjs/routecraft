@@ -29,7 +29,7 @@ import { McpHeadersKeys } from "./types.ts";
  * @internal
  */
 export async function recordRemoteCall<T>(
-  context: CraftContext,
+  context: Pick<CraftContext, "emit">,
   call: McpRemoteCall,
   run: () => Promise<T>,
   settlementOf: {

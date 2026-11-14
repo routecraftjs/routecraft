@@ -5,6 +5,7 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, tools } from "../src/index.ts";
 import { currentTimeFn, randomUuidFn } from "./helpers/fn-fixtures.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
 
 async function buildCtx(opts: {
   functions?: NonNullable<Parameters<typeof agentPlugin>[0]>["functions"];
@@ -54,7 +55,7 @@ describe("tools() resolver - bare references", () => {
     t = await buildCtx({
       functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
-    const resolved = tools(["CurrentTime"]).resolve(t.ctx);
+    const resolved = tools(["CurrentTime"]).resolve(agentHostOf(t.ctx));
     expect(resolved).toHaveLength(1);
     expect(resolved[0].name).toBe("CurrentTime");
     expect(resolved[0].description).toMatch(/timestamp/i);
@@ -70,6 +71,7 @@ describe("tools() resolver - bare references", () => {
   test("Direct(routeId) ref resolves via the direct registry", async () => {
     const inputSchema = z.object({ orderId: z.string() });
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("fetch-order")
@@ -81,7 +83,7 @@ describe("tools() resolver - bare references", () => {
       .build();
     await t.startAndWaitReady();
 
-    const resolved = tools(["Direct(fetch-order)"]).resolve(t.ctx);
+    const resolved = tools(["Direct(fetch-order)"]).resolve(agentHostOf(t.ctx));
     expect(resolved).toHaveLength(1);
     expect(resolved[0].name).toBe("direct__fetch-order");
     expect(resolved[0].description).toBe("Fetch an order by id.");
@@ -120,18 +122,18 @@ describe("tools() resolver - bare references", () => {
       .build();
     await t.startAndWaitReady();
 
-    const [asFn] = tools(["direct_x"]).resolve(t.ctx);
+    const [asFn] = tools(["direct_x"]).resolve(agentHostOf(t.ctx));
     expect(asFn.name).toBe("direct_x");
     expect(asFn.description).toBe("Explicit fn registry entry.");
 
-    const [asRoute] = tools(["Direct(x)"]).resolve(t.ctx);
+    const [asRoute] = tools(["Direct(x)"]).resolve(agentHostOf(t.ctx));
     expect(asRoute.name).toBe("direct__x");
     expect(asRoute.description).toBe("Route description.");
 
     // The single-underscore fn id and the double-underscore wire form
     // are distinct names, so binding both to one agent exposes two
     // tools rather than silently deduplicating to one.
-    const both = tools(["direct_x", "Direct(x)"]).resolve(t.ctx);
+    const both = tools(["direct_x", "Direct(x)"]).resolve(agentHostOf(t.ctx));
     expect(both.map((r) => r.name)).toEqual(["direct_x", "direct__x"]);
   });
 
@@ -146,7 +148,7 @@ describe("tools() resolver - bare references", () => {
     });
     let caught: unknown;
     try {
-      tools(["missing"]).resolve(t.ctx);
+      tools(["missing"]).resolve(agentHostOf(t.ctx));
     } catch (err) {
       caught = err;
     }
@@ -163,9 +165,9 @@ describe("tools() resolver - bare references", () => {
    */
   test("Agent(...) ref throws unknown-tool", async () => {
     t = await buildCtx({});
-    expect(() => tools(["Agent(researcher)"]).resolve(t!.ctx)).toThrow(
-      /unknown tool/i,
-    );
+    expect(() =>
+      tools(["Agent(researcher)"]).resolve(agentHostOf(t!.ctx)),
+    ).toThrow(/unknown tool/i);
   });
 
   /**
@@ -177,7 +179,7 @@ describe("tools() resolver - bare references", () => {
     t = await buildCtx({});
     const rcOf = (items: unknown): unknown => {
       try {
-        tools(items as never).resolve(t!.ctx);
+        tools(items as never).resolve(agentHostOf(t!.ctx));
       } catch (err) {
         return err;
       }
@@ -211,7 +213,9 @@ describe("tools() resolver - { name, guard }", () => {
       functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     const guard = mock();
-    const [resolved] = tools([{ name: "CurrentTime", guard }]).resolve(t.ctx);
+    const [resolved] = tools([{ name: "CurrentTime", guard }]).resolve(
+      agentHostOf(t.ctx),
+    );
     expect(resolved.name).toBe("CurrentTime");
     expect(resolved.guard).toBe(guard);
   });
@@ -225,7 +229,9 @@ describe("tools() resolver - { name, guard }", () => {
     t = await buildCtx({
       functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
-    expect(() => tools([{ name: "" }]).resolve(t!.ctx)).toThrow(/non-empty/i);
+    expect(() => tools([{ name: "" }]).resolve(agentHostOf(t!.ctx))).toThrow(
+      /non-empty/i,
+    );
   });
 
   /**
@@ -242,12 +248,12 @@ describe("tools() resolver - { name, guard }", () => {
         name: "CurrentTime",
         description: "Per-agent framing of the time tool.",
       },
-    ]).resolve(t.ctx);
+    ]).resolve(agentHostOf(t.ctx));
     expect(resolved.description).toBe("Per-agent framing of the time tool.");
 
     // Registry entry stays canonical: a second binding without the
     // override sees the original description.
-    const [resolved2] = tools(["CurrentTime"]).resolve(t.ctx);
+    const [resolved2] = tools(["CurrentTime"]).resolve(agentHostOf(t.ctx));
     expect(resolved2.description).toBe(currentTimeFn.description);
     expect(resolved2.description).not.toBe(resolved.description);
   });
@@ -262,7 +268,9 @@ describe("tools() resolver - { name, guard }", () => {
       functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     expect(() =>
-      tools([{ name: "CurrentTime", description: "" }]).resolve(t!.ctx),
+      tools([{ name: "CurrentTime", description: "" }]).resolve(
+        agentHostOf(t!.ctx),
+      ),
     ).toThrow(/description.*non-empty/i);
   });
 
@@ -282,7 +290,7 @@ describe("tools() resolver - { name, guard }", () => {
         guard,
         description: "Reframed for this agent.",
       },
-    ]).resolve(t.ctx);
+    ]).resolve(agentHostOf(t.ctx));
     expect(resolved.guard).toBe(guard);
     expect(resolved.description).toBe("Reframed for this agent.");
   });
@@ -304,7 +312,9 @@ describe("tools() resolver - misc", () => {
     t = await buildCtx({
       functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
-    const resolved = tools(["CurrentTime", "CurrentTime"]).resolve(t.ctx);
+    const resolved = tools(["CurrentTime", "CurrentTime"]).resolve(
+      agentHostOf(t.ctx),
+    );
     expect(resolved).toHaveLength(1);
   });
 
@@ -318,7 +328,7 @@ describe("tools() resolver - misc", () => {
       functions: { CurrentTime: currentTimeFn },
     });
     expect(() =>
-      tools([{ guard: () => undefined } as never]).resolve(t!.ctx),
+      tools([{ guard: () => undefined } as never]).resolve(agentHostOf(t!.ctx)),
     ).toThrow(/string or \{ name/);
   });
 });
@@ -352,7 +362,7 @@ describe("tools() resolver - builder form", () => {
       catalog.fns
         .filter((f) => f.tags?.includes("read-only"))
         .map((f) => f.name),
-    ).resolve(t.ctx);
+    ).resolve(agentHostOf(t.ctx));
     expect(resolved.map((r) => r.name).sort()).toEqual([
       "CurrentTime",
       "RandomUuid",
@@ -382,7 +392,7 @@ describe("tools() resolver - builder form", () => {
       ...catalog.fns
         .filter((f) => f.tags?.includes("read-only"))
         .map((f) => f.name),
-    ]).resolve(t.ctx);
+    ]).resolve(agentHostOf(t.ctx));
     expect(resolved.map((r) => r.name).sort()).toEqual([
       "CurrentTime",
       "RandomUuid",
@@ -397,6 +407,7 @@ describe("tools() resolver - builder form", () => {
    */
   test("builder maps catalog.routes to Direct(...) references", async () => {
     t = await testContext()
+      .with({ plugins: [agentPlugin()] })
       .routes([
         craft()
           .id("read-thing")
@@ -412,7 +423,7 @@ describe("tools() resolver - builder form", () => {
       catalog.routes
         .filter((r) => r.tags?.includes("read-only"))
         .map((r) => `Direct(${r.id})`),
-    ).resolve(t.ctx);
+    ).resolve(agentHostOf(t.ctx));
     expect(resolved.map((r) => r.name)).toEqual(["direct__read-thing"]);
   });
 
@@ -428,7 +439,7 @@ describe("tools() resolver - builder form", () => {
     expect(() =>
       tools(() => {
         throw new Error("boom");
-      }).resolve(t!.ctx),
+      }).resolve(agentHostOf(t!.ctx)),
     ).toThrow(/builder threw: boom/);
   });
 
@@ -441,8 +452,8 @@ describe("tools() resolver - builder form", () => {
     t = await buildCtx({
       functions: { CurrentTime: currentTimeFn },
     });
-    expect(() => tools((() => ({})) as never).resolve(t!.ctx)).toThrow(
-      /builder must return an array/,
-    );
+    expect(() =>
+      tools((() => ({})) as never).resolve(agentHostOf(t!.ctx)),
+    ).toThrow(/builder must return an array/);
   });
 });

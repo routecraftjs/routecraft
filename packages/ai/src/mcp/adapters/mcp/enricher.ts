@@ -2,17 +2,18 @@ import type { Exchange, Enricher } from "@routecraft/routecraft";
 import {
   HeadersKeys,
   authorityOf,
+  lookupOf,
   rcError,
-  sendsTraceContext,
+  sendsTraceContextFor,
   traceContextOf,
 } from "@routecraft/routecraft";
-import { getExchangeContext } from "@routecraft/routecraft/internal";
 import type {
   McpClientOptions,
   McpArgsExtractor,
   McpClientAuthOptions,
 } from "../../types.ts";
-import { MCP } from "../../port.ts";
+import { MCP, type McpService } from "../../port.ts";
+import { mcpRuntime } from "../../runtime.ts";
 import { McpHeadersKeys } from "../../types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
 import { assertRemoteUrl } from "../../sdk.ts";
@@ -117,7 +118,16 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     exchange: Exchange<unknown>,
     toolName: string,
   ): Promise<unknown> {
-    const context = getExchangeContext(exchange);
+    const service = lookupOf(exchange, MCP);
+    const runtime = mcpRuntime.of(exchange);
+    if (service === undefined || runtime === undefined) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "mcp(): the MCP plugin is not installed in the application this exchange runs in.",
+        suggestion:
+          "Add mcp: {} to the config, or mcpPlugin() to its plugins. A call to a remote tool is recorded and traced through that plugin, so an exchange built by hand outside a route cannot make one.",
+      });
+    }
     const argsExtractor = this.options.args ?? defaultArgs;
     const args = argsExtractor(exchange);
     const own = this.options.traceContext;
@@ -128,16 +138,11 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     // and resource cleanup all live in one place shared with the agent
     // `tools([...])` resolver.
     if (this.options.serverId) {
-      if (!context) {
-        throw new Error(
-          `MCP client: serverId "${this.options.serverId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route).`,
-        );
-      }
       const serverId = this.options.serverId;
-      const transport = resolveServerTransport(context, serverId);
+      const transport = resolveServerTransport(service, serverId);
       const dispatch = (): ReturnType<typeof dispatchMcpCallRaw> =>
-        dispatchMcpCallRaw(context.lookup(MCP), serverId, toolName, args, {
-          context,
+        dispatchMcpCallRaw(service, serverId, toolName, args, {
+          context: { outboundTraceContext: sendsTraceContextFor(exchange) },
           own,
           carrier: () => traceContextOf(exchange),
         });
@@ -153,7 +158,7 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
       } else {
         // Read inside the record, so a remote `isError` settles as one.
         result = await recordRemoteCall(
-          context,
+          runtime,
           { ...this.bypassedCall(exchange, toolName), serverId },
           async () => toolResultBody(await dispatch(), where),
           directSettlement,
@@ -170,14 +175,13 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     }
 
     // Inline-URL path -> direct HTTP call without going through the
-    // registry. An exchange with no context has no bus to record the call
-    // on, which only a hand-built exchange outside a route is.
+    // registry.
     const { url, auth } = resolveConnection(this.options);
     const send = (): ReturnType<typeof callRemoteToolRaw> =>
       callRemoteToolRaw(url, toolName, args, {
         auth,
         // `_meta.traceparent` and `_meta.tracestate`, as SEP-414 names them.
-        meta: sendsTraceContext(context, own)
+        meta: sendsTraceContextFor(exchange, own)
           ? { ...traceContextOf(exchange) }
           : undefined,
         allowHttp: this.options.allowHttp,
@@ -185,18 +189,15 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
     // The URL is configuration, not part of the answer.
     const answer = async (): Promise<unknown> =>
       toolResultBody(await send(), `"${toolName}"`);
-    const result =
-      context === undefined
-        ? await answer()
-        : await recordRemoteCall(
-            context,
-            {
-              ...this.bypassedCall(exchange, toolName),
-              origin: new URL(url).origin,
-            },
-            answer,
-            directSettlement,
-          );
+    const result = await recordRemoteCall(
+      runtime,
+      {
+        ...this.bypassedCall(exchange, toolName),
+        origin: new URL(url).origin,
+      },
+      answer,
+      directSettlement,
+    );
     if (result && typeof result === "object") {
       metadataOf.set(result, { toolName, url, transport: "http" });
     }
@@ -292,11 +293,10 @@ export class McpEnricherAdapter implements Enricher<unknown, unknown> {
  * carry `transport: "stdio"` explicitly).
  */
 function resolveServerTransport(
-  context: NonNullable<ReturnType<typeof getExchangeContext>>,
+  service: McpService,
   serverId: string,
 ): "stdio" | "http" {
-  const servers = context.lookup(MCP)?.clients;
-  const cfg = servers?.get(serverId);
+  const cfg = service.clients.get(serverId);
   if (
     cfg &&
     typeof cfg === "object" &&

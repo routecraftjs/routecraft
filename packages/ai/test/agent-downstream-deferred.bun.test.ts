@@ -9,11 +9,11 @@ import {
   llmPlugin,
   tools,
 } from "../src/index.ts";
-import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { DEFERRED_TOOL_PLACEHOLDER } from "../src/agent/deferral-state.ts";
 import { recordsFor } from "./helpers/session-stores.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
+import { sessionsOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -244,12 +244,8 @@ describe("downstream deferral token boundary", () => {
         expect(captured).not.toContain(token);
       }
       expect(
-        (
-          await AgentSessionRuntime.for(t.ctx).summary(
-            "review-session",
-            "operator",
-          )
-        )?.background,
+        (await sessionsOf(t.ctx).summary("review-session", "operator"))
+          ?.background,
       ).toBe(0);
       expect(actionRuns).toBe(0);
       expect(

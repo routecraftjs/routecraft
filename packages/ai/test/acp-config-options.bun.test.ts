@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { agentPlugin, tools } from "../src/index.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import {
-  AgentSessionRuntime,
   MemorySessionStore,
   type SessionCasResult,
   type SessionStore,
@@ -19,6 +18,7 @@ import {
 } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { slowTool } from "./helpers/slow-tool.ts";
+import { sessionsOf } from "./helpers/hosts.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -129,8 +129,7 @@ describe("session config options", () => {
 
   /** The persona the record names, which is the only place it lives. */
   async function personaOf(sessionId: string): Promise<string | undefined> {
-    return (await AgentSessionRuntime.for(h!.t.ctx).store.load(sessionId))
-      ?.agent;
+    return (await sessionsOf(h!.t.ctx).store.load(sessionId))?.agent;
   }
 
   /**

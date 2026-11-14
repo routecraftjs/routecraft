@@ -27,8 +27,8 @@ import {
  * @internal
  */
 export interface McpCallTrace {
-  /** The calling exchange's context, whose `traceContext.outbound` is the last word. */
-  readonly context: CraftContext | undefined;
+  /** The calling application, whose `traceContext.outbound` is the last word. */
+  readonly context: Pick<CraftContext, "outboundTraceContext"> | undefined;
   /** The call's own `traceContext`, when it set one. */
   readonly own?: boolean | undefined;
   /** Builds the carrier, and only runs when the call sends it. */

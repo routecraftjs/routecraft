@@ -126,6 +126,42 @@ describe("bounded graceful shutdown", () => {
   });
 
   /**
+   * @case A step is told when its route abandons the work it is doing
+   * @preconditions A step that never settles and keeps the route.signal its step context carries; a short shutdown.timeout
+   * @expectedResult The signal is unfired while the step runs and has fired once the forced stage ran
+   */
+  test("hands a step the route's abandon signal", async () => {
+    const inStep = entered();
+    let abandon: AbortSignal | undefined;
+
+    t = await testContext()
+      .with({ shutdown: { timeout: 250 } })
+      .routes(
+        craft()
+          .id("wedged")
+          .from(direct())
+          .process((exchange, context) => {
+            abandon = context?.route.signal;
+            inStep.enter();
+            return new Promise<typeof exchange>(() => {
+              // Never settles, so only the forced stage ends it.
+            });
+          })
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    void t.client.sendDirect("wedged", "payload").catch(() => undefined);
+    await inStep.signal;
+    expect(abandon?.aborted).toBe(false);
+
+    await t.ctx.stop();
+    expect(abandon?.aborted).toBe(true);
+    t = undefined;
+  });
+
+  /**
    * @case Closing intake does not fire the execution signal
    * @preconditions A running route with nothing in flight
    * @expectedResult stop() aborts intake but leaves the execution signal untouched until the forced stage, which never runs here because the drain completes

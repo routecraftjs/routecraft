@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   rcError,
-  type CraftContext,
+  type ApplicationKey,
   type ExchangeHeaders,
   type Principal,
   type Tag,
@@ -24,7 +24,9 @@ import {
   remoteCall,
 } from "../../mcp/remote-call.ts";
 import { MCP, type McpService } from "../../mcp/port.ts";
-import { coveringProxy, declaredProxy, proxiedEntry } from "../../mcp/proxy.ts";
+import { coveringProxy, proxiedEntry } from "../../mcp/proxy.ts";
+import { mcpRuntime } from "../../mcp/runtime.ts";
+import type { AgentHost } from "../host.ts";
 import {
   McpHeadersKeys,
   type McpProxyRegistration,
@@ -44,7 +46,6 @@ import {
   FN_BACKGROUND,
   isLazyFn,
   resolveFnOptions,
-  toolHostOf,
   withheldRouteReason,
   type FnEntry,
   type RegisteredFn,
@@ -262,7 +263,7 @@ export interface ToolSelection {
    * into a live route outage instead of a startup error. See
    * {@link resolveMcpRefs}.
    */
-  readonly resolve: (ctx: CraftContext) => ResolvedTool[];
+  readonly resolve: (ctx: AgentHost) => ResolvedTool[];
 }
 
 /**
@@ -502,7 +503,7 @@ function selection(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
  *
  * @internal
  */
-function buildCatalog(ctx: CraftContext): ToolsCatalog {
+function buildCatalog(ctx: AgentHost): ToolsCatalog {
   const fns: ToolsCatalog["fns"][number][] = [];
   const fnRegistry = ctx.lookup(AGENTS)?.functions;
   if (fnRegistry) {
@@ -512,7 +513,7 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
       // agent in the context, a markdown agent's frontmatter included.
       if (
         isLazyFn(entry) &&
-        withheldRouteReason(toolHostOf(ctx), entry.targetId) !== undefined
+        withheldRouteReason(ctx.tools, entry.targetId) !== undefined
       ) {
         continue;
       }
@@ -541,7 +542,7 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
   // `capabilities()` already speaks raw route ids (it decodes the
   // sanitised registry keys), so a builder that does `Direct(${r.id})`
   // resolves cleanly for ids containing `/`, `:`, etc.
-  for (const meta of ctx.capabilities()) {
+  for (const meta of ctx.tools.capabilities()) {
     const tags =
       meta.tags && meta.tags.length > 0
         ? Object.freeze([...meta.tags])
@@ -613,7 +614,7 @@ function runBuilder(builder: ToolsBuilder, catalog: ToolsCatalog): ToolsItem[] {
  *
  * @internal
  */
-function fnRegistryHas(ctx: CraftContext, name: string): boolean {
+function fnRegistryHas(ctx: AgentHost, name: string): boolean {
   const fnRegistry = ctx.lookup(AGENTS)?.functions;
   return fnRegistry?.has(name) ?? false;
 }
@@ -624,7 +625,7 @@ function fnRegistryHas(ctx: CraftContext, name: string): boolean {
  * of this dispatch's offer (see {@link withheldByEnablement}).
  */
 function resolveByName(
-  ctx: CraftContext,
+  ctx: AgentHost,
   name: string,
   guard: ToolGuard | undefined,
   background?: boolean,
@@ -719,7 +720,7 @@ function combineGuards(
  * @internal
  */
 function resolveDirect(
-  ctx: CraftContext,
+  ctx: AgentHost,
   ref: string,
   routeId: string,
   guard: ToolGuard | undefined,
@@ -737,13 +738,13 @@ function resolveDirect(
     routeId,
     background !== undefined ? { background } : undefined,
   );
-  const fn = wrapper.resolve(toolHostOf(ctx), toolName);
+  const fn = wrapper.resolve(ctx.tools, toolName);
   return toResolvedTool(toolName, fn, guard, directSource(routeId, remote));
 }
 
 /** The remote a capability was imported from, or `undefined` for a local one. */
-function remoteOf(ctx: CraftContext, routeId: string): string | undefined {
-  return ctx.capabilities().find((c) => c.endpoint === routeId)?.remote;
+function remoteOf(ctx: AgentHost, routeId: string): string | undefined {
+  return ctx.tools.capabilities().find((c) => c.endpoint === routeId)?.remote;
 }
 
 function directSource(
@@ -782,7 +783,7 @@ function isRemoteRefName(name: string): boolean {
  * @internal
  */
 function resolveRemoteRefs(
-  ctx: CraftContext,
+  ctx: AgentHost,
   ref: string,
   guard: ToolGuard | undefined,
 ): ResolvedTool[] {
@@ -796,13 +797,13 @@ function resolveRemoteRefs(
     });
   }
   const prefix = `${remote}:`;
-  const imported = ctx
+  const imported = ctx.tools
     .capabilities()
     .filter((c) => c.remote === remote && c.endpoint.startsWith(prefix));
   if (imported.length === 0) {
     const known = [
       ...new Set(
-        ctx
+        ctx.tools
           .capabilities()
           .map((c) => c.remote)
           .filter((name): name is string => name !== undefined),
@@ -821,8 +822,9 @@ function resolveRemoteRefs(
     const toolName = `${REMOTE_TOOL_PREFIX}${remote}${TOOL_NAME_SEPARATOR}${capability.endpoint.slice(prefix.length)}`;
     const violation = describeToolNameViolation(toolName);
     if (violation !== undefined) {
-      const reported = reportedRemoteNames.get(ctx) ?? new Set<string>();
-      reportedRemoteNames.set(ctx, reported);
+      const reported =
+        reportedRemoteNames.get(ctx.application) ?? new Set<string>();
+      reportedRemoteNames.set(ctx.application, reported);
       if (!reported.has(toolName)) {
         reported.add(toolName);
         ctx.logger.warn(
@@ -832,10 +834,7 @@ function resolveRemoteRefs(
       }
       continue;
     }
-    const fn = directTool(capability.endpoint).resolve(
-      toolHostOf(ctx),
-      toolName,
-    );
+    const fn = directTool(capability.endpoint).resolve(ctx.tools, toolName);
     out.push(
       toResolvedTool(
         toolName,
@@ -855,7 +854,7 @@ function resolveRemoteRefs(
  * by reason, so a route disabled again for a different reason, or again
  * after it came back, is reported again.
  */
-const reportedDisabledRefs = new WeakMap<CraftContext, Map<string, string>>();
+const reportedDisabledRefs = new WeakMap<ApplicationKey, Map<string, string>>();
 
 /**
  * Whether the tool `ref` names is left out of this dispatch because its
@@ -871,19 +870,19 @@ const reportedDisabledRefs = new WeakMap<CraftContext, Map<string, string>>();
  * @internal
  */
 function withheldByEnablement(
-  ctx: CraftContext,
+  ctx: AgentHost,
   ref: string,
   routeId: string,
 ): boolean {
-  const reason = withheldRouteReason(toolHostOf(ctx), routeId);
-  let seen = reportedDisabledRefs.get(ctx);
+  const reason = withheldRouteReason(ctx.tools, routeId);
+  let seen = reportedDisabledRefs.get(ctx.application);
   if (reason === undefined) {
     seen?.delete(ref);
     return false;
   }
   if (seen === undefined) {
     seen = new Map();
-    reportedDisabledRefs.set(ctx, seen);
+    reportedDisabledRefs.set(ctx.application, seen);
   }
   if (seen.get(ref) !== reason) {
     seen.set(ref, reason);
@@ -896,7 +895,7 @@ function withheldByEnablement(
 }
 
 /** Unusable remote route names already warned about, per context. */
-const reportedRemoteNames = new WeakMap<CraftContext, Set<string>>();
+const reportedRemoteNames = new WeakMap<ApplicationKey, Set<string>>();
 
 function record(out: Map<string, ResolvedTool>, tool: ResolvedTool): void {
   const existing = out.get(tool.name);
@@ -916,7 +915,7 @@ function record(out: Map<string, ResolvedTool>, tool: ResolvedTool): void {
 
 /** A registered fn's declared shape, through the registry's resolution memo. */
 function declaredFn(
-  ctx: CraftContext,
+  ctx: AgentHost,
   name: string,
   entry: FnEntry,
 ): RegisteredFn {
@@ -926,7 +925,7 @@ function declaredFn(
   const memoised = registry?.resolvedFunction(name);
   if (memoised !== undefined) return memoised;
   const resolved = resolveFnOptions(
-    toolHostOf(ctx),
+    ctx.tools,
     name,
     entry,
     new Map<string, RegisteredFn>(),
@@ -946,7 +945,7 @@ function declaredFn(
 }
 
 function resolveFnEntry(
-  ctx: CraftContext,
+  ctx: AgentHost,
   name: string,
   entry: FnEntry,
   guard: ToolGuard | undefined,
@@ -1108,7 +1107,7 @@ function parseMcpRef(ref: string): { clientName: string; toolName: string } {
  * @internal
  */
 function resolveMcpRefs(
-  ctx: CraftContext,
+  ctx: AgentHost,
   ref: string,
   guard: ToolGuard | undefined,
 ): ResolvedTool[] {
@@ -1207,7 +1206,7 @@ function resolveMcpRefs(
  * @internal
  */
 function mcpEntryToResolvedTool(
-  ctx: CraftContext,
+  ctx: AgentHost,
   registry: McpToolRegistry,
   entry: McpToolRegistryEntry,
   guard: ToolGuard | undefined,
@@ -1297,7 +1296,15 @@ function mcpEntryToResolvedTool(
   // `.enabled()`, or not yet started), or a star route that leaves the
   // tool out, withholds it: the policy the operator wrote for it is off,
   // and off is closed, not open.
-  const declared = declaredProxy(ctx, entry);
+  const runtime = mcpRuntime.get(ctx.application);
+  if (runtime === undefined) {
+    throw rcError("RC5003", undefined, {
+      message: `tools(): the MCP port is provided without the MCP plugin's runtime, so whether a route governs "${name}" cannot be read.`,
+      suggestion:
+        "Install mcpPlugin() (or the mcp config key) in the application the agent runs in.",
+    });
+  }
+  const declared = runtime.declaredProxy(entry);
   if (declared !== undefined) {
     return dropOnce(
       `mcp-withheld:${name}`,
@@ -1428,7 +1435,7 @@ function objectArguments(
  * acknowledgment, which is a receipt the model could not use as a result.
  */
 function governedMcpTool(
-  ctx: CraftContext,
+  ctx: AgentHost,
   name: string,
   entry: McpToolRegistryEntry,
   covering: McpProxyRegistration,
@@ -1438,7 +1445,7 @@ function governedMcpTool(
   const governed = proxiedEntry(name, covering, entry, (key, message, obj) => {
     if (registry?.shouldReport(key) !== false) ctx.logger.warn(obj, message);
   });
-  const host = toolHostOf(ctx);
+  const host = ctx.tools;
   const source: AgentToolSource = {
     kind: "mcp",
     server: entry.source,
@@ -1542,9 +1549,9 @@ function listKnownMcpClients(
   return [...set].sort();
 }
 
-function listKnownNames(ctx: CraftContext): string[] {
+function listKnownNames(ctx: AgentHost): string[] {
   const fnNames = [...(ctx.lookup(AGENTS)?.functions.keys() ?? [])];
-  const capabilities = ctx.capabilities();
+  const capabilities = ctx.tools.capabilities();
   const routeNames = capabilities.map((c) => `Direct(${c.endpoint})`);
   const remoteNames = [
     ...new Set(

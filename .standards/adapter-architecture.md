@@ -159,13 +159,13 @@ For naming conventions (Source/Destination vs Server/Client), see [naming-policy
 - Signature: `send(exchange, ctx?): Promise<void>`. Strictly void: the body flows through a `.to()` step unchanged.
 - Surface receipts (message ids, etags, created-resource URLs) via `ctx?.setHeader(key, value)` (the `SendContext` sink); the `.to()` step merges them onto the continuing exchange. Reuse the adapter's header namespace.
 - Works with `.to()` and `.tap()` (`.tap()` receives a snapshot and runs fire-and-forget; its receipt headers are discarded with the snapshot).
-- Pull context from `DefaultExchange.context` if needed for stores or loggers.
+- Reach a plugin's state with `lookupOf(exchange, PORT)` and log through `exchange.logger`. An adapter never reads the context or the route off the exchange.
 
 ### Enricher adapters
 
 - Signature: `fetch(exchange, ctx?): Promise<R>` where R is the produced value (an HTTP result, parsed file content, fetched messages).
 - Works with `.enrich()` (aggregator merges; aggregator omitted = the value replaces the body), `.to()` (fetch-only fallback: the value replaces the body), and `.tap()` (fetch and discard).
-- `ctx` is the abort surface ({@link StepSignalContext}); forward `ctx?.signal` into cancellation-aware IO.
+- `ctx` is the abort surface ({@link StepSignalContext}); forward `ctx?.signal` into cancellation-aware IO. Long-running work also stops on `ctx?.route.signal`, which fires when the route abandons its in-flight work, and names its route by `ctx?.route.id`.
 
 ### Processor/Transformer adapters
 

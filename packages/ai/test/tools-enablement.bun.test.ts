@@ -12,6 +12,8 @@ import {
 import { MCP, createMcpService } from "../src/mcp/port.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import { dispatchMcpCall } from "../src/mcp/dispatch.ts";
+import { agentHostOf } from "./helpers/hosts.ts";
+import { mcpRuntime, mcpRuntimeFor } from "../src/mcp/runtime.ts";
 
 /** Collect the warning messages a context logs, keeping the bound fields. */
 function captureWarnings(
@@ -70,8 +72,8 @@ describe("agent tools follow route enablement", () => {
     const warnings = captureWarnings(t);
 
     const selection = tools(["Direct(list-monitors)"]);
-    expect(selection.resolve(t.ctx)).toEqual([]);
-    expect(selection.resolve(t.ctx)).toEqual([]);
+    expect(selection.resolve(agentHostOf(t.ctx))).toEqual([]);
+    expect(selection.resolve(agentHostOf(t.ctx))).toEqual([]);
 
     const disabled = warnings.filter((w) => w.fields["route"] !== undefined);
     expect(disabled).toHaveLength(1);
@@ -96,13 +98,13 @@ describe("agent tools follow route enablement", () => {
     await t.startAndWaitReady();
     captureWarnings(t);
     const selection = tools(["Direct(list-monitors)"]);
-    expect(selection.resolve(t.ctx)).toEqual([]);
+    expect(selection.resolve(agentHostOf(t.ctx))).toEqual([]);
 
     flag.on = true;
     await t.ctx.reevaluateEnablement("list-monitors");
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    const resolved = selection.resolve(t.ctx);
+    const resolved = selection.resolve(agentHostOf(t.ctx));
     expect(resolved.map((tool) => tool.name)).toEqual([
       "direct__list-monitors",
     ]);
@@ -119,9 +121,9 @@ describe("agent tools follow route enablement", () => {
       .with({ plugins: [agentPlugin({})] })
       .build();
     await t.startAndWaitReady();
-    expect(() => tools(["Direct(list-monitorz)"]).resolve(t!.ctx)).toThrow(
-      /unknown direct route id "list-monitorz"/,
-    );
+    expect(() =>
+      tools(["Direct(list-monitorz)"]).resolve(agentHostOf(t!.ctx)),
+    ).toThrow(/unknown direct route id "list-monitorz"/);
   });
 
   /**
@@ -142,7 +144,7 @@ describe("agent tools follow route enablement", () => {
     await t.startAndWaitReady();
     const warnings = captureWarnings(t);
 
-    expect(tools(["monitors"]).resolve(t.ctx)).toEqual([]);
+    expect(tools(["monitors"]).resolve(agentHostOf(t.ctx))).toEqual([]);
     expect(warnings.map((w) => w.fields["tool"])).toContain("monitors");
 
     flag.on = true;
@@ -150,7 +152,7 @@ describe("agent tools follow route enablement", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(
       tools(["monitors"])
-        .resolve(t.ctx)
+        .resolve(agentHostOf(t.ctx))
         .map((x) => x.name),
     ).toEqual(["monitors"]);
   });
@@ -186,9 +188,9 @@ describe("directTool fns over a disabled route", () => {
       listed = catalog.fns.map((fn) => fn.name);
       return ["Direct(send-mail)"];
     });
-    expect(selection.resolve(t.ctx).map((tool) => tool.name)).toEqual([
-      "direct__send-mail",
-    ]);
+    expect(
+      selection.resolve(agentHostOf(t.ctx)).map((tool) => tool.name),
+    ).toEqual(["direct__send-mail"]);
     expect(listed).not.toContain("monitors");
   });
 
@@ -268,8 +270,8 @@ describe("directTool fns over a disabled route", () => {
     flag.on = true;
     await t.ctx.reevaluateEnablement("list-monitors");
     await new Promise((resolve) => setTimeout(resolve, 20));
-    tools(["monitors"]).resolve(t.ctx);
-    tools(["monitors"]).resolve(t.ctx);
+    tools(["monitors"]).resolve(agentHostOf(t.ctx));
+    tools(["monitors"]).resolve(agentHostOf(t.ctx));
     expect(announced).toEqual(["monitors"]);
   });
 });
@@ -312,6 +314,7 @@ async function contextWithClients(seed: {
                 disabledClients: new Map(Object.entries(seed.disabled ?? {})),
               }),
             );
+            mcpRuntime.set(c.application, mcpRuntimeFor(c));
           },
         },
       ],
@@ -337,8 +340,8 @@ describe("agent MCP refs follow client configuration", () => {
     });
     const warnings = captureWarnings(t);
     const selection = tools(["MCP(vendor:search)", "MCP(vendor)"]);
-    expect(selection.resolve(t.ctx)).toEqual([]);
-    expect(selection.resolve(t.ctx)).toEqual([]);
+    expect(selection.resolve(agentHostOf(t.ctx))).toEqual([]);
+    expect(selection.resolve(agentHostOf(t.ctx))).toEqual([]);
     expect(warnings.map((w) => w.fields)).toEqual([
       {
         tool: "MCP(vendor:search)",
@@ -361,7 +364,9 @@ describe("agent MCP refs follow client configuration", () => {
   test("a configured client with no tools yet is withheld until it lists them", async () => {
     t = await contextWithClients({ clients: ["vendor"] });
     const warnings = captureWarnings(t);
-    expect(tools(["MCP(vendor:search)"]).resolve(t.ctx)).toEqual([]);
+    expect(tools(["MCP(vendor:search)"]).resolve(agentHostOf(t.ctx))).toEqual(
+      [],
+    );
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.fields["client"]).toBe("vendor");
 
@@ -372,7 +377,7 @@ describe("agent MCP refs follow client configuration", () => {
       ]);
     expect(
       tools(["MCP(vendor:search)"])
-        .resolve(t.ctx)
+        .resolve(agentHostOf(t.ctx))
         .map((tool) => tool.name),
     ).toEqual(["mcp__vendor__search"]);
   });
@@ -388,7 +393,7 @@ describe("agent MCP refs follow client configuration", () => {
       tools: { vendor: ["search", "lookup"] },
     });
     const warnings = captureWarnings(t);
-    expect(tools(["MCP(vendor:find)"]).resolve(t.ctx)).toEqual([]);
+    expect(tools(["MCP(vendor:find)"]).resolve(agentHostOf(t.ctx))).toEqual([]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.fields["known"]).toEqual(["lookup", "search"]);
   });
@@ -404,9 +409,9 @@ describe("agent MCP refs follow client configuration", () => {
       disabled: { ledger: "LEDGER_TOKEN is unset" },
       tools: { vendor: ["search"] },
     });
-    expect(() => tools(["MCP(vendr:search)"]).resolve(t!.ctx)).toThrow(
-      /client "vendr" is not configured.*"ledger", "vendor"/s,
-    );
+    expect(() =>
+      tools(["MCP(vendr:search)"]).resolve(agentHostOf(t!.ctx)),
+    ).toThrow(/client "vendr" is not configured.*"ledger", "vendor"/s);
   });
 });
 
@@ -465,6 +470,7 @@ describe("mcpPlugin({ clients: { enabled } })", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           mcpPlugin({
             clients: {
               vendor: { url: "http://127.0.0.1:9/mcp", enabled: () => true },

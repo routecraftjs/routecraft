@@ -99,6 +99,7 @@ describe("agent blocks: nested named groups", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -152,6 +153,7 @@ describe("agent blocks: nested named groups", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -200,6 +202,7 @@ describe("agent blocks: nested named groups", () => {
       t = await testContext()
         .with({
           plugins: [
+            agentPlugin(),
             llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           ],
         })

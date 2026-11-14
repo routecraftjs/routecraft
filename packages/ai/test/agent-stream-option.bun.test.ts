@@ -104,6 +104,7 @@ describe("agent({ stream: true })", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -143,6 +144,7 @@ describe("agent({ stream: true })", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -188,6 +190,7 @@ describe("agent({ stream: true })", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -226,6 +229,7 @@ describe("agent({ stream: true })", () => {
     t = await testContext()
       .with({
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       })
@@ -316,6 +320,7 @@ describe("agent({ stream: true })", () => {
         servers: { default: { port: 0, host: "127.0.0.1" } },
         http: {},
         plugins: [
+          agentPlugin(),
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         ],
       } as CraftConfig)
