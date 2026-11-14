@@ -47,7 +47,7 @@ import type { DetachedKind } from "../../pipeline/chain-policy.ts";
 import { type DeferSite, resolvedSitesOf } from "./sites.ts";
 import type { ErrorHook } from "../hooks.ts";
 import type { Principal } from "../../principal.ts";
-import { MAX_STORED_MESSAGE, resumable } from "./types.ts";
+import { DEFERRAL_FORMAT, MAX_STORED_MESSAGE, resumable } from "./types.ts";
 import type {
   ErrorPathRecord,
   DeferralSchema,
@@ -369,6 +369,17 @@ export async function reviveDeferral(
       if (cas.deferral) return unresumable(cas.deferral);
     }
     throw error;
+  }
+
+  if (deferral.format !== DEFERRAL_FORMAT) {
+    return await refuseContinuation(
+      context,
+      runtime,
+      route,
+      deferral,
+      "record format changed",
+      `Deferral "${id}" was written in record format ${String(deferral.format)} and this release reads format ${DEFERRAL_FORMAT}, so what it stored cannot be trusted to mean what it meant.`,
+    );
   }
 
   const site = findSite(context, route, deferral);

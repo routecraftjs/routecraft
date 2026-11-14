@@ -77,6 +77,7 @@ export class MemoryDeferralStore implements DeferralStore {
       record.id,
       clone({
         id: record.id,
+        format: record.format,
         routeId: record.routeId,
         position: record.position,
         continuationHash: record.continuationHash,

@@ -27,6 +27,7 @@ afterAll(() => {
 function record(overrides: Partial<NewDeferral> = {}): NewDeferral {
   return {
     id: "def-1",
+    format: 3,
     routeId: "payout",
     position: 3,
     continuationHash: "c".repeat(64),
@@ -108,7 +109,7 @@ describe("SqliteDeferralStore durability", () => {
   /**
    * @case A database a version 2 build left with a claim outstanding
    * @preconditions A file whose deferrals table has no claim identity or renewal column and whose user_version says 2, holding a row claimed by the process that wrote it, which no longer exists
-   * @expectedResult Opening it migrates to version 3 and the row reads back as claimed, with an identity and a renewal time equal to its claim time, so the lease releases it on schedule and a holder presenting the read-back claim can finalize it. A migration that added the columns without backfilling would leave a claimed row no claim can ever match, which is a record nothing can settle
+   * @expectedResult Opening it migrates and the row reads back as claimed, with an identity and a renewal time equal to its claim time, so the lease releases it on schedule and a holder presenting the read-back claim can finalize it. A migration that added the columns without backfilling would leave a claimed row no claim can ever match, which is a record nothing can settle
    */
   test("a version 2 claim is given an identity by the migration", async () => {
     const path = join(scratch, "claim-v2.db");
@@ -122,6 +123,7 @@ describe("SqliteDeferralStore durability", () => {
     const db = new Database(path);
     db.exec("ALTER TABLE deferrals DROP COLUMN claim_id");
     db.exec("ALTER TABLE deferrals DROP COLUMN claim_renewed_at");
+    db.exec("ALTER TABLE deferrals DROP COLUMN format");
     db.exec("PRAGMA user_version = 2");
     db.close();
 
@@ -136,6 +138,30 @@ describe("SqliteDeferralStore durability", () => {
     expect(await store.releaseClaims(new Date(at.getTime() - 1))).toBe(0);
     const finalized = await store.markExpired("held", held!.claim!.id);
     expect(finalized.won).toBe(true);
+    await store.close();
+  });
+
+  /**
+   * @case A database written before records carried a format
+   * @preconditions A file whose deferrals table has no format column and whose user_version says 3, holding one waiting row
+   * @expectedResult Opening it migrates; the old row reads back with format 0, which no release writes, and a record created afterwards reads back with the format it was given
+   */
+  test("a row written before the format column reads as format 0", async () => {
+    const path = join(scratch, "format-v3.db");
+    const seed = await SqliteDeferralStore.open({ path });
+    await seed.create(record({ id: "old" }));
+    await seed.close();
+
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(path);
+    db.exec("ALTER TABLE deferrals DROP COLUMN format");
+    db.exec("PRAGMA user_version = 3");
+    db.close();
+
+    const store = await SqliteDeferralStore.open({ path });
+    await store.create(record({ id: "new", format: 3 }));
+    expect((await store.get("old"))?.format).toBe(0);
+    expect((await store.get("new"))?.format).toBe(3);
     await store.close();
   });
 

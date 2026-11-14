@@ -33,6 +33,7 @@ afterAll(() => {
 function record(overrides: Partial<NewDeferral> = {}): NewDeferral {
   return {
     id: "def-1",
+    format: 3,
     routeId: "payout",
     position: 2,
     continuationHash: "c".repeat(64),

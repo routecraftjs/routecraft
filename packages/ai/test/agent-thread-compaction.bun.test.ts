@@ -45,6 +45,7 @@ function deferred(
 ): NewDeferral {
   return {
     id: "def-1",
+    format: 3,
     routeId: "approvals",
     position: 2,
     continuationHash: "c".repeat(64),

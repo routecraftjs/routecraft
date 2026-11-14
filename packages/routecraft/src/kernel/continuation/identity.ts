@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { getAdapterArgs } from "../../adapters/shared/factory-tag.ts";
 import {
-  DIGEST_EXEMPT,
   NESTED_STEPS,
   STEP_ARGS,
   STEP_IDENTITY,
@@ -387,7 +386,6 @@ interface StampedStep {
   [STEP_NAME]?: string;
   [STEP_ARGS]?: readonly unknown[];
   [STEP_IDENTITY]?: Pick<Identity, "version" | "options">;
-  [DIGEST_EXEMPT]?: true;
   [NESTED_STEPS]?: () => ReadonlyArray<{
     readonly steps: ReadonlyArray<Step<Adapter>>;
     readonly rejoins?: boolean;
@@ -526,6 +524,28 @@ function encodeStep(
   return { kind, node };
 }
 
+const digestExempt = new WeakSet<object>();
+
+/**
+ * Leave a step out of every digest: `.log()`, which changes nothing a
+ * resumed exchange or a cached result depends on, so a log line can be added
+ * or reworded while exchanges are parked.
+ *
+ * Membership of a set only the kernel holds, never a property a step can
+ * carry: a step that could exempt itself could change what runs after an
+ * approval without the digest moving.
+ *
+ * @internal
+ */
+export function exemptFromDigest(step: object): void {
+  digestExempt.add(step);
+}
+
+/** @internal */
+export function isDigestExempt(step: object): boolean {
+  return digestExempt.has(step);
+}
+
 function encodeSteps(
   steps: ReadonlyArray<Step<Adapter>>,
   path: string,
@@ -533,7 +553,7 @@ function encodeSteps(
 ): Array<EncodedStep & { readonly position: number }> {
   const encoded: Array<EncodedStep & { readonly position: number }> = [];
   steps.forEach((step, index) => {
-    if ((step as StampedStep)[DIGEST_EXEMPT] === true) return;
+    if (digestExempt.has(step)) return;
     encoded.push({
       ...encodeStep(step, `${path}[${index}]`, walk),
       position: index,

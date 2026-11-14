@@ -1,4 +1,3 @@
-import { DIGEST_EXEMPT } from "../dsl-symbol.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 import { readonlyExchange } from "../kernel/readonly.ts";
 import {
@@ -36,7 +35,6 @@ export class LogStep implements Step<Adapter> {
   readonly operation: OperationType = OperationType.OBSERVE;
   readonly adapter: Adapter = { adapterId: "routecraft.adapter.log" };
   label?: string;
-  readonly [DIGEST_EXEMPT] = true as const;
   readonly #level: LogStepLevel;
   readonly #message: string;
   readonly #bindings: LogStepBindings | undefined;

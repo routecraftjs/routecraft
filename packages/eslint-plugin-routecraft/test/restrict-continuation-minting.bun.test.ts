@@ -18,7 +18,7 @@ const ruleTester = new RuleTester({
 });
 
 /**
- * @case restrict-continuation-minting rule: each act on a parked exchange is flagged with a message naming it (mintToken, resume and rewriteStepState on a member named continuations, on a local or parameter named continuations, on a destructured one and on a const or let holding one; deferral.tokenFor, through the facet or deferralOf(); signer.mint reached through require(CONTINUATIONS) or lookup(CONTINUATIONS), directly, through an optional chain and through a const), including inside a project.craft() chain; reading a token, the read view's methods, sweep, a same-named import from another module, a shadowing local, a signer that is not the continuations signer and an unrelated resume() pass; the report anchors on the method name so a disable comment directly above the call suppresses it
+ * @case restrict-continuation-minting rule: each act on a parked exchange is flagged with a message naming it (mintToken, resume and rewriteStepState on a member named continuations, on a local or parameter named continuations, on a destructured one and on a const or let holding one; deferral.tokenFor, through the facet or deferralOf(); signer.mint reached through require(CONTINUATIONS), lookup(CONTINUATIONS) or lookupOf(exchange, CONTINUATIONS), directly, through an optional chain and through a const), including inside a project.craft() chain; reading a token, the read view's methods, sweep, a same-named import from another module, a shadowing local, a signer that is not the continuations signer and an unrelated resume() pass; the report anchors on the method name so a disable comment directly above the call suppresses it
  * @preconditions Source snippets covering plugin hooks, route chains, helper functions and unrelated objects that share a method name
  * @expectedResult Valid cases produce no errors; each invalid case produces one error per call with the message for its act and the expected data.what, and the multi-line case anchors on the line of the method
  */
@@ -217,6 +217,19 @@ ruleTester.run(
         errors: [
           { messageId: "restrictedMint", data: { what: "signer.mint()" } },
           { messageId: "restrictedMint", data: { what: "signer.mint()" } },
+          { messageId: "restrictedMint", data: { what: "signer.mint()" } },
+          { messageId: "restrictedMint", data: { what: "signer.mint()" } },
+        ],
+      },
+      {
+        // the same signer reached from an exchange, as a step or adapter would
+        code: `
+          import { CONTINUATIONS, lookupOf } from "@routecraft/routecraft";
+          lookupOf(exchange, CONTINUATIONS).signer.mint(id);
+          const viaExchange = lookupOf(exchange, CONTINUATIONS);
+          viaExchange?.signer.mint(id);
+        `,
+        errors: [
           { messageId: "restrictedMint", data: { what: "signer.mint()" } },
           { messageId: "restrictedMint", data: { what: "signer.mint()" } },
         ],

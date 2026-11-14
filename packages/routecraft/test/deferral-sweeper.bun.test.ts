@@ -76,6 +76,7 @@ function overdue(
   const now = Date.now();
   return {
     id,
+    format: 3,
     routeId: "payout",
     position: 1,
     continuationHash: "c".repeat(64),

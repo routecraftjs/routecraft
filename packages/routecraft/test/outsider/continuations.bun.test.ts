@@ -53,6 +53,7 @@ interface DoorRequest {
 
 const hosts = applicationState<PluginContext>();
 let holdRuns = 0;
+const captured: unknown[] = [];
 
 const approvals = definePlugin({
   id: "acme.approvals",
@@ -135,6 +136,25 @@ const approvals = definePlugin({
         },
         { defers: { revival: "next-step" } },
       ),
+    capturing: () =>
+      step<unknown, unknown>(
+        async (exchange, ctx) => {
+          try {
+            return await ctx.defer();
+          } catch (signal) {
+            captured.push(signal);
+            if (exchange.body === "keep") return "carried on";
+            throw signal;
+          }
+        },
+        { defers: { revival: "next-step" } },
+      ),
+    replaying: () =>
+      step<unknown, unknown>((exchange) => {
+        const signal = captured.shift();
+        if (signal !== undefined) throw signal;
+        return exchange.body;
+      }),
     forged: () =>
       step<unknown, unknown>({
         operation: OperationType.PROCESS,
@@ -238,6 +258,7 @@ describe("outsider: steps that defer and resume, on the published entry", () => 
     await t?.stop();
     t = undefined;
     holdRuns = 0;
+    captured.length = 0;
   });
 
   const project = defineProject({ plugins: [approvals] });
@@ -445,6 +466,38 @@ describe("outsider: steps that defer and resume, on the published entry", () => 
       rc: "RC5032",
     });
     expect(await t.ctx.continuations.list({ limit: 10 })).toHaveLength(0);
+  });
+
+  /**
+   * @case A step keeps the signal ctx.defer() rejected with and another step throws it on a later exchange
+   * @preconditions A deferring step that records every signal it sees, once letting it through and once keeping it; a plain step ahead of a sink that throws a recorded signal
+   * @expectedResult Both replays are RC5032, whether the deferral was already parked or never was: the later exchanges are not parked at a site they never reached, and only the one honest deferral is stored
+   */
+  test("a deferral replayed on another exchange is RC5032", async () => {
+    const sink = spy();
+    t = await testContext()
+      .with(shipped)
+      .routes([
+        project.craft().id("captures").from(direct()).capturing().to(sink),
+        project.craft().id("replays").from(direct()).replaying().to(sink),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    asDeferred(await t.client.sendDirect("captures", "work"));
+    await expect(t.client.sendDirect("replays", "spent")).rejects.toMatchObject(
+      { rc: "RC5032" },
+    );
+
+    await expect(t.client.sendDirect("captures", "keep")).rejects.toMatchObject(
+      { rc: "RC5032" },
+    );
+    const replayed = t.client.sendDirect("replays", "unspent");
+    await expect(replayed).rejects.toMatchObject({ rc: "RC5032" });
+    await expect(replayed).rejects.toThrow(/cannot park another/);
+
+    expect(sink.received).toHaveLength(0);
+    expect(await t.ctx.continuations.list({ limit: 10 })).toHaveLength(1);
   });
 
   /**
