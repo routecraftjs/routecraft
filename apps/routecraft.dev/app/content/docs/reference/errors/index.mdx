@@ -1066,6 +1066,15 @@ The credential store, which keeps the tokens `craft connect` obtains, could not 
 **Suggestion**  
 Read the message: it names which. Point `credentials.store` at a file of its own; run the newer Routecraft build for a store it wrote; fix the file's ownership; set the key the store or seed was sealed under; export a damaged or newer seed again with `craft connect <client> --export`; or run the login again. A store sealed under a lost key, or holding an altered value, cannot be opened: remove the file and run `craft connect` for each client. A lock is the one cause that clears without a change, once the other process finishes; the error is still not marked retryable, because the others are not.
 
+## RC5071
+Continuation digest does not cover a value
+
+**Why it happens**  
+A warning logged when a route starts, never thrown. The route defers, and among the steps a resume would run there is a value the continuation digest cannot see into: a class instance, a native or bound function, a schema with no JSON Schema rendering, a symbol-keyed or accessor property, a value that contains itself, or something nested more than five deep. The digest is what refuses a resume after the route changed ([`RC5048`](#rc-5048)), so an edit to that value will not refuse a parked approval. The log line lists each value by its path, such as `after position 2: steps[0].options.adapter.args[0].client`.
+
+**Suggestion**  
+Pass plain data where you can: strings, numbers, arrays, plain objects, `Date`, `URL`, `RegExp`, functions. For a value that cannot be plain, have the step or adapter that holds it state its identity with `[IDENTITY]()`, using `versioned(value, id)` for a value whose author knows when it changed and `secret(value)` for one that configures without defining. See [step identity](/docs/advanced/plugins#step-identity).
+
 ## RC9901
 Unknown error
 

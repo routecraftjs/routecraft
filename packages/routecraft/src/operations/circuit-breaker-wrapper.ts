@@ -6,6 +6,7 @@ import type { ForwardFn, Route } from "../route.ts";
 import type { RouteKey } from "../kernel/positions.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import type { Identity } from "../kernel/continuation/identity.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
 import { defaultRetryOn } from "./retry-wrapper.ts";
@@ -560,8 +561,10 @@ export class CircuitBreakerWrapperStep<
     this.#options = resolveCircuitBreakerOptions(options);
   }
 
-  protected override describeOptions(): unknown {
-    return this.#options;
+  protected override readonly wrapperKind = "routecraft.circuitBreaker";
+
+  protected override identityOptions(): Omit<Identity, "kind"> {
+    return { options: this.#options };
   }
 
   override get requiredPosition(): RequiredPosition {

@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
@@ -64,6 +65,11 @@ export class TapStep<T = unknown> implements Step<Adapter> {
       this.callable = undefined;
       this.adapter = target;
     }
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.tap", options: { adapter: this.adapter } };
   }
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {

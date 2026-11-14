@@ -20,7 +20,9 @@ import {
   continuationTailHash,
   describeSchema,
 } from "../src/plugins/deferral/public.ts";
-import { stepDefinitionFingerprint } from "../src/kernel/continuation/hash.ts";
+import { stepsDigest } from "../src/kernel/continuation/identity.ts";
+
+const stepDigest = (step: Step<Adapter>): string => stepsDigest([step]);
 
 /**
  * Build a step whose identity is carried by a transformer callable, which
@@ -188,7 +190,7 @@ describe("continuationTailHash", () => {
   test("handles a defer at the end of the pipeline", () => {
     const steps = [step("defer", (v) => v)];
     expect(continuationTailHash(steps.slice(1), expected)).toMatch(
-      /^[0-9a-f]{64}$/,
+      /^d2:[0-9a-f]{64}\/$/,
     );
     expect(continuationTailHash(steps.slice(1), expected)).toBe(
       continuationTailHash(steps.slice(1), expected),
@@ -398,7 +400,7 @@ describe("continuationTailHash over adapter configuration", () => {
         [step("s", (v) => v), withHandle].slice(1),
         expected,
       ),
-    ).toMatch(/^[0-9a-f]{64}$/);
+    ).toMatch(/^d2:[0-9a-f]{64}\//);
   });
 
   /**
@@ -529,7 +531,7 @@ describe("continuationTailHash over factory-built adapters", () => {
   });
 });
 
-describe("stepDefinitionFingerprint over plugin steps", () => {
+describe("the digest of a plugin step", () => {
   /**
    * @case Two step() callbacks that differ only in a returned literal
    * @preconditions Steps built with step(() => "bank-A") and step(() => "bank-B"), the same step built twice
@@ -539,12 +541,8 @@ describe("stepDefinitionFingerprint over plugin steps", () => {
     const bankA = () => typedStep<unknown, string>(() => "bank-A");
     const bankB = () => typedStep<unknown, string>(() => "bank-B");
 
-    expect(stepDefinitionFingerprint(bankA())).not.toBe(
-      stepDefinitionFingerprint(bankB()),
-    );
-    expect(stepDefinitionFingerprint(bankA())).toBe(
-      stepDefinitionFingerprint(bankA()),
-    );
+    expect(stepDigest(bankA())).not.toBe(stepDigest(bankB()));
+    expect(stepDigest(bankA())).toBe(stepDigest(bankA()));
   });
 
   /**
@@ -573,12 +571,8 @@ describe("stepDefinitionFingerprint over plugin steps", () => {
         .build()[0]!.steps;
     };
 
-    expect(stepDefinitionFingerprint(tail("A")[0]!)).not.toBe(
-      stepDefinitionFingerprint(tail("B")[0]!),
-    );
-    expect(stepDefinitionFingerprint(tail("A")[0]!)).toBe(
-      stepDefinitionFingerprint(tail("A")[0]!),
-    );
+    expect(stepDigest(tail("A")[0]!)).not.toBe(stepDigest(tail("B")[0]!));
+    expect(stepDigest(tail("A")[0]!)).toBe(stepDigest(tail("A")[0]!));
   });
 });
 

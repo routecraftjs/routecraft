@@ -1,4 +1,9 @@
 import {
+  IDENTITY,
+  identified,
+  type Identity,
+} from "../kernel/continuation/identity.ts";
+import {
   type Adapter,
   type Step,
   type StepContext,
@@ -75,14 +80,17 @@ export interface Transformer<T = unknown, R = T> extends Adapter {
 export function mapper<T, R>(fieldMappings: {
   [K in keyof R]: (src: T) => R[K];
 }): CallableTransformer<T, R> {
-  return (message: T): R => {
-    const result = {} as R;
-    for (const key in fieldMappings) {
-      const k = key as keyof R;
-      result[k] = fieldMappings[k](message);
-    }
-    return result;
-  };
+  return identified(
+    (message: T): R => {
+      const result = {} as R;
+      for (const key in fieldMappings) {
+        const k = key as keyof R;
+        result[k] = fieldMappings[k](message);
+      }
+      return result;
+    },
+    { kind: "routecraft.mapper", options: fieldMappings },
+  );
 }
 
 /**
@@ -99,6 +107,11 @@ export class TransformStep<T = unknown, R = T> implements Step<
   constructor(adapter: Transformer<T, R> | CallableTransformer<T, R>) {
     this.adapter =
       typeof adapter === "function" ? { transform: adapter } : adapter;
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.transform", options: { adapter: this.adapter } };
   }
 
   async execute(

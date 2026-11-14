@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../../kernel/continuation/identity.ts";
 import { rcError } from "../../error.ts";
 import { anySignal } from "../../shared/abort.ts";
 import {
@@ -159,6 +160,18 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       }
       this.elevate = options.elevate;
     }
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return {
+      kind: "routecraft.resume",
+      options: {
+        mapper: this.mapper,
+        authorize: this.authorize,
+        elevate: this.elevate,
+      },
+    };
   }
 
   async execute(exchange: Exchange, ctx: StepContext): Promise<StepOutcome> {

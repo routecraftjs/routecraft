@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import {
   type Exchange,
@@ -184,10 +185,17 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
   skipStepEvents = true;
 
   readonly #options: ResolvedDebounceOptions;
+  readonly #given: unknown;
   readonly #controller = new DebounceController();
 
   constructor(options: DebounceOptions<In>) {
     this.#options = resolveDebounceOptions(options as DebounceOptions<unknown>);
+    this.#given = options;
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.debounce", options: this.#given };
   }
 
   async execute(

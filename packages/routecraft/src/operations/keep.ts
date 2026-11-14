@@ -1,3 +1,4 @@
+import { identified } from "../kernel/continuation/identity.ts";
 import type { Exchange } from "../exchange.ts";
 import type { Principal } from "../principal.ts";
 import { authorityOf } from "../kernel/authority.ts";
@@ -133,5 +134,8 @@ export function keep<T>(
       ? keepRecord(body, rules as KeepRules<unknown>, principal, strict)
       : body;
   };
-  return fn as unknown as FieldTransform<T>;
+  return identified(fn, {
+    kind: "routecraft.keep",
+    options: { rules, strict },
+  }) as unknown as FieldTransform<T>;
 }

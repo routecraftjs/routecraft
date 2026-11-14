@@ -1,3 +1,8 @@
+import {
+  IDENTITY,
+  identified,
+  type Identity,
+} from "../kernel/continuation/identity.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
@@ -84,6 +89,11 @@ export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
       typeof adapter === "function" ? { validate: adapter } : adapter;
   }
 
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.validate", options: { adapter: this.adapter } };
+  }
+
   async execute(exchange: Exchange): Promise<StepOutcome> {
     let result: R | Refusal;
     try {
@@ -143,7 +153,7 @@ export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
 export function schema<S extends StandardSchemaV1>(
   standardSchema: S,
 ): Validator<unknown, StandardSchemaV1.InferOutput<S>> {
-  return {
+  const validator: Validator<unknown, StandardSchemaV1.InferOutput<S>> = {
     validate: async (exchange) => {
       const result = await validateAgainst(standardSchema, exchange.body);
       if (!result.ok) {
@@ -154,4 +164,8 @@ export function schema<S extends StandardSchemaV1>(
       return result.value;
     },
   };
+  return identified(validator, {
+    kind: "routecraft.schema",
+    options: standardSchema,
+  });
 }

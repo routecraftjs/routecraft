@@ -288,6 +288,12 @@
     "retryable": false
   },
   {
+    "code": "RC5071",
+    "category": "Runtime",
+    "message": "Continuation digest does not cover a value",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",

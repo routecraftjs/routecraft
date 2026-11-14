@@ -125,3 +125,43 @@ export const AUTHENTICATES: unique symbol = Symbol.for(
 export const DEFER_HOST: unique symbol = Symbol.for(
   "routecraft.step.deferHost",
 );
+
+/**
+ * The name a plugin's catalogue registered a step under, stamped by the
+ * builder beside {@link STEP_PLUGIN}. The step's label may be rewritten by
+ * the author; its default identity may not.
+ *
+ * @internal
+ */
+export const STEP_NAME: unique symbol = Symbol.for("routecraft.step.name");
+
+/**
+ * What a `step(fn, { identity })` author added to the identity the builder
+ * derives from the factory arguments.
+ *
+ * @internal
+ */
+export const STEP_IDENTITY: unique symbol = Symbol.for(
+  "routecraft.step.identity",
+);
+
+/**
+ * A wrapper's identity and the step it folds around, read by the one walk
+ * that digests a pipeline.
+ *
+ * @internal
+ */
+export const WRAPPER_IDENTITY: unique symbol = Symbol.for(
+  "routecraft.step.wrapperIdentity",
+);
+
+/**
+ * Marks a step the digest leaves out: `.log()`, which changes nothing a
+ * resumed exchange or a cached result depends on. Adding or editing a log
+ * line re-asks no parked approval.
+ *
+ * @internal
+ */
+export const DIGEST_EXEMPT: unique symbol = Symbol.for(
+  "routecraft.step.digestExempt",
+);

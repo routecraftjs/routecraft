@@ -1,101 +1,71 @@
 import { createHash } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { getAdapterArgs } from "../../adapters/shared/factory-tag.ts";
 import type { Adapter, Step } from "../../types.ts";
 import {
   renderDirectedJsonSchema,
   standardExtensionOf,
 } from "../../shared/standard-schema.ts";
 import type { SerializedExchange, DeferralSchema } from "./types.ts";
-import { STEP_ARGS } from "../../dsl-symbol.ts";
+import {
+  describeSteps,
+  DIGEST_PREFIX,
+  type StepsDescription,
+} from "./identity.ts";
 
 /**
- * Hash the continuation of a deferred exchange: the steps that have NOT run
- * yet, plus the schema the eventual resume payload is validated against.
+ * Describe the continuation of a deferred exchange: the steps that have
+ * NOT run yet, plus the schema the resume payload is validated against.
  *
  * ## Why the tail and not the pipeline
  *
  * Steps before the defer point already ran. Changing one cannot affect
  * what happens after resume, so including them would invalidate every
- * approval in flight on any deploy that touched the route, and the approver
- * would discover it by clicking a dead link. Hashing from `position + 1`
- * onward keeps the property worth keeping (a change to what the approval
+ * approval in flight on any deploy that touched the route. Hashing the
+ * tail keeps the property worth keeping (a change to what the approval
  * authorizes invalidates it) and drops the one that made it unusable.
  *
- * ## What the hash does NOT cover
+ * ## What the digest covers
  *
- * Step DEFINITIONS only. A `direct()` route the tail forwards to, an
- * adapter version, an environment variable, or any external system the tail
- * reaches can all change freely without moving this hash. That residue is
- * deliberate, and the mitigations are the catchable error-channel re-ask
- * path and `actionFingerprint`'s audit binding. Never describe the hash as
- * covering more than step definitions.
+ * Step definitions only, as each step states them (`IDENTITY`) or as the
+ * builder recorded them. Framework code is never digested by its source
+ * text. A user's function is, verbatim: normalising it can only fold two
+ * sources onto one digest, and a missed change resumes an approval into
+ * behaviour its approver never authorized, while a spurious one costs a
+ * re-ask.
  *
- * Option VALUES have their own residue, and it is narrower than it looks.
- * `describable` projects the carriers an adapter option realistically names
- * a target with (string, number, boolean, `Date`, `URL`, `RegExp`, `Map`,
- * `Set`, arrays, plain objects), but any other class instance collapses to
- * `[opaque]` and anything nested five deep collapses to `[deep]`. Two
- * options differing only there hash alike, so an adapter that hides its
- * target inside a bespoke config class is outside the compatibility check.
- * Prefer plain options on a route that defers.
+ * ## What it does not cover
  *
- * ## What makes it move
+ * What a function captured, what a `direct()` target or a registered
+ * resource does, an environment variable, and any value the encoding
+ * could not see into (reported as `inferred`, and warned about at start
+ * with `RC5071`). A runtime or transpiler change that alters a function's
+ * text, or a schema library that renders its JSON Schema differently,
+ * moves the digest without a behaviour change: a re-ask, never a wrong
+ * resume.
  *
- * Each step contributes its operation kind, its DSL label, its adapter id,
- * the source text of the callables the adapter carries (where a user's
- * inline lambda lives), and the adapter's own data properties (where an
- * adapter's options live). So `.transform((p) => payOut(p))` becoming
- * `.transform((p) => payOutTwice(p))` moves the hash, and so does
- * `http({ url: bankA })` becoming `http({ url: bankB })`, while editing
- * `payOut` itself does not: that is the "step definitions only" boundary
- * stated above, seen from the other side.
- *
- * ## The design rule: never normalize the source
- *
- * Function source is taken VERBATIM. Do not add whitespace collapsing,
- * formatting normalization, or any other canonicalization ahead of this
- * digest, however safe a given transformation looks.
- *
- * The reasoning is asymmetric and it is the whole argument. Normalization
- * can only ever fold two distinct sources onto one digest. Every such fold
- * is a chance to MISS a change, and a missed change means a deferred approval
- * resumes into behaviour its approver never authorized. The opposite error,
- * treating an inert edit as a change, costs an error-channel re-ask, which
- * is a path this design already provides and expects to be used.
- *
- * This was learned rather than assumed. An earlier revision normalized
- * whitespace outside string literals with a hand-rolled scanner. Review
- * found three separate ways to desynchronize it (automatic semicolon
- * insertion, regex literals, and an apostrophe inside a comment), each
- * fixable only by moving closer to a real JavaScript tokenizer, and each
- * failing in the direction that resumes a deferred approval into different
- * behaviour. The scanner was deleted rather than completed.
- *
- * ## What that costs, and why it is the right trade
- *
- * The hash reads emitted text, so it is sensitive to more than the source
- * tree: a formatting pass, a checkout with different line endings, or a
- * build that changes emitted text (a different minifier, new bundler
- * settings, a TypeScript target bump) all move it for steps whose behaviour
- * did not change. Every one of those outcomes is an error-channel re-ask,
- * never a wrong resume. Deployments that defer approvals for days should pin
- * line endings and build settings; the configuration reference says so for
- * users.
- *
- * @param tail - Steps from the one after the deferring step to the end.
- * @param schema - The resume-payload schema descriptor.
- * @returns A hex SHA-256 digest.
+ * @param tail - Exactly what a resume would run: the steps after a
+ *   `.defer()`, or for a re-entrant site the deferring step first
+ * @param schema - The resume-payload schema descriptor
+ * @param errorPath - The origin of an error-path park, bound so a store
+ *   that drops it cannot hand the resume to a defer site at the same
+ *   position
  *
  * @internal
  */
+export function describeContinuation(
+  tail: ReadonlyArray<Step<Adapter>>,
+  schema: DeferralSchema,
+  errorPath?: string,
+): StepsDescription {
+  return describeSteps(tail, { input: schema.hash, errorPath });
+}
 
 /**
- * Hash an already-resolved continuation tail. The tail is exactly what a
- * resume would run, which for a static `.defer()` is the steps after it
- * and for a re-entrant site includes the deferring step itself at its
- * head. Same digest as {@link continuationHash} over the equivalent slice,
- * so records deferred before this helper existed keep verifying.
+ * What a deferral stores of its continuation: the digest, then one short
+ * digest per tail step after a `/`. Two continuations are the same when
+ * the strings are equal. The per-step part adds nothing to that test (the
+ * digest already covers every step); it is there so a refused resume can
+ * say which step moved without the record storing the steps.
  *
  * @internal
  */
@@ -104,19 +74,55 @@ export function continuationTailHash(
   schema: DeferralSchema,
   errorPath?: string,
 ): string {
-  return sha256(
-    canonical({
-      tail: tail.map(describeStep),
-      // Kept under the historical key so a digest computed before the
-      // rename verifies unchanged. The wire and the record moved; this
-      // string is an internal hash input nobody reads.
-      expect: schema.hash,
-      // Folded in only for an error-path park, so a store that drops the
-      // record's `errorPath` cannot hand the resume to a defer site at the
-      // same position: the hash no longer matches and the resume is refused.
-      ...(errorPath !== undefined ? { errorPath } : {}),
-    }),
-  );
+  const described = describeContinuation(tail, schema, errorPath);
+  return `${described.digest}/${described.stepDigests.join(".")}`;
+}
+
+/**
+ * Whether a stored continuation hash is in the current format. One that
+ * is not was written before steps stated their identity and cannot be
+ * compared with anything computed now.
+ *
+ * @internal
+ */
+export function isCurrentContinuationHash(stored: string): boolean {
+  return stored.startsWith(DIGEST_PREFIX);
+}
+
+/**
+ * Say what differs between a stored continuation and the live one, for the
+ * refusal a changed continuation raises.
+ *
+ * @param stored - The record's `continuationHash`
+ * @param tail - The live continuation
+ * @returns A clause naming the first step that differs, or the resume
+ *   schema when every step matches
+ *
+ * @internal
+ */
+export function continuationDifference(
+  stored: string,
+  tail: ReadonlyArray<Step<Adapter>>,
+  schema: DeferralSchema,
+  errorPath?: string,
+): string {
+  const live = describeContinuation(tail, schema, errorPath);
+  const slash = stored.indexOf("/");
+  const before =
+    slash < 0
+      ? []
+      : stored
+          .slice(slash + 1)
+          .split(".")
+          .filter(Boolean);
+  const index = live.stepDigests.findIndex((digest, i) => digest !== before[i]);
+  if (index >= 0) {
+    return `step ${index + 1} of what would run (${live.kinds[index]}) differs`;
+  }
+  if (before.length > live.stepDigests.length) {
+    return `${before.length - live.stepDigests.length} step(s) were removed from the end`;
+  }
+  return "the schema the resume payload is validated against differs";
 }
 
 /**
@@ -233,164 +239,6 @@ export function actionFingerprint(input: {
       body: input.exchange.body,
     }),
   );
-}
-
-/**
- * Digest of one step's definition: the projection {@link continuationHash}
- * applies to each tail step (operation kind, label, adapter id, callable
- * source, adapter options). Inherits the same "step definitions only"
- * boundary and the same verbatim-source rule.
- *
- * @internal
- */
-export function stepDefinitionFingerprint(step: Step<Adapter>): string {
-  return sha256(canonical(describeStep(step)));
-}
-
-/**
- * Digest of a definition value that lives outside a step's adapter: a
- * wrapper's options as its `describeOptions()` reports them, or the
- * predicate selecting a `.choice()` branch. The same projection a step's
- * adapter options go through, so callables contribute their verbatim
- * source and anything the projection cannot represent collapses to its
- * stable placeholder.
- *
- * @internal
- */
-export function definitionFingerprint(value: unknown): string {
-  return sha256(canonical(describable(value)));
-}
-
-/**
- * Reduce a step to the parts that define what it will do.
- *
- * Two kinds of own property carry that definition, and both have to be in
- * the digest. Callables are where an inline lambda lives on a plain-object
- * adapter (`.transform((p) => payOut(p))`). Data properties are where an
- * adapter's OPTIONS live: a class-based adapter such as the http enricher
- * keeps its config in an `options` property and exposes a `fetch` whose
- * source text is identical for every instance, so hashing callables alone
- * would give `http({ url: bankA })` and `http({ url: bankB })` the same
- * digest and let a deferred approval resume into a different payee.
- *
- * `adapterId` is read separately and excluded from the config walk so it is
- * not counted twice.
- *
- * @internal
- */
-function describeStep(step: Step<Adapter>): unknown {
-  const adapter = step.adapter as Record<string, unknown> | undefined;
-  const stepArgs = (step as { [STEP_ARGS]?: readonly unknown[] })[STEP_ARGS];
-  const callables: Record<string, string> = {};
-  const config: Record<string, unknown> = {};
-  if (adapter) {
-    for (const key of Object.keys(adapter).sort()) {
-      if (key === "adapterId") continue;
-      const value = adapter[key];
-      if (typeof value === "function") callables[key] = sourceOf(value);
-      else config[key] = describable(value);
-    }
-  }
-  return {
-    operation: step.operation,
-    label: step.label ?? null,
-    adapterId: (adapter?.["adapterId"] as string | undefined) ?? null,
-    callables,
-    config,
-    // The own-property walk above only reaches an adapter that keeps its
-    // options on itself. Every factory-built adapter returns a role facade
-    // (`{ adapterId, subscribe, send, fetch }`) whose slots are bound
-    // methods of a delegate holding the options, so its own properties are
-    // functions with identical source for every instance: without this,
-    // `file({ path: a })` and `file({ path: b })` describe identically.
-    // `tagAdapter` already records what the factory was called with, which
-    // is the configuration in its most direct form.
-    args: (getAdapterArgs(adapter) ?? []).map((arg) => describable(arg)),
-    // A plugin step's factory arguments, stamped by the builder; a core
-    // step has none, so its digest is unchanged.
-    ...(stepArgs !== undefined
-      ? { stepArgs: stepArgs.map((arg) => describable(arg)) }
-      : {}),
-  };
-}
-
-/**
- * Project an adapter option into something hashable.
- *
- * Total by construction, because adapters legitimately hold live clients,
- * sockets and credentials alongside their config. Anything the digest
- * cannot represent collapses to a stable placeholder rather than throwing:
- * a step whose adapter holds a socket must still be hashable, it just
- * cannot contribute that field to the comparison.
- *
- * @internal
- */
-function describable(value: unknown, depth = 0): unknown {
-  if (value === null) return null;
-  const kind = typeof value;
-  if (kind === "string" || kind === "boolean") return value;
-  if (kind === "number") return Number.isFinite(value) ? value : "[number]";
-  if (kind === "bigint") return `[bigint:${String(value)}]`;
-  if (kind === "undefined") return undefined;
-  if (kind === "symbol") return "[unhashable]";
-  // A callback nested in options is a step definition just as much as a
-  // top-level adapter callable: `http({ url: (ex) => bankA(ex) })` and the
-  // same with `bankB` differ only here. Collapsing it to a placeholder
-  // would let the tail's actual target change under a deferred approval.
-  if (kind === "function") return sourceOf(value as object);
-  if (value instanceof Date) return value.toISOString();
-  // Carriers an adapter option realistically uses to name its target. Left
-  // to the opaque collapse below they would all hash alike, so a payee
-  // spelled `new URL(...)` could be edited under a deferred approval without
-  // moving the digest.
-  if (value instanceof URL) return `[url:${value.href}]`;
-  if (value instanceof RegExp) return `[regexp:${value.source}/${value.flags}]`;
-  // Bound the walk: a deeply nested or self-referential options object must
-  // not turn hashing a route into a graph traversal. Above every branch that
-  // recurses, collections included, or a cycle through a Map never reaches it.
-  if (depth >= 4) return "[deep]";
-  if (value instanceof Map) {
-    return {
-      "[map]": [...value].map(([key, entry]) => [
-        describable(key, depth + 1),
-        describable(entry, depth + 1),
-      ]),
-    };
-  }
-  if (value instanceof Set) {
-    return {
-      "[set]": [...value].map((entry) => describable(entry, depth + 1)),
-    };
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => describable(entry, depth + 1));
-  }
-  const prototype = Object.getPrototypeOf(value as object);
-  if (prototype !== Object.prototype && prototype !== null) return "[opaque]";
-  // Null-prototype accumulator, for the same reason `serialize.ts` uses one:
-  // `__proto__` is a genuine own key on anything that came from JSON.parse,
-  // and assigning it on an object literal hits the Object.prototype setter,
-  // which drops the field. Dropped here it would let a tail option carrying
-  // that key change under a deferred approval without moving the digest.
-  const projected: Record<string, unknown> = Object.create(null);
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    projected[key] = describable(entry, depth + 1);
-  }
-  return projected;
-}
-
-/**
- * A function's source text, verbatim.
- *
- * Deliberately not normalized. See the design rule on
- * {@link continuationHash}: anything that folds two distinct sources onto
- * one digest can only weaken this hash, and the only failure it can produce
- * is the one the hash exists to prevent.
- *
- * @internal
- */
-function sourceOf(fn: object): string {
-  return Function.prototype.toString.call(fn);
 }
 
 /**

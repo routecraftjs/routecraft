@@ -17,11 +17,9 @@ import { principalIdentity } from "./principal-identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
 import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import type { Identity } from "../kernel/continuation/identity.ts";
 import { nestedStepsOf } from "../kernel/continuation/sites.ts";
-import {
-  definitionFingerprint,
-  stepDefinitionFingerprint,
-} from "../kernel/continuation/hash.ts";
+import { stepsDigest } from "../kernel/continuation/identity.ts";
 import { type CacheProvider } from "./cache-provider.ts";
 import { positionFor } from "./position-run.ts";
 import { CACHE } from "../kernel/positions.ts";
@@ -346,78 +344,26 @@ export function assignCacheSites(route: RouteDefinition): boolean {
   const visit = (steps: ReadonlyArray<Step<Adapter>>): void => {
     for (const step of steps) {
       const position = next++;
-      const { stack, innermost } = unwrapStack(step);
-      const fingerprint = stepDefinitionFingerprint(innermost);
-      stack.forEach((wrapper, index) => {
-        if (!(wrapper instanceof CacheWrapperStep)) return;
-        const below = stack.slice(index + 1).map(wrapperIdentity);
-        wrapper.assignSite(
-          JSON.stringify([position, index, below, fingerprint]),
-        );
-        usesDefaultKey ||= wrapper.usesDefaultKey;
-      });
+      let index = 0;
+      for (
+        let current: Step<Adapter> = step;
+        current instanceof WrapperStep;
+        current = current.wrapped
+      ) {
+        if (current instanceof CacheWrapperStep) {
+          // What a hit skips: every wrapper below the cache, and the step.
+          current.assignSite(
+            JSON.stringify([position, index, stepsDigest([current.wrapped])]),
+          );
+          usesDefaultKey ||= current.usesDefaultKey;
+        }
+        index++;
+      }
       for (const nested of nestedStepsOf(step)) visit(nested.steps);
     }
   };
   visit(route.steps);
   return usesDefaultKey;
-}
-
-/**
- * Fingerprint of a whole pipeline, which a route-scope cache folds into
- * its default key because a hit skips every step in it. Each step
- * contributes `[kind, optionsFingerprint]` for every wrapper in its stack,
- * the innermost step's definition fingerprint, and, for every nested
- * sub-pipeline, the fingerprint of the predicate selecting it (a
- * `.choice()` branch) and the nested pipeline's own description. Derived
- * from the definition alone, so every process running the same route
- * source computes the same digest.
- *
- * @internal
- */
-export function pipelineFingerprint(
-  steps: ReadonlyArray<Step<Adapter>>,
-): string {
-  return createHash("sha256")
-    .update(JSON.stringify(describePipeline(steps)))
-    .digest("hex");
-}
-
-function describePipeline(steps: ReadonlyArray<Step<Adapter>>): unknown[] {
-  return steps.map((step) => {
-    const { stack, innermost } = unwrapStack(step);
-    return [
-      stack.map(wrapperIdentity),
-      stepDefinitionFingerprint(innermost),
-      nestedStepsOf(step).map((nested) => [
-        nested.predicate === undefined
-          ? null
-          : definitionFingerprint(nested.predicate),
-        describePipeline(nested.steps),
-      ]),
-    ];
-  });
-}
-
-/** A step's wrapper stack, outermost first, and the step it folds around. */
-function unwrapStack(step: Step<Adapter>): {
-  stack: WrapperStep<Adapter>[];
-  innermost: Step<Adapter>;
-} {
-  const stack: WrapperStep<Adapter>[] = [];
-  let innermost: Step<Adapter> = step;
-  while (innermost instanceof WrapperStep) {
-    stack.push(innermost);
-    innermost = innermost.wrapped;
-  }
-  return { stack, innermost };
-}
-
-function wrapperIdentity(wrapper: WrapperStep<Adapter>): [string, string] {
-  return [
-    wrapper.constructor.name,
-    definitionFingerprint(wrapper.fingerprintOptions),
-  ];
 }
 
 /**
@@ -494,11 +440,15 @@ export class CacheWrapperStep<
     this.#customWhen = options.when;
   }
 
-  protected override describeOptions(): unknown {
+  protected override readonly wrapperKind = "routecraft.cache";
+
+  protected override identityOptions(): Omit<Identity, "kind"> {
     return {
-      key: this.#customKey ?? null,
-      when: this.#customWhen ?? null,
-      ttl: this.#options.ttl ?? null,
+      options: {
+        key: this.#customKey ?? null,
+        when: this.#customWhen ?? null,
+        ttl: this.#options.ttl ?? null,
+      },
     };
   }
 

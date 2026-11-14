@@ -18,7 +18,12 @@ import {
 } from "../../exchange.ts";
 import type { Route } from "../../route.ts";
 import type { Adapter, ExchangeScoped, Step } from "../../types.ts";
-import { continuationTailHash, describeSchema } from "./hash.ts";
+import {
+  continuationDifference,
+  continuationTailHash,
+  describeSchema,
+  isCurrentContinuationHash,
+} from "./hash.ts";
 import {
   type ResumeAuthorizer,
   type ResumeElevator,
@@ -378,20 +383,39 @@ export async function reviveDeferral(
     );
   }
 
+  if (!isCurrentContinuationHash(deferral.continuationHash)) {
+    return await refuseContinuation(
+      context,
+      runtime,
+      route,
+      deferral,
+      "continuation digest format changed",
+      `Deferral "${id}" was parked by a release that digested steps differently, so it cannot be compared with route "${deferral.routeId}" as it is now.`,
+    );
+  }
   // Keyed on `schemaIsLive`, not `site.schema`: a removed schema must still hash as absent.
+  const liveSchema = site.schemaIsLive
+    ? describeSchema(site.schema)
+    : deferral.schema;
   const current = continuationTailHash(
     site.site.continuation,
-    site.schemaIsLive ? describeSchema(site.schema) : deferral.schema,
+    liveSchema,
     deferral.errorPath?.origin,
   );
   if (current !== deferral.continuationHash) {
+    const difference = continuationDifference(
+      deferral.continuationHash,
+      site.site.continuation,
+      liveSchema,
+      deferral.errorPath?.origin,
+    );
     return await refuseContinuation(
       context,
       runtime,
       route,
       deferral,
       "continuation changed",
-      `Route "${deferral.routeId}" changed after position ${deferral.position} while this exchange was deferred, so the stored payload no longer authorizes what would run.`,
+      `Route "${deferral.routeId}" changed after position ${deferral.position} while this exchange was deferred: ${difference}. The stored payload no longer authorizes what would run.`,
     );
   }
 

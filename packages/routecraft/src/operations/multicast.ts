@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { NESTED_STEPS } from "../dsl-symbol.ts";
 import type { NestedSteps } from "../kernel/continuation/sites.ts";
@@ -55,6 +56,11 @@ export class MulticastStep<In = unknown> implements Step<MulticastAdapter> {
    */
   [NESTED_STEPS](): ReadonlyArray<NestedSteps> {
     return this.paths.map((steps) => ({ steps, rejoins: false }));
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.multicast" };
   }
 
   async execute(

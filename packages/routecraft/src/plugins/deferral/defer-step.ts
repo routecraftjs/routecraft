@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../../kernel/continuation/identity.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { rcError } from "../../error.ts";
 import { type Exchange, OperationType } from "../../exchange.ts";
@@ -110,6 +111,14 @@ export class DeferStep implements DeferrableStep {
     if (options.ttl !== undefined) {
       this.#expiresInMs = parseDuration(options.ttl, ".defer({ ttl })");
     }
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return {
+      kind: "routecraft.defer",
+      options: { schema: this.schema, meta: this.meta, ttl: this.#expiresInMs },
+    };
   }
 
   async execute(exchange: Exchange): Promise<StepOutcome> {

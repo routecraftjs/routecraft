@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
@@ -283,6 +284,11 @@ export class HaltStep implements Step<HaltAdapter> {
   operation: OperationType = OperationType.HALT;
   adapter: HaltAdapter = { adapterId: "routecraft.operation.halt" };
 
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.halt" };
+  }
+
   async execute(exchange: Exchange): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
@@ -400,8 +406,13 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
     return this.branches.map((branch) => ({
       steps: branch.steps,
       rejoins: true,
-      predicate: branch.predicate,
+      selector: branch.label === "otherwise" ? "otherwise" : branch.predicate,
     }));
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.choice" };
   }
 
   async execute(exchange: Exchange<In>): Promise<StepOutcome> {

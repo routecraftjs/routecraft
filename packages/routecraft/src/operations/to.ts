@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import {
   type Adapter,
   type Step,
@@ -131,6 +132,11 @@ export class ToStep<T = unknown, R = unknown>
       this.callable = undefined;
       this.adapter = target;
     }
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.to", options: { adapter: this.adapter } };
   }
 
   async execute(

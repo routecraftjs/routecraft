@@ -1,3 +1,4 @@
+import { identified } from "../kernel/continuation/identity.ts";
 import type { FieldTransform } from "./transform.ts";
 import { getPath, hasPath, setPath } from "./field-paths.ts";
 
@@ -61,5 +62,8 @@ export function mask<T>(rules: MaskRules<T>): FieldTransform<T> {
       ? maskRecord(body as T, rules)
       : body;
   };
-  return fn as unknown as FieldTransform<T>;
+  return identified(fn, {
+    kind: "routecraft.mask",
+    options: rules,
+  }) as unknown as FieldTransform<T>;
 }

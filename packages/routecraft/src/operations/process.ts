@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import {
   type Adapter,
   type Step,
@@ -68,6 +69,11 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
   constructor(adapter: Processor<T, R> | CallableProcessor<T, R>) {
     this.adapter =
       typeof adapter === "function" ? { process: adapter } : adapter;
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.process", options: { adapter: this.adapter } };
   }
 
   async execute(

@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import {
   type Adapter,
   type Step,
@@ -66,6 +67,11 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
   constructor(adapter: Filter<T> | CallableFilter<T>) {
     this.adapter =
       typeof adapter === "function" ? { filter: adapter } : adapter;
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.filter", options: { adapter: this.adapter } };
   }
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {

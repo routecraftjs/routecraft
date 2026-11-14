@@ -76,6 +76,7 @@ import type {
   ErrorPathSite,
 } from "./kernel/continuation/sites.ts";
 import { nestedStepsOf } from "./kernel/continuation/sites.ts";
+import { describeSteps } from "./kernel/continuation/identity.ts";
 import { STEP_PLUGIN } from "./dsl-symbol.ts";
 import type { WrapperStep } from "./operations/wrapper.ts";
 import { DeferralHeaders } from "./kernel/continuation/exchange-state.ts";
@@ -912,6 +913,44 @@ export class DefaultRoute implements Route {
     this.positions();
     this.assertStepPlugins();
     this.assertStepPositions();
+    if (!this.warnedInferred) {
+      this.warnedInferred = true;
+      this.warnInferredContinuations();
+    }
+  }
+
+  /** `compile()` runs at context start and again at route start; the warning is said once. */
+  private warnedInferred = false;
+
+  /**
+   * Warn (`RC5071`) when a resume of this route would run a step whose
+   * definition the continuation digest cannot fully see, so an edit there
+   * would not refuse a parked approval.
+   */
+  private warnInferredContinuations(): void {
+    const sites = [
+      ...(this.definition.deferSteps ?? []).map((step) => step.site),
+      ...(this.definition.reentrantDeferSteps ?? []).map(
+        (step) => step.deferSite,
+      ),
+    ];
+    const inferred = new Map<string, string>();
+    for (const site of sites) {
+      if (!site) continue;
+      const base = site.position;
+      for (const node of describeSteps(site.continuation).inferred) {
+        inferred.set(`after position ${base}: ${node.path}`, node.reason);
+      }
+    }
+    if (inferred.size === 0) return;
+    this.logger.warn(
+      {
+        rc: "RC5071",
+        route: this.definition.id,
+        inferred: [...inferred].map(([path, reason]) => ({ path, reason })),
+      },
+      `Route "${this.definition.id}" defers, and ${inferred.size} value(s) in what a resume would run are invisible to the continuation digest. Editing one will not refuse a parked approval.`,
+    );
   }
 
   /**

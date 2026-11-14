@@ -1,6 +1,7 @@
 import type { Exchange } from "../exchange.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
+import type { Identity } from "../kernel/continuation/identity.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
@@ -37,8 +38,10 @@ export class DelayWrapperStep<
     this.#delayMs = parseDuration(duration, "delay(duration)", 0);
   }
 
-  protected override describeOptions(): unknown {
-    return { delayMs: this.#delayMs };
+  protected override readonly wrapperKind = "routecraft.delay";
+
+  protected override identityOptions(): Omit<Identity, "kind"> {
+    return { options: { delayMs: this.#delayMs } };
   }
 
   protected override async runInner(

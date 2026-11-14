@@ -134,6 +134,7 @@ export interface ErrorCodeRegistry {
   RC5069: RCMeta;
   /** Credential store failure: a stored credential could not be read, written or opened */
   RC5070: RCMeta;
+  RC5071: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -683,7 +684,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Deferral continuation changed",
     suggestion:
-      "The steps after the defer point (or the `expect` schema) changed while the exchange was deferred, so the stored approval no longer authorizes what would now run. Resuming is refused before any of those steps execute. This is catchable: the deferred route's `.error()` handler receives it and can re-ask with a fresh deferral. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so deployments that defer approvals for days should pin those.",
+      "The steps after the defer point, or the `schema` the resume payload is validated against, changed while the exchange was deferred, so the stored approval no longer authorizes what would now run. The message names the first step that differs. Resuming is refused before any of those steps execute. This is catchable: the deferred route's `.error()` handler receives it and can re-ask with a fresh deferral. A record parked by a release before 0.8 is refused the same way, once. The digest also moves when a user function's emitted text changes without a behaviour change (a formatting pass, a transpiler or runtime upgrade) or a schema library renders its JSON Schema differently, so deployments that defer approvals for days should pin those. It does not see what a function captured, what a `direct()` target does, or a value `RC5071` warned about.",
     docs: `${DOCS_BASE}#rc-5048`,
     retryable: false,
   },
@@ -861,6 +862,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The credential store could not open, read or write a credential, or a sealed credential or seed did not open under ROUTECRAFT_CREDENTIALS_KEY. The message names which. A sealed value needs the key it was sealed under; a seed needs the key it was exported under; a file that belongs to another store needs its own path in credentials: { store }.",
     docs: `${DOCS_BASE}#rc-5070`,
+    retryable: false,
+  },
+  RC5071: {
+    category: "Runtime",
+    message: "Continuation digest does not cover a value",
+    suggestion:
+      "A warning at start, never thrown. A route that defers has, among the steps a resume would run, a value the continuation digest cannot see into: a class instance, a native or bound function, a schema with no JSON Schema rendering, a symbol-keyed or accessor property, or something nested more than five deep. Editing that value will not refuse a parked approval (`RC5048`), so the approval can resume into behaviour its approver did not see. The warning names each path. Pass plain data, or have the step or adapter state its identity with `[IDENTITY]()`: `versioned(value, id)` for a value whose author knows when it changed, `secret(value)` for one that configures without defining.",
+    docs: `${DOCS_BASE}#rc-5071`,
     retryable: false,
   },
   RC9901: {

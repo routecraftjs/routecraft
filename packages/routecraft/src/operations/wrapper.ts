@@ -9,7 +9,8 @@ import {
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { AnyPort } from "../kernel/port.ts";
-import { NESTED_STEPS, DEFER_HOST } from "../dsl-symbol.ts";
+import { NESTED_STEPS, DEFER_HOST, WRAPPER_IDENTITY } from "../dsl-symbol.ts";
+import type { Identity } from "../kernel/continuation/identity.ts";
 import {
   type NestedSteps,
   type DeferCapableStep,
@@ -169,14 +170,17 @@ export abstract class WrapperStep<
   }
 
   /**
-   * The options this wrapper was built with, as reported by
-   * {@link describeOptions}, for build-time walks that fingerprint a
-   * wrapper stack.
+   * This wrapper's identity and the step it folds around, for the walk
+   * that digests a pipeline.
    *
    * @internal
    */
-  get fingerprintOptions(): unknown {
-    return this.describeOptions();
+  [WRAPPER_IDENTITY](): Identity & { readonly inner: Step<Adapter> } {
+    return {
+      ...this.identityOptions(),
+      kind: this.wrapperKind,
+      inner: this.inner as Step<Adapter>,
+    };
   }
 
   /**
@@ -198,25 +202,24 @@ export abstract class WrapperStep<
   }
 
   /**
-   * Report the options that define this wrapper, so a `.cache()` whose
-   * cached computation includes it (a step-scope cache stacked above it,
-   * or a route-scope cache over the pipeline) can fold them into its
-   * default key.
-   * Without them, editing a wrapper between a cache and its step (an
-   * `.error()` handler's recovery value, a `.retry()` predicate deciding
-   * which failures are recovered) would leave the key unchanged and an
-   * external provider would keep replaying what the old wrapper produced.
-   *
-   * Return the configuration, not runtime state: callables as themselves
-   * (their source text is hashed), plain data as plain data, and never a
-   * controller, bucket or other live object (those hash as `[opaque]` and
-   * add nothing). Return `null` when the wrapper takes no options. The
-   * value goes through the same projection as an adapter's options in
-   * `kernel/continuation/hash.ts`, so the same carriers and depth bound apply.
-   *
-   * Abstract so a new wrapper cannot silently opt out of the cache key.
+   * The wrapper's stable, namespaced kind: `routecraft.retry`. A class
+   * name would not survive a minifier.
    */
-  protected abstract describeOptions(): unknown;
+  protected abstract readonly wrapperKind: string;
+
+  /**
+   * The options that define this wrapper, for the digest a deferred
+   * exchange resumes against and a cache keys on. Without them, editing an
+   * `.error()` handler's recovery value or a `.retry()` predicate would
+   * leave both unchanged.
+   *
+   * Return the configuration, not runtime state: callables as themselves,
+   * plain data as plain data, and never a controller, bucket or other live
+   * object. A wrapper with no options returns `{}`.
+   *
+   * Abstract so a new wrapper cannot silently stay out of the digest.
+   */
+  protected abstract identityOptions(): Omit<Identity, "kind">;
 
   /**
    * Run the inner step with whatever extra behaviour the subclass adds

@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import { authorityOf } from "../kernel/authority.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
@@ -85,6 +86,14 @@ export class DelegateStep<T = unknown> implements Step<Adapter> {
     private readonly resolve: CallableDelegator<T>,
     private readonly options: DelegateStepOptions = {},
   ) {}
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return {
+      kind: "routecraft.delegate",
+      options: { resolve: this.resolve, options: this.options },
+    };
+  }
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const directive = await Promise.resolve(this.resolve(exchange));

@@ -3,6 +3,7 @@ import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import { identified, type Identity } from "../kernel/continuation/identity.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
@@ -86,12 +87,15 @@ export interface ResolvedRetryOptions {
  *
  * @internal
  */
-export function defaultRetryOn(error: Error): boolean {
-  if (isRoutecraftError(error)) {
-    return error.retryable !== false;
-  }
-  return true;
-}
+export const defaultRetryOn = identified(
+  (error: Error): boolean => {
+    if (isRoutecraftError(error)) {
+      return error.retryable !== false;
+    }
+    return true;
+  },
+  { kind: "routecraft.retry.defaultRetryOn", version: 1 },
+);
 
 /**
  * Resolve user-supplied {@link RetryOptions} into a fully populated
@@ -280,8 +284,10 @@ export class RetryWrapperStep<
     this.#options = resolveRetryOptions(options);
   }
 
-  protected override describeOptions(): unknown {
-    return this.#options;
+  protected override readonly wrapperKind = "routecraft.retry";
+
+  protected override identityOptions(): Omit<Identity, "kind"> {
+    return { options: this.#options };
   }
 
   override get requiredPosition(): RequiredPosition {

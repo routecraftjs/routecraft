@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import { LRUCache } from "lru-cache";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { type Exchange, OperationType, cloneExchange } from "../exchange.ts";
@@ -345,6 +346,7 @@ export class DispatchStep<In = unknown> implements Step<DispatchAdapter> {
   adapter: DispatchAdapter = { adapterId: "routecraft.operation.dispatch" };
 
   readonly #strategy: ResolvedDispatchStrategy;
+  readonly #given: unknown;
   readonly #targets: CompiledTarget[];
   readonly #weights: number[];
   readonly #controller: DispatchController;
@@ -362,6 +364,7 @@ export class DispatchStep<In = unknown> implements Step<DispatchAdapter> {
       catalogue,
     );
     this.#weights = this.#targets.map((t) => t.weight);
+    this.#given = strategy;
     this.#controller = new DispatchController(
       this.#targets.length,
       this.#strategy.name === "sticky" ? this.#strategy.maxKeys : 1,
@@ -381,6 +384,14 @@ export class DispatchStep<In = unknown> implements Step<DispatchAdapter> {
       steps: target.steps,
       rejoins: false,
     }));
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return {
+      kind: "routecraft.dispatch",
+      options: { strategy: this.#given, weights: this.#weights },
+    };
   }
 
   async execute(
