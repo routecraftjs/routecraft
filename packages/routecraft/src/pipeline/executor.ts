@@ -667,7 +667,10 @@ export async function runPipeline(
         case "drop":
           break;
         case "defer": {
-          if (!redeemDeferTicket(outcome.request, stepExchange.id)) {
+          if (
+            outcome.exchange?.id !== stepExchange.id ||
+            !redeemDeferTicket(outcome.request, stepExchange.id)
+          ) {
             throw rcError("RC5032", undefined, {
               message: `Step "${stepLabel}" returned a "defer" outcome the kernel did not issue for this exchange. A step defers by declaring DEFERS and calling ctx.defer(), which carries where the exchange resumes; a deferral raised for one exchange cannot park another, or the same one twice.`,
             });

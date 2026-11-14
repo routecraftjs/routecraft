@@ -28,6 +28,13 @@ ruleTester.run(
   {
     valid: [
       {
+        // a namespace that is not the package's
+        code: `
+          import * as other from "./ports";
+          other.lookupOf(exchange, other.CONTINUATIONS).signer.mint(id);
+        `,
+      },
+      {
         // the documented route-author path: a link to one's own deferral
         code: `
           import { craft, direct, noop } from "@routecraft/routecraft";
@@ -228,6 +235,18 @@ ruleTester.run(
           lookupOf(exchange, CONTINUATIONS).signer.mint(id);
           const viaExchange = lookupOf(exchange, CONTINUATIONS);
           viaExchange?.signer.mint(id);
+        `,
+        errors: [
+          { messageId: "restrictedMint", data: { what: "signer.mint()" } },
+          { messageId: "restrictedMint", data: { what: "signer.mint()" } },
+        ],
+      },
+      {
+        // through a namespace import of the package
+        code: `
+          import * as rc from "@routecraft/routecraft";
+          rc.lookupOf(exchange, rc.CONTINUATIONS).signer.mint(id);
+          c.require(rc.CONTINUATIONS).signer.mint(id);
         `,
         errors: [
           { messageId: "restrictedMint", data: { what: "signer.mint()" } },

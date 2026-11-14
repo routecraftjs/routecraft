@@ -464,7 +464,7 @@ describe("defer and resume", () => {
   /**
    * @case A stored record carries a record format this release does not write
    * @preconditions Three deferred payouts whose records read back with format 0 (written before records carried one), one lower than the current format, and one higher (a rollback reading a newer release's record)
-   * @expectedResult Each resume is RC5048 naming both formats, nothing after the defer runs, the deferred route's .error() handler is told, and each record is denied with reason "record format changed"
+   * @expectedResult Each resume is RC5048 naming both formats, nothing after the defer runs, the deferred route's .error() handler is told, and each record is denied with reason "record format changed". A record already resumed that reads back in another format is RC5048 on a duplicate resume too: its stored result is not decoded, and nothing is re-asked
    */
   test("a record in another format is refused with RC5048, older and newer", async () => {
     const backing = new MemoryDeferralStore();
@@ -520,6 +520,20 @@ describe("defer and resume", () => {
     }
 
     expect(ran).toHaveLength(0);
+    expect(caught).toHaveLength(3);
+
+    const settled = asDeferred(await t.client.sendDirect("payout", PAYOUT));
+    const answer = () =>
+      t!.client.sendDirect("answers", {
+        token: settled.token,
+        input: { approved: true },
+      });
+    expect(await answer()).toMatchObject({ status: "resumed" });
+    formats.set(settled.deferralId, DEFERRAL_FORMAT + 1);
+    const replayed = answer();
+    await expect(replayed).rejects.toMatchObject({ rc: "RC5048" });
+    await expect(replayed).rejects.toThrow(/not read back/);
+    expect(ran).toHaveLength(1);
     expect(caught).toHaveLength(3);
   });
 

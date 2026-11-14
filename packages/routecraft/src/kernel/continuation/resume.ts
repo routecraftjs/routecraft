@@ -704,6 +704,12 @@ export function deferralScope(deferral: Deferral): ExchangeScoped {
  */
 function unresumable(deferral: Deferral): ResumeAcknowledgment {
   if (deferral.outcome?.kind === "resumed") {
+    // The stored result is in the record's format too, and it is settled: refused, with nothing to re-ask.
+    if (deferral.format !== DEFERRAL_FORMAT) {
+      throw rcError("RC5048", undefined, {
+        message: `Deferral "${deferral.id}" was resumed under record format ${String(deferral.format)} and this release reads format ${DEFERRAL_FORMAT}, so its stored result is not read back.`,
+      });
+    }
     return {
       status: "duplicate",
       deferralId: deferral.id,

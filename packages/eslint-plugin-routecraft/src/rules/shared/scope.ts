@@ -88,8 +88,9 @@ export function isProjectModule(source: string): boolean {
 }
 
 /**
- * Whether an identifier is the named routecraft export `name`, whatever
- * it was imported as.
+ * Whether an expression is the named routecraft export `name`: an
+ * identifier, whatever it was imported as, or a member of a namespace
+ * import of the package.
  */
 export function isRoutecraftExport(
   context: Rule.RuleContext,
@@ -97,6 +98,11 @@ export function isRoutecraftExport(
   identifier: unknown,
   name: string,
 ): boolean {
+  if (isNamespaceMember(identifier)) {
+    if (memberPropertyName(identifier) !== name) return false;
+    const holder = resolveBinding(context, node, identifier.object);
+    return holder.kind === "namespace" && holder.module === ROUTECRAFT_MODULE;
+  }
   if (!isIdentifier(identifier)) return false;
   const binding = resolveBinding(context, node, identifier);
   return (
@@ -104,6 +110,17 @@ export function isRoutecraftExport(
     binding.module === ROUTECRAFT_MODULE &&
     binding.imported === name
   );
+}
+
+/** `ns.member` or `ns["member"]` on a plain identifier. */
+function isNamespaceMember(value: unknown): value is {
+  computed: boolean;
+  object: { name: string };
+  property: unknown;
+} {
+  if (typeof value !== "object" || value === null) return false;
+  const member = value as { type?: unknown; object?: unknown };
+  return member.type === "MemberExpression" && isIdentifier(member.object);
 }
 
 /**

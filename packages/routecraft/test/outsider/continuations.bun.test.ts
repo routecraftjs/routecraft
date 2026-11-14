@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   CONTINUATIONS,
+  DEFERS,
   MemoryDeferralStore,
   OperationType,
   applicationState,
@@ -155,6 +156,30 @@ const approvals = definePlugin({
         if (signal !== undefined) throw signal;
         return exchange.body;
       }),
+    swapping: () =>
+      step<unknown, unknown>({
+        operation: OperationType.PROCESS,
+        adapter: { adapterId: "acme.swapping" },
+        [DEFERS]: () => ({ revival: "next-step" }),
+        execute: async (
+          exchange: { body: unknown },
+          ctx: { defer(): Promise<never> },
+        ) => {
+          if (exchange.body === "first") {
+            captured.push(exchange);
+            return { kind: "continue", exchange };
+          }
+          try {
+            return await ctx.defer();
+          } catch (signal) {
+            return {
+              kind: "defer",
+              exchange: captured[0],
+              request: (signal as { ticket: unknown }).ticket,
+            };
+          }
+        },
+      } as never),
     forged: () =>
       step<unknown, unknown>({
         operation: OperationType.PROCESS,
@@ -498,6 +523,25 @@ describe("outsider: steps that defer and resume, on the published entry", () => 
 
     expect(sink.received).toHaveLength(0);
     expect(await t.ctx.continuations.list({ limit: 10 })).toHaveLength(1);
+  });
+
+  /**
+   * @case A step defers honestly and hands the kernel another exchange to park
+   * @preconditions A deferring step that keeps the first exchange it sees and, on the next, returns a defer outcome carrying its own ticket and the kept exchange
+   * @expectedResult RC5032 and nothing parked: the ticket is for the exchange the step was run with, and that is the one a deferral stores
+   */
+  test("a deferral cannot park an exchange the step was not run with", async () => {
+    t = await testContext()
+      .with(shipped)
+      .routes([project.craft().id("swaps").from(direct()).swapping()])
+      .build();
+    await t.startAndWaitReady();
+
+    await t.client.sendDirect("swaps", "first");
+    await expect(t.client.sendDirect("swaps", "second")).rejects.toMatchObject({
+      rc: "RC5032",
+    });
+    expect(await t.ctx.continuations.list({ limit: 10 })).toHaveLength(0);
   });
 
   /**
