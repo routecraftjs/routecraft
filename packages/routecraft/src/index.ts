@@ -376,24 +376,14 @@ export {
 
 export { type Filter, type FilterDropResult } from "./operations/filter.ts";
 
-export {
-  SampleStep,
-  type SampleOptions,
-  type ResolvedSampleOptions,
-} from "./operations/sample.ts";
+export { SampleStep, type SampleOptions } from "./operations/sample.ts";
 
-export {
-  DedupeStep,
-  type DedupeOptions,
-  type ResolvedDedupeOptions,
-} from "./operations/dedupe.ts";
+export { DedupeStep, type DedupeOptions } from "./operations/dedupe.ts";
 
 // ResolvedDebounceOptions is @internal and deliberately NOT re-exported here
 // (DEFINITION_OF_DONE.md: no new @internal symbols on the public entry
 // point; the Resolved* exports above it are grandfathered).
 export { DebounceStep, type DebounceOptions } from "./operations/debounce.ts";
-
-export { hashExchangeBody } from "./operations/hash-body.ts";
 
 export {
   PathBuilder,
@@ -495,13 +485,11 @@ export {
   ThrottleWrapperStep,
   type ThrottleOptions,
   type ThrottleTimeUnit,
-  type ResolvedThrottleOptions,
 } from "./operations/throttle-wrapper.ts";
 export {
   CircuitBreakerWrapperStep,
   type CircuitBreakerOptions,
   type CircuitBreakerState,
-  type ResolvedCircuitBreakerOptions,
 } from "./operations/circuit-breaker-wrapper.ts";
 export {
   ConcurrencyWrapperStep,
@@ -616,7 +604,6 @@ export type {
   EnablementState,
   EnablementVerdict,
   RefreshCadence,
-  RouteEnablement,
 } from "./enablement.ts";
 export type { Duration, DurationUnit } from "./shared/duration.ts";
 
@@ -990,6 +977,8 @@ export type {
   DeferralSchema,
   DeferralResumption,
   DeferralRuntime,
+  ResumeTokenPayload,
+  ResumeTokenSigning,
   DeferralState,
   DeferralOutcome,
   DeferralWaitingFor,
