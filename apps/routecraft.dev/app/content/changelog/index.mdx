@@ -25,6 +25,8 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 - **Parked deferrals are re-asked once** -- the continuation digest covers more of the route and no longer moves with Routecraft's own source, so a deferral parked on 0.7 is refused with `RC5048` on its first resume. A custom `DeferralStore` fences its claims. See [step identity](/docs/next/migrating/0.7-to-0.8#16-step-identity) and [deferral stores](/docs/next/migrating/0.7-to-0.8#6-deferral-store).
 - **Events carry ids, and bodies only on request** -- `details.exchange` is gone from every event; read `details.exchangeId`, and subscribe with `{ snapshots: true }` to read `details._snapshot`. See [event bodies](/docs/next/migrating/0.7-to-0.8#20-event-bodies).
 - **A failed split child fails the aggregate** -- a child that fails with nothing handling it fails the parent at `.aggregate()` instead of being left out of a shorter result. See [split child failure](/docs/next/migrating/0.7-to-0.8#22-split-child-failure).
+- **Credentials stay out of storage** -- an API key the `http()` mount verified is no longer on the exchange, and a parked exchange is stored without `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key` or any plugin's `secretHeaders`. See [event bodies](/docs/next/migrating/0.7-to-0.8#20-event-bodies).
+- **Internal names left the entry** -- the test-override and runtime helpers tagged `@internal` moved to `@routecraft/routecraft/internal`, which carries no compatibility promise. See [the defer contract](/docs/next/migrating/0.7-to-0.8#18-defer-contract).
 - **The correlation id is engine-owned** -- `.header()` refuses `routecraft.correlation_id`, `.correlate()` re-stamps it, and `event()` continues the causing journey. See [journeys](/docs/next/migrating/0.7-to-0.8#10-journeys).
 
 ### Core
@@ -32,6 +34,11 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 - **Ports, hooks and facets** -- plugins share values through versioned ports, add hooks to the slots of the fixed chain, declare typed builder steps, and expose a facet on the exchange. A plugin can replace what fills `.authorize()`, the resilience operations and the cache store. See [plugins](/docs/next/advanced/plugins).
 - **Journeys** -- every exchange a hand-off produces records the exchange that caused it, events and log lines carry it, and W3C trace context crosses the `http()`, ops and MCP doors. See [what is new](/docs/next/migrating/0.7-to-0.8#26-what-is-new-in-080).
 - **`auth:rejected` says why** -- the event carries a bounded `code` and `claim` for a refused JWT, never the token or the verifier's message. See [events](/docs/next/reference/events).
+- **An error can become a deferral** -- `recovery.defer()` in an `.error()` handler, or a plugin's `error` hook, parks the failing exchange instead of ending it, and `route:exchange:denied` announces a deferral settled as denied.
+- **Bytes survive a deferral** -- a `Buffer` or `Uint8Array` in the body or headers is stored and revived, so a mail message with attachments and an agent prompted with a file can defer.
+- **`.validate()` can refuse the caller** -- a validator that returns or throws `refuse(reason, { kind })` fails the run with `RC5068`, and the door that dispatched the route answers with the kind and the reason instead of a 500.
+- **`.cache({ when })`** -- a per-exchange condition beside `key`; `false` skips the read and the write and emits `route:cache:bypassed`. The default key folds in `routecraft.cache.discriminator` when a source sets it, so every default-key entry misses once after the upgrade.
+- **Types** -- `direct<T>()` types a source without a schema, `.to()` infers the body into a fetch-only adapter's callbacks, the brand guards such as `isRoutecraftError` narrow, a function `path` on `file()` as a source is a compile error, and `routes(a, b, c)` registers all three.
 - **`isTransient(error)`** -- the rule `.retry()` and `.circuitBreaker()` apply by default is exported, and `route:retry:stopped` says why a retry stopped.
 
 ### AI & MCP <Badge color="red">Breaking</Badge>
@@ -46,6 +53,14 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 
 ### AI & MCP
 
+- **`tools/list` follows `.authorize()`** -- a caller is shown only the tools whose route admits them; `tools/call` is gated as before.
+- **MCP mounts** -- the server answers below its path with nothing to configure: `/mcp/<client>` serves the tools a route proxies from that client under the remote's own names, `/mcp/<name>` the application's own.
+- **Proxy routes shape what they expose** -- a proxy route's `.input()` and `.output()` are advertised in place of the remote's, a star route derives schemas with `schemas` and leaves tools out with `exclude`, an untouched result reaches the caller as the remote published it, and an exact route whose tool the remote no longer lists goes on standby with a warning.
+- **MCP Apps views** -- `mcp({ ui: { html } })` on a route with `.output()` ships a view a host such as Claude renders in place of JSON.
+- **One connection per HTTP MCP client** -- the tool listing and every call share it, so a call pays for no handshake and a stateful remote sees one session.
+- **Disabled is not down** -- an agent's reference to a route held back by `.enabled()`, or to a client with `enabled: false`, is left out with one warning instead of failing the start.
+- **Background tools over a route that parks** -- the handle stays open through the park and settles from the continuation's outcome.
+- **`fn()`** -- wraps an entry of `agentPlugin({ functions })` so the handler's `input` is typed by the entry's schema.
 - **Pinned MCP tools** -- `pins` on an MCP client holds it to the tool definitions in `mcp.lock`, which `craft mcp pin` writes; a new or changed tool is withheld or served as the pins say.
 - **MCP clients behind a login** -- `auth: connect({ clientId, scopes })` on a named client, `craft connect` to log in, and a credential store that refreshes and rotates tokens. See [servers behind a login](/docs/next/advanced/call-an-mcp#servers-behind-a-login).
 - **A record of every call to a remote MCP tool** -- `plugin:mcp:remote:requested` and `plugin:mcp:remote:settled` name the client, the tool, the caller and the outcome.
@@ -66,12 +81,20 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 
 - **A mail message's flags are an array** <Badge color="red">Breaking</Badge> -- `flags` was a `Set`, which cannot be stored, so a route sourced from `mail()` could not defer. Code that calls `flags.has()` uses `flags.includes()`. See [mail flags](/docs/next/migrating/0.7-to-0.8#9-mail-flags).
 - **A missing file is `RC5014`** -- `file()`, `jsonl()`, `csv()` and `directory()` threw a bare error for a path that does not exist or cannot be read; they throw `RC5014` and `RC5015` with the errno error as `cause`. See [coded errors](/docs/next/migrating/0.7-to-0.8#25-coded-errors).
+- **`http({ signature })` takes `"ed25519"`** -- a public-key signature over the timestamp and the raw body, as Telnyx and Discord sign their webhooks.
+- **`http()` cookies** -- `routecraft.http.cookies` reads request cookies by name, and a response header takes an array to send several `Set-Cookie` fields.
+- **`mail({ gmailSearch })`** -- a Gmail search query sent as `X-GM-RAW` and ANDed with the other filters.
+- **An unparseable `Date` header** -- `MailMessage.date` falls back to the time the message was read instead of carrying the raw header string.
 - **`verify: 'strict'` passes long DKIM keys on Bun** -- a key over 255 bytes is split across TXT strings, which Bun's resolver returned as separate records.
 
 ### Packages <Badge color="red">Breaking</Badge>
 
 - **`agentBrowser()` is removed** from `@routecraft/os`. See [agentBrowser](/docs/next/migrating/0.7-to-0.8#11-agent-browser).
-- **Two optional peers need a newer major** -- `mailauth` is `^8.0.6` and `@ai-sdk/openai-compatible` is `^2.0.0`. See [optional peers](/docs/next/migrating/0.7-to-0.8#13-optional-peers).
+- **Three optional peers need a newer major** -- `mailauth` is `^8.0.6`, `@ai-sdk/openai-compatible` is `^2.0.0` and `@huggingface/transformers` is `^4.3.1`. See [optional peers](/docs/next/migrating/0.7-to-0.8#13-optional-peers).
+
+### Packages
+
+- **Three optional peers take a new major beside the old one** -- `croner` 10 or 11, `imapflow` 1 or 2, and `execa` 9 or 10.
 
 ## [v0.7.2](https://github.com/routecraftjs/routecraft/releases/tag/v0.7.2) <Badge color="yellow">Pre-release</Badge>
 
