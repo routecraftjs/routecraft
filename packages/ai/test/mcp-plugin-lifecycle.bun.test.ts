@@ -219,6 +219,41 @@ describe("mcpPlugin lifecycle", () => {
   });
 
   /**
+   * @case A proxy route switched on after start starts the server too
+   * @preconditions mcpPlugin() with one stdio client, no transport and no tool route at start; a .from(mcp({ proxy })) route is registered on the running context and switched on by an enablement re-check
+   * @expectedResult The server's start is called once, as it is for a proxy route present at start
+   */
+  test("starts the server for a proxy route registered after start", async () => {
+    const t = await testContext()
+      .with({
+        plugins: [
+          mcpPlugin({
+            clients: { docs: { transport: "stdio", command: "docs-mcp" } },
+          }),
+        ],
+      })
+      .routes([craft().id("idle").from(direct()).to(noop())])
+      .build();
+    contexts.push(t);
+    await t.startAndWaitReady();
+    expect(serverStarts).toBe(0);
+
+    let on = false;
+    t.ctx.registerRoutes(
+      ...craft()
+        .id("docs")
+        .enabled(() => on)
+        .from(mcp({ proxy: "docs:*" }))
+        .to(mcp("docs:*"))
+        .build(),
+    );
+    await t.ctx.reevaluateEnablement("docs");
+    on = true;
+    await t.ctx.reevaluateEnablement("docs");
+    expect(serverStarts).toBe(1);
+  });
+
+  /**
    * @case A call to a remote tool in an application without the MCP plugin is refused
    * @preconditions No mcpPlugin; a route whose .to(mcp({ url, tool })) runs once
    * @expectedResult The exchange fails with RC5003 naming the missing plugin and how to add it

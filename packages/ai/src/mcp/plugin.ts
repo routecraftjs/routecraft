@@ -65,6 +65,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
 
   const servers = new WeakMap<PluginContext, McpServer>();
   const services = new WeakMap<PluginContext, McpService>();
+  /** A server start still in flight for a tool exposed after the application started. */
+  const lateStarts = new WeakMap<PluginContext, Promise<void>>();
 
   return {
     id: "routecraft.ai.mcp",
@@ -206,6 +208,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       c.onDispose(async () => {
         servers.delete(c);
         try {
+          // A start that settles after the stop would leave the transport open.
+          await lateStarts.get(c);
           await server.stop();
         } catch (error) {
           c.logger.error(
@@ -229,14 +233,17 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
         // A route registered after start is still served: the first tool it
         // exposes starts the server it was skipped for.
         const stopWaiting = service.onChange(() => {
-          if (service.local.size === 0) return;
+          if (service.local.size === 0 && service.proxies.size === 0) return;
           stopWaiting();
-          server.start().catch((error: unknown) => {
-            c.logger.error(
-              { err: error, operation: "start" },
-              "Failed to start the MCP server for a tool exposed after start",
-            );
-          });
+          lateStarts.set(
+            c,
+            server.start().catch((error: unknown) => {
+              c.logger.error(
+                { err: error, operation: "start" },
+                "Failed to start the MCP server for a tool exposed after start",
+              );
+            }),
+          );
         });
         c.onDispose(stopWaiting);
       }
