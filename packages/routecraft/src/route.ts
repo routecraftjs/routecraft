@@ -76,6 +76,10 @@ import type {
   ErrorPathSite,
 } from "./kernel/continuation/sites.ts";
 import { nestedStepsOf } from "./kernel/continuation/sites.ts";
+import {
+  describeSteps,
+  type InferredNode,
+} from "./kernel/continuation/identity.ts";
 import { STEP_PLUGIN } from "./dsl-symbol.ts";
 import type { WrapperStep } from "./operations/wrapper.ts";
 import { DeferralHeaders } from "./kernel/continuation/exchange-state.ts";
@@ -437,6 +441,14 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   cachePipeline?: string;
+
+  /**
+   * What the digests behind this route's default-keyed step-scope caches
+   * could not see into, for the `RC5071` warning at start.
+   *
+   * @internal
+   */
+  cacheInferred?: ReadonlyArray<InferredNode>;
 
   /**
    * Where an error-path park would land, per step of this route.
@@ -912,6 +924,69 @@ export class DefaultRoute implements Route {
     this.positions();
     this.assertStepPlugins();
     this.assertStepPositions();
+    if (!this.warnedInferred) {
+      this.warnedInferred = true;
+      this.warnInferredContinuations();
+    }
+  }
+
+  /** `compile()` runs at context start and again at route start; the warning is said once. */
+  private warnedInferred = false;
+
+  /**
+   * Warn (`RC5071`) when this route compares a digest of its steps that
+   * cannot see all of them: the continuation of a park (a defer site, or
+   * the whole pipeline when the error path declares one) and the pipeline
+   * a default cache key stands for. An edit to such a value refuses no
+   * parked approval and misses no cached entry.
+   */
+  private warnInferredContinuations(): void {
+    const { definition } = this;
+    const inferred = new Map<string, { reason: string; affects: string }>();
+    const walk = (
+      steps: ReadonlyArray<Step<Adapter>>,
+      affects: string,
+      where: string,
+    ): void => {
+      for (const node of describeSteps(steps).inferred) {
+        inferred.set(`${where}: ${node.path}`, {
+          reason: node.reason,
+          affects,
+        });
+      }
+    };
+    const sites = [
+      ...(definition.deferSteps ?? []).map((step) => step.site),
+      ...(definition.reentrantDeferSteps ?? []).map((step) => step.deferSite),
+    ];
+    for (const site of sites) {
+      if (site)
+        walk(site.continuation, "resume", `after position ${site.position}`);
+    }
+    if (
+      definition.errorPathSchema !== undefined ||
+      this.context.hasDeferringErrorHook(definition)
+    ) {
+      walk(definition.steps, "resume", "on the error path");
+    }
+    if (definition.cache?.usesDefaultKey === true) {
+      walk(definition.steps, "cache", "under the route's cache");
+    }
+    for (const node of definition.cacheInferred ?? []) {
+      inferred.set(`under a step's cache: ${node.path}`, {
+        reason: node.reason,
+        affects: "cache",
+      });
+    }
+    if (inferred.size === 0) return;
+    this.logger.warn(
+      {
+        rc: "RC5071",
+        route: definition.id,
+        inferred: [...inferred].map(([path, entry]) => ({ path, ...entry })),
+      },
+      "A route holds values its step digest cannot see. Editing one refuses no parked approval and misses no cached entry.",
+    );
   }
 
   /**

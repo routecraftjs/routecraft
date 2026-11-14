@@ -139,7 +139,6 @@ A new door reuses the shared classification (`callerRefusalOf`) rather than re-d
 | RC5008 | retired | | never reissued |
 | RC5009 | retired | | never reissued |
 | RC5027 | retired | | `@routecraft/ai`'s code before 0.6, now `AI1003` |
-| RC5071 | reserved | #854 | a continuation tail that holds an inferred node |
 
 - **Take the next number in the series and reserve it here first.** A series is the codes that share their first two digits (`RC10xx`, `RC11xx`, `RC50xx`), numbered from `01`. Two branches that each take "the next free code" collide only as a text conflict in this table, which is the cheap place to find out.
 - **A reserved row leaves the table in the change that adds the code to `error.ts`.** A code in both fails the test.

@@ -109,8 +109,9 @@ is never merely blocked.
 A new wrapper takes about 30 lines plus builder glue. Subclass
 `WrapperStep<T>` from `packages/routecraft/src/operations/wrapper.ts`
 and implement `runInner(exchange, ctx)`, returning the inner step's
-`StepOutcome` (or a substitute outcome on recovery), and
-`describeOptions()`, returning the options the wrapper was built with.
+`StepOutcome` (or a substitute outcome on recovery), plus the two members
+that state its identity: `wrapperKind`, a stable name, and
+`identityOptions()`, returning the options the wrapper was built with.
 
 A wrapper that is a chain position at route scope (`retry`, `timeout`,
 `circuitBreaker`, `concurrency`, `throttle`, `cache`) holds no behaviour
@@ -138,15 +139,19 @@ export class TimeoutWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedTimeoutOptions;
+  readonly #given: unknown;
   readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, duration: Duration) {
     super(inner);
     this.#options = resolveTimeoutOptions(duration);
+    this.#given = { duration };
   }
 
-  protected override describeOptions(): unknown {
-    return this.#options;
+  protected override readonly wrapperKind = "routecraft.timeout";
+
+  protected override identityOptions(): Omit<Identity, "kind"> {
+    return { options: this.#given };
   }
 
   protected override runInner(
@@ -175,7 +180,7 @@ Key contract points:
 - Pass `ctx` (the `StepContext`) through to `this.inner.execute(exchange, ctx)` unchanged; it carries the narrow executor capabilities (e.g. `takePending` for join steps) and the wrapper must not intercept them. One sanctioned exception: a position that owns a cancellation boundary (`timeout`) abandons its attempt through the signal it passes to `attempt(signal)`, which `stepPositionRun` links with any enclosing `ctx.signal` via `AbortSignal.any`, leaving every other capability untouched, so the inner step can abort cancellation-aware IO when the earliest enclosing deadline fires.
 - The provider's events carry `scope` and `stepLabel` from the run, so a step-scope run emits `scope: "step"` with the wrapped step's label and a route-scope run `scope: "route"`; a position never hard-codes either.
 - Throwing from `runInner` propagates out so the executor's catch in `pipeline/executor.ts` cascades to the route-level handler (or default error path). Wrappers do not need to re-emit `step:failed` themselves; the template emits it via try/catch.
-- `describeOptions()` is abstract, so a wrapper that omits it does not compile. A step-scope `.cache()` stacked above the wrapper, and a route-scope `.cache()` over the pipeline, fold the returned value into the default key (see section 9), so an edit to the wrapper's options misses instead of replaying entries the old options produced. Return all of the resolved configuration, presentation fields such as an event `label` included, the same way a step's own label is part of its definition fingerprint: a rename costs one cold cache, never a wrong hit. Return configuration, never runtime state: callables as themselves (their source is hashed), plain data as plain data, and `null` for a wrapper with no options. A controller or other live object projects to `[opaque]` and contributes nothing.
+- `wrapperKind` and `identityOptions()` are abstract, so a wrapper that omits either does not compile. Together they are the wrapper's identity ([plugin-architecture.md § 6](./plugin-architecture.md#6-the-continuation-protocol)), which one walk folds into the continuation digest and into the default cache key at both scopes (see section 9): an edit to the wrapper's options refuses a parked resume and misses the cache instead of replaying what the old options produced. `wrapperKind` is a stable dotted name (`acme.bulkhead`), never the class name, which a minifier or a rename would move. Return all of the configuration as it was given (the caller's options object, not the resolved one with defaults filled in), presentation fields such as an event `label` included: a rename costs one cold cache and one re-ask, never a wrong hit. Return configuration, never runtime state: callables as themselves (a user's function is digested by its source), plain data as plain data, `secret(value)` for a credential, and no `options` for a wrapper with none. A controller or other live object is reported as inferred (`RC5071` on a route that defers) and contributes nothing; bump `version` when the wrapper's own behaviour changes.
 
 Then add the dual-mode method on the builder:
 
@@ -280,9 +285,10 @@ accordingly.
       on `this` precisely so all exchanges share one rate limiter.
       The rule bars leaking one exchange's state into the next, not
       deliberately shared route-level state.
-- [ ] `describeOptions()` returns the wrapper's whole resolved
-      configuration (callables and presentation fields such as `label`
-      included), not its runtime state.
+- [ ] `wrapperKind` is a stable dotted name and `identityOptions()`
+      returns the wrapper's whole configuration (callables and
+      presentation fields such as `label` included), not its runtime
+      state.
 - [ ] Dual-mode `.x(...)` builder method on `StepBuilderBase` (step
       scope) with an override on `RouteBuilder` for the pre-from
       path.
@@ -318,15 +324,14 @@ accordingly.
   BEFORE `.from()`) caches the route's terminal body and skips the
   whole pipeline on a hit. The default key (`defaultCacheKey` in
   `operations/cache-wrapper.ts`) at both scopes hashes the route id,
-  at route scope the `pipelineFingerprint` of every step a hit skips
-  (each step's definition, the kind and `describeOptions()` fingerprint
-  of every wrapper, nested sub-pipelines with the predicate selecting
-  each `.choice()` branch; computed once in `RouteBuilder.build()` and
-  stored as `RouteDefinition.cachePipeline`), at step scope the cache's
-  site (`CacheKeyScope`: the step's
-  pre-order index, the cache's index in the full wrapper stack, the
-  kind and `describeOptions()` fingerprint of each wrapper below it,
-  and the innermost step's definition fingerprint), the principal's
+  at route scope the identity digest of every step a hit skips
+  (each step's identity, the kind and options of every wrapper,
+  nested sub-pipelines with the selector of each `.choice()` branch;
+  computed once in `RouteBuilder.build()` by the walk the continuation
+  digest uses and stored as `RouteDefinition.cachePipeline`), at step
+  scope the cache's site (`CacheKeyScope`: the step's pre-order index,
+  the cache's index in the full wrapper stack, and the identity digest
+  of everything the cache wraps), the principal's
   issuer and subject with each `actor` hop, the body, and the
   `routecraft.cache.discriminator` header when a source set one (the
   `mcp()` proxy source sets it to the remote tool's name, since one

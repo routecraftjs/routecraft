@@ -1,4 +1,5 @@
 import type { Exchange } from "../exchange.ts";
+import { identified } from "../kernel/continuation/identity.ts";
 import { rcError, type RoutecraftError } from "../error.ts";
 import type { CallableValidator } from "../operations/validate.ts";
 import { isPrincipalExpired } from "./expiry.ts";
@@ -187,12 +188,16 @@ export function authorize(
   const decide = decisionFor(options);
   // The validator and the admission check are one decision: what a door
   // lists to a caller and what the gate lets through cannot disagree.
-  return (exchange: Exchange<unknown>) => {
+  const validate = (exchange: Exchange<unknown>) => {
     const authority = authorityOf(exchange);
     const refused = decide(authority.read(exchange), authority);
     if (refused !== undefined) throw refusal(exchange, refused());
     return exchange.body;
   };
+  return identified(validate, {
+    kind: "routecraft.authorize",
+    options: { ...options },
+  });
 }
 
 /**

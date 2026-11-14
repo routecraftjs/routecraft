@@ -802,7 +802,7 @@ The steps after the defer point, or the declared `schema`, changed while the exc
 Editing a step BEFORE the defer point does not trigger this: those steps already ran, and changing them cannot affect what happens after the resume.
 
 **Suggestion**  
-Catch it in the deferred route's route-scope `.error()` and re-ask. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so a deployment that defers approvals for days should pin those; see [Configuration → deferral](/docs/reference/configuration#deferral).
+Catch it in the deferred route's route-scope `.error()` and re-ask. The message names the first step that differs. The digest covers each step's [identity](/docs/reference/plugins#step-identity): Routecraft's own steps by their options, never their source, so upgrading Routecraft within a release line does not move it. A function you wrote is digested by its source as the runtime reports it, so the digest also moves for edits that change that text without changing behaviour (a different transpiler or build setting), and a deployment that defers approvals for days should pin those; see [Configuration → deferral](/docs/reference/configuration#deferral). A deferral parked by a release that digested steps differently (before 0.8) is refused with this code once and re-asked.
 
 ## RC5049
 Deferral result rejected
@@ -1065,6 +1065,15 @@ The credential store, which keeps the tokens `craft connect` obtains, could not 
 
 **Suggestion**  
 Read the message: it names which. Point `credentials.store` at a file of its own; run the newer Routecraft build for a store it wrote; fix the file's ownership; set the key the store or seed was sealed under; export a damaged or newer seed again with `craft connect <client> --export`; or run the login again. A store sealed under a lost key, or holding an altered value, cannot be opened: remove the file and run `craft connect` for each client. A lock is the one cause that clears without a change, once the other process finishes; the error is still not marked retryable, because the others are not.
+
+## RC5071
+Step digest does not cover a value
+
+**Why it happens**  
+A warning logged when a route starts, never thrown. The route compares a digest of its steps, and among them is a value the digest cannot see into: a class instance, a native or bound function, a schema with no JSON Schema rendering, a symbol-keyed or accessor property, a value that contains itself, or something nested more than five deep. The digest is what refuses a resume after the route changed ([`RC5048`](#rc-5048)) and what the default `.cache()` key is made of, so an edit to that value refuses no parked approval and misses no cached entry. The route is checked when it has a `.defer()` or a step that can defer, an `.error(handler, { schema })` or an error hook that may park, or a default-keyed `.cache()`. The log line lists each value with its path and what it affects (`resume` or `cache`), such as `after position 2: steps[0].options.adapter.args[0].client`.
+
+**Suggestion**  
+Pass plain data where you can: strings, numbers, arrays, plain objects, `Date`, `URL`, `RegExp`, functions. For a value that cannot be plain, have the step or adapter that holds it state its identity with `[IDENTITY]()`, using `versioned(value, id)` for a value whose author knows when it changed and `secret(value)` for one that configures without defining. See [step identity](/docs/advanced/plugins#step-identity).
 
 ## RC9901
 Unknown error

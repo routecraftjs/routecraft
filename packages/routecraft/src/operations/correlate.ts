@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
@@ -74,6 +75,11 @@ export class CorrelateStep<T = unknown> implements Step<Correlator<T>> {
 
   constructor(correlate: CallableCorrelator<T>) {
     this.adapter = { correlate };
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.correlate", options: { adapter: this.adapter } };
   }
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {

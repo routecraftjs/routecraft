@@ -1,3 +1,8 @@
+import {
+  IDENTITY,
+  identified,
+  type Identity,
+} from "../kernel/continuation/identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import {
   type Exchange,
@@ -108,6 +113,10 @@ export const defaultAggregate = <T>(
     body: exchanges.map((x) => x.body) as FlattenedAggregateResult<T>,
   };
 };
+identified(defaultAggregate, {
+  kind: "routecraft.aggregate.default",
+  version: 1,
+});
 
 /**
  * Aggregator adapter: combines multiple exchanges (e.g. after a split) into one.
@@ -134,6 +143,11 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
   constructor(adapter: Aggregator<T, R> | CallableAggregator<T, R>) {
     this.adapter =
       typeof adapter === "function" ? { aggregate: adapter } : adapter;
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.aggregate", options: { adapter: this.adapter } };
   }
 
   async execute(exchange: Exchange<T>, ctx: StepContext): Promise<StepOutcome> {

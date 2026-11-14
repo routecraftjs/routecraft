@@ -64,6 +64,58 @@ const ENTRIES = { esm: "dist/index.js", cjs: "dist/index.cjs" };
 const mode = process.argv[2] ?? "esm";
 
 /**
+ * One route over every wrapper, the nesting steps and the helpers that
+ * return functions, built by the given main entry.
+ */
+function identityCorpus(m) {
+  return m
+    .craft()
+    .id("identity")
+    .from(m.direct())
+    .transform((body) => body)
+    .header("literal", "value")
+    .validate(m.authorize({ roles: ["admin"] }))
+    .enrich(
+      m.http({ url: "https://a.example" }),
+      m.only((r) => r.id, "id"),
+    )
+    .enrich(m.http({ url: "https://b.example" }), m.none())
+    .transform(m.keep({ id: true }))
+    .transform(m.mask({ id: () => "x" }))
+    .transform(
+      m.group({ comparator: m.cosine({ field: "e" }), from: (body) => body }),
+    )
+    .split()
+    .aggregate()
+    .retry({ maxAttempts: 2 })
+    .timeout("1s")
+    .throttle({ rate: 1, per: "1s" })
+    .circuitBreaker({ failureThreshold: 2 })
+    .concurrency({ max: 2 })
+    .delay("1s")
+    .cache({})
+    .error(() => null)
+    .to(m.noop())
+    .choice(
+      m.when(
+        () => true,
+        (branch) => branch.to(m.noop()),
+      ),
+      m.otherwise((branch) => branch.halt()),
+    )
+    .multicast(
+      (branch) => branch.to(m.noop()),
+      (branch) => branch.to(m.noop()),
+    )
+    .dispatch("round-robin", m.noop(), m.noop())
+    .dedupe({ key: (exchange) => exchange.id })
+    .defer({ ttl: "1h" })
+    .log()
+    .to(m.noop())
+    .build()[0].steps;
+}
+
+/**
  * The `./internal` subpath is a second bundle, so the package `exports` map
  * and both of its outputs are checked against the shipped artifacts: a
  * sibling package resolves it by package name and gets nothing if either
@@ -111,8 +163,28 @@ if (mode === "internal") {
       }
     }
   }
+  // A step's identity must not depend on which build made it: a deferral
+  // parked by an app on one format has to resume on the other.
+  const digests = mains.map(([format, main]) => {
+    const described = (format === "esm" ? esm : cjs).describeSteps(
+      identityCorpus(main),
+    );
+    if (described.inferred.length > 0) {
+      console.error(
+        `verify-dist: the ${format} build leaves step identity inferred at ${described.inferred.map((node) => node.path).join(", ")}.`,
+      );
+      process.exit(1);
+    }
+    return described.digest;
+  });
+  if (digests[0] !== digests[1]) {
+    console.error(
+      "verify-dist: the same route digests differently in the ESM and the CJS build.",
+    );
+    process.exit(1);
+  }
   console.log(
-    `verify-dist: ./internal resolves in ESM and CJS with ${expected.length} runtime exports.`,
+    `verify-dist: ./internal resolves in ESM and CJS with ${expected.length} runtime exports, and step identity agrees across the two.`,
   );
   process.exit(0);
 }

@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import { createHash } from "node:crypto";
 import { LRUCache } from "lru-cache";
 import {
@@ -336,11 +337,18 @@ export class DedupeStep implements Step<DedupeAdapter> {
   skipStepEvents = true;
 
   readonly #options: ResolvedDedupeOptions;
+  readonly #given: DedupeOptions;
   readonly #controller: DedupeController;
 
   constructor(options: DedupeOptions = {}) {
     this.#options = resolveDedupeOptions(options);
+    this.#given = options;
     this.#controller = new DedupeController(this.#options);
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.dedupe", options: this.#given };
   }
 
   async execute(exchange: Exchange): Promise<StepOutcome> {

@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
@@ -36,6 +37,14 @@ export class AuthenticateStep<T = unknown> implements Step<Adapter> {
   readonly [AUTHENTICATES] = true;
 
   constructor(private readonly resolve: CallableAuthenticator<T>) {}
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return {
+      kind: "routecraft.authenticate",
+      options: { resolve: this.resolve },
+    };
+  }
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const claims = await Promise.resolve(this.resolve(exchange));

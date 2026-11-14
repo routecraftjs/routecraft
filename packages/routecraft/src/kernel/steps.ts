@@ -1,3 +1,5 @@
+import { STEP_IDENTITY } from "../dsl-symbol.ts";
+import type { IdentityValue } from "./continuation/identity.ts";
 import { rcError } from "../error.ts";
 import { shippedPlugins } from "./defaults.ts";
 import { PROTOCOL_NAMES } from "./facets.ts";
@@ -57,12 +59,15 @@ interface CallbackAdapter<In, Out> extends Adapter {
  * branches or defers rather than continuing.
  *
  * A step's definition is part of the continuation digest: a deferred
- * exchange resumes only into the step it was parked under. The function
- * form keeps its callback on the adapter, so the callback's source is in
- * the digest and a changed callback refuses the resume (`RC5048`). A raw
- * step is fingerprinted by its adapter's own properties and the factory
- * arguments the builder records, so what defines a raw step belongs on its
- * adapter: a callback or option held elsewhere is invisible to the digest.
+ * exchange resumes only into the step it was parked under (`RC5048`). A
+ * step built here is identified by its plugin, its name, the arguments the
+ * builder recorded for its factory, and its adapter, so nothing has to be
+ * restated. A bare `step(fn)` outside a catalogue has only its callback's
+ * source, which does not show a value the callback closes over: state that
+ * value in `identity.options`. `identity.version` is for a change in
+ * behaviour none of those show. A raw step that implements `IDENTITY`
+ * states its own identity instead; the override is stamped on that step
+ * object, so one raw step carries one override.
  *
  * @template In - The body the step accepts; the method exists only on a
  *   route whose body is assignable to it
@@ -73,29 +78,59 @@ export function step<In, Out>(
     exchange: Exchange<In>,
     ctx: StepSignalContext,
   ) => Out | Promise<Out>,
+  options?: StepOptions,
 ): TypedStep<In, Out>;
-export function step<In, Out>(raw: Step<Adapter>): TypedStep<In, Out>;
+export function step<In, Out>(
+  raw: Step<Adapter>,
+  options?: StepOptions,
+): TypedStep<In, Out>;
 export function step<In, Out>(
   impl:
     | Step<Adapter>
     | ((exchange: Exchange<In>, ctx: StepSignalContext) => Out | Promise<Out>),
+  options?: StepOptions,
 ): TypedStep<In, Out> {
-  if (typeof impl !== "function") return impl;
+  if (typeof impl !== "function") return withIdentity(impl, options);
   const adapter: CallbackAdapter<In, Out> = {
     adapterId: "routecraft.step",
     execute: impl,
   };
-  return {
-    operation: OperationType.PROCESS,
-    adapter,
-    async execute(exchange, ctx) {
-      const body = await impl(exchange as Exchange<In>, toSignalContext(ctx));
-      return {
-        kind: "continue",
-        exchange: DefaultExchange.rewrap<Out>(exchange, { body }),
-      };
+  return withIdentity(
+    {
+      operation: OperationType.PROCESS,
+      adapter,
+      async execute(exchange, ctx) {
+        const body = await impl(exchange as Exchange<In>, toSignalContext(ctx));
+        return {
+          kind: "continue",
+          exchange: DefaultExchange.rewrap<Out>(exchange, { body }),
+        };
+      },
     },
+    options,
+  );
+}
+
+/** Options of {@link step}. */
+export interface StepOptions {
+  /** Laid over the identity the builder derives from the factory arguments, or the one a raw step states. */
+  readonly identity?: {
+    /** Bumped when the step's behaviour changes in a way its arguments do not show. */
+    readonly version?: string | number;
+    /** What defines the step, replacing the derived arguments: restate each argument that matters, `secret()` or `versioned()` the ones the digest should not read. */
+    readonly options?: IdentityValue;
   };
+}
+
+function withIdentity<S extends Step<Adapter>>(
+  built: S,
+  options: StepOptions | undefined,
+): S {
+  if (options?.identity !== undefined) {
+    (built as { [STEP_IDENTITY]?: StepOptions["identity"] })[STEP_IDENTITY] =
+      options.identity;
+  }
+  return built;
 }
 
 /**

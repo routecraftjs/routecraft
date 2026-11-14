@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
@@ -37,6 +38,7 @@ export interface HeaderSetter<T = unknown> extends Adapter {
 export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
   operation: OperationType = OperationType.HEADER;
   adapter: HeaderSetter<T>;
+  readonly #value: CallableHeaderSetter<T> | HeaderLiteral;
 
   constructor(
     key: string,
@@ -56,6 +58,15 @@ export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
         : () => setterOrValue;
 
     this.adapter = { key, set };
+    this.#value = setterOrValue;
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return {
+      kind: "routecraft.header",
+      options: { key: this.adapter.key, value: this.#value },
+    };
   }
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {

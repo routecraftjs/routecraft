@@ -80,6 +80,8 @@ import {
   PUSH_STEP,
   STEP_PLUGIN,
   STEP_ARGS,
+  STEP_NAME,
+  DIGEST_EXEMPT,
 } from "./dsl-symbol.ts";
 import { rcError } from "./error.ts";
 import type { StepCatalogue } from "./kernel/steps.ts";
@@ -338,6 +340,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
           const built = factory(...args) as Step<Adapter> & {
             [STEP_PLUGIN]?: string;
             [STEP_ARGS]?: readonly unknown[];
+            [STEP_NAME]?: string;
           };
           if (built[STEP_PLUGIN] !== undefined || Object.isFrozen(built)) {
             throw rcError("RC1116", undefined, {
@@ -347,6 +350,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
           built.label ??= name;
           built[STEP_PLUGIN] = plugin;
           built[STEP_ARGS] = args;
+          built[STEP_NAME] = name;
           this.pushStep(built);
           return this;
         },
@@ -381,17 +385,14 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
       wrapped = factory(wrapped);
     }
     this.pendingStepWrappers = [];
-    // The route's start check finds a plugin step by this tag, wrapped or
-    // not, and the fingerprint reads its arguments the same way.
-    const tagged = step as {
-      [STEP_PLUGIN]?: string;
-      [STEP_ARGS]?: readonly unknown[];
-    };
+    // The route's start check finds a plugin step by this tag, wrapped or not.
+    const tagged = step as { [STEP_PLUGIN]?: string };
     if (tagged[STEP_PLUGIN] !== undefined) {
       (wrapped as typeof tagged)[STEP_PLUGIN] = tagged[STEP_PLUGIN];
-      if (tagged[STEP_ARGS] !== undefined) {
-        (wrapped as typeof tagged)[STEP_ARGS] = tagged[STEP_ARGS];
-      }
+    }
+    const exempt = step as { [DIGEST_EXEMPT]?: true };
+    if (exempt[DIGEST_EXEMPT] === true) {
+      (wrapped as typeof exempt)[DIGEST_EXEMPT] = true;
     }
     return wrapped as unknown as Step<T>;
   }
@@ -890,12 +891,11 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
     formatter?: (exchange: ExchangeOf<S>) => unknown,
     options?: LogOptions,
   ): this {
-    this.pushLabelled(
-      new TapStep(
-        log(formatter as (exchange: Exchange<unknown>) => unknown, options),
-      ),
-      "log",
+    const step = new TapStep(
+      log(formatter as (exchange: Exchange<unknown>) => unknown, options),
     );
+    (step as { [DIGEST_EXEMPT]?: true })[DIGEST_EXEMPT] = true;
+    this.pushLabelled(step, "log");
     return this;
   }
 
@@ -909,12 +909,11 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
     formatter?: (exchange: ExchangeOf<S>) => unknown,
     options?: Omit<LogOptions, "level">,
   ): this {
-    this.pushLabelled(
-      new TapStep(
-        debug(formatter as (exchange: Exchange<unknown>) => unknown, options),
-      ),
-      "debug",
+    const step = new TapStep(
+      debug(formatter as (exchange: Exchange<unknown>) => unknown, options),
     );
+    (step as { [DIGEST_EXEMPT]?: true })[DIGEST_EXEMPT] = true;
+    this.pushLabelled(step, "debug");
     return this;
   }
 

@@ -5,7 +5,8 @@ import type { CraftContext } from "../context.ts";
 import type { ForwardFn, Route } from "../route.ts";
 import type { RouteKey } from "../kernel/positions.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
-import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import { WrapperStep, givenOptions, type RequiredPosition } from "./wrapper.ts";
+import type { Identity } from "../kernel/continuation/identity.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
 import { defaultRetryOn } from "./retry-wrapper.ts";
@@ -553,15 +554,19 @@ export class CircuitBreakerWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedCircuitBreakerOptions;
+  readonly #given: unknown;
   readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, options: CircuitBreakerOptions) {
     super(inner);
     this.#options = resolveCircuitBreakerOptions(options);
+    this.#given = givenOptions(options);
   }
 
-  protected override describeOptions(): unknown {
-    return this.#options;
+  protected override readonly wrapperKind = "routecraft.circuitBreaker";
+
+  protected override identityOptions(): Omit<Identity, "kind"> {
+    return { options: this.#given };
   }
 
   override get requiredPosition(): RequiredPosition {

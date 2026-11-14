@@ -406,15 +406,66 @@ the application's own config never mentions.
 The kernel owns park, resume and sweep (`kernel/continuation/`): the record
 write, the site and tail hash, the door order, the compare-and-swap, the
 outcome cache, expiry through the error channel, claim healing and retention.
-A plugin step's definition is part of the tail hash: for `step(fn)` the
-callback's source is digested beside the factory arguments, so a redeploy
-that changes a callback in the tail refuses the resume with `RC5048`; a raw step is
-digested by its adapter's own properties and the factory arguments, so what
-defines it belongs on its adapter. The digest reads source, never closures:
-a value a callback captures from its surroundings is invisible to it, so
-anything that changes what the step does belongs in the factory arguments
-or on the adapter, where it is digested. It reaches storage only through
-`CONTINUATIONS`. The deferral plugin provides
+It reaches storage only through `CONTINUATIONS`.
+
+### Step identity
+
+What a resume would run is compared with what was parked by a digest of
+step identities, and the same walk (`describeSteps`,
+`kernel/continuation/identity.ts`) gives `.cache()` its default key at
+both scopes, so the three cannot disagree about what a step is. A changed
+tail refuses the resume with `RC5048`, naming the first step that differs.
+
+A step's identity is `{ kind, version?, options? }`:
+
+| What | Where its identity comes from |
+| --- | --- |
+| A core step or wrapper | It states it: `[IDENTITY]()` on the step, `wrapperKind` and `identityOptions()` on a wrapper. Kinds are `routecraft.<method>`. |
+| A plugin's catalogue step | Derived: kind `<pluginId>.<stepName>`, options the arguments the method was called with and the callback given to `step()`. `step(impl, { identity: { version, options } })` lays a version over that, and `options` in place of the arguments: an author who states options restates every argument that defines the step, as `secret()` or `versioned()` where the digest should not read it. The callback stays. On a raw step that states `[IDENTITY]()` the same option replaces its version and its options. |
+| A raw step implementing `[IDENTITY]()` | What it returns. |
+| Any other raw step | Kind `step.<operation>`, options its adapter. |
+| An adapter | `[IDENTITY]()` when it has one, else the factory arguments `tagAdapter` recorded, else its own enumerable properties. |
+
+Options are encoded canonically, each value under its own tag:
+
+| Value | Encoded as |
+| --- | --- |
+| `null`, string, boolean, number, bigint | Itself, with `-0` as `0` and the non-finite numbers by name |
+| `undefined` | Its own tag, so it never equals `null` or a missing key |
+| `Date`, `URL`, `RegExp` | ISO time, href, source and flags |
+| Array, `Map`, `Set` | Members in order |
+| Plain object | Own enumerable string keys, sorted; an accessor is not invoked |
+| Standard Schema | Its JSON Schema rendering (draft 2020-12, pinned apart from the dialect a route is described in), else its vendor and version, reported as inferred. A refinement or transform callback is not in a rendering: `versioned(schema, id)` pins a schema whose checks live there |
+| A function that states an identity (every core helper that returns one) | That identity, never its source |
+| Any other function | Its source as the runtime reports it |
+| `secret(value)` | A constant: rotation moves nothing. For a value that configures without deciding the result; a credential that selects whose data comes back is `versioned(value, accountId)`, or two accounts share one cache key |
+| `versioned(value, id)` | `id` alone |
+| A class instance, a native or bound function, a symbol, an accessor property, a cycle, anything nested more than five deep | A placeholder, and the value is reported as inferred |
+| A symbol-keyed property | Left out, the string keys still digested, and the object is reported as inferred |
+| An adapter that is a class instance with methods on its prototype | Its own properties, and reported as inferred: the methods are not read |
+
+Three rules follow. Core never lets its own source text into a digest, so a
+release, a minifier and the ESM or CJS build do not move it; a helper that
+returns a closure wraps it with `identified()` (public, for a third
+party's helper as for core's), because the closure reads the same whatever
+it was given. A core step or wrapper digests its options as they were
+given, never with its defaults filled in, and bumps `version` when a
+default or its own behaviour changes. A user's function is digested verbatim:
+normalising it could fold two behaviours onto one digest, and a missed
+change resumes an approval into behaviour nobody approved, while a spurious
+one costs a re-ask. And the digest never covers what a function captured,
+what a `direct()` target or a registered resource (a named agent) does, or
+an environment variable: anything that changes what a step does belongs in
+its arguments or on its adapter.
+
+A route logs `RC5071` once at start for every inferred value in a digest
+it compares: what a resume would run after each defer site, the whole
+pipeline when the error path declares a park (`.error(handler, { schema })`
+or a hook with `mayDefer`), and the pipeline a default cache key stands
+for at either scope. Each entry says which (`affects: "resume" | "cache"`).
+An `.error()` handler that parks without declaring a schema is not walked. `.log()` and `.debug()` are exempt from the
+digest. The stored `continuationHash` is `d2:<sha256>/<per-step digests>`;
+a record in an older format is refused with `RC5048`. The deferral plugin provides
 that port over the memory or SQLite store, mints and verifies resume tokens,
 sets the default deadline, calls `execution.sweep()` on its cadence, and
 contributes `.defer()`, `.resume()`, the `ex.deferral` facet and the

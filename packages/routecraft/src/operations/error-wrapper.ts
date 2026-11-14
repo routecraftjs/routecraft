@@ -12,6 +12,7 @@ import { isRecovery, applyDropDirective } from "../recovery.ts";
 import type { ErrorHandler } from "../route.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
+import type { Identity } from "../kernel/continuation/identity.ts";
 
 /**
  * Step-scope `.error()` handler. Wraps a single step. On wrapped-step
@@ -50,8 +51,10 @@ export class ErrorWrapperStep<
     super(inner);
   }
 
-  protected override describeOptions(): unknown {
-    return { handler: this.handler };
+  protected override readonly wrapperKind = "routecraft.error";
+
+  protected override identityOptions(): Omit<Identity, "kind"> {
+    return { options: { handler: this.handler } };
   }
 
   protected override async runInner(

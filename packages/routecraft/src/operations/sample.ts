@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
@@ -150,10 +151,17 @@ export class SampleStep implements Step<SampleAdapter> {
   skipStepEvents = true;
 
   readonly #options: ResolvedSampleOptions;
+  readonly #given: SampleOptions;
   readonly #controller = new SampleController();
 
   constructor(options: SampleOptions) {
     this.#options = resolveSampleOptions(options);
+    this.#given = options;
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.sample", options: this.#given };
   }
 
   async execute(exchange: Exchange): Promise<StepOutcome> {

@@ -4,6 +4,7 @@ import {
   rcError,
   type CraftContext,
   type Exchange,
+  identified,
 } from "@routecraft/routecraft";
 import { readMarkdownSource, requireString } from "./markdown.ts";
 import type {
@@ -175,7 +176,12 @@ export function fromFile(
       message: `fromFile: "path" must be a non-empty string.`,
     });
   }
-  return async () => {
+  return identified(read, {
+    kind: "routecraft.ai.fromFile",
+    options: { path },
+  });
+
+  async function read(): Promise<string> {
     const abs = resolvePath(process.cwd(), path);
     try {
       // Async read so the resolver does not block the event loop on
@@ -187,5 +193,5 @@ export function fromFile(
         message: `fromFile("${path}"): could not read file: ${(cause as Error)?.message ?? String(cause)}`,
       });
     }
-  };
+  }
 }

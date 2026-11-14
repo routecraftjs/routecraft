@@ -1,3 +1,8 @@
+import {
+  IDENTITY,
+  identified,
+  type Identity,
+} from "../kernel/continuation/identity.ts";
 import { ENRICH_MERGE_TYPE } from "../brand.ts";
 import {
   type Adapter,
@@ -117,38 +122,44 @@ export function only<T = unknown, R = unknown, V = unknown>(
   getValue: (enrichmentData: R) => V,
   into?: string,
 ): EnrichAggregator<T, R> {
-  return (original: Exchange<T>, enrichmentData: R): Exchange<T> => {
-    const value = getValue(enrichmentData);
-    if (value === undefined || value === null) {
-      return original;
-    }
+  return identified(
+    (original: Exchange<T>, enrichmentData: R): Exchange<T> => {
+      const value = getValue(enrichmentData);
+      if (value === undefined || value === null) {
+        return original;
+      }
 
-    const isBodyObject =
-      typeof original.body === "object" && original.body !== null;
-    const originalBody = isBodyObject
-      ? (original.body as Record<string, unknown>)
-      : { stdout: original.body };
+      const isBodyObject =
+        typeof original.body === "object" && original.body !== null;
+      const originalBody = isBodyObject
+        ? (original.body as Record<string, unknown>)
+        : { stdout: original.body };
 
-    if (into !== undefined) {
-      return { ...original, body: { ...originalBody, [into]: value } as T };
-    }
+      if (into !== undefined) {
+        return { ...original, body: { ...originalBody, [into]: value } as T };
+      }
 
-    const isPlainObject =
-      typeof value === "object" && value !== null && !Array.isArray(value);
-    if (isPlainObject) {
-      return {
-        ...original,
-        body: {
-          ...originalBody,
-          ...(value as Record<string, unknown>),
-        } as T,
-      };
-    }
-    if (Array.isArray(value)) {
-      return { ...original, body: { ...originalBody, array: value } as T };
-    }
-    return { ...original, body: { ...originalBody, stdout: value } as T };
-  };
+      const isPlainObject =
+        typeof value === "object" && value !== null && !Array.isArray(value);
+      if (isPlainObject) {
+        return {
+          ...original,
+          body: {
+            ...originalBody,
+            ...(value as Record<string, unknown>),
+          } as T,
+        };
+      }
+      if (Array.isArray(value)) {
+        return { ...original, body: { ...originalBody, array: value } as T };
+      }
+      return { ...original, body: { ...originalBody, stdout: value } as T };
+    },
+    {
+      kind: "routecraft.only",
+      options: { getValue, into },
+    },
+  );
 }
 
 /**
@@ -160,12 +171,10 @@ export function only<T = unknown, R = unknown, V = unknown>(
  * .enrich(http({ url: 'https://api.example.com/ping' }), none())
  * ```
  */
-export const none = <T = unknown, R = unknown>(): EnrichAggregator<T, R> => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- second param required by signature, intentionally unused
-  return (original: Exchange<T>, _ignored: R): Exchange<T> => {
-    return original;
-  };
-};
+export const none = <T = unknown, R = unknown>(): EnrichAggregator<T, R> =>
+  identified((original: Exchange<T>): Exchange<T> => original, {
+    kind: "routecraft.none",
+  });
 
 /**
  * Aggregator type accepted by EnrichStep. Includes `only()` return type (with [ENRICH_MERGE_TYPE]) for body-type inference.
@@ -205,6 +214,14 @@ export class EnrichStep<T = unknown, R = unknown>
     this.adapter =
       typeof enricher === "function" ? { fetch: enricher } : enricher;
     this.aggregator = aggregator;
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return {
+      kind: "routecraft.enrich",
+      options: { adapter: this.adapter, aggregator: this.aggregator },
+    };
   }
 
   async execute(

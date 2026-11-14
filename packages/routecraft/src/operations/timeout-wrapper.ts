@@ -1,6 +1,7 @@
 import type { Exchange } from "../exchange.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import type { Identity } from "../kernel/continuation/identity.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { runStepPosition } from "./position-run.ts";
 import { RESILIENCE, type Position } from "../kernel/positions.ts";
@@ -111,15 +112,19 @@ export class TimeoutWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedTimeoutOptions;
+  readonly #given: unknown;
   readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, duration: Duration) {
     super(inner);
     this.#options = resolveTimeoutOptions(duration);
+    this.#given = { duration };
   }
 
-  protected override describeOptions(): unknown {
-    return this.#options;
+  protected override readonly wrapperKind = "routecraft.timeout";
+
+  protected override identityOptions(): Omit<Identity, "kind"> {
+    return { options: this.#given };
   }
 
   override get requiredPosition(): RequiredPosition {

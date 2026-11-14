@@ -5,7 +5,8 @@ import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
-import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import { WrapperStep, givenOptions, type RequiredPosition } from "./wrapper.ts";
+import type { Identity } from "../kernel/continuation/identity.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
@@ -540,16 +541,20 @@ export class ThrottleWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedThrottleOptions;
+  readonly #given: unknown;
   // Keyed by route: the gate's scope (its route id) is baked in at build.
   readonly #gates = new WeakMap<object, Step<Adapter>>();
 
   constructor(inner: Step<T>, options: ThrottleOptions) {
     super(inner);
     this.#options = resolveThrottleOptions(options);
+    this.#given = givenOptions(options);
   }
 
-  protected override describeOptions(): unknown {
-    return this.#options;
+  protected override readonly wrapperKind = "routecraft.throttle";
+
+  protected override identityOptions(): Omit<Identity, "kind"> {
+    return { options: this.#given };
   }
 
   override get requiredPosition(): RequiredPosition {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { Identity } from "../src/kernel/continuation/identity.ts";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -86,8 +87,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
     // Two minimal trace wrappers that just record their own position in the stack.
     const calls: string[] = [];
     class TraceWrapperOuter extends WrapperStep {
-      protected override describeOptions(): unknown {
-        return null;
+      protected override readonly wrapperKind = "test.trace";
+      protected override identityOptions(): Omit<Identity, "kind"> {
+        return {};
       }
       protected override async runInner(
         exchange: Exchange,
@@ -100,8 +102,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
       }
     }
     class TraceWrapperInner extends WrapperStep {
-      protected override describeOptions(): unknown {
-        return null;
+      protected override readonly wrapperKind = "test.trace";
+      protected override identityOptions(): Omit<Identity, "kind"> {
+        return {};
       }
       protected override async runInner(
         exchange: Exchange,
@@ -494,8 +497,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
     const events: string[] = [];
     // Custom outer wrapper that recovers the inner failure.
     class RecoveringOuter extends WrapperStep {
-      protected override describeOptions(): unknown {
-        return null;
+      protected override readonly wrapperKind = "test.trace";
+      protected override identityOptions(): Omit<Identity, "kind"> {
+        return {};
       }
       protected override async runInner(
         exchange: Exchange,
@@ -519,8 +523,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
     }
     // Inner wrapper that always throws (forces the cascade).
     class ThrowingInner extends WrapperStep {
-      protected override describeOptions(): unknown {
-        return null;
+      protected override readonly wrapperKind = "test.trace";
+      protected override identityOptions(): Omit<Identity, "kind"> {
+        return {};
       }
       protected override async runInner(): Promise<StepOutcome> {
         throw new Error("inner-failed");

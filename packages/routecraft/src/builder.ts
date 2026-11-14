@@ -82,10 +82,10 @@ import {
   type DebounceOptions,
 } from "./operations/debounce.ts";
 import type { AuthorizeOptions } from "./authorize-options.ts";
+import { identified, stepsDigest } from "./kernel/continuation/identity.ts";
 import {
   type CacheOptions,
   assignCacheSites,
-  pipelineFingerprint,
   resolveCacheOptions,
   type ResolvedCacheOptions,
 } from "./operations/cache-wrapper.ts";
@@ -1612,7 +1612,14 @@ export class RouteBuilder<
           : [body as unknown as ItemType];
       };
 
-      this.pushStep(new SplitStep<S["body"], ItemType>(defaultSplitter));
+      this.pushStep(
+        new SplitStep<S["body"], ItemType>(
+          identified(defaultSplitter, {
+            kind: "routecraft.split.default",
+            version: 1,
+          }),
+        ),
+      );
     } else {
       this.pushStep(new SplitStep<S["body"], ItemType>(splitter));
     }
@@ -1887,9 +1894,11 @@ export class RouteBuilder<
       // cache check, which reads what it resolved.
       applyResolvedSites(route);
       assertRouteScopeCacheCompatibility(route);
-      const stepScopeDefaultKey = assignCacheSites(route);
+      const { usesDefaultKey: stepScopeDefaultKey, inferred } =
+        assignCacheSites(route);
+      if (inferred.length > 0) route.cacheInferred = inferred;
       if (route.cache !== undefined) {
-        route.cachePipeline = pipelineFingerprint(route.steps);
+        route.cachePipeline = stepsDigest(route.steps);
       }
       const routeScopeDefaultKey = this.unnamedRoutes.get(route);
       if (

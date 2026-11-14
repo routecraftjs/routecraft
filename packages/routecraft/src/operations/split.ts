@@ -1,3 +1,4 @@
+import { IDENTITY, type Identity } from "../kernel/continuation/identity.ts";
 import { randomUUID } from "node:crypto";
 import {
   type Adapter,
@@ -150,6 +151,11 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
 
   constructor(adapter: Splitter<T, R> | CallableSplitter<T, R>) {
     this.adapter = typeof adapter === "function" ? { split: adapter } : adapter;
+  }
+
+  /** @internal */
+  [IDENTITY](): Identity {
+    return { kind: "routecraft.split", options: { adapter: this.adapter } };
   }
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {

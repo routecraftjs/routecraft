@@ -1,5 +1,6 @@
 import { createHmac, createVerify } from "node:crypto";
 import { timingSafeStringEqual } from "./timing-safe";
+import { identified, secret } from "../kernel/continuation/identity.ts";
 import type {
   ClaimMappers,
   JwtAudience,
@@ -361,7 +362,12 @@ export function jwt(options: JwtAuthOptions): OAuthValidatorAuthOptions {
     : createRsaValidator(options);
 
   return {
-    validator,
+    validator: identified(validator, {
+      kind: "routecraft.jwt",
+      options: isHmac(options)
+        ? { ...options, secret: secret(options.secret) }
+        : { ...options },
+    }),
     issuer: options.issuer,
     ...(options.clockToleranceSec !== undefined && {
       clockToleranceSec: options.clockToleranceSec,

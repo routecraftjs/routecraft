@@ -560,6 +560,7 @@ export {
   type StepFactory,
   type StepMethods,
   type TypedStep,
+  type StepOptions,
 } from "./kernel/steps.ts";
 export type {
   ConfigKeyPlugins,
@@ -1061,4 +1062,17 @@ export {
 } from "./adapters/carddav/index.ts";
 export { NESTED_STEPS, AUTHENTICATES } from "./dsl-symbol.ts";
 export type { NestedSteps, NestingStep } from "./kernel/continuation/sites.ts";
+export {
+  IDENTITY,
+  identified,
+  secret,
+  versioned,
+  type Identity,
+  type IdentityValue,
+  type Identified,
+  type IdentifiedStep,
+  type IdentifiedAdapter,
+  type SecretMarker,
+  type VersionedMarker,
+} from "./kernel/continuation/identity.ts";
 export { principalRef } from "./kernel/continuation/principal-ref.ts";
