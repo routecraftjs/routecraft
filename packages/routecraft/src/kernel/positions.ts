@@ -119,8 +119,10 @@ export interface EnforcementPositions {
  *
  * @remarks Provisional. This port is outside the port versioning promise:
  * its value type is due to split into one port per position, and until then
- * it may change shape in a minor release without becoming `@2`. A provider
- * that replaces it pins the Routecraft minor it was written against.
+ * it may change shape in a minor release without becoming `@2`. That change
+ * lands in the same release as {@link ENFORCEMENT}'s, so a provider author
+ * takes one break. A provider that replaces it pins the Routecraft minor it
+ * was written against.
  */
 export const RESILIENCE = port<ResiliencePositions>("routecraft.resilience@1");
 
@@ -138,8 +140,9 @@ export const CACHE_STORE = port<CacheProvider>("routecraft.cache-store@1");
  * @remarks Provisional. This port is outside the port versioning promise:
  * the run context of the gate is due to be reshaped and `admits` to become
  * required, and until then it may change shape in a minor release without
- * becoming `@2`. A provider that replaces it pins the Routecraft minor it
- * was written against.
+ * becoming `@2`. That change lands in the same release as
+ * {@link RESILIENCE}'s. A provider that replaces it pins the Routecraft
+ * minor it was written against.
  */
 export const ENFORCEMENT = port<EnforcementPositions>(
   "routecraft.enforcement@1",

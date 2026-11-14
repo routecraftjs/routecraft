@@ -56,9 +56,12 @@ As of 0.8 (see [plugin-architecture.md](./plugin-architecture.md) section 3):
   and builds the two cache positions itself over the store `CACHE_STORE`
   provides. The defaults (`routecraft.resilience`, `routecraft.auth`,
   and `routecraft.cache` for the store) are installed in every
-  application; a plugin that `replaces` a port fills the position, or
-  holds the entries, instead. A configured position
-  with no provider is `RC1111` and the application does not start. A
+  application; a plugin that `replaces` `RESILIENCE` or `ENFORCEMENT`
+  fills the position instead, and one that `replaces` `CACHE_STORE`
+  supplies the store the cache positions run against. A
+  `.cache({ provider })` runs against the provider it names and reads no
+  port. A configured position with no provider, or a cache with no store,
+  is `RC1111` and the application does not start. A
   breaker's window and a bulkhead's slots are built once per route by the
   provider, so they are the route's own.
 - **One position step.** The executor wraps the tail in one generic step

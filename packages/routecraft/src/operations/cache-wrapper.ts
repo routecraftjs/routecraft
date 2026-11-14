@@ -195,6 +195,14 @@ interface CacheStep {
   run(run: CacheRun): Promise<StepOutcome>;
 }
 
+const CACHE_PROVIDER_MEMBERS = [
+  "get",
+  "set",
+  "delete",
+  "has",
+  "getOrCompute",
+] as const satisfies ReadonlyArray<keyof CacheProvider>;
+
 /**
  * Settle the store a cache runs against: the call site's own `provider`,
  * else the application's `CACHE_STORE`. There is no third store: a cache
@@ -217,10 +225,13 @@ export function bindCacheStore<Current = unknown>(
       message: `${uses}, and ${lookup === undefined ? "the exchange belongs to no application" : `no installed plugin provides "${CACHE_STORE.name}"`}. The default routecraft.cache plugin provides it; otherwise pass .cache({ provider }).`,
     });
   }
-  if (typeof installed.getOrCompute !== "function") {
+  const missing = CACHE_PROVIDER_MEMBERS.filter(
+    (member) => typeof installed[member] !== "function",
+  );
+  if (missing.length > 0) {
     const by = lookup?.providerOf?.(CACHE_STORE);
     throw rcError("RC1111", undefined, {
-      message: `${uses}, which keeps its entries in "${CACHE_STORE.name}", and its provider${by === undefined ? "" : ` (plugin "${by}")`} is not a cache provider: it has no getOrCompute().`,
+      message: `${uses}, which keeps its entries in "${CACHE_STORE.name}", and its provider${by === undefined ? "" : ` (plugin "${by}")`} is not a cache provider: it has no ${missing.map((member) => `${member}()`).join(", ")}.`,
     });
   }
   return { ...options, provider: installed };

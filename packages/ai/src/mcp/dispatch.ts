@@ -287,7 +287,8 @@ const PIN_REFUSALS: Record<McpPinRefusal, string> = {
  * MCP `tools/call` result (content array, structuredContent, isError) that
  * {@link toolResultBody} interprets.
  *
- * Throws `RC5003` under the same conditions as {@link dispatchMcpCall}.
+ * Throws under the same conditions, and with the same codes, as
+ * {@link dispatchMcpCall}.
  *
  * Every call to a configured client passes here, a route's hop and an
  * agent's tool alike, which is what makes this the place a pinned client's

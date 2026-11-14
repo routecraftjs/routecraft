@@ -1,8 +1,9 @@
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 /** The repository root, for a suite that reads source files by path. */
-export const repoRoot = new URL("../../../../", import.meta.url).pathname;
+export const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
 /**
  * Type-check `files` as one program under the test tsconfig, for a suite

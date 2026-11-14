@@ -171,6 +171,16 @@ describe("MCP transport failures and .retry()", () => {
       [refused, "RC5010", true],
       [jsonRpc, "RC5003", false],
       [invalidUrl, "RC5003", false],
+      [
+        new DOMException("The operation timed out.", "TimeoutError"),
+        "RC5011",
+        true,
+      ],
+      [
+        new DOMException("This operation was aborted", "AbortError"),
+        "RC5010",
+        true,
+      ],
       [sdkFault("INVALID_RESULT"), "RC5003", false],
       [sdkFault("CAPABILITY_NOT_SUPPORTED"), "RC5003", false],
       [sdkFault("ERA_NEGOTIATION_FAILED"), "RC5003", false],

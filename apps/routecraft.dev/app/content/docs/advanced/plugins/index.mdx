@@ -205,7 +205,7 @@ Replacing a security-relevant port takes on what the default guaranteed. Decorat
 
 - `AUTHORITY`: `isAuthentic` is true only for what the authority minted or branded, never for a restored record.
 - `ENFORCEMENT`: refusals keep their codes, and a door treats a refusal as the caller's only when the shipped gate raised it, so compose `enforcementProvider`'s gate rather than throwing your own.
-- `CACHE_STORE`: an entry is returned only under the key it was stored under. The key carries the principal and the route and is built by the framework, so a store cannot serve one caller's body to another by composing it wrongly.
+- `CACHE_STORE`: an entry is returned only under the key it was stored under. The default key carries the principal and the route and is built by the framework, so a store cannot serve one caller's body to another by composing it wrongly. A custom `key` is used as written, so what it tells apart is the route author's choice.
 - `CONTINUATIONS`: the signer refuses a forged or expired token, and a missing secret is `RC5040` outside a named `NODE_ENV`.
 
 The application names every replaced port once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.

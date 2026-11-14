@@ -413,7 +413,7 @@ export class PluginHost {
             : undefined;
         if (sibling) {
           throw rcError("RC1119", undefined, {
-            message: `Plugin "${replacer.id}" replaces "${port.name}", but nothing provides it: plugin "${sibling.id}" provides "${sibling.port.name}", another version of the same port. The replacement displaces nobody and both would be installed. Build the replacement against "${sibling.port.name}".`,
+            message: `Plugin "${replacer.id}" replaces "${port.name}", but no other plugin provides it: plugin "${sibling.id}" provides "${sibling.port.name}", another version of the same port. The replacement displaces nobody and both would be installed. Build the replacement against "${sibling.port.name}".`,
           });
         }
         this.replacements.push({ port, by: replacer.id, displaced });

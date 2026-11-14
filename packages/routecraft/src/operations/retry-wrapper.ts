@@ -55,7 +55,9 @@ export interface RetryOptions {
    * Decide whether a failed attempt is re-attempted. Default: skip
    * `RoutecraftError`s with `retryable: false` (validation, auth,
    * config errors fail the same way every time); everything else,
-   * including unknown third-party errors, is retried.
+   * including unknown third-party errors, is retried. Called for every
+   * failed attempt, the last included, so `route:retry:stopped` can tell
+   * a refused error from an exhausted budget.
    */
   retryOn?: (error: Error) => boolean;
 }

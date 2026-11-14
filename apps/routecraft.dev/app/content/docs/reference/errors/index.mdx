@@ -244,7 +244,7 @@ Port replacement targets another version
 A plugin declares `replaces` for a port that no installed plugin provides, while an installed plugin provides the same `owner.capability` at another version. A port's version is part of its identity, so the replacement displaces nobody: the application would install both, and the plugin it was meant to replace would keep answering. Raised at build, naming both plugins and both versions. A `replaces` of a port that has no provider at any version is not a fault.
 
 **Suggestion**  
-Build the replacement against the version that is installed, or upgrade the plugin that provides the other one. A port's version changes only when an existing provider would compile against the new contract and then behave wrongly, so the two versions are different contracts and the replacement has to be written for the one in use.
+Build the replacement against the version that is installed, or upgrade the plugin that provides the other one. A port's version changes whenever the shape of its value changes, so the two versions are different contracts and the replacement has to be written for the one in use.
 
 ## RC2001
 Invalid operation type
@@ -1349,7 +1349,7 @@ Remote MCP tool reported an error
 **Why it happens**  
 A remote MCP server answers a failed call with `isError: true` and its content as the error text. The `mcp()` client, on a route's `.to(mcp(...))` hop and on an agent's `MCP(server:tool)` tool alike, throws this instead of handing that text on as a result a route would process or a model would summarise as content. The message names the tool, and the registered client when there is one. The remote's text and a configured URL stay out of it, because a message reaches logs and events: `remoteErrorTextOf(error)` from `@routecraft/ai` returns the text, bounded, and an agent's model is given it with the failed call.
 
-Not a Routecraft or transport failure: a server that is not registered or a stdio client that is not running is [RC5003](#rc-5003), and a call that fails on the wire is named by what went wrong ([RC5010](#rc-5010), [RC5011](#rc-5011), [RC5012](#rc-5012), [RC5013](#rc-5013), [RC5014](#rc-5014) or [RC5015](#rc-5015); see the [`mcp()` reference](/docs/reference/adapters/mcp)).
+Not a Routecraft or transport failure: a server that is not registered or a stdio client that is not running is [RC5003](#rc-5003), and a call that fails on the wire is named by what went wrong. A JSON-RPC error from the remote, an HTTP 4xx with no code of its own and a result the client refused are also [RC5003](#rc-5003); a lost connection, a timeout, a refused credential, a rate limit and a missing endpoint are [RC5010](#rc-5010), [RC5011](#rc-5011), [RC5012](#rc-5012), [RC5013](#rc-5013), [RC5014](#rc-5014) or [RC5015](#rc-5015) (see the [`mcp()` reference](/docs/reference/adapters/mcp)).
 
 **Suggestion**  
 - On a route, handle it where the hop is: `.error()` to recover (reading the remote's text with `remoteErrorTextOf(error)` when the handler decides on it), or `.retry({ retryOn })` with a predicate that admits `AI2003` when the remote's failure is transient; the code is registered as not retryable, so the default predicate skips it.

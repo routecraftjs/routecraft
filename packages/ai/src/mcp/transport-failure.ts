@@ -57,7 +57,9 @@ function codeOf(cause: unknown): TransportCode {
 
 /**
  * Whether the remote answered the request with a JSON-RPC error. The SDK
- * marks one with a numeric code; its own faults carry a string.
+ * marks one with a numeric code; its own faults carry a string. A
+ * `DOMException` also has a numeric code and is an abort or a timeout, never
+ * an answer.
  *
  * @internal
  */
@@ -65,6 +67,7 @@ export function isJsonRpcError(cause: unknown): boolean {
   return (
     nameOf(cause) === "ProtocolError" ||
     (cause instanceof Error &&
+      !(cause instanceof DOMException) &&
       typeof (cause as { code?: unknown }).code === "number" &&
       httpStatusOf(cause) === undefined)
   );

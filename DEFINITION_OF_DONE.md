@@ -121,7 +121,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 - [ ] `requires` and `optional` cover every port `bind`, `start` or `stop` reads with `c.require()` / `c.lookup()`, and `provides` matches what `bind` calls `c.provide()` for (`RC1108` / `RC1109` fire otherwise); a plugin that replaces `AUTHORITY` or `ENFORCEMENT` is named at boot
 - [ ] Every hook declares an `id` and the `runs` kinds it applies to; a validate hook's refusal picks the kind the caller can act on
 - [ ] A new kernel fault has an `RC11xx` row in `error.ts`, `errors.json` and the errors page
-- [ ] A change to the value a port carries ships under the next version of its name, and the port snapshot (`packages/routecraft/test/port-contracts.snapshot.json`) is regenerated only for a new port or a new version. The snapshot reads one level, so a change inside a type a member names is checked by hand against the same rule (see [`.standards/api-stability.md`](.standards/api-stability.md#port-versions))
+- [ ] A change to the value a port carries ships under the next version of its name, and the port snapshot (`packages/routecraft/test/port-contracts.snapshot.json`) is regenerated only for a new port, a new version, or a change to one of the two provisional ports (`RESILIENCE`, `ENFORCEMENT`), which may change shape in a minor release without a new version. The snapshot reads one level, so a change inside a type a member names is checked by hand against the same rule (see [`.standards/api-stability.md`](.standards/api-stability.md#port-versions))
 - [ ] `test/type-budget.bun.test.ts` still passes with the plugin's steps and facet
 
 ## When you touch authentication, authorization, or token handling
