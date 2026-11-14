@@ -47,7 +47,7 @@ export interface TestFnHandlerContext {
  * `AgentDeferOptions` value satisfies it.
  */
 export interface TestFnDeferOptions {
-  schema?: StandardSchemaV1;
+  input?: StandardSchemaV1;
   ttl?: Duration;
   meta?: unknown;
 }
@@ -122,11 +122,11 @@ export async function testFn<TIn, TOut>(
       // Same refusal as the production ctx.defer (RC5003 from
       // makeDefer), so a handler exercised in isolation cannot pass with
       // a deferral request the agent runtime would reject.
-      if (deferOptions?.schema !== undefined) {
-        if (!isStandardSchema(deferOptions.schema)) {
+      if (deferOptions?.input !== undefined) {
+        if (!isStandardSchema(deferOptions.input)) {
           throw rcError("RC5003", undefined, {
             message:
-              'testFn: ctx.defer "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Deferred acknowledgment. Omit it entirely to declare no contract.',
+              'testFn: ctx.defer "input" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Deferred acknowledgment. Omit it entirely to declare no contract.',
           });
         }
       }

@@ -82,7 +82,7 @@ describe("route:exchange:denied", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: issued!.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5050" });
 
@@ -114,7 +114,7 @@ describe("route:exchange:denied", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform(() => ({ paid: 1 }))
           .to(noop()),
       ])
@@ -137,7 +137,7 @@ describe("route:exchange:denied", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform(() => ({ paid: 2 }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -151,7 +151,7 @@ describe("route:exchange:denied", () => {
     const answer = () =>
       t!.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       });
     await expect(answer()).rejects.toMatchObject({ rc: "RC5048" });
     await expect(answer()).rejects.toMatchObject({ rc: "RC5050" });

@@ -66,11 +66,6 @@ export type {
   DeferralRecordView,
 } from "../../kernel/continuation/door.ts";
 export {
-  deferredPrincipal,
-  reidentificationDeviation,
-} from "../../kernel/continuation/door.ts";
-
-export {
   BUFFER_TAG,
   BYTES_TAG,
   DATE_TAG,
@@ -103,17 +98,25 @@ export {
 } from "../../kernel/continuation/deferred.ts";
 export type { Deferred } from "../../kernel/continuation/deferred.ts";
 
-export {
-  markDeferCapable,
-  routeCanDefer,
+export { routeCanDefer } from "../../kernel/continuation/sites.ts";
+export type {
+  DeferDeclaration,
+  DeferringAdapter,
+  DeferringStep,
+  DeferSite,
+  ResumingStep,
 } from "../../kernel/continuation/sites.ts";
-export type { DeferSite } from "../../kernel/continuation/sites.ts";
+export type {
+  DeferAsideRequest,
+  DeferHandle,
+  DeferHandleFor,
+  NextStepDeferHandle,
+  DeferRequest,
+  DeferRevival,
+  ResumeFn,
+} from "../../kernel/continuation/handles.ts";
 
-export {
-  DeferSignal,
-  isDeferSignal,
-} from "../../kernel/continuation/signal.ts";
-export type { DeferSignalRequest } from "../../kernel/continuation/signal.ts";
+export { isDeferSignal } from "../../kernel/continuation/signal.ts";
 
 export { DeferralHeaders } from "../../kernel/continuation/exchange-state.ts";
 export type { DeferralAffordance } from "../../kernel/continuation/exchange-state.ts";
@@ -124,13 +127,8 @@ export type {
   RevivalOptions,
 } from "../../kernel/continuation/resume.ts";
 
-// The in-process halves of deferral and resume, for a tier that stores a
-// continuation beside a completing run and revives it itself (agent
-// sessions). Internal: the public surfaces are `.defer()` / `.resume()`.
-export { deferAside } from "../../kernel/continuation/park.ts";
-export { reviveDeferral } from "../../kernel/continuation/resume.ts";
-// `deferralScope` is @internal and re-exported on purpose: a tier that
-// announces its own events about a deferral scopes them the way core scopes
-// `route:exchange:expired` and `:denied`, and a package cannot reach a deep
-// import.
-export { deferralScope } from "../../kernel/continuation/resume.ts";
+export { continuationsOf } from "../../kernel/continuation/facade.ts";
+export type {
+  Continuations,
+  ContinuationsView,
+} from "../../kernel/continuation/facade.ts";

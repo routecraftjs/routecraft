@@ -150,7 +150,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval, ttl: "1h" })
+          .defer({ input: Approval, ttl: "1h" })
           .tap((ex) => {
             continued.push(ex.body);
           })
@@ -173,7 +173,7 @@ describe("the deferral sweeper", () => {
       sweeper.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000)),
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ]);
 
@@ -252,7 +252,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval, ttl: "1h" })
+          .defer({ input: Approval, ttl: "1h" })
           .tap((ex) => {
             continued.push(ex.body);
           })
@@ -272,7 +272,7 @@ describe("the deferral sweeper", () => {
 
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
     releaseSweep();
 
@@ -306,7 +306,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -352,7 +352,7 @@ describe("the deferral sweeper", () => {
             throw new Error("the escalation webhook is down");
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -395,7 +395,7 @@ describe("the deferral sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -432,7 +432,7 @@ describe("the deferral sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -466,7 +466,7 @@ describe("the deferral sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -520,7 +520,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -554,7 +554,7 @@ describe("the deferral sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -585,7 +585,7 @@ describe("the deferral sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -615,7 +615,7 @@ describe("the deferral sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -647,7 +647,7 @@ describe("the deferral sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -702,7 +702,7 @@ describe("the deferral sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build());
@@ -741,7 +741,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build());
@@ -775,7 +775,7 @@ describe("the deferral sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build());
@@ -808,7 +808,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -843,7 +843,7 @@ describe("the deferral sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -884,7 +884,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -953,7 +953,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -991,7 +991,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -1040,7 +1040,7 @@ describe("the deferral sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -1106,7 +1106,7 @@ describe("the deferral sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .defer({ schema: Approval, ttl: "1ms" })
+          .defer({ input: Approval, ttl: "1ms" })
           .tap((ex) => {
             continued.push(ex.body);
           })
@@ -1126,7 +1126,7 @@ describe("the deferral sweeper", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
 
@@ -1138,7 +1138,7 @@ describe("the deferral sweeper", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
 
@@ -1159,7 +1159,7 @@ describe("the deferral sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval, ttl: "1h" })
+          .defer({ input: Approval, ttl: "1h" })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -1174,7 +1174,7 @@ describe("the deferral sweeper", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5050" });
   });
@@ -1212,7 +1212,7 @@ describe("the deferral sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -1243,7 +1243,7 @@ describe("the deferral sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();

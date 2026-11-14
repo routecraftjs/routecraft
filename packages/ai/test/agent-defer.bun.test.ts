@@ -70,7 +70,7 @@ describe("agent durable deferral (ctx.defer)", () => {
 
   /**
    * @case A fn handler's ctx.defer defers the run, and execution one answers with the core Deferred value
-   * @preconditions direct-fronted agent route; scripted model calls the "ask" tool, whose handler returns ctx.defer({ schema, ttl, meta })
+   * @preconditions direct-fronted agent route; scripted model calls the "ask" tool, whose handler returns ctx.defer({ input: schema, ttl, meta })
    * @expectedResult The caller receives the branded Deferred acknowledgment carrying id, token and the Approval JSON Schema, with no trace of `meta` on it; the record persists `meta` verbatim; the sink after the agent has not run; ctx.deferralId matched the acknowledgment's id
    */
   test("ctx.defer defers the run and answers with the Deferred acknowledgment", async () => {
@@ -93,7 +93,7 @@ describe("agent durable deferral (ctx.defer)", () => {
           token: ctx.deferral?.token,
         });
         return ctx.defer({
-          schema: Approval,
+          input: Approval,
           ttl: "72h",
           meta: { question: (input as { question: string }).question },
         });
@@ -113,7 +113,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     expect(deferred.status).toBe("deferred");
     expect(deferred.deferralId).toBeString();
     expect(deferred.token).toBeString();
-    expect(deferred.schema).toBeDefined();
+    expect(deferred.input).toBeDefined();
     expect(deferred.expiresAt).toBeString();
     // `meta` is hook input, not wire data. It rides the record and is handed
     // to `.resume({ authorize })`; the acknowledgment crosses to the caller,
@@ -159,7 +159,7 @@ describe("agent durable deferral (ctx.defer)", () => {
 
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
     expect(ack.continuation.status).toBe("completed");
@@ -177,7 +177,7 @@ describe("agent durable deferral (ctx.defer)", () => {
 
     const duplicate = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
     expect(duplicate.status).toBe("duplicate");
     expect(duplicate.continuation.status).toBe("completed");
@@ -200,7 +200,7 @@ describe("agent durable deferral (ctx.defer)", () => {
         ids.push(ctx.deferralId!);
         tokens.push(ctx.deferral!.token);
         return ctx.defer({
-          schema: Approval,
+          input: Approval,
           meta: { question: (input as { question: string }).question },
         });
       },
@@ -222,7 +222,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     });
     const first = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string; body?: unknown } };
     expect(first.status).toBe("resumed");
     expect(first.continuation.status).toBe("deferred");
@@ -237,7 +237,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     llm.script.push({ text: "both approved" });
     const second = (await t.client.sendDirect("answers", {
       token: tokens[1]!,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
     expect(second.status).toBe("resumed");
     expect(second.continuation.status).toBe("completed");
@@ -310,7 +310,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     const ack = t.client
       .sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       })
       .then(
         (value) =>
@@ -383,7 +383,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     llm.script.push({ text: "done" });
     await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     });
 
     expect(llm.calls.length).toBeGreaterThanOrEqual(2);
@@ -405,7 +405,7 @@ describe("agent durable deferral (ctx.defer)", () => {
       input: z.object({ question: z.string() }),
       handler: (input: unknown, ctx: FnHandlerContext) =>
         ctx.defer({
-          schema: Approval,
+          input: Approval,
           meta: { question: (input as { question: string }).question },
         }),
     };
@@ -442,7 +442,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     llm.script.push({ text: "done" });
     await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     });
     expect(llm.calls.length).toBeGreaterThanOrEqual(2);
     const resumedPrompt = JSON.stringify(llm.calls[1]!.user);
@@ -463,7 +463,7 @@ describe("agent durable deferral (ctx.defer)", () => {
       ...askFn,
       handler: (_input: unknown, ctx: FnHandlerContext) =>
         ctx.defer({
-          schema: Approval,
+          input: Approval,
           meta: { channel: "finance", requires: ["payouts:approve"] },
         }),
     };
@@ -485,7 +485,7 @@ describe("agent durable deferral (ctx.defer)", () => {
           .resume(
             (ex) => ({
               token: (ex.body as { token: string }).token,
-              result: { approved: true },
+              input: { approved: true },
             }),
             {
               authorize: ({ record }) => {
@@ -523,7 +523,7 @@ describe("agent durable deferral (ctx.defer)", () => {
       handler: (input: unknown, ctx: FnHandlerContext) => {
         tokens[name] = ctx.deferral!.token;
         return ctx.defer({
-          schema: Approval,
+          input: Approval,
           meta: { question: (input as { question: string }).question },
         });
       },
@@ -572,7 +572,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: tokens["ask2"],
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5055" });
     expect((await runtime.store.get(deferred.deferralId))?.state).toBe(
@@ -582,7 +582,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     llm.script.push({ text: "done" });
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string };
     expect(ack.status).toBe("resumed");
   });
@@ -617,18 +617,82 @@ describe("agent durable deferral (ctx.defer)", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
-    expect(deferred.schema).toBeUndefined();
+    expect(deferred.input).toBeUndefined();
 
     llm.script.push({ text: "carried on" });
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: "free-form text, no schema anywhere",
+      input: "free-form text, no schema anywhere",
     })) as { status: string };
     expect(ack.status).toBe("resumed");
     expect(llm.calls.length).toBeGreaterThanOrEqual(2);
     const resumedPrompt = JSON.stringify(llm.calls[1]!.user);
     expect(resumedPrompt).toContain("free-form text, no schema anywhere");
     expect(t.errors).toHaveLength(0);
+  });
+
+  /**
+   * @case A DeferError that declares an input schema advertises it
+   * @preconditions Handler throws DeferError({ input: Approval })
+   * @expectedResult The acknowledgment carries the declared input schema, the same as a returned ctx.defer({ input }) does
+   */
+  test("DeferError carries its declared input to the acknowledgment", async () => {
+    const declaring = {
+      description: "Deferring tool that declares what it wants back",
+      input: z.object({}),
+      handler: (): never => {
+        throw new DeferError({ input: Approval });
+      },
+    };
+    llm.script.push({ toolCalls: [{ toolName: "declaring", input: {} }] });
+
+    t = await testContext()
+      .with({ deferral: {}, plugins: plugins({ declaring }) })
+      .routes([
+        craft()
+          .id("assistant")
+          .from(direct())
+          .to(agent({ model: MODEL, system: "x", tools: tools(["declaring"]) }))
+          .to(spy()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
+    expect(deferred.input).toMatchObject({
+      type: "object",
+      properties: { approved: { type: "boolean" } },
+    });
+  });
+
+  /**
+   * @case The 0.7 name of the resume schema is refused where an agent tool defers
+   * @preconditions new DeferError({ schema }) and ctx.defer({ schema }) on a wired handler context, both from JS
+   * @expectedResult RC5003 from each: dropped silently, the tool would defer with no contract
+   */
+  test("schema on DeferError and ctx.defer is refused with RC5003", () => {
+    const stale = { schema: Approval } as never;
+    const thrown = (run: () => unknown): unknown => {
+      try {
+        run();
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    };
+    const ctx = makeFnHandlerContext(
+      "ask",
+      new AbortController().signal,
+      undefined,
+      { id: "def-1", mintToken: () => "token" },
+      undefined,
+      undefined,
+      authorityOf(undefined),
+    );
+
+    expect(thrown(() => new DeferError(stale))).toMatchObject({ rc: "RC5003" });
+    expect(thrown(() => ctx.defer(stale))).toMatchObject({ rc: "RC5003" });
   });
 
   /**
@@ -652,7 +716,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     llm.script.push({ text: "handled junk" });
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: "not an approval object",
+      input: "not an approval object",
     })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
     expect(ack.continuation.status).toBe("completed");
@@ -696,7 +760,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as {
       status: string;
       continuation: { status: string; error?: { message: string } };

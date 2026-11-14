@@ -101,7 +101,9 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `routes.register(...definitions)` | Add routes. In `bind` only (`RC1110` afterwards). |
 | `routes.list()`, `routes.get(id)` | Read-only views of registered routes: `id`, `definition`, `enabled`, `disabledReason`. The definition is read-only down the graph, at the type and at runtime: a write through it is `RC1110`. |
 | `routes.hooksOf(id)` | The hooks that apply to a route in the order they run, each as `{ slot, point, phase?, plugin, id }`. Empty before the routes compile. |
-| `routes.canDefer(id)` | Whether an exchange on this route can park: it has a [`.defer()`](/docs/reference/operations/defer), a defer-capable step, or an `error` hook declared with `mayDefer` whose `routes` and `tags` select it. What a door reads to advertise a `Deferred` answer. False for an unknown id. Complete from `start` on: during `bind` the hooks are not placed yet, so a route that parks only through an `error` hook reads false. |
+| `routes.canDefer(id)` | Whether an exchange on this route can park: it has a [`.defer()`](/docs/reference/operations/defer), a step that declares `defers`, or an `error` hook declared with `mayDefer` whose `routes` and `tags` select it. What a door reads to advertise a `Deferred` answer. False for an unknown id. Complete from `start` on: during `bind` the hooks are not placed yet, so a route that parks only through an `error` hook reads false. |
+| `application` | The key of the application this plugin is bound in. What [`applicationState()`](#per-application-state) files a value under. |
+| `continuations` | Reading and driving parked exchanges, [below](#continuations). |
 | `execution` | The verbs that drive the application, below. |
 
 ### Execution
@@ -109,11 +111,46 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | Member | Meaning |
 | --- | --- |
 | `deliver(endpoint, body, headers?)` | Hand a body to the route listening on a `direct()` endpoint and resolve with its reply, typed `unknown` for the caller to narrow. `RC5004` when nothing listens. |
-| `resume(request, { reidentified }?)` | Resume a parked exchange by its token on the plugin's own behalf, with no ingress door and no live principal. `reidentified` runs the continuation as the identity the exchange parked with, re-verified from live state by the plugin: read it with `deferredPrincipal(record, authority)`, verify it, and hand back the live result. Anything but the same identity verified live (a restored principal, a different role, a scope added or dropped) is [`RC5056`](/docs/reference/errors#rc-5056) and leaves the record as it was; `reidentificationDeviation(parked, reminted, authority)` answers the same question beforehand. `RC5052` when no plugin provides continuations. |
-| `sweep({ boot? })` | Run one pass of the kernel's sweep over parked exchanges: heal stale claims, purge settled records past retention, retire overdue ones through each route's error channel. The deferral plugin calls it on its cadence. Resolves with how many were retired. |
+| `trackTask(task, { route }?)` | Background work the application waits for when it drains. Name the route it belongs to and that route drains it before it stops. A rejection is logged, never thrown. |
 | `capabilities()` | Discoverable capabilities of the enabled routes. |
 | `whenStarted()` | Resolves once every route signalled readiness and every `start` returned. |
 | `requestStop()` | Ask the application to stop. Returns at once; never await a stop from inside a lifecycle function. |
+
+### Continuations
+
+`c.continuations` is the one way a plugin reads or drives a parked exchange. It is two tiers: a read-only view, which an adapter also reaches with `continuationsOf(exchange)`, and the acts, which only a plugin holds.
+
+| Member | Tier | Meaning |
+| --- | --- | --- |
+| `available` | view | Whether the application has a `CONTINUATIONS` provider. Every other member is [`RC5052`](/docs/reference/errors#rc-5052) without one, except `verifyToken`, which answers `undefined`. |
+| `get(id)` | view | The record, with `stepState`, `meta` and the settled outcome decoded to the values the route held. |
+| `list(query)` | view | Record summaries, newest first. |
+| `verifyToken(token)` | view | The deferral id a token names, or `undefined` when this application did not mint it. Never throws. |
+| `deferredPrincipal(record)` | view | The principal the exchange parked with, restored and marked as restored. |
+| `reidentificationDeviation(parked, live)` | view | Why a live principal is not the parked identity, or `undefined` when it is. |
+| `eventScope(record)` | view | The exchange fields an event about this record carries. |
+| `resume(request, { reidentified }?)` | act | Resume a parked exchange by its token on the plugin's own behalf, with no ingress door and no live principal. `reidentified` runs the continuation as the identity the exchange parked with, re-verified from live state by the plugin; a restored principal, or one that deviates, is [`RC5056`](/docs/reference/errors#rc-5056). |
+| `sweep({ boot? })` | act | Run one pass of the kernel's sweep: heal stale claims, purge settled records past retention, retire overdue ones through each route's error channel. Resolves with how many were retired. |
+| `mintToken(id, { callBinding }?)` | act | A resume token for a record. Whoever holds it can resume the exchange, so a plugin hands it only to the party it means to. |
+| `rewriteStepState(id, rewrite)` | act | Replace what a `"this-step"` site stored, by compare-and-swap. |
+
+A step never calls `resume` to answer a caller: it declares `resumes` and is handed [`ctx.resume`](#deferring-and-resuming-steps), which records the principal the route verified.
+
+### Per-application state \{#per-application-state}
+
+A plugin descriptor may serve more than one application in a process, so a value a plugin's adapters need is kept per application, never in a module variable.
+
+A value another plugin may use or replace is a [port](#ports). An adapter reads it with `lookupOf(exchange, PORT)`, which resolves the way `context.lookup(PORT)` does for the application the exchange runs in, `replaces` included, and is `undefined` when nothing provides it.
+
+State private to one module is an `applicationState<T>()` holder:
+
+| Member | Meaning |
+| --- | --- |
+| `set(application, value)` | Keep a value for an application. Called in `bind` with `c.application`. |
+| `get(application)` | Read it by key: `c.application` in a plugin, `context.application` in a source. |
+| `of(exchange)` | Read what the application an exchange runs in holds. What an adapter calls. |
+
+`set` replaces what the application held and is not tied to a lifecycle stage. The value is released with the application, because the holder keeps it weakly under the key. `applicationOf(exchange)` returns the key itself.
 
 ## Lifecycle
 
@@ -176,7 +213,7 @@ The ports the framework ships:
 | `CACHE` | `routecraft.cache@1` | `routecraft.cache` |
 | `AUTHORITY` | `routecraft.principals@1` | `routecraft.principals` |
 | `ENFORCEMENT` | `routecraft.enforcement@1` | `routecraft.auth` |
-| `CONTINUATIONS` | `routecraft.continuations@1` | `routecraft.deferral` |
+| `CONTINUATIONS` | `routecraft.continuations@2` | `routecraft.deferral` |
 | `WEB_INGRESS` | `routecraft.servers@1` | `routecraft.servers` |
 | `HTTP` | `routecraft.http@1` | `routecraft.http` |
 | `OPS` | `routecraft.ops@1` | `routecraft.ops` |
@@ -264,7 +301,7 @@ A slot runs observe, then mutate, then validate. `exit` has no validate phase. I
 | `runs` | all | The run kinds the hook applies to: `normal`, `resume`, `debounce`, `errorChannel`. Defaults to `normal` only, except in `error`, which defaults to every kind. `beforeAuth`, `afterAuth` and `admitted` see admissions only: a normal run, and an admission resume (a park raised before the route admitted the exchange), which runs `afterAuth` and `admitted` around the `authorize` it re-runs. An admission resume is an admission, so those slots see it as kind `normal` and a hook keeping the default runs on it; the `error` slot, points and `perAttempt` see the same run as kind `resume`. |
 | `writes` | `mutate` | The headers the hook writes, so a conflict is reported at start rather than on the first request. |
 | `mayDefer` | `error` | The hook may answer `recovery.defer()`. Makes every route it applies to deferrable, so the application refuses to start without a deferral runtime ([`RC5052`](/docs/reference/errors#rc-5052)). |
-| `schema` | `error` | What a resume payload must satisfy when the hook parks with `recovery.defer()`. Read back live at the resume door and validated there ([`RC5049`](/docs/reference/errors#rc-5049)); a schema that changed or disappeared under a parked exchange refuses the resume ([`RC5048`](/docs/reference/errors#rc-5048)). |
+| `input` | `error` | What a resume payload must satisfy when the hook parks with `recovery.defer()`. Read back live at the resume door and validated there ([`RC5049`](/docs/reference/errors#rc-5049)); a schema that changed or disappeared under a parked exchange refuses the resume ([`RC5048`](/docs/reference/errors#rc-5048)). |
 
 `info` carries `routeId`, `tags`, `slot` and `kind`. An error hook's `info` also carries `execution` (`1` on the first run, `2` once the exchange is a resumed continuation) and `forward`, which sends to a `direct()` endpoint under the failing exchange's principal.
 
@@ -292,7 +329,9 @@ Each entry of a plugin's `steps` becomes a builder method of that name. The entr
 | API | Meaning |
 | --- | --- |
 | `step<In, Out>((exchange, ctx) => body)` | A step that replaces the body with what the function returns. The method exists only on a route whose body is assignable to `In`, and leaves the route at `Out`. |
-| `step<In, Out>(rawStep)` | Wraps a step written against `Step` directly, for one that drops, branches or defers rather than continuing. |
+| `step<In, Out>(rawStep)` | Wraps a step written against `Step` directly, for one that drops or branches rather than continuing. |
+| `step(impl, { defers })` | The step defers the exchange and is handed `ctx.defer`, typed by the revival it declares (`DeferHandleFor<D>`). See [deferring and resuming steps](#deferring-and-resuming-steps). |
+| `step(impl, { resumes: true })` | The step resumes deferred exchanges and is handed `ctx.resume`. |
 | `Body` | A placeholder for the body at the call site. `step<Body, Body>` with `(fn: (body: Body) => ...)` in the factory's arguments gives a body-preserving method whose callback is typed at the route's current body. |
 | `StepMethods<S, This>` | An interface a plugin merges its method types into, under its namespace, for a method generic at the call site. The `steps` entry of the same name still provides the runtime. `BuilderState`, `Retyped` and `SetBody` are exported for writing these. |
 | `FacetTypes<S>` | An interface a plugin merges its facet type into, under its namespace, when the facet's type depends on the route's state. |
@@ -326,6 +365,29 @@ Without `[IDENTITY]()`, a raw step is identified by its operation and its adapte
 | A class instance, a native or bound function, a symbol, a schema with no JSON Schema rendering, a symbol-keyed or accessor property, a value that contains itself, anything nested more than five deep | A placeholder. The value is reported by `describeIdentity` and by [`RC5071`](/docs/reference/errors#rc-5071) on a route that defers or caches under the default key. |
 
 The digest does not cover what a function captured, what a `direct()` target, a named agent or a tool selected by name does, the contents of a file a step reads when it runs, or an environment variable. A wrapper's `label` names its events and is left out too. A core step is digested by the options it was given, so a default that changes in a release moves nothing by itself. `.log()` is left out of it: a log line can be added or reworded while exchanges are parked.
+
+### Deferring and resuming steps \{#deferring-and-resuming-steps}
+
+Only the kernel parks and revives an exchange. A step asks for either by declaring it, and the kernel hands it the handle: a step result that names a deferral the kernel did not issue is refused with [`RC5032`](/docs/reference/errors#rc-5032).
+
+| Declaration | Handle | Meaning |
+| --- | --- | --- |
+| `defers: { revival: "next-step", input? }` | `ctx.defer` | The step defers, and a revival continues with the step after it. A run that returns without calling `ctx.defer` lets the exchange continue with no deferral. `input` is the schema a resume payload is validated against before the claim ([`RC5049`](/docs/reference/errors#rc-5049)). |
+| `defers: { revival: "this-step" }` | `ctx.defer` | The step may defer, and a revival runs it again with what it stored. It names its `input` when it defers and validates the payload itself. |
+| `resumes: true` | `ctx.resume` | The step is a resume door. |
+
+| `ctx.defer` member | Meaning |
+| --- | --- |
+| `ctx.defer({ ttl?, meta?, callBinding?, stepState?, input?, notify? })` | End the run deferred. The promise never resolves: return or await it, and let its rejection through a `catch` (`isDeferSignal`). A step that calls it and then returns is [`RC5032`](/docs/reference/errors#rc-5032), and nothing is parked. `stepState` and `input` belong to a `"this-step"` site: `step()` leaves them off the type for a `"next-step"` declaration, and passing one anyway is [`RC5003`](/docs/reference/errors#rc-5003). `notify` is awaited with the acknowledgment after the record is written; a throw is [`RC5067`](/docs/reference/errors#rc-5067) and the record is denied. |
+| `ctx.defer.revived` | Set when this run is a revival of a deferral this step raised: `{ deferralId, stepState, input }`. |
+| `ctx.defer.refused` | Why a deferral from this position cannot be revived (inside a `.split()` fan-out, a `.multicast()` path or a `.dispatch()` target), when it cannot. Deferring anyway is `RC5051` with this text. |
+| `ctx.defer.aside({ stepState, announce? })` | Store a continuation for an exchange that goes on to complete: a way to run this step again later. No acknowledgment, no token, no `route:exchange:deferred`. A `"this-step"` site only. |
+
+`ctx.resume({ token, input }, { authorize?, elevate?, signal? })` resumes on behalf of the exchange's caller. The exchange, its principal and the route are the kernel's, and the resuming party recorded is the principal the route verified: a request that names `resumedBy` is `RC5003`.
+
+An adapter of a `.to()` or `.enrich()` declares `[DEFERS]: () => ({ revival: "this-step" })` and reads `ctx.defer` off the context it is called with. A raw step declares `[DEFERS]()` or `[RESUMES]()` the same way. Both are registered symbols.
+
+The acts a plugin takes outside a step (`c.continuations.mintToken()`, `resume()` and `rewriteStepState()`) run no door policy, so the lint rule [`restrict-continuation-minting`](/docs/advanced/linting#continuation-acts-are-a-sanctioned-exception) makes each call site an explicit exception.
 
 ### Structural steps
 

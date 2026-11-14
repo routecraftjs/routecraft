@@ -6,9 +6,9 @@ import {
   craft,
   direct,
   noop,
-  deferAside,
   deferralOf,
 } from "../src/index.ts";
+import { deferAside } from "../src/kernel/continuation/park.ts";
 
 /**
  * An aside deferral stores a continuation for a run that goes on. The run's

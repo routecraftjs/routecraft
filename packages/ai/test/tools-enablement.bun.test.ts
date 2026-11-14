@@ -228,7 +228,7 @@ describe("directTool fns over a disabled route", () => {
           .description("Ask before acting")
           .input(z.object({}))
           .from(direct())
-          .defer({ schema: z.object({ ok: z.boolean() }) })
+          .defer({ input: z.object({ ok: z.boolean() }) })
           .to(noop()),
       ])
       .with({

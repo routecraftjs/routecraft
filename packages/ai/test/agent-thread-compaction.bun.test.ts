@@ -1,9 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   MemoryDeferralStore,
   stepStateFingerprint,
+  type Continuations,
   type NewDeferral,
 } from "@routecraft/routecraft";
+import { testContext, type TestContext } from "@routecraft/testing";
 import {
   assertResumableThread,
   replaceDeferredThread,
@@ -165,17 +167,38 @@ describe("assertResumableThread", () => {
 });
 
 describe("replaceDeferredThread", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /** A store, and the application's continuations over it. */
+  async function harness(): Promise<{
+    store: MemoryDeferralStore;
+    continuations: Continuations;
+  }> {
+    const store = new MemoryDeferralStore();
+    t = await testContext().with({ deferral: { store } }).build();
+    return { store, continuations: t.ctx.continuations };
+  }
+
   /**
    * @case A compaction of a deferred run replaces only the thread
    * @preconditions A deferred record holding an agent step state
    * @expectedResult The swap is won, messages are the rewritten ones, and turnsUsed is untouched so shrinking the conversation does not refund the budget
    */
   test("replaces the thread and leaves the rest of the state alone", async () => {
-    const store = new MemoryDeferralStore();
+    const { store, continuations } = await harness();
     await store.create(deferred());
 
     const shorter = thread().slice(1);
-    const result = await replaceDeferredThread(store, "def-1", () => shorter);
+    const result = await replaceDeferredThread(
+      continuations,
+      "def-1",
+      () => shorter,
+    );
 
     expect(result.won).toBe(true);
     const state = result.deferral?.stepState as {
@@ -194,23 +217,32 @@ describe("replaceDeferredThread", () => {
    * @expectedResult The rewrite sees the part as a Uint8Array rather than the store's envelope, the swap is won, and the stored thread reads back with the same bytes
    */
   test("rewrites a thread that carries a file part's bytes", async () => {
-    const store = new MemoryDeferralStore();
-    const bytes = new Uint8Array([1, 2, 3]);
-    const messages: ThreadMessage[] = [
+    const { store, continuations } = await harness();
+    const messages = [
       {
         role: "user",
-        content: [{ type: "file", data: bytes, mediaType: "audio/ogg" }],
+        content: [
+          {
+            type: "file",
+            data: { "$routecraft.bytes": "AQID" },
+            mediaType: "audio/ogg",
+          },
+        ],
       },
       ...thread().slice(1),
-    ];
+    ] as ThreadMessage[];
     await store.create(deferred({}, messages));
 
     let seen: unknown;
-    const result = await replaceDeferredThread(store, "def-1", (thread) => {
-      seen = (thread[0] as { content: Array<{ data?: unknown }> }).content[0]
-        ?.data;
-      return thread;
-    });
+    const result = await replaceDeferredThread(
+      continuations,
+      "def-1",
+      (thread) => {
+        seen = (thread[0] as { content: Array<{ data?: unknown }> }).content[0]
+          ?.data;
+        return thread;
+      },
+    );
 
     expect(result.won).toBe(true);
     expect(seen).toBeInstanceOf(Uint8Array);
@@ -234,28 +266,32 @@ describe("replaceDeferredThread", () => {
    * @expectedResult The rewrite sees a Buffer, not a Uint8Array, and the stored thread keeps the buffer envelope rather than the bytes one
    */
   test("rewrites a thread holding a Buffer part without changing its kind", async () => {
-    const store = new MemoryDeferralStore();
-    const messages: ThreadMessage[] = [
+    const { store, continuations } = await harness();
+    const messages = [
       {
         role: "user",
         content: [
           {
             type: "file",
-            data: Buffer.from([1, 2, 3]),
+            data: { "$routecraft.buffer": "AQID" },
             mediaType: "audio/ogg",
           },
         ],
       },
       ...thread().slice(1),
-    ];
+    ] as ThreadMessage[];
     await store.create(deferred({}, messages));
 
     let seen: unknown;
-    const result = await replaceDeferredThread(store, "def-1", (thread) => {
-      seen = (thread[0] as { content: Array<{ data?: unknown }> }).content[0]
-        ?.data;
-      return thread;
-    });
+    const result = await replaceDeferredThread(
+      continuations,
+      "def-1",
+      (thread) => {
+        seen = (thread[0] as { content: Array<{ data?: unknown }> }).content[0]
+          ?.data;
+        return thread;
+      },
+    );
 
     expect(result.won).toBe(true);
     expect(Buffer.isBuffer(seen)).toBe(true);
@@ -277,11 +313,11 @@ describe("replaceDeferredThread", () => {
    * @expectedResult AI1008, and the stored thread is exactly what it was, so a failed compaction costs nothing
    */
   test("refuses a broken rewrite without touching the record", async () => {
-    const store = new MemoryDeferralStore();
+    const { store, continuations } = await harness();
     await store.create(deferred());
 
     await expect(
-      replaceDeferredThread(store, "def-1", (messages) =>
+      replaceDeferredThread(continuations, "def-1", (messages) =>
         messages.filter((message) => message.role !== "tool"),
       ),
     ).rejects.toMatchObject({ rc: "AI1008" });
@@ -298,15 +334,19 @@ describe("replaceDeferredThread", () => {
    * @expectedResult won: false with the resumed record, and the rewrite is never invoked, so no model call is spent on work with no possible outcome
    */
   test("does not rewrite a run that already resumed", async () => {
-    const store = new MemoryDeferralStore();
+    const { store, continuations } = await harness();
     await store.create(deferred());
     await store.markResumed("def-1", { at: new Date() });
 
     let invoked = false;
-    const result = await replaceDeferredThread(store, "def-1", (messages) => {
-      invoked = true;
-      return messages;
-    });
+    const result = await replaceDeferredThread(
+      continuations,
+      "def-1",
+      (messages) => {
+        invoked = true;
+        return messages;
+      },
+    );
 
     expect(result.won).toBe(false);
     expect(result.deferral?.outcome?.kind).toBe("resumed");
@@ -325,12 +365,14 @@ describe("replaceDeferredThread", () => {
    *   is proven.
    */
   test("refuses a compaction built on a stale read", async () => {
-    const store = new MemoryDeferralStore();
+    const { store, continuations } = await harness();
     await store.create(deferred());
     const before = (await store.get("def-1"))?.stepState;
 
-    const first = await replaceDeferredThread(store, "def-1", (messages) =>
-      messages.slice(1),
+    const first = await replaceDeferredThread(
+      continuations,
+      "def-1",
+      (messages) => messages.slice(1),
     );
     const second = await store.replaceStepState(
       "def-1",
@@ -356,13 +398,17 @@ describe("replaceDeferredThread", () => {
    * @expectedResult The compare is against the state the rewrite was based on, so the swap wins instead of losing to the rewrite's own edit
    */
   test("compares against the pre-rewrite state, not the rewritten one", async () => {
-    const store = new MemoryDeferralStore();
+    const { store, continuations } = await harness();
     await store.create(deferred());
 
-    const result = await replaceDeferredThread(store, "def-1", (messages) => {
-      (messages as ThreadMessage[]).splice(0, 1);
-      return messages;
-    });
+    const result = await replaceDeferredThread(
+      continuations,
+      "def-1",
+      (messages) => {
+        (messages as ThreadMessage[]).splice(0, 1);
+        return messages;
+      },
+    );
 
     expect(result.won).toBe(true);
     expect(
@@ -376,11 +422,11 @@ describe("replaceDeferredThread", () => {
    * @expectedResult The stored thread is untouched, so a failed compaction costs nothing even against a store that hands back its own record
    */
   test("keeps the stored thread when a mutating rewrite is refused", async () => {
-    const store = new MemoryDeferralStore();
+    const { store, continuations } = await harness();
     await store.create(deferred());
 
     await expect(
-      replaceDeferredThread(store, "def-1", (messages) => {
+      replaceDeferredThread(continuations, "def-1", (messages) => {
         (messages as ThreadMessage[]).length = 0;
         return messages;
       }),
@@ -398,8 +444,8 @@ describe("replaceDeferredThread", () => {
    * @expectedResult won: false with no record, matching the store's own contract
    */
   test("reports a loss for an unknown deferral", async () => {
-    const store = new MemoryDeferralStore();
-    const result = await replaceDeferredThread(store, "nope", (m) => m);
+    const { continuations } = await harness();
+    const result = await replaceDeferredThread(continuations, "nope", (m) => m);
     expect(result).toEqual({ won: false, deferral: undefined });
   });
 
@@ -409,11 +455,11 @@ describe("replaceDeferredThread", () => {
    * @expectedResult AI1007 from the shared rehydration parser, rather than a rewrite over a shape nobody owns
    */
   test("refuses step state that is not an agent record", async () => {
-    const store = new MemoryDeferralStore();
+    const { store, continuations } = await harness();
     await store.create(deferred({ stepState: { note: "not an agent" } }));
 
     await expect(
-      replaceDeferredThread(store, "def-1", (m) => m),
+      replaceDeferredThread(continuations, "def-1", (m) => m),
     ).rejects.toMatchObject({ rc: "AI1007" });
   });
 });

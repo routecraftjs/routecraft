@@ -1,5 +1,6 @@
 import type { Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { executeStep } from "../kernel/continuation/signal.ts";
 import type { Port } from "../kernel/port.ts";
 import { assertPositionMember } from "../pipeline/positions.ts";
 import {
@@ -139,7 +140,8 @@ export function stepPositionRun(
     forward: forwardOf(route, exchange),
     emit: (event, details) => context?.emit(event, details),
     attempt: (signal) =>
-      inner.execute(
+      executeStep(
+        inner,
         exchange,
         signal ? { ...ctx, signal: anySignal(ctx.signal, signal) } : ctx,
       ),

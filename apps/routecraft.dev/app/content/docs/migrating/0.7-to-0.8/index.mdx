@@ -25,8 +25,9 @@ What changed between Routecraft 0.7 and 0.8, and how to update.
 15. **A remote MCP server is reached over `https`.** A client on plain `http` to a host that is not loopback sets `allowHttp: true`. [Section 15](#15-mcp-outbound).
 16. **Parked deferrals are re-asked once.** The continuation digest changed format and covers more, so a deferral parked on 0.7 is refused with `RC5048` on its first resume, and a custom `WrapperStep` implements `wrapperKind` and `identityOptions()`. [Section 16](#16-step-identity).
 17. **`.log()` takes a level and a message, and the `logger` export is gone.** `log()`, `debug()` and `.debug()` are removed; `defineProject({ logger })` sets the logger; `craft.log.*` reads only `level`, `file` and `redact`. [Section 17](#17-logging).
+18. **A resume payload is `input`, and deferring is declared.** `.defer({ schema })` is `.defer({ input })`, a resume request is `{ token, input }`, and `ex.deferral.result` is `ex.deferral.input`. A step or adapter that defers declares `DEFERS` and is handed `ctx.defer`; `DeferSignal`, `markDeferCapable`, `getExchangeContext` and `getExchangeRoute` leave the entry. [Section 18](#18-defer-contract).
 
-Projects that write no plugin of their own typically need sections 2 and 17 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`, section 14 if they subscribe to `plugin:mcp:tool:called` and read `details.args`, section 15 if an MCP client is reached over plain `http`, and section 16 if an approval can be parked across the upgrade. [Section 18](#18-what-is-new-in-080) lists what is new, for context.
+Projects that write no plugin of their own typically need sections 2 and 17 and nothing else, section 6 if they supply their own `DeferralStore`, section 7 if an agent declares its own `user` for editor turns, section 8 if they call or proxy an MCP client, section 9 if they read IMAP flags, section 10 if they set the correlation id themselves or group `event()` routes' work by it, section 11 if they import `agentBrowser()`, section 12 if they read `craft run`'s stdout or `RUNNER_ARGV`, section 13 if they install `mailauth` or `@ai-sdk/openai-compatible`, section 14 if they subscribe to `plugin:mcp:tool:called` and read `details.args`, section 15 if an MCP client is reached over plain `http`, section 16 if an approval can be parked across the upgrade, and section 18 if a route defers or resumes. [Section 19](#19-what-is-new-in-080) lists what is new, for context.
 
 ---
 
@@ -65,7 +66,7 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
-| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 18](#18-what-is-new-in-080)) |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 19](#19-what-is-new-in-080)) |
 | `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
@@ -290,13 +291,73 @@ A log line is now a step in the flow, and the logger is something a project is g
 
 See [`.log()`](/docs/reference/operations/log) and [logging configuration](/docs/reference/configuration#logging-configuration).
 
-## 18. What is new in 0.8.0 \{#18-what-is-new-in-080}
+## 18. The defer contract \{#18-defer-contract}
+
+One word names a resume payload everywhere, and only the kernel parks or revives an exchange. A route that uses the shipped `.defer()` and `.resume()` renames three things:
+
+| 0.7 | 0.8 |
+|-----|-----|
+| `.defer({ schema })`, and `schema` on `.error(handler, { ... })` | `.defer({ input })`, `.error(handler, { input })` |
+| A resume mapper returning `{ token, result }`, and an unmapped `.resume()` body of `{ token, result }` | `{ token, input }` |
+| `ex.deferral.result` | `ex.deferral.input` |
+| `schema` on the `Deferred` acknowledgment | `input` |
+
+A `schema` left on `.defer()`, `.error()`, `ctx.defer()` or `DeferError` is refused with [`RC5003`](/docs/reference/errors#rc-5003), and on an error hook with [`RC1115`](/docs/reference/errors#rc-1115), rather than dropped: dropped, the site would park with no contract and the resume door would validate nothing.
+
+A caller that posts to a resume door sends `input` too, so update whatever builds the approval link or form. The header `routecraft.deferral.result` is `routecraft.deferral.input`. A `.resume()` mapper, like a plugin step's `ctx.resume`, no longer names `resumedBy`: the kernel records the principal the route verified, and a request that names one is refused ([`RC5003`](/docs/reference/errors#rc-5003)).
+
+**A step that defers declares it.** Throwing `DeferSignal`, returning a step result with `kind: 'defer'` built by hand, and `markDeferCapable` are removed. The step declares `defers` (or `[DEFERS]()` on a raw step or an adapter) and calls the handle the kernel gives it:
+
+| 0.7 | 0.8 |
+|-----|-----|
+| `markDeferCapable(adapter)` | `[DEFERS]: () => ({ revival: 'this-step' })` on the adapter |
+| `throw new DeferSignal({ ... })` | `return ctx.defer({ ttl, meta, stepState, input, notify })` |
+| `peekResumeStepState(exchange)` | `ctx.defer.revived`, which is `{ deferralId, stepState, input }` on a revival |
+| `deferAside(...)` | `ctx.defer.aside({ stepState, announce })` |
+| `reviveDeferral(context, request)` from a door | `ctx.resume({ token, input })` on a step that declares `resumes` |
+| `reviveDeferral(...)` outside a request | `c.continuations` in a plugin (`resume`, `sweep`, `mintToken`, `get`, `list`, `eventScope`), which hands back decoded records |
+
+A step result that names a deferral the kernel did not issue is refused with [`RC5032`](/docs/reference/errors#rc-5032). See [steps that defer or resume](/docs/advanced/plugins#steps-that-defer-or-resume). A plugin written against an 0.8 canary moves `c.execution.resume()` and `c.execution.sweep()` to `c.continuations`, and reads records through it in place of `deferralScope`, `decodePersistable` and `decodeOutcome`.
+
+**An adapter does not read the context off the exchange.** `getExchangeContext` and `getExchangeRoute` leave the entry. What an adapter used them for has a narrower replacement:
+
+| 0.7 | 0.8 |
+|-----|-----|
+| `getExchangeContext(ex).lookup(PORT)` | `lookupOf(exchange, PORT)` |
+| `getExchangeContext(ex).getStore(KEY)` for a plugin's own state | `applicationState<T>()`: `state.set(c.application, value)` in `bind`, `state.of(exchange)` in the adapter ([merged options](/docs/advanced/merged-options)) |
+| `getExchangeContext(ex).logger` | `exchange.logger` |
+| `getExchangeContext(ex)` to read a parked record or verify a token | `continuationsOf(exchange)` |
+| `getExchangeContext(ex)` to decide whether to send trace headers | `sendsTraceContextFor(exchange, ...settings)` |
+| `getExchangeRoute(ex)?.trackTask(p)` from a plugin | `c.execution.trackTask(p, { route })` |
+
+**A custom `DeferralStore` stores what it is given.** The kernel encodes `stepState`, `meta` and the settled outcome before the store sees them and decodes them after, so a store persists those fields as the JSON they arrive as and never encodes or decodes them itself. Run the shared suite against it:
+
+```ts skip="fragment: openMyStore is illustrative"
+import { afterEach, describe, expect, test } from 'bun:test'
+import { deferralStoreConformance } from '@routecraft/testing'
+
+deferralStoreConformance('my store', () => openMyStore(), {
+  describe,
+  test,
+  afterEach,
+  expect,
+})
+```
+
+**The rest:**
+
+- **The `CONTINUATIONS` port is `routecraft.continuations@2`.** A plugin that provides it under the `@1` name declares the port again from the exported token. Its `signer` is typed `ResumeTokenSigning`.
+- **A parked exchange finds its defer site by what follows it.** A step added or removed ahead of a `.defer()` no longer refuses the exchanges parked there. Two sites of one kind followed by identical steps (a `.defer()` in each of two sibling branches, say) that both moved are refused with [`RC5048`](/docs/reference/errors#rc-5048) as ambiguous. A `.defer()` and a step that defers itself are never confused: the digest carries which of the two parked.
+- **`restrict-continuation-minting` is an error in both lint presets.** It flags `continuations.mintToken()`, `resume()` and `rewriteStepState()`; see [linting](/docs/advanced/linting#continuation-acts-are-a-sanctioned-exception).
+- **Six more names leave the entry**, none of which a route needs: `ResolvedSampleOptions`, `ResolvedDedupeOptions`, `ResolvedThrottleOptions`, `ResolvedCircuitBreakerOptions`, `RouteEnablement` and `hashExchangeBody`.
+
+## 19. What is new in 0.8.0 \{#19-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too.
 - **Hooks.** Plugins add hooks to the slots of the chain (`beforeAuth`, `afterAuth`, `admitted`, `perAttempt`, `exit`, `error`) in the `observe`, `mutate` and `validate` phases. Every hook declares an `id`; `hooks.order` and `hooks.disable` in config address it as `pluginId/id` and settle conflicts. A validate hook's `refuse(reason, { kind })` is answered at the door the caller came through with the status its kind maps to.
 - **The `error` slot.** A plugin hook can recover, drop or park (`recovery.defer()`) a failure the route's own `.error()` did not settle.
-- **Error-path parks are validated.** `.error(handler, { schema })` and an error hook's `schema` declare what a resume payload must satisfy when the handler parks; the resume door validates it (`RC5049`) and refuses a resume whose schema changed (`RC5048`).
+- **Error-path parks are validated.** `.error(handler, { input })` and an error hook's `input` declare what a resume payload must satisfy when the handler parks; the resume door validates it (`RC5049`) and refuses a resume whose schema changed (`RC5048`).
 - **Facets.** A plugin's facet is readable as `ex.<namespace>`.
 - **Journeys.** `routecraft.causation_id` on every exchange a hand-off produces (a chain root has none), `causationId` on every `route:exchange:*` event of such an exchange and in the logger's bindings, W3C trace context across the `http()`, ops and MCP doors (adopted from an authenticated caller by default, `traceContext` on each door and client), `.correlate()` for a channel that carries none, and telemetry spans parented to the exchange that caused them. See [journeys](/docs/introduction/exchange#journeys-correlation-and-causation).
 - **`argv()`.** `craft run <file> --field=value` (or JSON on stdin) reaches the route as one exchange, with the `craft exec` flag grammar and exit codes, and `--help` from the `.input()` schema. A file with several `argv()` routes takes the route's id first. The exchange carries no principal. See [argv](/docs/reference/adapters/argv).

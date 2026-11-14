@@ -1,6 +1,5 @@
 import type { Enricher, CallableEnricher } from "../../operations/enrich.ts";
 import type { DirectoryEntry, DirectoryOptions } from "./types.ts";
-import { getExchangeContext } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import { scanDirectory } from "./scan.ts";
 
@@ -46,7 +45,7 @@ export class DirectoryEnricherAdapter<T = unknown> implements Enricher<
       {
         // An enclosing .timeout() abort stops the stat workers early.
         signal: ctx?.signal,
-        logger: getExchangeContext(exchange)?.logger,
+        logger: exchange.logger,
       },
     );
 

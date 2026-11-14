@@ -231,7 +231,7 @@
   {
     "name": "defer",
     "category": "Flow Control",
-    "signature": ".defer({ schema?, ttl?, meta? })",
+    "signature": ".defer({ input?, ttl?, meta? })",
     "description": "Defer the exchange durably and answer now; resume later at the next step."
   },
   {

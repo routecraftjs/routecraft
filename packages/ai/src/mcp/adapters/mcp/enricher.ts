@@ -1,12 +1,12 @@
 import type { Exchange, Enricher } from "@routecraft/routecraft";
 import {
-  getExchangeContext,
   HeadersKeys,
   authorityOf,
   rcError,
   sendsTraceContext,
   traceContextOf,
 } from "@routecraft/routecraft";
+import { getExchangeContext } from "@routecraft/routecraft/internal";
 import type {
   McpClientOptions,
   McpArgsExtractor,

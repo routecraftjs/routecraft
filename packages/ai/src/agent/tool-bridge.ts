@@ -297,7 +297,7 @@ export async function buildVercelTools(
               toolCallId,
               toolName: r.name,
               request: {
-                ...(err.schema !== undefined ? { schema: err.schema } : {}),
+                ...(err.input !== undefined ? { input: err.input } : {}),
                 ...(err.ttl !== undefined ? { ttl: err.ttl } : {}),
                 ...(err.meta !== undefined ? { meta: err.meta } : {}),
               },

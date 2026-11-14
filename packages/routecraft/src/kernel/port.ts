@@ -15,7 +15,7 @@ declare const PORT_TYPE: unique symbol;
  * @template T - What the provider hands its consumers
  */
 export interface Port<T> {
-  /** `owner.capability@version`, e.g. `routecraft.continuations@1`. */
+  /** `owner.capability@version`, e.g. `routecraft.continuations@2`. */
   readonly name: string;
   /** Identity: the registered symbol for `name`, so one name is one port. */
   readonly key: symbol;

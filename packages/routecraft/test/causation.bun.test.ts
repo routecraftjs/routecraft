@@ -567,7 +567,7 @@ describe("Causation", () => {
             runs.push(ids(ex));
             return ex;
           })
-          .defer({ schema: z.object({ ok: z.boolean() }) })
+          .defer({ input: z.object({ ok: z.boolean() }) })
           .process((ex) => {
             runs.push(ids(ex));
             return ex;
@@ -604,7 +604,7 @@ describe("Causation", () => {
     );
     await t.client.sendDirect("resumes", {
       token: deferred.token,
-      result: { ok: true },
+      input: { ok: true },
     });
 
     expect(runs).toHaveLength(2);

@@ -328,7 +328,7 @@ export const staleQuotes = definePlugin({
 
 The hook's `info` carries `routeId`, `tags`, `execution` (`1` on the first run, `2` once the exchange is a resumed continuation) and `forward`, which sends to a `direct()` endpoint under the failing exchange's principal.
 
-A hook that may answer `recovery.defer()` declares `mayDefer: true`, which makes every route it applies to deferrable, so the application refuses to start without a deferral runtime. It declares `schema` beside it when the resume payload has a shape: the resume door reads the schema back off the hook and validates the payload against it, exactly as it does for a `.defer()` step. The error ladder from step to route to slot is described on the [`.error()` reference](/docs/reference/operations/error).
+A hook that may answer `recovery.defer()` declares `mayDefer: true`, which makes every route it applies to deferrable, so the application refuses to start without a deferral runtime. It declares `input` beside it when the resume payload has a shape: the resume door reads the schema back off the hook and validates the payload against it, exactly as it does for a `.defer()` step. The error ladder from step to route to slot is described on the [`.error()` reference](/docs/reference/operations/error).
 
 ### Settling conflicts
 
@@ -476,6 +476,55 @@ A route that uses a plugin's step refuses to start unless that plugin is install
 
 The `.log()`, `.map()` and `.schema()` methods are ordinary builder methods. `.authenticate()` and `.delegate()` are the auth plugin's steps, and `.defer()` and `.resume()` are the deferral plugin's.
 
+### Steps that defer or resume \{#steps-that-defer-or-resume}
+
+A plugin step can park the exchange and can be a resume door, on the same footing as the shipped `.defer()` and `.resume()`. It declares which, and the kernel hands it the handle:
+
+```ts
+import {
+  CONTINUATIONS,
+  definePlugin,
+  step,
+  type ResumeAcknowledgment,
+} from '@routecraft/routecraft'
+
+interface Reply {
+  readonly token: string
+  readonly answer: unknown
+}
+
+export const approvals = definePlugin({
+  id: 'acme.approvals',
+  requires: [CONTINUATIONS],
+  steps: {
+    // Parks every exchange; a resume continues with the next step.
+    wait: () =>
+      step<unknown, unknown>((_exchange, ctx) => ctx.defer({ ttl: '1h' }), {
+        defers: { revival: 'next-step' },
+      }),
+    // Parks in the middle of its own work and finishes it when resumed.
+    hold: () =>
+      step<unknown, { readonly answer: unknown }>(
+        (_exchange, ctx) => {
+          const revived = ctx.defer.revived
+          if (revived) return { answer: revived.input }
+          return ctx.defer({ stepState: { askedAt: new Date() } })
+        },
+        { defers: { revival: 'this-step' } },
+      ),
+    // A resume door: the kernel records the principal this route verified.
+    door: () =>
+      step<Reply, ResumeAcknowledgment>(
+        (exchange, ctx) =>
+          ctx.resume({ token: exchange.body.token, input: exchange.body.answer }),
+        { resumes: true },
+      ),
+  },
+})
+```
+
+`ctx.defer` exists only on a step that declared `defers`, and `ctx.resume` only on one that declared `resumes`. The declaration is what lets the builder refuse a deferral where it could never be revived, and what puts the step in the continuation digest. To resume outside any caller's request (a timer, a webhook the plugin owns), use `c.continuations.resume()` from the plugin context, which the lint rule [`restrict-continuation-minting`](/docs/advanced/linting#continuation-acts-are-a-sanctioned-exception) asks you to sanction per call site. See the [reference](/docs/reference/plugins#deferring-and-resuming-steps) for every member.
+
 ### Step identity \{#step-identity}
 
 A route that defers resumes only into the steps that were approved. Routecraft decides that by comparing a digest of each remaining step's identity, and the same digest keys `.cache()`. Your step takes part without any work: its identity is the plugin id, the step name, the arguments the method was called with and the callback you gave `step()`. `.withTax(0.21)` and `.withTax(0.19)` are different steps, and so is an edited callback.
@@ -620,6 +669,50 @@ export default defineProject({
 ```
 
 Every `cron()` source and `llm()` destination in the application inherits those defaults unless overridden per adapter. For how merged options work and how to add them to an adapter of your own, see [Merged Options](/docs/advanced/merged-options).
+
+### State an adapter reads \{#state-an-adapter-reads}
+
+What a plugin offers its adapters is a port: the plugin provides it in `bind`, and an adapter reads it off the exchange it is handed with `lookupOf()`. One plugin descriptor can serve several applications in a process, and a port is resolved per application, so nothing lives in a module variable:
+
+```ts
+import {
+  definePlugin,
+  lookupOf,
+  port,
+  type Destination,
+} from '@routecraft/routecraft'
+
+interface Mailer {
+  send(to: string, text: string): Promise<void>
+}
+
+export const MAILER = port<Mailer>('acme.mailer@1')
+
+export function mailerPlugin(mailer: Mailer) {
+  return definePlugin({
+    id: 'acme.mailer',
+    provides: [MAILER],
+    bind(c) {
+      c.provide(MAILER, mailer)
+    },
+  })
+}
+
+export function notify(to: string): Destination<string> {
+  return {
+    adapterId: 'acme.notify',
+    async send(exchange) {
+      const mailer = lookupOf(exchange, MAILER)
+      if (!mailer) throw new Error('acme.mailer is not installed')
+      await mailer.send(to, exchange.body)
+    },
+  }
+}
+```
+
+A source reads the same port with `context.lookup(MAILER)`. Because it is a port, a plugin that declares `replaces: [MAILER]` is the one both get.
+
+State that is private to one module and that nothing else may replace (an adapter's merged defaults, say) needs no port: [`applicationState()`](/docs/reference/plugins#per-application-state) keeps one value per application.
 
 ## Managing external services
 

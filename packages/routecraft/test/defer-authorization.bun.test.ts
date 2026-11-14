@@ -41,10 +41,10 @@ function asWho(ex: Exchange) {
 
 /** The mapper every door in these tests uses. */
 function payloadFrom(ex: Exchange) {
-  const body = ex.body as { token: string; result?: unknown };
+  const body = ex.body as { token: string; input?: unknown };
   return {
     token: body.token,
-    result: "result" in body ? body.result : { approved: true },
+    input: "input" in body ? body.input : { approved: true },
   };
 }
 
@@ -69,7 +69,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(payloadFrom),
       ])
@@ -99,7 +99,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("answers")
@@ -142,7 +142,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("answers")
@@ -183,7 +183,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("answers")
@@ -242,9 +242,9 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .tap((ex) => {
-            ran.push(ex.deferral.result);
+            ran.push(ex.deferral.input);
           })
           .to(noop()),
         craft()
@@ -281,7 +281,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(payloadFrom),
       ])
@@ -335,7 +335,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(payloadFrom),
       ])
@@ -395,7 +395,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("says-no")
@@ -463,7 +463,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval, ttl: "30ms" })
+          .defer({ input: Approval, ttl: "30ms" })
           .to(noop()),
         craft()
           .id("answers")
@@ -498,7 +498,7 @@ describe("the resume authorize hook", () => {
           .id("payout")
           .from(direct())
           .defer({
-            schema: Approval,
+            input: Approval,
             meta: { channel: "finance", requires: ["payouts:approve"] },
           })
           .to(noop()),
@@ -549,7 +549,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval, meta: { hook: () => true } })
+          .defer({ input: Approval, meta: { hook: () => true } })
           .to(noop()),
       ])
       .build();
@@ -584,7 +584,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("answers")
@@ -641,7 +641,7 @@ describe("the deferred answer schema", () => {
           .from(direct())
           .defer({})
           .tap((ex) => {
-            seen.push(ex.deferral.result);
+            seen.push(ex.deferral.input);
           })
           .to(noop()),
         craft().id("answers").from(direct()).resume(payloadFrom),
@@ -650,12 +650,12 @@ describe("the deferred answer schema", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("consent", {}));
-    expect(deferred.schema).toBeUndefined();
+    expect(deferred.input).toBeUndefined();
     expect((await store.get(deferred.deferralId))?.schema.absent).toBe(true);
 
     await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: "yes",
+      input: "yes",
     });
     expect(seen).toEqual(["yes"]);
   });
@@ -674,7 +674,7 @@ describe("the deferred answer schema", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -725,7 +725,7 @@ describe("the deferred answer schema", () => {
 
   /**
    * @case Both wire enforcement points accept the declared key and reject the old one
-   * @preconditions A structurally valid acknowledgment carrying `schema`, and the same value carrying `expect`
+   * @preconditions A structurally valid acknowledgment carrying `input`, and the same value carrying `expect`
    * @expectedResult The structural fallback accepts the first and refuses the second, matching the advertised JSON Schema, which is closed for additional properties
    */
   test("the structural fallback and the advertised schema agree", () => {
@@ -733,14 +733,14 @@ describe("the deferred answer schema", () => {
       string,
       unknown
     >;
-    expect(Object.keys(advertised)).toContain("schema");
+    expect(Object.keys(advertised)).toContain("input");
     expect(Object.keys(advertised)).not.toContain("expect");
     expect(DEFERRED_JSON_SCHEMA.additionalProperties).toBe(false);
 
     const base = { status: "deferred", deferralId: "s-1", token: "t-1" };
     const accepted = deferredSchema["~standard"].validate({
       ...base,
-      schema: { type: "object" },
+      input: { type: "object" },
     });
     expect("value" in accepted).toBe(true);
 
@@ -763,7 +763,7 @@ describe("the deferred answer schema", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("approvals")
@@ -782,7 +782,7 @@ describe("the deferred answer schema", () => {
     // Extra keys the schema strips, so seeing them proves the hook ran first.
     await t.client.sendDirect("approvals", {
       token: deferred.token,
-      result: { approved: true, note: "sent from the approval mail" },
+      input: { approved: true, note: "sent from the approval mail" },
     });
 
     expect(seen[0]).toEqual({
@@ -804,7 +804,7 @@ describe("the deferred answer schema", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft()
           .id("approvals")
@@ -822,7 +822,7 @@ describe("the deferred answer schema", () => {
       t.client.sendDirect("approvals", {
         who: "mallory",
         token: deferred.token,
-        result: "not an approval object at all",
+        input: "not an approval object at all",
       }),
     ).rejects.toMatchObject({ rc: "RC5056" });
     expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
@@ -834,7 +834,7 @@ describe("the deferred answer schema", () => {
       t.client.sendDirect("approvals", {
         who: "alice",
         token: deferred.token,
-        result: "not an approval object at all",
+        input: "not an approval object at all",
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
     expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
@@ -853,7 +853,7 @@ describe("the deferred answer schema", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft().id("approvals").from(direct()).resume(payloadFrom),
       ])
@@ -864,14 +864,14 @@ describe("the deferred answer schema", () => {
     await expect(
       t.client.sendDirect("approvals", {
         token: deferred.token,
-        result: { approved: "yes please" },
+        input: { approved: "yes please" },
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
     expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
 
     await t.client.sendDirect("approvals", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     });
     expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
       "resumed",
@@ -900,7 +900,7 @@ describe("the deferred answer schema", () => {
               thrown = err;
             }
           })
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -908,5 +908,41 @@ describe("the deferred answer schema", () => {
     await t.client.sendDirect("payout", {});
 
     expect(thrown).toMatchObject({ rc: "RC5003" });
+  });
+
+  /**
+   * @case The hook reads meta as the defer site wrote it
+   * @preconditions A record deferred with a Date inside meta, and a door whose authorize hook captures record.meta
+   * @expectedResult The hook is handed a Date, not the envelope the store holds
+   */
+  test("the hook is handed meta in its live form", async () => {
+    const due = new Date("2026-01-02T03:04:05.000Z");
+    let seen: unknown;
+    t = await testContext()
+      .with(shared(new MemoryDeferralStore()))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ input: Approval, meta: { due } })
+          .to(noop()),
+        craft()
+          .id("answers")
+          .from(direct())
+          .resume(payloadFrom, {
+            authorize: ({ record }) => {
+              seen = record.meta;
+              return true;
+            },
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
+    await t.client.sendDirect("answers", { token: deferred.token });
+
+    expect(seen).toEqual({ due });
+    expect((seen as { due: unknown }).due).toBeInstanceOf(Date);
   });
 });

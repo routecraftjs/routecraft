@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type Duration, parseDuration } from "./shared/duration.ts";
-import { rejectStaleOptions } from "./shared/stale-options.ts";
+import {
+  RENAMED_TO_INPUT,
+  rejectStaleOptions,
+} from "./shared/stale-options.ts";
 import {
   isCronCadence,
   MANUAL_REFRESH,
@@ -48,6 +51,7 @@ import {
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
 import {
+  alwaysDefers,
   applyResolvedSites,
   nestedStepsOf,
 } from "./kernel/continuation/sites.ts";
@@ -473,7 +477,7 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
     });
   }
 
-  if ((route.deferSteps?.length ?? 0) > 0) {
+  if (alwaysDefers(route)) {
     throw rcError("RC5003", undefined, {
       message:
         `Route "${route.id}" has route-scope .cache() and a reachable .defer(). ` +
@@ -1038,12 +1042,13 @@ export class RouteBuilder<
    *
    * wrapper pattern. See `.standards/resilience-wrappers.md`.
    *
-   * @param options - Route scope only. `schema`: what a resume payload must
+   * @param options - Route scope only. `input`: what a resume payload must
    *   satisfy when the handler parks the exchange with `recovery.defer()`,
    *   validated at the resume door. A step-scope handler cannot park, so
    *   declaring one there is `RC5003`.
    */
   override error(handler: ErrorHandler, options: RouteErrorOptions = {}): this {
+    rejectStaleOptions(options, "error(handler, ...)", RENAMED_TO_INPUT);
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
       // Pre-`.from()` for the FIRST route, OR staging for the NEXT
       // route in a chained `craft().id(a).from(...).to(...).id(b)
@@ -1053,16 +1058,16 @@ export class RouteBuilder<
       this.pendingOptions = {
         ...(this.pendingOptions ?? {}),
         errorHandler: handler,
-        ...(options.schema !== undefined
-          ? { errorPathSchema: options.schema }
+        ...(options.input !== undefined
+          ? { errorPathSchema: options.input }
           : {}),
       };
       return this;
     }
-    if (options.schema !== undefined) {
+    if (options.input !== undefined) {
       throw rcError("RC5003", undefined, {
         message:
-          "A step-scope .error() cannot park an exchange, so it declares no resume schema. Declare { schema } on the route-scope .error() (before .from()), which is where recovery.defer() parks from.",
+          "A step-scope .error() cannot park an exchange, so it declares no resume schema. Declare { input } on the route-scope .error() (before .from()), which is where recovery.defer() parks from.",
       });
     }
     // Post-`.from()` on the current route: delegate to the base-class

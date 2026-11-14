@@ -195,10 +195,9 @@ function loadConfigFile(): Pick<
 }
 
 /**
- * A log file the logger was asked for and could not open. Read by the CLI,
- * which owns the setting and refuses to run with its logs diverted.
- *
- * @internal
+ * A log file the logger was asked for and could not open. Read by a host
+ * that owns the setting, as the CLI does to refuse to run with its logs
+ * diverted.
  */
 export interface LogFileDiversion {
   /** The file as it was named. */
@@ -218,8 +217,6 @@ let diversion: LogFileDiversion | undefined;
  * cannot be stopped by its logger, so a file that cannot be opened diverts
  * the logs to a file of the same name in the temporary directory, then to
  * standard error. A host that owns the setting reads this to refuse instead.
- *
- * @internal
  */
 export function logFileDiversion(): LogFileDiversion | undefined {
   return diversion;

@@ -42,7 +42,7 @@ describe("the filter chain on a resumed continuation", () => {
           .id("payout")
           .concurrency({ max: 1 })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .process(async (ex) => {
             inFlight++;
             peak = Math.max(peak, inFlight);
@@ -69,7 +69,7 @@ describe("the filter chain on a resumed continuation", () => {
       deferred.map((deferral) =>
         t!.client.sendDirect("answers", {
           token: deferral.token,
-          result: { approved: true },
+          input: { approved: true },
         }),
       ),
     );
@@ -104,7 +104,7 @@ describe("the filter chain on a resumed continuation", () => {
           .concurrency({ max: 1 })
           .from(direct())
           .process(occupy)
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .process(occupy)
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -119,7 +119,7 @@ describe("the filter chain on a resumed continuation", () => {
     await Promise.all([
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
       t.client.sendDirect("payout", { amountCents: 20_000 }),
     ]);
@@ -144,7 +144,7 @@ describe("the filter chain on a resumed continuation", () => {
           .id("payout")
           .retry({ maxAttempts: 3, backoff: 1 })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .process((ex) => {
             attempts++;
             if (attempts < 3) throw new Error("downstream refused");
@@ -161,7 +161,7 @@ describe("the filter chain on a resumed continuation", () => {
     );
     const receipt = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
 
     expect(attempts).toBe(3);
@@ -187,7 +187,7 @@ describe("the filter chain on a resumed continuation", () => {
           // continuation's wait exceeds it several times over.
           .timeout(150)
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .process(async (ex) => {
             await sleep(600);
             return ex;
@@ -203,7 +203,7 @@ describe("the filter chain on a resumed continuation", () => {
     );
     const receipt = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { continuation: { status: string; error?: { rc?: string } } };
 
     expect(receipt.continuation.status).toBe("failed");
@@ -225,7 +225,7 @@ describe("the filter chain on a resumed continuation", () => {
           .timeout(150)
           .concurrency({ max: 5 })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .process(async (ex) => {
             await sleep(600);
             return ex;
@@ -245,7 +245,7 @@ describe("the filter chain on a resumed continuation", () => {
     );
     const receipt = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { continuation: { status: string; error?: { rc?: string } } };
 
     expect(receipt.continuation.status).toBe("failed");
@@ -271,7 +271,7 @@ describe("the filter chain on a resumed continuation", () => {
           .id("payout")
           .concurrency({ max: 1, mode: "reject" })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .process(async (ex) => {
             ran++;
             inFlight++;
@@ -294,7 +294,7 @@ describe("the filter chain on a resumed continuation", () => {
       deferred.map((deferral) =>
         t!.client.sendDirect("answers", {
           token: deferral.token,
-          result: { approved: true },
+          input: { approved: true },
         }),
       ),
     )) as Array<{ continuation: { status: string } }>;
@@ -324,7 +324,7 @@ describe("the filter chain on a resumed continuation", () => {
           .timeout(2_000)
           .concurrency({ max: 1, mode: "reject" })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .process(async (ex) => {
             ran++;
             await sleep(40);
@@ -344,7 +344,7 @@ describe("the filter chain on a resumed continuation", () => {
       deferred.map((deferral) =>
         t!.client.sendDirect("answers", {
           token: deferral.token,
-          result: { approved: true },
+          input: { approved: true },
         }),
       ),
     )) as Array<{ continuation: { status: string; error?: { rc?: string } } }>;
@@ -373,7 +373,7 @@ describe("the filter chain on a resumed continuation", () => {
           .id("payout")
           .concurrency({ max: 1 })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .process(async (ex) => {
             ran++;
             await sleep(120);
@@ -398,7 +398,7 @@ describe("the filter chain on a resumed continuation", () => {
       deferred.map((deferral) =>
         context.client.sendDirect("answers", {
           token: deferral.token,
-          result: { approved: true },
+          input: { approved: true },
         }),
       ),
     );

@@ -11,7 +11,7 @@ import type { DeferralStore } from "./types.ts";
  * one signer per application through it, never through each other.
  */
 export const CONTINUATIONS = port<DeferralRuntime>(
-  "routecraft.continuations@1",
+  "routecraft.continuations@2",
 );
 
 /**

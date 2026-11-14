@@ -117,10 +117,10 @@ function makeDefer(
   toolName: string,
 ): (options?: AgentDeferOptions) => AgentDeferSentinel {
   return (options) => {
-    if (options?.schema !== undefined) {
-      if (!isStandardSchema(options.schema)) {
+    if (options?.input !== undefined) {
+      if (!isStandardSchema(options.input)) {
         throw rcError("RC5003", undefined, {
-          message: `ctx.defer in tool "${toolName}": "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Deferred acknowledgment. Omit it entirely to declare no contract.`,
+          message: `ctx.defer in tool "${toolName}": "input" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Deferred acknowledgment. Omit it entirely to declare no contract.`,
         });
       }
     }

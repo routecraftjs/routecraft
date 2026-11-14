@@ -4,6 +4,7 @@ import { timer } from "../src/adapters/timer/index.ts";
 import { cron } from "../src/adapters/cron/index.ts";
 import { noop } from "../src/adapters/noop/index.ts";
 import { CraftContext } from "../src/context.ts";
+import { definePlugin, direct } from "../src/index.ts";
 import { rcCodeOf } from "../src/brand.ts";
 
 /**
@@ -146,5 +147,61 @@ describe("stale option names", () => {
     expect(
       () => new CraftContext({ shutdown: { timeout: "5s" } }),
     ).not.toThrow();
+  });
+
+  /**
+   * @case The 0.7 name of a resume payload's schema is refused where it is declared
+   * @preconditions .defer({ schema }), a route-scope .error(handler, { schema }) and a plugin error hook carrying schema, each built from JS
+   * @expectedResult RC5003 for the two route options and RC1115 for the hook, each naming input. Dropped silently, the site would park with no contract and the resume door would validate nothing
+   */
+  test("refuses schema where a resume payload is now declared as input", async () => {
+    const schema = { "~standard": {} };
+    const refusal = (build: () => unknown): unknown => {
+      try {
+        build();
+      } catch (err) {
+        return err;
+      }
+      return undefined;
+    };
+
+    const deferred = refusal(() =>
+      craft()
+        .id("a")
+        .from(direct())
+        .defer({ schema } as never),
+    );
+    expect(rcCodeOf(deferred)).toBe("RC5003");
+    expect((deferred as Error).message).toMatch(/input/);
+
+    const handled = refusal(() =>
+      craft()
+        .id("b")
+        .error(() => undefined, { schema } as never)
+        .from(direct()),
+    );
+    expect(rcCodeOf(handled)).toBe("RC5003");
+
+    const context = new CraftContext({
+      plugins: [
+        definePlugin({
+          id: "test.stale-hook",
+          hooks: {
+            error: {
+              id: "park",
+              phase: "mutate",
+              schema,
+              run: () => undefined,
+            } as never,
+          },
+        }),
+      ],
+    });
+    const hooked = await context.start().then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    await context.stop();
+    expect(rcCodeOf(hooked)).toBe("RC1115");
   });
 });

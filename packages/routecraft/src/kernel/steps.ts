@@ -1,4 +1,6 @@
-import { STEP_IDENTITY } from "../dsl-symbol.ts";
+import { DEFERS, RESUMES, STEP_IDENTITY } from "../dsl-symbol.ts";
+import type { DeferDeclaration } from "./continuation/sites.ts";
+import type { DeferHandleFor, ResumeFn } from "./continuation/handles.ts";
 import type { IdentityValue } from "./continuation/identity.ts";
 import { rcError } from "../error.ts";
 import { shippedPlugins } from "./defaults.ts";
@@ -69,10 +71,33 @@ interface CallbackAdapter<In, Out> extends Adapter {
  * states its own identity instead; the override is stamped on that step
  * object, so one raw step carries one override.
  *
+ * A step that defers says so with `defers`, and is handed `ctx.defer`; one
+ * that resumes deferred exchanges says so with `resumes`, and is handed
+ * `ctx.resume`. Both are how the kernel knows where a revival re-enters
+ * and that the route needs a continuations provider.
+ *
  * @template In - The body the step accepts; the method exists only on a
  *   route whose body is assignable to it
  * @template Out - The body the route has after the step
  */
+export function step<
+  In,
+  Out,
+  const D extends DeferDeclaration = DeferDeclaration,
+>(
+  execute: (
+    exchange: Exchange<In>,
+    ctx: StepSignalContext & { readonly defer: DeferHandleFor<D> },
+  ) => Out | Promise<Out>,
+  options: StepOptions & { readonly defers: D },
+): TypedStep<In, Out>;
+export function step<In, Out>(
+  execute: (
+    exchange: Exchange<In>,
+    ctx: StepSignalContext & { readonly resume: ResumeFn },
+  ) => Out | Promise<Out>,
+  options: StepOptions & { readonly resumes: true },
+): TypedStep<In, Out>;
 export function step<In, Out>(
   execute: (
     exchange: Exchange<In>,
@@ -87,20 +112,24 @@ export function step<In, Out>(
 export function step<In, Out>(
   impl:
     | Step<Adapter>
-    | ((exchange: Exchange<In>, ctx: StepSignalContext) => Out | Promise<Out>),
+    | ((exchange: Exchange<In>, ctx: never) => Out | Promise<Out>),
   options?: StepOptions,
 ): TypedStep<In, Out> {
-  if (typeof impl !== "function") return withIdentity(impl, options);
+  if (typeof impl !== "function") return declared(impl, options);
+  const run = impl as (
+    exchange: Exchange<In>,
+    ctx: StepSignalContext,
+  ) => Out | Promise<Out>;
   const adapter: CallbackAdapter<In, Out> = {
     adapterId: "routecraft.step",
-    execute: impl,
+    execute: run,
   };
-  return withIdentity(
+  return declared(
     {
       operation: OperationType.PROCESS,
       adapter,
       async execute(exchange, ctx) {
-        const body = await impl(exchange as Exchange<In>, toSignalContext(ctx));
+        const body = await run(exchange as Exchange<In>, toSignalContext(ctx));
         return {
           kind: "continue",
           exchange: DefaultExchange.rewrap<Out>(exchange, { body }),
@@ -120,6 +149,27 @@ export interface StepOptions {
     /** What defines the step, replacing the derived arguments: restate each argument that matters, `secret()` or `versioned()` the ones the digest should not read. */
     readonly options?: IdentityValue;
   };
+  /** The step defers the exchange: the kernel resolves its site and hands it `ctx.defer`. */
+  readonly defers?: DeferDeclaration;
+  /** The step resumes deferred exchanges: the kernel hands it `ctx.resume`. */
+  readonly resumes?: true;
+}
+
+/** Stamp what the options declare onto the step, beside its identity. */
+function declared<S extends Step<Adapter>>(
+  built: S,
+  options: StepOptions | undefined,
+): S {
+  const marked = built as S & {
+    [DEFERS]?: () => DeferDeclaration;
+    [RESUMES]?: () => true;
+  };
+  if (options?.defers !== undefined) {
+    const declaration = options.defers;
+    marked[DEFERS] = () => declaration;
+  }
+  if (options?.resumes === true) marked[RESUMES] = () => true;
+  return withIdentity(built, options);
 }
 
 function withIdentity<S extends Step<Adapter>>(
@@ -158,8 +208,8 @@ export interface StepMethods<S extends BuilderState, This> {
 declare const STEP_METHOD_TYPES: unique symbol;
 
 /**
- * Facets whose type depends on the route's state, as `ex.deferral.result`
- * depends on the last `.defer({ schema })`. A plugin merges its facet type
+ * Facets whose type depends on the route's state, as `ex.deferral.input`
+ * depends on the last `.defer({ input: schema })`. A plugin merges its facet type
  * in under its namespace; otherwise the facet is typed by what `facet`
  * returns.
  *

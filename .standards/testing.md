@@ -275,6 +275,7 @@ The `:node` script resolves to `node node_modules/vitest/vitest.mjs run --passWi
 - A suite imports `bun:test` and the published package names (`@routecraft/routecraft`, `@routecraft/testing`, `@routecraft/ai`, `@routecraft/os`) and nothing else: no relative path, no `/src/`, no `/internal`, no `Symbol.for("routecraft.` and no name whose declaration is tagged `@internal`. `outsider-guard.bun.test.ts` fails on each.
 - The suites run twice: in `test` against the workspace sources, and in `outsider-tarballs` against the packed tarballs in an empty project. Keep each file self-contained, with no helper outside the directory, so it can be copied there as is.
 - One file per contract. A change that makes a contract public adds or extends its suite in the same PR.
+- A contract a third party implements ships its conformance suite in `@routecraft/testing`, taking the runner's `describe` / `test` / `afterEach` / `expect` as an argument so it binds to no runner. `deferralStoreConformance` is the reference: the shipped stores and the outsider suite's store run the same cases.
 
 ## 15. Benchmarks
 

@@ -23,15 +23,11 @@ import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
-import { DEFER_HOST } from "../dsl-symbol.ts";
-import type {
-  DeferCapableStep,
-  DeferSite,
-} from "../kernel/continuation/sites.ts";
+import { DEFERS } from "../dsl-symbol.ts";
 import {
-  convertDeferSignal,
-  isDeferSignal,
-} from "../kernel/continuation/signal.ts";
+  type DeferDeclaration,
+  deferDeclarationOf,
+} from "../kernel/continuation/sites.ts";
 
 /**
  * Context handed to a destination's `send`. Extends the abort surface with a
@@ -107,21 +103,15 @@ export type ToTarget<T = unknown, R = unknown> =
  * invoked directly: a returned value (other than `undefined`) replaces the
  * body, mirroring the static send/fetch split on the inferred return type.
  */
-export class ToStep<T = unknown, R = unknown>
-  implements Step<Adapter>, DeferCapableStep
-{
+export class ToStep<T = unknown, R = unknown> implements Step<Adapter> {
   operation: OperationType = OperationType.TO;
   adapter: Adapter;
-  /** Assigned by the defer-site walk when the adapter is defer-capable. */
-  deferSite?: DeferSite;
-  /** Why the walk refused a site (fan-out or sealed side flow), when it did. */
-  deferRefusal?: string;
   /** Function form, when constructed from a bare callable. */
   private readonly callable: CallableEnricher<T, R | void> | undefined;
 
-  /** This step hosts its own defer site; wrappers forward here. @internal */
-  [DEFER_HOST](): DeferCapableStep {
-    return this;
+  /** Declares for its adapter: the adapter defers from inside the call this step makes. @internal */
+  [DEFERS](): DeferDeclaration | undefined {
+    return deferDeclarationOf(this.adapter);
   }
 
   constructor(target: ToTarget<T, R>) {
@@ -180,35 +170,25 @@ export class ToStep<T = unknown, R = unknown>
 
     let result: unknown;
     let sendResolved = false;
-    try {
-      if (override) {
-        result = await invokeSendOverride(exchange, this.adapter, override);
-        // A mocked send stays a send: the body continues unchanged even if
-        // the mock returned a value. Only fetch-resolved calls replace it.
-        if (!this.callable && hasSend<T>(this.adapter)) {
-          result = undefined;
-        }
-      } else if (this.callable) {
-        result = await Promise.resolve(this.callable(exchange, sendContext));
-      } else if (hasSend<T>(this.adapter)) {
-        sendResolved = true;
-        await Promise.resolve(this.adapter.send(exchange, sendContext));
+    if (override) {
+      result = await invokeSendOverride(exchange, this.adapter, override);
+      // A mocked send stays a send: the body continues unchanged even if
+      // the mock returned a value. Only fetch-resolved calls replace it.
+      if (!this.callable && hasSend<T>(this.adapter)) {
         result = undefined;
-      } else if (hasFetch<T, R>(this.adapter)) {
-        result = await Promise.resolve(
-          this.adapter.fetch(exchange, toSignalContext(ctx)),
-        );
-      } else {
-        throw missingSlotError("`.to()`");
       }
-    } catch (err) {
-      // Converted here, inside the step, so a step-scope wrapper never
-      // observes the raw throw (a retry wrapper would re-run the adapter
-      // and charge the deferred work twice).
-      if (isDeferSignal(err)) {
-        return convertDeferSignal(this, exchange, err);
-      }
-      throw err;
+    } else if (this.callable) {
+      result = await Promise.resolve(this.callable(exchange, sendContext));
+    } else if (hasSend<T>(this.adapter)) {
+      sendResolved = true;
+      await Promise.resolve(this.adapter.send(exchange, sendContext));
+      result = undefined;
+    } else if (hasFetch<T, R>(this.adapter)) {
+      result = await Promise.resolve(
+        this.adapter.fetch(exchange, toSignalContext(ctx)),
+      );
+    } else {
+      throw missingSlotError("`.to()`");
     }
 
     const collectedHeaders = Object.keys(receiptHeaders).length

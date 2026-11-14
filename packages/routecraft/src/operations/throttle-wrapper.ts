@@ -579,6 +579,6 @@ export class ThrottleWrapperStep<
     // is here too: a provider may complete or drop instead of continuing.
     const outcome = await gate.execute(exchange, ctx);
     if (outcome.kind !== "continue") return outcome;
-    return this.inner.execute(outcome.exchange, ctx);
+    return this.runStep(outcome.exchange, ctx);
   }
 }

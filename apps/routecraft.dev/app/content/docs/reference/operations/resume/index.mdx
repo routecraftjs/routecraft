@@ -27,11 +27,11 @@ craft()
   .authenticate(mailPrincipal)
   .resume((ex) => ({
     token: tokenFrom(ex.headers['routecraft.mail.subject']),
-    result: { approved: /^yes/i.test(ex.body.text ?? '') },
+    input: { approved: /^yes/i.test(ex.body.text ?? '') },
   }))
   .log('info', 'Done', (ex) => ({ result: ex.body }))
 
-// Fallback: the body is already shaped { token, result }.
+// Fallback: the body is already shaped { token, input: result }.
 craft().id('resume-api').from(http({ path: '/resume', method: 'POST' })).resume()
 ```
 
@@ -50,10 +50,11 @@ This route owns **authorization**, through `authorize`. See [Securing resume](#s
 | Field | Type | Description |
 |-------|------|-------------|
 | `token` | `string` | The signed token minted when the exchange deferred. |
-| `result` | `unknown` | The submitted payload, validated against the deferring site's `schema` when it declared one. |
-| `resumedBy` | `PrincipalRef` | Who resumed it. Defaults to the ingress exchange's own principal, which is the value worth recording: it was verified live here. Set it explicitly only when the resuming principal is not the caller. |
+| `input` | `unknown` | The submitted payload, validated against the deferring site's `input` schema when it declared one. |
 
-The door's own options are deliberately not on the mapper's request: the mapper shapes an attacker-controlled payload, so letting it supply the hook or name the principal would let the untrusted half of an ingress choose what the trusted half checks.
+Who resumed it is not the mapper's to say. The kernel records the ingress exchange's own principal as `resumedBy`, because it was verified live here, and a mapper that returns `resumedBy` is refused with [`RC5003`](/docs/reference/errors#rc-5003). A plugin that resumes on someone's behalf calls [`continuations.resume()`](/docs/reference/plugins#continuations) in its own code.
+
+The door's own options are deliberately not on the mapper's request either: the mapper shapes an attacker-controlled payload, so letting it supply the hook or name the principal would let the untrusted half of an ingress choose what the trusted half checks.
 
 | Option | Type | Description |
 |--------|------|-------------|
@@ -103,7 +104,7 @@ craft()
 |----------|------------|
 | `principal` | Whoever this route's `.authenticate()` resolved, verified live at click time. `undefined` when it resolved nobody. |
 | `deferred` | The principal that deferred the exchange, restored from storage and branded as such. Reference data, never a credential. |
-| `payload` | The submission exactly as it arrived, **before** `schema` validation. Narrow it yourself: a hook that reads into it is reading unvalidated input. |
+| `payload` | The submission exactly as it arrived, **before** schema validation. Narrow it yourself: a hook that reads into it is reading unvalidated input. |
 | `record` | `id`, `meta`, `routeId`, `deferredAt`, `expiresAt`. Never the deferred body. |
 
 Return false or throw to refuse. Both, and a hook that never settles, produce one [`RC5056`](/docs/reference/errors#rc-5056) with one message: a hook whose failures can be told apart from outside is an oracle for what it knows. The log distinguishes them and a thrown cause never reaches the wire. That boundary log binds the refused principal's subject and, for a throw, the error itself; a deployment whose hooks may embed payload data in thrown errors can strip those paths from its logs with the logger's opt-in `LOG_REDACT` facility. An async hook is bounded by this route's own lifecycle rather than by a framework knob: it is cut short when the route stops, and sooner if the route declares a `.timeout()`. A hook cut short that way is logged as the refusal, while the caller sees whichever lands first, the refusal or the route's own timeout error; neither leaks the cause. The deferral's deadline is also re-checked once the hook resolves, so a resume that arrived in time and then sat behind a slow hook reports [`RC5047`](/docs/reference/errors#rc-5047) rather than a refusal.
@@ -144,7 +145,7 @@ authorize: ({ principal, deferred }) => {
 **Scope gate.** The defer site records what the resuming principal must hold, so the requirement is the one in force at deferral time:
 
 ```ts skip="fragment: one property of the resume options object, shown on its own"
-// .defer({ schema: Approval, meta: { requires: ['payouts:approve'] } })
+// .defer({ input: Approval, meta: { requires: ['payouts:approve'] } })
 authorize: ({ principal, record }) => {
   const required = (record.meta as { requires?: string[] })?.requires
   // No recorded requirement is a defer-site bug, not a grant. Without this,
@@ -161,7 +162,7 @@ That guard is the pattern, not decoration. Every hook you write is the whole gat
 **Channel segmentation.** Several classes of deferral share a context under different transport auth, and each door serves only its own:
 
 ```ts skip="fragment: financeIngress, mapPayload, opsIngress are illustrative"
-// .defer({ schema: Approval, meta: { channel: 'finance' } })
+// .defer({ input: Approval, meta: { channel: 'finance' } })
 const servesChannel = (channel: string) => ({
   authorize: ({ record }) => (record.meta as { channel?: string })?.channel === channel,
 })
@@ -173,7 +174,7 @@ craft().id('ops-door').from(opsIngress).resume(mapPayload, servesChannel('ops'))
 **Policy travels with the deferral.** The defer site snapshots its policy onto the record; the door enforces the record's copy, so editing the defer site never reaches records already deferred:
 
 ```ts skip="fragment: one property of the resume options object, shown on its own"
-// .defer({ schema: Approval, meta: { fourEyes: true } })
+// .defer({ input: Approval, meta: { fourEyes: true } })
 authorize: ({ principal, deferred, record }) => {
   const policy = record.meta as { fourEyes?: boolean } | undefined
   if (!policy?.fourEyes) return true
@@ -201,7 +202,7 @@ An anonymous defer site can never satisfy this, and the hook says so rather than
 **Threshold by scope.** What was submitted decides which scope the hook demands, so a junior approver clears the small payments and escalates the large ones:
 
 ```ts skip="fragment: one property of the resume options object, shown on its own"
-// .defer({ schema: Settlement, meta: { threshold: 1000, senior: 'payouts:approve:large' } })
+// .defer({ input: Settlement, meta: { threshold: 1000, senior: 'payouts:approve:large' } })
 authorize: ({ principal, payload, record }) => {
   const { threshold, senior } = record.meta as { threshold: number; senior: string }
   // `payload` is the raw submission: schema validation has not run yet,
@@ -230,8 +231,8 @@ The two authorization refusals (`RC5055`, `RC5056`) stay in the ingress route fo
 | [`RC5041`](/docs/reference/errors#rc-5041) | The token is malformed or its signature does not verify. |
 | [`RC5046`](/docs/reference/errors#rc-5046) | The token verifies but the store holds no such deferral, or its route is not registered in this context. |
 | [`RC5047`](/docs/reference/errors#rc-5047) | The deferral's `ttl` elapsed. Raised by a late resume or by the sweeper, whichever reaches it first. |
-| [`RC5048`](/docs/reference/errors#rc-5048) | The steps after the defer point, or the declared `schema`, changed while the exchange was deferred, so the stored approval no longer authorizes what would run. Refused before any of those steps execute. |
-| [`RC5049`](/docs/reference/errors#rc-5049) | The payload does not satisfy the declared `schema`. Ingress route only. The deferral stays resumable, so a corrected payload still works. |
+| [`RC5048`](/docs/reference/errors#rc-5048) | The steps after the defer point, or the declared `input` schema, changed while the exchange was deferred, so the stored approval no longer authorizes what would run. Refused before any of those steps execute. |
+| [`RC5049`](/docs/reference/errors#rc-5049) | The payload does not satisfy the declared `input` schema. Ingress route only. The deferral stays resumable, so a corrected payload still works. |
 | [`RC5050`](/docs/reference/errors#rc-5050) | The deferral was denied, typically because the run carrying it was cancelled. |
 | [`RC5055`](/docs/reference/errors#rc-5055) | The credential names a different call than the one this record deferred on. Non-destructive: the record stays resumable by the rightful credential. |
 | [`RC5056`](/docs/reference/errors#rc-5056) | This route's `authorize` hook refused the principal, or its `elevate` hook returned a principal outside the identity rule. Non-destructive. |

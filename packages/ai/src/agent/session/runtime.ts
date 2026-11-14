@@ -2,18 +2,12 @@ import { randomUUID } from "node:crypto";
 import {
   CONTINUATIONS,
   anySignal,
-  authorityOf,
   decodeCursor,
-  deferralScope,
-  deferredPrincipal,
-  getExchangeRoute,
+  HeadersKeys,
   rcCodeOf,
   rcError,
-  reidentificationDeviation,
-  decodeOutcome,
-  reviveDeferral,
   takePage,
-  type Authority,
+  type Continuations,
   type CraftContext,
   type CursorScope,
   type Deferral,
@@ -26,8 +20,6 @@ import {
   type OpsPage,
   type Logger,
   type Principal,
-  type ResumeAcknowledgment,
-  type ResumeRequest,
   type RevivalOptions,
 } from "@routecraft/routecraft";
 import type { LlmPromptPart } from "../../llm/types.ts";
@@ -70,19 +62,13 @@ export interface SessionHost {
   /** Subscribe to an event for the application's lifetime. */
   observe<K extends EventName>(event: K, handler: EventHandler<K>): void;
   /** The continuations store, which holds a turn between messages. */
-  continuations(): DeferralRuntime | undefined;
-  /**
-   * Revive a stored continuation by its token, as the parked principal
-   * re-verified live when `options.reidentified` carries one.
-   */
-  resume(
-    request: ResumeRequest,
-    options?: RevivalOptions,
-  ): Promise<ResumeAcknowledgment>;
+  deferrals(): DeferralRuntime | undefined;
+  /** The application's parked exchanges: reads, and the resume that revives a turn. */
+  readonly continuations: Continuations;
+  /** Background work the named route drains before it stops. */
+  trackTask(task: Promise<unknown>, route?: string): void;
   /** A registered agent, for the overrides it advertises. */
   agent(name: string): AgentRegisteredOptions | undefined;
-  /** The application's authority, which brands principals and reads them. */
-  authority(): Authority;
   /** The application's re-identification hook, when one is registered. */
   reidentify(): ReidentifyHook | undefined;
 }
@@ -99,10 +85,11 @@ export function sessionHostOf(context: CraftContext): SessionHost {
     observe: (event, handler) => {
       context.on(event, handler);
     },
-    continuations: () => context.lookup(CONTINUATIONS),
-    resume: (request, options) => reviveDeferral(context, request, options),
+    deferrals: () => context.lookup(CONTINUATIONS),
+    continuations: context.continuations,
+    trackTask: (task, route) =>
+      context.trackTask(task, route === undefined ? undefined : { route }),
     agent: (name) => context.lookup(AGENTS)?.agents.get(name),
-    authority: () => authorityOf(context),
     reidentify: () => context.lookup(AGENTS)?.reidentify,
   };
 }
@@ -329,7 +316,7 @@ export class AgentSessionRuntime {
     host: SessionHost,
     store: ResolvedSessionStore,
   ): AgentSessionRuntime {
-    const deferral = host.continuations();
+    const deferral = host.deferrals();
     if (!deferral) throw noContinuationsStore();
     const runtime = new AgentSessionRuntime(
       host,
@@ -786,7 +773,7 @@ export class AgentSessionRuntime {
     handle: string,
     deferralId: string,
   ): Promise<void> {
-    const parked = await this.host.continuations()?.store.get(deferralId);
+    const parked = await this.host.continuations.get(deferralId);
     if (
       parked?.exchange.headers[AgentHeadersKeys.BACKGROUND_HANDLE] !== handle
     ) {
@@ -858,7 +845,7 @@ export class AgentSessionRuntime {
     deferralId: string,
     outcome: BackgroundRunOutcome,
   ): Promise<{ depth: number; running: boolean } | undefined> {
-    const stored = await this.host.continuations()?.store.get(deferralId);
+    const stored = await this.host.continuations.get(deferralId);
     const call = stored && backgroundCallOf(stored.exchange.headers);
     if (!call) return undefined;
     return this.settleBackground(call.session, {
@@ -873,7 +860,7 @@ export class AgentSessionRuntime {
    * park reconciles against the record that is still waiting.
    */
   private async reparkBackground(next: string): Promise<void> {
-    const stored = await this.host.continuations()?.store.get(next);
+    const stored = await this.host.continuations.get(next);
     const call = stored && backgroundCallOf(stored.exchange.headers);
     if (!call) return;
     await this.recordPark(call.session, call.handle, next);
@@ -920,8 +907,8 @@ export class AgentSessionRuntime {
     calls: readonly AgentBackgroundCall[],
   ): Promise<ReadonlyMap<string, ParkVerdict>> {
     const verdicts = new Map<string, ParkVerdict>();
-    const store = this.host.continuations()?.store;
-    if (!store) return verdicts;
+    const store = this.host.continuations;
+    if (!store.available) return verdicts;
     const running = new Set(this.resumedRuns.values());
     for (const call of calls) {
       const deferralId = call.deferralId;
@@ -1743,23 +1730,21 @@ export class AgentSessionRuntime {
   ): void {
     const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
-    const deferralRuntime = this.host.continuations();
-    if (!deferralRuntime) return;
+    if (!this.host.continuations.available) return;
     this.reviving.add(k);
     const run = (async () => {
       const options =
         wake === "settlement"
-          ? await this.reidentify(key, agent, deferral, deferralRuntime)
+          ? await this.reidentify(key, agent, deferral)
           : {};
       // Refused: the continuation stays stored for whatever wakes the
       // session next, and no turn runs in the parked identity's name.
       if (options === undefined) return;
-      const token = deferralRuntime.signer.mint(
-        deferral.deferralId,
-        new Date(),
-      );
-      await this.host.resume(
-        { token, result: undefined },
+      // eslint-disable-next-line @routecraft/routecraft/restrict-continuation-minting -- the session runtime revives its own stored turn
+      const token = this.host.continuations.mintToken(deferral.deferralId);
+      // eslint-disable-next-line @routecraft/routecraft/restrict-continuation-minting -- same act: no door stands between a session and its turn
+      await this.host.continuations.resume(
+        { token, input: undefined },
         wokenBy === undefined ? options : { ...options, exchangeId: wokenBy },
       );
     })()
@@ -1815,13 +1800,11 @@ export class AgentSessionRuntime {
     key: AgentSessionKey,
     agent: string,
     deferral: AgentSessionDeferral,
-    runtime: DeferralRuntime,
   ): Promise<RevivalOptions | undefined> {
-    const stored = await runtime.store.get(deferral.deferralId);
+    const stored = await this.host.continuations.get(deferral.deferralId);
     // A record that is gone is reported by the resume, as it always was.
     if (!stored) return {};
-    const authority = this.host.authority();
-    const parked = deferredPrincipal(stored, authority);
+    const parked = this.host.continuations.deferredPrincipal(stored);
     if (parked === undefined) return {};
     const refuse = (reason: string, err?: unknown): undefined => {
       this.host.logger.warn(
@@ -1837,7 +1820,7 @@ export class AgentSessionRuntime {
         "Agent session revival refused: the parked principal could not be re-identified",
       );
       this.emitAt(
-        deferralScope(stored),
+        this.host.continuations.eventScope(stored),
         "route:agent:session:revival:refused",
         {
           agentName: agent,
@@ -1873,7 +1856,10 @@ export class AgentSessionRuntime {
       clearTimeout(timer);
     }
     if (live === undefined) return refuse("the reidentify hook declined");
-    const deviation = reidentificationDeviation(parked, live, authority);
+    const deviation = this.host.continuations.reidentificationDeviation(
+      parked,
+      live,
+    );
     if (deviation !== undefined) {
       return refuse(`the reidentify hook ${deviation}`);
     }
@@ -1920,9 +1906,9 @@ export class AgentSessionRuntime {
     // messages stay in the record, as on every other path once stopping.
     if (this.stopping) return;
     const next = this.start(k, req, undefined);
-    const route = getExchangeRoute(req.exchange);
-    if (route) {
-      route.trackTask(next.outcome);
+    const routeId = req.exchange.headers[HeadersKeys.ROUTE_ID];
+    if (typeof routeId === "string") {
+      this.host.trackTask(next.outcome, routeId);
     } else {
       next.outcome.catch((err: unknown) => {
         this.host.logger.error(
@@ -1958,7 +1944,7 @@ export class AgentSessionRuntime {
 function identityOf(exchange: Exchange<unknown>): ExchangeScoped | undefined {
   return dispatchIdentityFrom(
     exchange,
-    getExchangeRoute(exchange)?.definition.id,
+    exchange.headers[HeadersKeys.ROUTE_ID] as string | undefined,
   );
 }
 
@@ -2137,8 +2123,7 @@ function parkVerdict(
     return deniedOutcome(deferralId, outcome.reason);
   // Resumed, and execution two died before recording how it ended.
   if (parked.continuation === undefined) return "lost";
-  // The store holds the terminal body encoded; the call settles with it live.
-  const run = decodeOutcome(parked.continuation);
+  const run = parked.continuation;
   switch (run.status) {
     case "completed":
       return outcomeOfResult(run.body);

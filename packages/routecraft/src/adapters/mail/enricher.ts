@@ -1,9 +1,8 @@
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Exchange } from "../../exchange.ts";
-import { getExchangeContext } from "../../exchange.ts";
 import type { MailFetchResult, MailServerOptions } from "./types.ts";
 import {
-  getClientManager,
+  clientManagerOf,
   createImapClient,
   fetchMessages,
   markMessagesSeen,
@@ -36,8 +35,7 @@ export class MailEnricherAdapter implements Enricher<unknown, MailFetchResult> {
   }
 
   fetch = async (exchange: Exchange<unknown>): Promise<MailFetchResult> => {
-    const context = getExchangeContext(exchange);
-    const manager = getClientManager(context);
+    const manager = clientManagerOf(exchange);
     const account = this.adapterOptions.account;
 
     // Resolve options
@@ -74,7 +72,7 @@ export class MailEnricherAdapter implements Enricher<unknown, MailFetchResult> {
     try {
       await client.mailboxOpen(folder);
       if (usePool) manager!.trackMailbox(account, client, folder);
-      const logger: MailLogger | undefined = context?.logger;
+      const logger: MailLogger | undefined = exchange.logger;
       const messages = await fetchMessages(client, resolved, folder, logger);
 
       // The fetch role has no post-commit hook, so mark Seen here.

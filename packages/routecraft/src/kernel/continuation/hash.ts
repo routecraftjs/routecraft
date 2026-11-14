@@ -50,6 +50,9 @@ import {
  * @param errorPath - The origin of an error-path park, bound so a store
  *   that drops it cannot hand the resume to a defer site at the same
  *   position
+ * @param reentrant - The site runs its own step again. Bound because a
+ *   `"this-step"` site and a `.defer()` directly ahead of it are followed
+ *   by the same steps
  *
  * @internal
  */
@@ -57,8 +60,13 @@ export function describeContinuation(
   tail: ReadonlyArray<Step<Adapter>>,
   schema: DeferralSchema,
   errorPath?: string,
+  reentrant?: boolean,
 ): StepsDescription {
-  return describeSteps(tail, { input: schema.hash, errorPath });
+  return describeSteps(tail, {
+    input: schema.hash,
+    errorPath,
+    revival: reentrant && errorPath === undefined ? "this-step" : undefined,
+  });
 }
 
 /**
@@ -74,8 +82,9 @@ export function continuationTailHash(
   tail: ReadonlyArray<Step<Adapter>>,
   schema: DeferralSchema,
   errorPath?: string,
+  reentrant?: boolean,
 ): string {
-  const described = describeContinuation(tail, schema, errorPath);
+  const described = describeContinuation(tail, schema, errorPath, reentrant);
   return `${described.digest}/${described.stepDigests.join(".")}`;
 }
 
@@ -105,6 +114,7 @@ export function isCurrentContinuationHash(stored: string): boolean {
  *
  * @param stored - The record's `continuationHash`
  * @param tail - The live continuation
+ * @param reentrant - As {@link describeContinuation} takes it
  * @returns A clause naming the first step that differs, or the resume
  *   schema when every step matches
  *
@@ -115,8 +125,9 @@ export function continuationDifference(
   tail: ReadonlyArray<Step<Adapter>>,
   schema: DeferralSchema,
   errorPath?: string,
+  reentrant?: boolean,
 ): string {
-  const live = describeContinuation(tail, schema, errorPath);
+  const live = describeContinuation(tail, schema, errorPath, reentrant);
   const before = parseContinuationHash(stored)?.stepDigests ?? [];
   const now = live.stepDigests;
   const index = now.findIndex((digest, i) => digest !== before[i]);
@@ -129,7 +140,7 @@ export function continuationDifference(
   if (before.length > now.length) {
     return `${before.length - now.length} step(s) were removed from the end`;
   }
-  return "the schema the resume payload is validated against, or the error path the deferral was parked from, differs";
+  return "the schema the resume payload is validated against, the error path the deferral was parked from, or the kind of site that parked it, differs";
 }
 
 /**

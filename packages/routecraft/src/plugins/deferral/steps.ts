@@ -50,8 +50,8 @@ declare module "@routecraft/routecraft" {
      * Durable-deferral view of this exchange: the id and signed token it
      * would defer as, and after a resume the payload that revived it.
      * Readable before the `.defer()` runs, which is what lets a notification
-     * step earlier in the pipeline send a working resume link. `result` is
-     * typed by the last `.defer({ schema })`.
+     * step earlier in the pipeline send a working resume link. `input` is
+     * typed by the last `.defer({ input: schema })`.
      */
     deferral: DeferralAffordance<S["deferral"]>;
   }
@@ -81,7 +81,7 @@ export interface DeferralStepMethods<S extends BuilderState, This> {
    *
    * The body is unchanged across the deferral, so a branch that defers
    * rejoins the main flow with the contract it left on. The payload
-   * arrives beside it, on `ex.deferral.result`, typed by `schema`.
+   * arrives beside it, on `ex.deferral.input`, typed by `schema`.
    *
    * @param options - `schema` (what a valid resume payload looks like), a
    *   `ttl` after which the deferral stops being resumable, and `meta`:
@@ -97,9 +97,9 @@ export interface DeferralStepMethods<S extends BuilderState, This> {
    *     when((ex) => ex.body.amountCents >= 50_000, (b) =>
    *       b
    *         .tap(direct("notify-approver"))
-   *         .defer({ schema: Approval, ttl: "72h" })
+   *         .defer({ input: Approval, ttl: "72h" })
    *         .filter((ex) =>
-   *           ex.deferral.result.approved
+   *           ex.deferral.input.approved
    *             ? true
    *             : { reason: `rejected by ${ex.deferral.resumedBy?.subject}` },
    *         ),
@@ -124,7 +124,7 @@ export interface DeferralStepMethods<S extends BuilderState, This> {
    * The mapping function owns SHAPE (find the token, build the payload);
    * validation against the deferring step's `schema` happens at revival,
    * because only the deferral knows that schema. The bare form expects
-   * the body to already be `{ token, result }`.
+   * the body to already be `{ token, input: result }`.
    *
    * Authorizing the resuming principal belongs on this route, through the
    * `authorize` option: the token proves the deployment minted it, not
@@ -140,7 +140,7 @@ export interface DeferralStepMethods<S extends BuilderState, This> {
    * A duplicate resume returns the first one's cached continuation result
    * without re-running anything.
    *
-   * @param map - Maps the ingress exchange to `{ token, result }`
+   * @param map - Maps the ingress exchange to `{ token, input }`
    * @param options - `authorize`, deciding who may resume, and `elevate`,
    *   lending scope to the resumed run. Omitted, the door is bearer: any
    *   holder of a valid token may resume.

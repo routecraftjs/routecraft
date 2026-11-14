@@ -358,7 +358,7 @@ export interface ErrorHook extends HookBase {
    * it live and validates against it (`RC5049`); a changed or removed
    * schema refuses the resume (`RC5048`).
    */
-  readonly schema?: StandardSchemaV1;
+  readonly input?: StandardSchemaV1;
   run(
     error: unknown,
     exchange: Exchange,
@@ -547,6 +547,11 @@ export class HookTable {
           message: `${where} declares the run kind "${String(run)}", which is not one of ${RUN_KINDS.join(", ")}. The hook would never run.`,
         });
       }
+    }
+    if (slot === "error" && "schema" in hook) {
+      throw rcError("RC1115", undefined, {
+        message: `${where} declares "schema", which was renamed: the schema a resume payload must satisfy is declared as "input". Left as it is, the hook would park with no contract.`,
+      });
     }
     if (slot === "perAttempt") {
       if (typeof hook.wrap !== "function") {

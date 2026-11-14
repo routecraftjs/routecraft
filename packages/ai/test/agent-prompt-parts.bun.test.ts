@@ -316,7 +316,7 @@ describe("content parts on the user prompt", () => {
     scripted.script.push({ text: "done" });
     const ack = (await t.client.sendDirect("parts-answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string };
     expect(ack.status).toBe("resumed");
 
@@ -425,7 +425,7 @@ describe("content parts on the user prompt", () => {
     scripted.script.push({ text: "done" });
     const ack = (await t.client.sendDirect("bytes-answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string };
     expect(ack.status).toBe("resumed");
 

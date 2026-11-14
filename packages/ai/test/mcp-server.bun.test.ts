@@ -4060,7 +4060,7 @@ describe("McpServer", () => {
             .description("Defers for approval before paying out")
             .output({ body: z.object({ paid: z.boolean() }) })
             .from<{ amount: number }>(mcp())
-            .defer({ schema: z.object({ approved: z.boolean() }) })
+            .defer({ input: z.object({ approved: z.boolean() }) })
             .transform(() => ({ paid: true })),
         ])
         .build();

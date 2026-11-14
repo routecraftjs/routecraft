@@ -37,8 +37,8 @@ export default [
 
 The `recommended` preset enables the convention rules at their default levels
 (`require-named-route` error, `batch-before-from` warn, `single-to-per-route` warn),
-`restrict-principal-minting` as an error and `require-untrusted-shell-args` as a
-warning. The `all` preset is the same with `batch-before-from` raised to an error;
+`restrict-principal-minting` and `restrict-continuation-minting` as errors and
+`require-untrusted-shell-args` as a warning. The `all` preset is the same with `batch-before-from` raised to an error;
 `capability-boundaries` is opt-in and in neither. The preset rule ids use the
 `@routecraft/routecraft/` prefix, so the plugin must be registered under that key
 (as above) for the presets and the disable-comment examples in this document to
@@ -50,6 +50,7 @@ match.
 - `@routecraft/routecraft/batch-before-from`: Enforce `batch()` is used as a route-level operation before `.from()`
 - `@routecraft/routecraft/single-to-per-route`: Warn when a route uses more than one `.to()`
 - `@routecraft/routecraft/restrict-principal-minting`: Principal minting (`.authenticate()`, `authenticate()`, an authority's `mint()` / `brand()`) must be an explicitly sanctioned, per-site exception
+- `@routecraft/routecraft/restrict-continuation-minting`: The acts on a parked exchange (`continuations.mintToken()`, `resume()` and `rewriteStepState()`, `deferral.tokenFor()`, and the continuations signer's `mint()`) must be an explicitly sanctioned, per-site exception
 - `@routecraft/routecraft/require-untrusted-shell-args`: Warn when an exchange-derived value is passed to `shell()` (from `@routecraft/os`) without `untrusted()`, so it cannot pose as an option to the program
 - `@routecraft/routecraft/capability-boundaries` (opt-in): Enforce capability module boundaries (Spring Modulith style)
 

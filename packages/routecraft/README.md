@@ -77,7 +77,7 @@ Operations transform or gate the data flowing through a capability:
 | `.filter(fn)` | Conditionally stop an exchange |
 | `.enrich(adapter)` | Augment the body with data from an external source |
 | `.to(adapter)` | Send to a destination |
-| `.defer({ schema, ttl })` | Defer the exchange in a store and answer with a `Deferred` acknowledgment; `.resume()` continues it later by token |
+| `.defer({ input: schema, ttl })` | Defer the exchange in a store and answer with a `Deferred` acknowledgment; `.resume()` continues it later by token |
 | `.enabled(fn)` | Declare whether the route runs at all; a disabled route is known but not started |
 
 ### Context

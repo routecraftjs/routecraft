@@ -4,7 +4,6 @@ import {
   craft,
   cron,
   direct,
-  getExchangeRoute,
   noop,
   opsPlugin,
   registerCapability,
@@ -14,6 +13,7 @@ import {
   type OpsRouteSummary,
 } from "../src/index.ts";
 import { rcCodeOf } from "../src/brand.ts";
+import { getExchangeRoute } from "../src/exchange.ts";
 
 /**
  * `direct({ internal: true })`: a trusting subroutine keeps its in-process

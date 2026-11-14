@@ -32,9 +32,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { CraftContext } from "../../context.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
-import { getExchangeContext } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import type { Source, Subscription } from "../../operations/from.ts";
 import type { Destination, SendContext } from "../../operations/to.ts";
@@ -43,6 +41,8 @@ import type { CarddavClientManager } from "./client-manager.ts";
 import { VCard, type VCardBody } from "./vcard.ts";
 import {
   assertResponseOk,
+  clientManagerOf,
+  getClientManager,
   requireClientManager,
   selectAddressBook,
   throwCarddavError,
@@ -157,7 +157,9 @@ export class CarddavAdapter
   // -------------------------------------------------------------------------
 
   async subscribe(sub: Subscription<VCardBody>): Promise<void> {
-    const { client, book, account } = await this.openRead(sub.context);
+    const { client, book, account } = await this.openRead(
+      getClientManager(sub.context),
+    );
 
     let cards: DAVVCardLike[];
     try {
@@ -217,7 +219,7 @@ export class CarddavAdapter
   // -------------------------------------------------------------------------
 
   fetch = async (exchange: Exchange<unknown>): Promise<VCardBody[]> => {
-    return this.fetchAll(getExchangeContext(exchange));
+    return this.fetchAll(clientManagerOf(exchange));
   };
 
   // -------------------------------------------------------------------------
@@ -282,9 +284,9 @@ export class CarddavAdapter
 
   /** Fetch all contacts as an array (best-effort: malformed cards are skipped). */
   private async fetchAll(
-    context: CraftContext | undefined,
+    configured: CarddavClientManager | null,
   ): Promise<VCardBody[]> {
-    const { client, book } = await this.openRead(context);
+    const { client, book } = await this.openRead(configured);
     let cards: DAVVCardLike[];
     try {
       cards = await client.fetchVCards({ addressBook: book });
@@ -323,7 +325,7 @@ export class CarddavAdapter
     }
     const target = this.resolveTarget(exchange);
     const { client, manager, account } = await this.connect(
-      getExchangeContext(exchange),
+      clientManagerOf(exchange),
     );
 
     if (action === "update") {
@@ -438,7 +440,7 @@ export class CarddavAdapter
     exchange: Exchange<unknown>,
   ): Promise<CarddavDeleteResult> {
     const { client, manager, account } = await this.connect(
-      getExchangeContext(exchange),
+      clientManagerOf(exchange),
     );
     const target = this.resolveTarget(exchange);
     let url = target.url;
@@ -487,24 +489,24 @@ export class CarddavAdapter
   // -------------------------------------------------------------------------
 
   /** Acquire a logged-in client (no address-book lookup). */
-  private async connect(context: CraftContext | undefined): Promise<{
+  private async connect(configured: CarddavClientManager | null): Promise<{
     client: CarddavDriverClient;
     manager: CarddavClientManager;
     account: string | undefined;
   }> {
-    const manager = requireClientManager(context);
+    const manager = requireClientManager(configured);
     const account = this.options.account;
     const client = await manager.getClient(account);
     return { client, manager, account };
   }
 
   /** Acquire a client and resolve the target address book (read/create paths). */
-  private async openRead(context: CraftContext | undefined): Promise<{
+  private async openRead(configured: CarddavClientManager | null): Promise<{
     client: CarddavDriverClient;
     book: DAVAddressBookLike;
     account: string | undefined;
   }> {
-    const { client, manager, account } = await this.connect(context);
+    const { client, manager, account } = await this.connect(configured);
     const book = await this.resolveBook(client, manager, account);
     return { client, book, account };
   }

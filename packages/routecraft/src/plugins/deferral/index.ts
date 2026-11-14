@@ -434,9 +434,9 @@ export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
       if (!run) return;
       // Before the interval, and awaited: what expired during the outage
       // reaches its routes ahead of anything new arriving.
-      await c.execution.sweep({ boot: true });
+      await c.continuations.sweep({ boot: true });
       run.cadence = new SweepCadence(
-        () => c.execution.sweep(),
+        () => c.continuations.sweep(),
         run.resolved.sweepIntervalMs,
         c.logger,
       );

@@ -164,7 +164,7 @@ async function callClient(
   options: HttpClientOptions<unknown>,
 ): Promise<HttpResult> {
   const enricher = http(options);
-  return (await enricher.fetch({} as Exchange<unknown>, {})) as HttpResult;
+  return (await enricher.fetch({} as Exchange<unknown>)) as HttpResult;
 }
 
 /** The `rc` code of whatever `build` throws, for construction-time guards. */

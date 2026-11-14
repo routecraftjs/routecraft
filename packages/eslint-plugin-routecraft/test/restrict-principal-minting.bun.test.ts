@@ -28,6 +28,13 @@ const ruleTester = new RuleTester({
 ruleTester.run("restrict-principal-minting", restrictPrincipalMintingRule, {
   valid: [
     {
+      // aliases that name each other end without a report, never a crash
+      code: `
+        var a = b, b = a;
+        a.mint({ subject: "x" });
+      `,
+    },
+    {
       // brand() and mint() on anything other than the authority
       code: `
         import { authorityOf } from "./local";

@@ -179,7 +179,7 @@ describe("http cookies (cross-runtime contract)", () => {
           "set-cookie": [SESSION, CLEARED],
           "retry-after": [],
         })
-        .defer({ schema: z.object({ approved: z.boolean() }), ttl: "1h" })
+        .defer({ input: z.object({ approved: z.boolean() }), ttl: "1h" })
         .to(noop()),
       deferring(),
     );

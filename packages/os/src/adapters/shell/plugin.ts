@@ -45,7 +45,8 @@ export function shellPlugin(options: ShellPluginOptions = {}): Plugin {
     id: "routecraft.os.shell",
     provides: [SHELL],
     bind(c) {
-      c.provide(SHELL, { ...options });
+      const defaults = { ...options };
+      c.provide(SHELL, defaults);
     },
   });
 }

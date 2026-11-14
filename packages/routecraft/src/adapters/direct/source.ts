@@ -1,4 +1,4 @@
-import { HeadersKeys, getExchangeRoute, type Exchange } from "../../exchange";
+import { HeadersKeys, isRouteBound, type Exchange } from "../../exchange";
 import { TRACE_PARENT_HEADER } from "../../trace-context";
 import type { Source, Subscription } from "../../operations/from";
 import { rcError } from "../../error";
@@ -147,7 +147,7 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
  * that ran, so the causation id it was built with is kept.
  */
 function withCause<T>(exchange: Exchange<T>) {
-  if (getExchangeRoute(exchange) === undefined) return exchange.headers;
+  if (!isRouteBound(exchange)) return exchange.headers;
   // Omitted, not deleted: `delete` drops the header bag into dictionary mode.
   // The adopted remote parent belongs to the exchange its door built; the
   // callee's parent span is its caller's, reached through the causation id.

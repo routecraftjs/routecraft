@@ -12,7 +12,7 @@
  */
 
 import {
-  getExchangeContext,
+  lookupOf,
   port,
   type Exchange,
   type Logger,
@@ -129,7 +129,7 @@ export const SURFACES = port<SurfaceState>("routecraft.ai.surfaces@1");
 export function surfacesOf(
   exchange: Exchange<unknown>,
 ): SurfaceState | undefined {
-  return getExchangeContext(exchange)?.lookup(SURFACES);
+  return lookupOf(exchange, SURFACES);
 }
 
 /** @internal */

@@ -194,12 +194,12 @@ describe("step identity: the edits the digest used to miss", () => {
 
   /**
    * @case The schema of a second `.defer()` in the tail changes
-   * @preconditions Two tails holding a `.defer({ schema })` with different schemas
+   * @preconditions Two tails holding a `.defer({ input: schema })` with different schemas
    * @expectedResult The digests differ
    */
   test("the schema of a later defer", () => {
     const route = (schema: z.ZodType) =>
-      digestOf((r) => r.defer({ schema }).to(noop()));
+      digestOf((r) => r.defer({ input: schema }).to(noop()));
     expect(route(z.object({ ok: z.boolean() }))).not.toBe(
       route(z.object({ ok: z.string() })),
     );
@@ -957,7 +957,7 @@ describe("step identity: steps and adapters", () => {
           .aggregate()
           .debounce({ wait: "1s" })
           .authenticate(() => ({ subject: String(mine.USER) }))
-          .defer({ schema: z.object({ ok: z.boolean() }), ttl: "1h" })
+          .defer({ input: z.object({ ok: z.boolean() }), ttl: "1h" })
           .to(noop()),
       ),
     ];
@@ -1012,7 +1012,7 @@ describe("step identity: the stored continuation hash", () => {
         describeSchema(z.object({ ok: z.boolean() })),
       ),
     ).toBe(
-      "the schema the resume payload is validated against, or the error path the deferral was parked from, differs",
+      "the schema the resume payload is validated against, the error path the deferral was parked from, or the kind of site that parked it, differs",
     );
     expect(
       continuationDifference(
@@ -1169,7 +1169,7 @@ describe("step identity: a running route", () => {
         withOpaque(
           craft()
             .id("asks-again")
-            .error(() => null, { schema: z.object({ ok: z.boolean() }) })
+            .error(() => null, { input: z.object({ ok: z.boolean() }) })
             .from(direct())
             .to(noop()),
         ),
@@ -1249,7 +1249,7 @@ describe("step identity: a running route", () => {
     const deferred = asDeferred(await t.client.sendDirect("payout", {}));
 
     await expect(
-      t.client.sendDirect("answers", { token: deferred.token, result: {} }),
+      t.client.sendDirect("answers", { token: deferred.token, input: {} }),
     ).rejects.toMatchObject({
       rc: "RC5048",
       message: expect.stringContaining("digested steps differently"),
@@ -1293,7 +1293,7 @@ describe("step identity: a running route", () => {
     await t.startAndWaitReady();
 
     await expect(
-      t.client.sendDirect("answers", { token: deferred.token, result: {} }),
+      t.client.sendDirect("answers", { token: deferred.token, input: {} }),
     ).rejects.toMatchObject({
       rc: "RC5048",
       message: expect.stringContaining(

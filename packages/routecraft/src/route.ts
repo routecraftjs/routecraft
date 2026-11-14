@@ -69,13 +69,8 @@ import {
   detachedDefinition,
   type DetachedKind,
 } from "./pipeline/chain-policy.ts";
-import type {
-  DeferCapableStep,
-  DeferrableStep,
-  DeferSite,
-  ErrorPathSite,
-} from "./kernel/continuation/sites.ts";
-import { nestedStepsOf } from "./kernel/continuation/sites.ts";
+import type { DeferSite, ErrorPathSite } from "./kernel/continuation/sites.ts";
+import { nestedStepsOf, resolvedSitesOf } from "./kernel/continuation/sites.ts";
 import {
   describeSteps,
   type InferredNode,
@@ -149,7 +144,7 @@ export interface RouteErrorOptions {
    * resume door can read it back live and validate against it (`RC5049`);
    * a changed or removed schema refuses the resume (`RC5048`).
    */
-  readonly schema?: StandardSchemaV1;
+  readonly input?: StandardSchemaV1;
 }
 
 export type ErrorHandler = (
@@ -291,7 +286,7 @@ export type RouteDefinition<T = unknown> = {
 
   /**
    * The resume-payload schema of a park `errorHandler` raises, from
-   * `.error(handler, { schema })`. On the definition so the resume door
+   * `.error(handler, { input })`. On the definition so the resume door
    * reads it live; a handler's own code cannot be asked.
    */
   readonly errorPathSchema?: StandardSchemaV1;
@@ -385,46 +380,6 @@ export type RouteDefinition<T = unknown> = {
   readonly concurrency?: readonly ResolvedConcurrencyOptions[];
 
   /**
-   * Every `.defer()` the route can reach, resolved once at build time and
-   * in pre-order. Each step carries the {@link DeferSite} naming its
-   * address and its continuation, which is what a resume addresses: the
-   * continuation cannot be a closure captured at defer time, because
-   * execution two happens in a different process.
-   *
-   * Absent (rather than empty) on a route that never defers, so the
-   * common case costs nothing and `context.start()` can tell "no defers"
-   * from "defers, needs a runtime" without walking anything.
-   *
-   * @internal
-   */
-  deferSteps?: DeferrableStep[];
-
-  /**
-   * Every defer-capable `.to()` / `.enrich()` step the route carries on
-   * its primary flow, each holding the re-entrant {@link DeferSite} the
-   * walk assigned it. Separate from {@link RouteDefinition.deferSteps}
-   * deliberately: a capable step only MAY defer at runtime, so it does not
-   * make the route require a deferral runtime at startup (`RC5052` stays
-   * keyed to static sites; a runtime deferral without the runtime fails as an
-   * ordinary step error naming the config line), and it does not trip the
-   * route-scope cache refusal, whose "silently never caches" reasoning
-   * assumes every run defers.
-   *
-   * @internal
-   */
-  reentrantDeferSteps?: DeferCapableStep[];
-
-  /**
-   * The route can reach a `.resume()`. Recorded alongside
-   * {@link RouteDefinition.deferSteps} because a resume ingress needs the
-   * deferral runtime too (it verifies tokens and reads the store), and a
-   * resume-only route carries no defer sites to infer that from.
-   *
-   * @internal
-   */
-  usesResume?: boolean;
-
-  /**
    * The route has no `.id()` and a `.cache()` using the default key, which
    * is namespaced by the route id. The generated id changes on every start,
    * so the route warns once it is registered. Set by `RouteBuilder.build()`.
@@ -458,7 +413,7 @@ export type RouteDefinition<T = unknown> = {
    * tree and has no position of its own, so a park it raises borrows the
    * position of whatever failed, and any step can fail. A step inside a
    * `.split()` fan-out or a sealed side flow carries a refusal instead, so
-   * an error-path park is refused from exactly the positions a `DeferSignal`
+   * an error-path park is refused from exactly the positions a `ctx.defer()`
    * is.
    *
    * Says nothing about whether this route defers. A route with no handler
@@ -955,13 +910,11 @@ export class DefaultRoute implements Route {
         });
       }
     };
-    const sites = [
-      ...(definition.deferSteps ?? []).map((step) => step.site),
-      ...(definition.reentrantDeferSteps ?? []).map((step) => step.deferSite),
-    ];
-    for (const site of sites) {
-      if (site)
-        walk(site.continuation, "resume", `after position ${site.position}`);
+    for (const declared of resolvedSitesOf(definition)?.declared.values() ??
+      []) {
+      if (declared.kind !== "site") continue;
+      const { site } = declared;
+      walk(site.continuation, "resume", `after position ${site.position}`);
     }
     if (
       definition.errorPathSchema !== undefined ||
@@ -1621,8 +1574,7 @@ export class DefaultRoute implements Route {
    *
    * Exposed (`@internal`) so step-scope `WrapperStep` subclasses can hand
    * the same forward callable to a user-supplied error / fallback handler
-   * as the route-level pipeline does. Resolve via
-   * `getExchangeRoute(exchange).getForward(exchange)`.
+   * as the route-level pipeline does.
    *
    * @returns A forward function
    */

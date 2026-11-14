@@ -9,7 +9,7 @@ import {
   markDeferred,
   noteAsideSequence,
 } from "../../exchange.ts";
-import type { DeferRequest } from "./sites.ts";
+import type { DeferTicket } from "./sites.ts";
 import {
   actionFingerprint,
   continuationTailHash,
@@ -21,7 +21,7 @@ import {
   deferralIdOf,
 } from "./exchange-state.ts";
 import { CONTINUATIONS, requireContinuations } from "./port.ts";
-import { serializeExchange } from "./serialize.ts";
+import { encodePersistable, serializeExchange } from "./serialize.ts";
 import { deferralScope } from "./resume.ts";
 import { type Deferred, createDeferred } from "./deferred.ts";
 import type { NewDeferral } from "./types.ts";
@@ -70,7 +70,7 @@ import type { NewDeferral } from "./types.ts";
 export async function deferExchange(
   context: CraftContext,
   exchange: Exchange,
-  request: DeferRequest,
+  request: DeferTicket,
   routeId: string,
   abortSignal?: AbortSignal,
 ): Promise<Exchange> {
@@ -117,7 +117,7 @@ export async function deferExchange(
   const ack: Deferred = createDeferred({
     deferralId: id,
     token: runtime.signer.mint(id, new Date(), request.callBinding),
-    ...(schema.jsonSchema !== undefined ? { schema: schema.jsonSchema } : {}),
+    ...(schema.jsonSchema !== undefined ? { input: schema.jsonSchema } : {}),
     ...(record.expiresAt ? { expiresAt: record.expiresAt.toISOString() } : {}),
   });
 
@@ -227,14 +227,14 @@ async function runNotify(
  *
  * The hash covers exactly what a resume would run: a static `.defer()`
  * excludes itself from its continuation, a re-entrant site includes itself.
- * `stepState` is stored raw because the store's `create` applies the
- * plain-JSON rule to it (RC5042) and encodes it exactly once.
+ * `stepState` and `meta` are encoded here, under the plain-JSON rule
+ * (RC5042), and the store persists them as given.
  */
 function describeRecord(
   exchange: Exchange,
   routeId: string,
   request: Pick<
-    DeferRequest,
+    DeferTicket,
     "site" | "schema" | "meta" | "callBinding" | "stepState" | "errorPath"
   >,
   ttlMs: number | undefined,
@@ -258,9 +258,11 @@ function describeRecord(
     request.site.continuation,
     schema,
     request.errorPath?.origin,
+    request.site.reentrant,
   );
-  // Raw: the store encodes it, and encoding twice double-wraps the Date envelope.
-  const stepState = request.stepState;
+  // Encoded here, once: a store persists what it is handed and never encodes.
+  const stepState = encodePersistable(request.stepState, "stepState");
+  const meta = encodePersistable(request.meta, "meta");
   const deferredAt = new Date();
   const record: NewDeferral = {
     id,
@@ -269,7 +271,7 @@ function describeRecord(
     continuationHash: hash,
     exchange: serialized,
     schema,
-    ...(request.meta !== undefined ? { meta: request.meta } : {}),
+    ...(meta !== undefined ? { meta } : {}),
     ...(request.callBinding !== undefined
       ? { callBinding: request.callBinding }
       : {}),
@@ -331,7 +333,7 @@ function describeRecord(
 export async function deferAside(
   context: CraftContext,
   exchange: Exchange,
-  site: DeferRequest["site"],
+  site: DeferTicket["site"],
   routeId: string,
   stepState: (deferralId: string) => unknown,
   announce?: (deferralId: string) => Promise<void>,

@@ -4,7 +4,6 @@ import { dirname } from "node:path";
 import { rcError } from "../../error.ts";
 import { isRoutecraftError } from "../../brand.ts";
 import { stepStateFingerprint } from "../../kernel/continuation/hash.ts";
-import { encodePersistable } from "../../kernel/continuation/serialize.ts";
 import {
   assertListCursor,
   assertScanCursor,
@@ -252,16 +251,13 @@ export class SqliteDeferralStore implements DeferralStore {
           JSON.stringify(record.exchange),
           JSON.stringify(record.schema),
           record.callBinding ?? null,
-          record.meta === undefined
-            ? null
-            : JSON.stringify(encodePersistable(record.meta, "meta")),
-          // Framework-owned plain JSON with no user value, so no `encodePersistable`.
+          record.meta === undefined ? null : JSON.stringify(record.meta),
           record.errorPath === undefined
             ? null
             : JSON.stringify(record.errorPath),
           record.stepState === undefined
             ? null
-            : JSON.stringify(encodePersistable(record.stepState, "stepState")),
+            : JSON.stringify(record.stepState),
           "waiting" satisfies DeferralState,
           record.waitingFor,
           record.deferredAt.getTime(),
@@ -404,8 +400,6 @@ export class SqliteDeferralStore implements DeferralStore {
     expected: string,
     stepState: unknown,
   ): Promise<DeferralCasResult> {
-    // Outside the transaction: RC5042 here is the caller's bug, not a store failure.
-    const encoded = encodePersistable(stepState, "stepState");
     let won = false;
     let row: unknown;
     try {
@@ -438,7 +432,7 @@ export class SqliteDeferralStore implements DeferralStore {
              WHERE id = ? AND ${RESUMABLE}`,
           )
           // bun:sqlite binds undefined as NULL; better-sqlite3 rejects it.
-          .run(encoded === undefined ? null : JSON.stringify(encoded), id);
+          .run(stepState === undefined ? null : JSON.stringify(stepState), id);
         won =
           (
             this.#db.prepare("SELECT changes() AS changed").get() as {

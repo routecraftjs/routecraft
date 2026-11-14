@@ -5,18 +5,16 @@ import {
   HeadersKeys,
   MemoryDeferralStore,
   authenticate,
-  authorityOf,
   craft,
   definePlugin,
-  deferredPrincipal,
   direct,
   noop,
-  reviveDeferral,
-  type Execution,
+  type Continuations,
   type PluginRoutes,
   type Principal,
 } from "../src/index.ts";
 import { isAuthentic } from "../src/auth/authentic.ts";
+import { reviveDeferral } from "../src/kernel/continuation/resume.ts";
 import { asDeferred } from "./helpers/deferral.ts";
 
 const SECRET = "resume-reidentify-test-secret-0123456789";
@@ -42,16 +40,16 @@ function member(
  */
 function reviver(): {
   plugin: ReturnType<typeof definePlugin>;
-  execution: () => Execution;
+  execution: () => Continuations;
   routes: () => PluginRoutes;
 } {
-  let execution: Execution | undefined;
+  let execution: Continuations | undefined;
   let routes: PluginRoutes | undefined;
   return {
     plugin: definePlugin({
       id: "test.reviver",
       bind(c) {
-        execution = c.execution;
+        execution = c.continuations;
         routes = c.routes;
       },
     }),
@@ -61,7 +59,7 @@ function reviver(): {
 }
 
 /**
- * `execution.resume(request, { reidentified })`: a plugin revives a parked
+ * `c.continuations.resume(request, { reidentified })`: a plugin revives a parked
  * exchange under the identity it parked with, re-verified live, and nothing
  * else.
  */
@@ -85,7 +83,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
         craft()
           .id("work")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .tap((ex) => {
             seen.push(ex.auth.principal);
           })
@@ -107,17 +105,16 @@ describe("a plugin-driven revival with a re-identified principal", () => {
 
   /**
    * @case Anything but the parked identity verified live is refused, non-destructively
-   * @preconditions Four parks, revived through execution.resume with the parked principal read back restored, the same subject with a different role, with an added scope, and with a dropped scope
+   * @preconditions Four parks, revived through c.continuations.resume with the parked principal read back restored, the same subject with a different role, with an added scope, and with a dropped scope
    * @expectedResult Each revival is RC5056 with the re-identification message, no continuation runs, and every record is left waiting, unclaimed and unsettled
    */
   test("a restored, re-roled, widened or narrowed principal is refused", async () => {
     const seen: Array<Principal | undefined> = [];
     const { store, host, park } = await build(seen);
-    const authority = authorityOf(t!.ctx);
 
     const candidates: Array<(parked: string) => Promise<Principal>> = [
       async (deferralId) =>
-        deferredPrincipal((await store.get(deferralId))!, authority)!,
+        t!.ctx.continuations.deferredPrincipal((await store.get(deferralId))!)!,
       async () => member({ roles: ["admin"] }),
       async () =>
         member({ scopes: ["orders:read", "orders:write", "orders:delete"] }),
@@ -130,7 +127,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
       const refusal = await host
         .execution()
         .resume(
-          { token: deferred.token, result: { approved: true } },
+          { token: deferred.token, input: { approved: true } },
           { reidentified },
         )
         .then(
@@ -151,7 +148,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
 
   /**
    * @case The parked identity, verified live again, revives the continuation
-   * @preconditions A park under a member principal, revived through execution.resume with a freshly authenticated principal carrying the same subject, roles and scopes
+   * @preconditions A park under a member principal, revived through c.continuations.resume with a freshly authenticated principal carrying the same subject, roles and scopes
    * @expectedResult The revival completes, the continuation sees that exact principal and it is authentic rather than restored, and the record settles as resumed
    */
   test("the same identity verified live runs the continuation as itself", async () => {
@@ -163,7 +160,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
     const ack = await host
       .execution()
       .resume(
-        { token: deferred.token, result: { approved: true } },
+        { token: deferred.token, input: { approved: true } },
         { reidentified: live },
       );
 
@@ -189,7 +186,7 @@ describe("a plugin-driven revival with a re-identified principal", () => {
 
     const refusal = await reviveDeferral(
       t!.ctx,
-      { token: deferred.token, result: { approved: true } },
+      { token: deferred.token, input: { approved: true } },
       {
         elevate: () => {
           elevated++;

@@ -90,6 +90,6 @@ export class DelayWrapperStep<
       });
     }
 
-    return await this.inner.execute(exchange, ctx);
+    return await this.runStep(exchange, ctx);
   }
 }

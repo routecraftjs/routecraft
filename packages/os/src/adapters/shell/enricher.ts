@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isAbsolute, posix } from "node:path";
 import {
-  getExchangeContext,
-  getExchangeRoute,
+  HeadersKeys,
+  lookupOf,
   parseDuration,
   rcError,
   type Enricher,
@@ -67,8 +67,7 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
     exchange: Exchange<T>,
     ctx?: StepSignalContext,
   ): Promise<ShellResult> {
-    const defaults =
-      getExchangeContext(exchange)?.lookup(SHELL) ?? ({} as ShellPluginOptions);
+    const defaults = lookupOf(exchange, SHELL) ?? ({} as ShellPluginOptions);
 
     const tier = resolveIsolation(this.options.isolation, defaults.isolation);
     await tier.ensureAvailable();
@@ -317,7 +316,8 @@ const CONTAINER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
  * @internal
  */
 export function defaultContainerName(exchange: Exchange<unknown>): string {
-  const routeId = getExchangeRoute(exchange)?.definition.id ?? "route";
+  const stamped = exchange.headers?.[HeadersKeys.ROUTE_ID];
+  const routeId = typeof stamped === "string" ? stamped : "route";
   // A synthetic exchange with no id (a bare object in a test) still needs
   // a unique name, or two calls collide on the daemon.
   const id = typeof exchange.id === "string" ? exchange.id : randomUUID();

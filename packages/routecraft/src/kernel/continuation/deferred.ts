@@ -32,7 +32,7 @@ export interface Deferred {
    * schema at all; validation always runs against the live schema at
    * resume, so nothing depends on this being present.
    */
-  readonly schema?: unknown;
+  readonly input?: unknown;
   /** When the deferral expires, ISO-8601. Absent when `.defer()` declared no `ttl`. */
   readonly expiresAt?: string;
 }
@@ -82,7 +82,7 @@ export const DEFERRED_JSON_SCHEMA = {
     status: { const: "deferred" },
     deferralId: { type: "string" },
     token: { type: "string" },
-    schema: {
+    input: {
       description:
         "JSON Schema of what a valid resume payload looks like, when the deferring step declared a schema that renders one.",
     },
@@ -126,7 +126,7 @@ export const deferredSchema: StandardSchemaV1<unknown, Deferred> = {
             case "deferralId":
             case "token":
               return true;
-            case "schema":
+            case "input":
               return true;
             case "expiresAt":
               return typeof field === "string";

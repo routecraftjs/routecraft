@@ -71,7 +71,7 @@ export interface SweeperOptions {
 /**
  * The kernel's sweep: one pass retires what is overdue, heals claims whose
  * deliverer died, and purges settled records past retention. A plugin
- * drives it on a cadence through `execution.sweep()`; the kernel owns what
+ * drives it on a cadence through `continuations.sweep()`; the kernel owns what
  * a pass does.
  *
  * Expiry has to be pushed rather than pulled. A `ttl` exists so a route can

@@ -3,104 +3,18 @@ import {
   collectChainBackwards,
   isCallExpression,
   isIdentifier,
-  isLiteral,
   isMemberExpression,
 } from "./shared/ast.ts";
+import {
+  ROUTECRAFT_MODULE,
+  isRoutecraftExport as routecraftExport,
+  memberPropertyName,
+  resolveBinding,
+  variableInit,
+} from "./shared/scope.ts";
 
-const ROUTECRAFT_MODULE = "@routecraft/routecraft";
 const MINTING_EXPORTS = new Set(["authenticate"]);
 const AUTHORITY_MINTS = new Set(["mint", "brand"]);
-
-/**
- * How an identifier resolves in its lexical scope: to an import binding
- * (with its module and imported name), to some other local binding (a
- * parameter, variable, or function, which therefore shadows any import),
- * or to nothing at all (an unresolved global).
- */
-type Resolution =
-  | { kind: "named" | "namespace"; module: string; imported: string }
-  | { kind: "other" }
-  | { kind: "unresolved" };
-
-/**
- * Resolve an identifier reference through the scope chain. Scope-based
- * (not name-based) so a shadowing parameter or local is never confused
- * with an import, and so import order in the file is irrelevant (ESM
- * imports are hoisted).
- */
-function resolveBinding(
-  context: Rule.RuleContext,
-  node: Rule.Node,
-  identifier: { name: string },
-): Resolution {
-  let scope: ReturnType<typeof context.sourceCode.getScope> | null =
-    context.sourceCode.getScope(node);
-  while (scope) {
-    const variable = scope.variables.find((v) => v.name === identifier.name);
-    if (variable) {
-      const def = variable.defs[0];
-      if (!def || def.type !== "ImportBinding") return { kind: "other" };
-      const source = def.parent.source.value;
-      if (typeof source !== "string") return { kind: "other" };
-      if (def.node.type === "ImportSpecifier") {
-        const imported =
-          def.node.imported.type === "Identifier"
-            ? def.node.imported.name
-            : String(def.node.imported.value);
-        return { module: source, imported, kind: "named" };
-      }
-      if (def.node.type === "ImportNamespaceSpecifier") {
-        return { module: source, imported: "*", kind: "namespace" };
-      }
-      return { kind: "other" };
-    }
-    scope = scope.upper;
-  }
-  return { kind: "unresolved" };
-}
-
-/**
- * The initialiser of the variable an identifier names, when it is a plain
- * `const x = <init>` declaration; `undefined` for anything else.
- */
-function variableInit(
-  context: Rule.RuleContext,
-  node: Rule.Node,
-  identifier: { name: string },
-): unknown {
-  let scope: ReturnType<typeof context.sourceCode.getScope> | null =
-    context.sourceCode.getScope(node);
-  while (scope) {
-    const variable = scope.variables.find((v) => v.name === identifier.name);
-    if (variable) {
-      const def = variable.defs[0];
-      if (def?.type !== "Variable" || def.parent.kind !== "const") {
-        return undefined;
-      }
-      return def.node.init ?? undefined;
-    }
-    scope = scope.upper;
-  }
-  return undefined;
-}
-
-/**
- * Extract a member expression's property name, accepting a plain
- * identifier or a computed string literal (`obj.craft` / `obj["craft"]`),
- * so quoting a property never evades detection.
- */
-function memberPropertyName(callee: {
-  computed: boolean;
-  property: unknown;
-}): string | undefined {
-  if (callee.computed) {
-    return isLiteral(callee.property) &&
-      typeof callee.property.value === "string"
-      ? callee.property.value
-      : undefined;
-  }
-  return isIdentifier(callee.property) ? callee.property.name : undefined;
-}
 
 /**
  * A builder chain's innermost call's callee node, e.g. the `craft`
@@ -189,20 +103,11 @@ const rule: Rule.RuleModule = {
       return false;
     };
 
-    /** Whether an identifier is the named routecraft export `name`. */
     const isRoutecraftExport = (
       node: Rule.Node,
       identifier: unknown,
       name: string,
-    ): boolean => {
-      if (!isIdentifier(identifier)) return false;
-      const binding = resolveBinding(context, node, identifier);
-      return (
-        binding.kind === "named" &&
-        binding.module === ROUTECRAFT_MODULE &&
-        binding.imported === name
-      );
-    };
+    ): boolean => routecraftExport(context, node, identifier, name);
 
     /** Whether an identifier is a routecraft namespace import. */
     const isRoutecraftNamespace = (
@@ -216,10 +121,13 @@ const rule: Rule.RuleModule = {
       );
     };
 
+    // Aliases already followed, so `var a = b, b = a` ends instead of recursing.
+    const followed = new Set<unknown>();
+
     /**
      * Whether an expression yields the application's principal authority:
      * `authorityOf(...)`, `x.require(AUTHORITY)` / `x.lookup(AUTHORITY)`,
-     * the exported `defaultAuthority`, or a `const` initialised from one of
+     * the exported `defaultAuthority`, or a variable initialised from one of
      * them.
      */
     const isAuthority = (node: Rule.Node, expression: unknown): boolean => {
@@ -228,7 +136,9 @@ const rule: Rule.RuleModule = {
           return true;
         }
         const init = variableInit(context, node, expression);
-        return init !== undefined && isAuthority(node, init);
+        if (init === undefined || followed.has(init)) return false;
+        followed.add(init);
+        return isAuthority(node, init);
       }
       if (
         isMemberExpression(expression) &&
@@ -252,6 +162,7 @@ const rule: Rule.RuleModule = {
 
     return {
       CallExpression(node) {
+        followed.clear();
         const callee: unknown = node.callee;
 
         // authenticate(...) via a (possibly aliased) named import, resolved

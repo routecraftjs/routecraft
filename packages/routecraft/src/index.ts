@@ -45,14 +45,11 @@ export {
   type Exchange,
   type ExchangeHeaders,
   deferralOf,
-  getExchangeContext,
-  getExchangeRoute,
   HeadersKeys,
   type HeaderValue,
   type HeaderLiteral,
   isDropped,
   OperationType,
-  peekResumeStepState,
   principalOf,
   wasOutputValidated,
   type RoutecraftHeaders,
@@ -379,24 +376,14 @@ export {
 
 export { type Filter, type FilterDropResult } from "./operations/filter.ts";
 
-export {
-  SampleStep,
-  type SampleOptions,
-  type ResolvedSampleOptions,
-} from "./operations/sample.ts";
+export { SampleStep, type SampleOptions } from "./operations/sample.ts";
 
-export {
-  DedupeStep,
-  type DedupeOptions,
-  type ResolvedDedupeOptions,
-} from "./operations/dedupe.ts";
+export { DedupeStep, type DedupeOptions } from "./operations/dedupe.ts";
 
 // ResolvedDebounceOptions is @internal and deliberately NOT re-exported here
 // (DEFINITION_OF_DONE.md: no new @internal symbols on the public entry
 // point; the Resolved* exports above it are grandfathered).
 export { DebounceStep, type DebounceOptions } from "./operations/debounce.ts";
-
-export { hashExchangeBody } from "./operations/hash-body.ts";
 
 export {
   PathBuilder,
@@ -433,6 +420,7 @@ export {
   isTraceContextMode,
   isTraceId,
   sendsTraceContext,
+  sendsTraceContextFor,
   traceContextFor,
   traceContextOf,
   MAX_TRACE_ID_LENGTH,
@@ -497,13 +485,11 @@ export {
   ThrottleWrapperStep,
   type ThrottleOptions,
   type ThrottleTimeUnit,
-  type ResolvedThrottleOptions,
 } from "./operations/throttle-wrapper.ts";
 export {
   CircuitBreakerWrapperStep,
   type CircuitBreakerOptions,
   type CircuitBreakerState,
-  type ResolvedCircuitBreakerOptions,
 } from "./operations/circuit-breaker-wrapper.ts";
 export {
   ConcurrencyWrapperStep,
@@ -618,7 +604,6 @@ export type {
   EnablementState,
   EnablementVerdict,
   RefreshCadence,
-  RouteEnablement,
 } from "./enablement.ts";
 export type { Duration, DurationUnit } from "./shared/duration.ts";
 
@@ -684,6 +669,7 @@ export {
   type Step,
   type StepContext,
   type StepSignalContext,
+  type StepRouteView,
   type StepOutcome,
   type StepOutcomeMetadata,
 } from "./types.ts";
@@ -939,25 +925,10 @@ export {
   DEFERRAL_SECRET_ENV,
   DEFERRAL_STORE_ENV,
   SqliteDeferralStore,
-  DeferSignal,
   DeferralHeaders,
   isDeferSignal,
   isDeferred,
-  markDeferCapable,
-  // deferAside, reviveDeferral, deferralScope, decodePersistable and
-  // decodeOutcome are @internal and re-exported on purpose: @routecraft/ai
-  // stores and revives an agent session's continuation through the first
-  // two, scopes its own events about a deferral with the third, revives a
-  // stored stepState before rewriting a deferred thread with the fourth and
-  // a stored outcome at boot with the fifth; a package cannot reach a deep
-  // import of core.
-  deferAside,
-  deferralScope,
-  reviveDeferral,
-  decodePersistable,
-  decodeOutcome,
-  deferredPrincipal,
-  reidentificationDeviation,
+  continuationsOf,
   routeCanDefer,
   stepStateFingerprint,
   deferredSchema,
@@ -966,10 +937,22 @@ export {
 export type {
   ExpiredScanCursor,
   NewDeferral,
-  DeferSignalRequest,
+  DeferRequest,
+  DeferAsideRequest,
+  DeferRevival,
+  DeferHandle,
+  DeferHandleFor,
+  NextStepDeferHandle,
+  ResumeFn,
+  DeferDeclaration,
+  DeferringStep,
+  DeferringAdapter,
+  ResumingStep,
   DeferSite,
   PendingDeferralSummary,
   PrincipalRef,
+  Continuations,
+  ContinuationsView,
   ResumeAcknowledgment,
   ResumeAuthorizer,
   ResumeAuthorizerInput,
@@ -994,6 +977,8 @@ export type {
   DeferralSchema,
   DeferralResumption,
   DeferralRuntime,
+  ResumeTokenPayload,
+  ResumeTokenSigning,
   DeferralState,
   DeferralOutcome,
   DeferralWaitingFor,
@@ -1071,7 +1056,7 @@ export {
   type VCardPropertyOptions,
   type VCardParam,
 } from "./adapters/carddav/index.ts";
-export { NESTED_STEPS, AUTHENTICATES } from "./dsl-symbol.ts";
+export { NESTED_STEPS, AUTHENTICATES, DEFERS, RESUMES } from "./dsl-symbol.ts";
 export type { NestedSteps, NestingStep } from "./kernel/continuation/sites.ts";
 export {
   IDENTITY,
@@ -1087,3 +1072,11 @@ export {
   type VersionedMarker,
 } from "./kernel/continuation/identity.ts";
 export { principalRef } from "./kernel/continuation/principal-ref.ts";
+
+export {
+  applicationOf,
+  applicationState,
+  lookupOf,
+  type ApplicationKey,
+  type ApplicationState,
+} from "./kernel/application.ts";

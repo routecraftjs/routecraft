@@ -288,6 +288,21 @@ export function sendsTraceContext(
 }
 
 /**
+ * {@link sendsTraceContext} for an adapter, which holds the exchange and
+ * not its context.
+ *
+ * @param exchange - The calling exchange
+ * @param settings - The call's own settings, most specific first
+ * @throws RC5003 when a setting is not a boolean
+ */
+export function sendsTraceContextFor(
+  exchange: Exchange,
+  ...settings: ReadonlyArray<boolean | undefined>
+): boolean {
+  return sendsTraceContext(getExchangeContext(exchange), ...settings);
+}
+
+/**
  * The trace context a call carries when the caller holds the ids of the
  * exchange it runs for rather than the exchange itself: an agent's tool
  * handler, which sees its turn's correlation and exchange ids on the

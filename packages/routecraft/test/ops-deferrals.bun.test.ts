@@ -67,13 +67,13 @@ describe("the deferrals management resource", () => {
           craft()
             .id("payout")
             .from(direct())
-            .defer({ schema: Approval, ttl: "72h" })
+            .defer({ input: Approval, ttl: "72h" })
             .transform(() => ({ paid: true }))
             .to(noop()),
           craft()
             .id("refund")
             .from(direct())
-            .defer({ schema: Approval, ttl: "72h" })
+            .defer({ input: Approval, ttl: "72h" })
             .transform(() => ({ refunded: true }))
             .to(noop()),
         ]),

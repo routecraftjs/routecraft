@@ -130,8 +130,8 @@ export interface BuilderState {
   /** Body type entering the next pipeline step. */
   body: unknown;
   /**
-   * Type of `ex.deferral.result` for the steps that follow a
-   * `.defer({ schema })`, threaded in from the declared schema the way
+   * Type of `ex.deferral.input` for the steps that follow a
+   * `.defer({ input: schema })`, threaded in from the declared schema the way
    * `body` is threaded in from `.input()`. `unknown` before any defer.
    *
    * Optional, per the extension rule above: an existing augmentation or a
@@ -165,7 +165,7 @@ export type SetBody<S extends BuilderState, B> = {
 /**
  * Replace the `deferral` field of a state bag, preserving every other
  * field. The `.defer()` counterpart of {@link SetBody}: it advances the
- * type of `ex.deferral.result` for the rest of the chain.
+ * type of `ex.deferral.input` for the rest of the chain.
  *
  * A homomorphic mapping like {@link SetBody}, with `-?` so that after a
  * `.defer()` the field is known rather than `R | undefined`. Framework bags
@@ -175,7 +175,7 @@ export type SetBody<S extends BuilderState, B> = {
  * end once the builder's plugin methods reference it.
  *
  * @template S - The incoming state bag
- * @template R - The expected-result type declared by `.defer({ schema })`
+ * @template R - The expected-result type declared by `.defer({ input: schema })`
  */
 export type SetDeferral<S extends BuilderState, R> = {
   [K in keyof S]-?: K extends "deferral" ? R : S[K];

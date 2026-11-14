@@ -122,6 +122,12 @@ export function fixtureEach<T extends FixtureWithName>(
 
 // Durable-deferral test helpers shared by core and ecosystem suites
 export { asDeferred, deferring } from "./deferral";
+export {
+  deferralStoreConformance,
+  type ConformanceExpect,
+  type ConformanceMatchers,
+  type ConformanceRunner,
+} from "./deferral-store-conformance";
 
 // Subscription builder for driving source adapters directly in unit tests
 export {

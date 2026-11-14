@@ -12,6 +12,7 @@ import type { Route } from "./route.ts";
 import type { Adapter, Step } from "./types.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
 import type { Principal } from "./principal.ts";
+import type { DeferRevival } from "./kernel/continuation/handles.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type DeferralAffordance,
@@ -474,21 +475,18 @@ type ExchangeInternals = {
    */
   deferred?: boolean;
   /**
-   * Step-owned closure state read back off a deferral record, set by the
-   * resume path just before a re-entrant continuation runs. The deferring
-   * step reads it without consuming ({@link peekResumeStepState}) and the
-   * executor clears it when that step settles, so a retried attempt still
-   * resumes while a second dispatch of the same step later in the
-   * continuation starts fresh instead of resuming again.
+   * What a deferral record handed back for the `"this-step"` step about to
+   * run again, set by the resume path. The step reads it through
+   * `ctx.defer.revived` and the executor clears it when that step settles,
+   * so a retried attempt still sees it while a later step, or a second
+   * dispatch of the same one, starts fresh.
    *
-   * On internals rather than headers deliberately: it is runtime context
-   * for exactly one step execution on this process, not exchange state, and
-   * it must never be re-serialized into the next deferral (the step builds a
-   * fresh stepState for that).
+   * On internals, not headers: it is for one step execution on this
+   * process, and must not be serialized into the next deferral.
    *
    * @internal
    */
-  resumeStepState?: unknown;
+  revival?: DeferRevival;
 };
 
 /**
@@ -511,6 +509,34 @@ export function getExchangeContext(
   exchange: Exchange,
 ): CraftContext | undefined {
   return internalsOf(exchange)?.context;
+}
+
+/**
+ * Whether an exchange is one a route is running, as opposed to an envelope
+ * built outside any route (a client call, a tool dispatch, a tap's copy).
+ *
+ * @internal
+ */
+export function isRouteBound(exchange: Exchange): boolean {
+  return internalsOf(exchange)?.route !== undefined;
+}
+
+/**
+ * Builds the exchange a transport answers a caller with: a new exchange in
+ * the same application as `origin`, carrying its headers and the given
+ * body. Unlike a rewrap it shares no state with `origin`, so a drop or a
+ * deferral of one is not the other's.
+ *
+ * @returns `undefined` when `origin` was built outside an application
+ * @internal
+ */
+export function answerTo(
+  origin: Exchange,
+): (<T>(body: T) => DefaultExchange<T>) | undefined {
+  const context = internalsOf(origin)?.context;
+  if (context === undefined) return undefined;
+  return (body) =>
+    new DefaultExchange(context, { body, headers: origin.headers });
 }
 
 /**
@@ -577,43 +603,36 @@ export function setExchangeRoute(exchange: Exchange, route: Route): void {
 }
 
 /**
- * Attach a deferral record's `stepState` for the re-entrant step about to
- * re-run. Set by the resume path; read by {@link peekResumeStepState} and
- * cleared by the executor once that step settles.
+ * Attach what a revival hands the `"this-step"` step about to run again.
  *
  * @internal
  */
-export function setResumeStepState(exchange: Exchange, state: unknown): void {
+export function setRevival(exchange: Exchange, revival: DeferRevival): void {
   const internals = internalsOf(exchange);
-  if (internals) internals.resumeStepState = state;
+  if (internals) internals.revival = revival;
 }
 
 /**
- * The step state a resume attached for the re-entrant step about to re-run,
- * or `undefined` when this execution is not resuming that step.
- *
- * A defer-capable adapter (see {@link markDeferCapable}) calls this at
- * the top of its execution to decide between a fresh run and a resumed one.
- * Reading does NOT consume the state: the executor clears it when the step
- * settles, so a step-scope or route-scope `.retry()` re-running a failed
- * resume attempt still sees it, while a later defer-capable step in the
- * same continuation (or a fresh deferral by the same step) starts clean.
- */
-export function peekResumeStepState(exchange: Exchange): unknown {
-  return internalsOf(exchange)?.resumeStepState;
-}
-
-/**
- * Drop the resume step state once the re-entrant host step has settled
- * (any committed outcome: success, drop, or a fresh defer). Called by the
- * pipeline executor, never by adapters; a thrown failure leaves the state
- * in place so a retry of the attempt can still resume.
+ * What a revival attached for the step about to run again, or `undefined`
+ * on a first run. Reading does not consume it: the executor clears it when
+ * the step settles, so a `.retry()` re-running a failed attempt still sees
+ * it.
  *
  * @internal
  */
-export function clearResumeStepState(exchange: Exchange): void {
+export function peekRevival(exchange: Exchange): DeferRevival | undefined {
+  return internalsOf(exchange)?.revival;
+}
+
+/**
+ * Drop the revival once the step it was for has settled. A thrown failure
+ * leaves it in place so a retry of the attempt still resumes.
+ *
+ * @internal
+ */
+export function clearRevival(exchange: Exchange): void {
   const internals = internalsOf(exchange);
-  if (internals) internals.resumeStepState = undefined;
+  if (internals) delete internals.revival;
 }
 
 /**

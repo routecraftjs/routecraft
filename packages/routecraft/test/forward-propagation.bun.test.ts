@@ -3,7 +3,6 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   direct,
-  getExchangeRoute,
   HeadersKeys,
   defaultAuthority,
   simple,
@@ -13,6 +12,7 @@ import {
   principalOf,
 } from "../src/index.ts";
 import { markRestored } from "../src/auth/restored.ts";
+import { getExchangeRoute } from "../src/exchange.ts";
 
 /**
  * Source that emits one body carrying a principal the way an authenticating

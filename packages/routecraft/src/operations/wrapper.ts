@@ -9,14 +9,21 @@ import {
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { AnyPort } from "../kernel/port.ts";
-import { NESTED_STEPS, DEFER_HOST, WRAPPER_IDENTITY } from "../dsl-symbol.ts";
+import {
+  NESTED_STEPS,
+  DEFERS,
+  RESUMES,
+  WRAPPER_IDENTITY,
+} from "../dsl-symbol.ts";
 import type { Identity } from "../kernel/continuation/identity.ts";
 import {
+  type DeferDeclaration,
   type NestedSteps,
-  type DeferCapableStep,
+  declaresResume,
+  deferDeclarationOf,
   nestedStepsOf,
-  deferHostOf,
 } from "../kernel/continuation/sites.ts";
+import { executeStep } from "../kernel/continuation/signal.ts";
 
 /**
  * Operation kinds that resilience wrappers cannot safely wrap. Validated
@@ -39,14 +46,17 @@ import {
  *   step-scope `.error()` would falsely suggest it covers failures of
  *   the RELEASED exchange (those run detached, bypassing wrappers).
  *   Wrap the steps DOWNSTREAM of `.debounce()` instead.
- * - `defer`: exits the pipeline and defers the exchange durably. It never
- *   fails per-exchange, so a recovering wrapper could never trigger, while
- *   the ones that CAN act would each act wrongly: `.retry()` would re-defer
- *   an exchange that did not fail, `.timeout()` would bound a wait that is
- *   measured in days and lives in the store rather than in this process,
- *   and `.cache()` would replay a single-use resume token to a second
- *   exchange. Put `.error()` at route scope instead, where it also catches
- *   the revival failures a resume re-enters through.
+ *
+ * A step that always defers (a `"next-step"` `DEFERS` declaration, the
+ * shipped `.defer()` included) is refused too, by its declaration rather
+ * than by its operation. It never fails per-exchange, so a recovering
+ * wrapper could never trigger, while the ones that CAN act would each act
+ * wrongly: `.retry()` would re-defer an exchange that did not fail,
+ * `.timeout()` would bound a wait that is measured in days and lives in
+ * the store rather than in this process, and `.cache()` would replay a
+ * single-use resume token to a second exchange. Put `.error()` at route
+ * scope instead, where it also catches the revival failures a resume
+ * re-enters through.
  *
  * @internal
  */
@@ -54,7 +64,6 @@ const NON_WRAPPABLE_OPERATIONS: ReadonlySet<OperationType> = new Set([
   OperationType.AGGREGATE,
   OperationType.SPLIT,
   OperationType.DEBOUNCE,
-  OperationType.DEFER,
 ]);
 
 /**
@@ -148,24 +157,43 @@ export abstract class WrapperStep<
   }
 
   /**
-   * Forward the defer-host protocol to the inner step, for the same
-   * reason nested steps are forwarded: the defer-site walk sees the
-   * wrapper (which delegates the inner adapter, so the capability brand is
-   * visible), but the site must land on the instance whose `execute`
-   * converts the defer signal, which is the innermost `.to()` /
-   * `.enrich()` step.
+   * Forward what the inner step declares about deferring and resuming, for
+   * the same reason nested steps are forwarded: the walk and the executor
+   * see the wrapper, and the handle they build for it reaches the inner
+   * step through the context the wrapper passes on.
    *
    * @internal
    */
-  [DEFER_HOST](): DeferCapableStep | undefined {
-    return deferHostOf(this.inner);
+  [DEFERS](): DeferDeclaration | undefined {
+    return deferDeclarationOf(this.inner);
+  }
+
+  /** @internal */
+  [RESUMES](): boolean {
+    return declaresResume(this.inner);
+  }
+
+  /**
+   * Run the inner step. A subclass calls this rather than
+   * `this.inner.execute`: a deferral the step raises through
+   * `ctx.defer()` comes back as its `defer` outcome, where a direct call
+   * would see a rejection and treat a deferral as a failure.
+   */
+  protected runStep(
+    exchange: Exchange,
+    ctx: StepContext,
+  ): Promise<StepOutcome> {
+    return executeStep(this.inner, exchange, ctx);
   }
 
   constructor(protected readonly inner: Step<T>) {
-    if (NON_WRAPPABLE_OPERATIONS.has(inner.operation)) {
+    if (
+      NON_WRAPPABLE_OPERATIONS.has(inner.operation) ||
+      deferDeclarationOf(inner)?.revival === "next-step"
+    ) {
       throw rcError("RC5003", undefined, {
         message:
-          `Wrapper operations (.error() / .retry() / .timeout() / .throttle() / .circuitBreaker() / .concurrency() / .cache() / .delay()) cannot wrap "${inner.operation}" steps. ` +
+          `Wrapper operations (.error() / .retry() / .timeout() / .throttle() / .circuitBreaker() / .concurrency() / .cache() / .delay()) cannot wrap "${inner.operation}" steps, or a step that always defers. ` +
           `Aggregate consumes pending siblings (shared join state), split fans out children, debounce holds exchanges ` +
           `outside the queue for a later detached release, and defer defers the exchange durably outside this process; ` +
           `all have semantics that conflict with per-execution wrapper recovery. Wrap the steps downstream of ` +

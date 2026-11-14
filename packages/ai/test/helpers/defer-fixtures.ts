@@ -18,7 +18,7 @@ export const askFn = {
   input: z.object({ question: z.string() }),
   handler: (input: unknown, ctx: FnHandlerContext) =>
     ctx.defer({
-      schema: Approval,
+      input: Approval,
       ttl: "72h",
       meta: { question: (input as { question: string }).question },
     }),

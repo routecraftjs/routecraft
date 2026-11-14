@@ -9,7 +9,7 @@ export const MAX_SWEEP_INTERVAL_MS = 2_147_483_647;
 /**
  * When the kernel's sweep runs: on an interval, one pass at a time.
  *
- * The pass is the kernel's (`execution.sweep()`); this only decides when.
+ * The pass is the kernel's (`continuations.sweep()`); this only decides when.
  */
 export class SweepCadence {
   private timer: ReturnType<typeof setInterval> | undefined;

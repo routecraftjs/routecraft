@@ -44,10 +44,10 @@ function agentActingFor(actorScopes: string[]): Principal {
 
 /** The mapper every door in this file uses. */
 function payloadFrom(ex: Exchange) {
-  const body = ex.body as { token: string; result?: unknown };
+  const body = ex.body as { token: string; input?: unknown };
   return {
     token: body.token,
-    result: "result" in body ? body.result : { approved: true },
+    input: "input" in body ? body.input : { approved: true },
   };
 }
 

@@ -84,7 +84,7 @@ describe("the surface checks what the editor answers", () => {
 
     expect(seen).toEqual({ outcome: { outcome: "cancelled" } });
     expect(decisions).toEqual([false]);
-    const warned = t.contextLogger.warn.mock.calls.some((call) =>
+    const warned = t.logger.warn.mock.calls.some((call) =>
       String(call[1]).includes("permission answer could not be trusted"),
     );
     expect(warned).toBe(true);

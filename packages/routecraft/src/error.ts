@@ -552,7 +552,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Unsupported step outcome",
     suggestion:
-      "A step returned a StepOutcome the engine cannot schedule. Either the kind is one this build does not know, or a 'defer' outcome arrived without the request the executor needs to defer the exchange (only the framework's own `.defer()` step produces one). If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
+      "A step returned a StepOutcome the engine cannot schedule. Either the kind is one this build does not know, a 'defer' outcome arrived without a ticket the kernel issued, or a step called `ctx.defer()` and then returned. A step defers by declaring `DEFERS` and calling `ctx.defer()`, which carries where the exchange resumes; a hand-built defer outcome is refused, and so is a call whose rejection the step caught or never awaited. If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
     docs: `${DOCS_BASE}#rc-5032`,
     retryable: false,
   },
@@ -684,7 +684,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Deferral continuation changed",
     suggestion:
-      "The steps after the defer point, or the `schema` the resume payload is validated against, changed while the exchange was deferred, so the stored approval no longer authorizes what would now run. The message names the first step that differs. Resuming is refused before any of those steps execute. This is catchable: the deferred route's `.error()` handler receives it and can re-ask with a fresh deferral. A record parked by a release before 0.8 is refused the same way, once. The digest also moves when a user function's emitted text changes without a behaviour change (a formatting pass, a transpiler or runtime upgrade) or a schema library renders its JSON Schema differently, so deployments that defer approvals for days should pin those. It does not see what a function captured, what a `direct()` target does, or a value `RC5071` warned about.",
+      "The steps after the defer point, or the `input` schema the resume payload is validated against, changed while the exchange was deferred, so the stored approval no longer authorizes what would now run. The message names the first step that differs. A step added or removed before the defer point moves nothing the approval covered and is not refused, unless the route has several defer sites followed by the same steps and all of them moved, which the message reports as a site that cannot be told apart. Resuming is refused before any of those steps execute. This is catchable: the deferred route's `.error()` handler receives it and can re-ask with a fresh deferral. A record parked by a release before 0.8 is refused the same way, once. The digest also moves when a user function's emitted text changes without a behaviour change (a formatting pass, a transpiler or runtime upgrade) or a schema library renders its JSON Schema differently, so deployments that defer approvals for days should pin those. It does not see what a function captured, what a `direct()` target does, or a value `RC5071` warned about.",
     docs: `${DOCS_BASE}#rc-5048`,
     retryable: false,
   },
@@ -692,7 +692,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Deferral result rejected",
     suggestion:
-      "The payload handed to `.resume()` failed the `schema` declared at the deferring site: the `.defer()` step, or the route-scope `.error(handler, { schema })` or error hook `schema` that parked it. The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed payload is a per-request input error, not a change the deferred route has to re-ask about. Handle it with an `.error()` on the ingress route if the caller deserves a reply.",
+      "The payload handed to `.resume()` failed the `input` schema declared at the deferring site: the `.defer()` step, or the route-scope `.error(handler, { input })` or error hook `input` that parked it. The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, input: result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed payload is a per-request input error, not a change the deferred route has to re-ask about. Handle it with an `.error()` on the ingress route if the caller deserves a reply.",
     docs: `${DOCS_BASE}#rc-5049`,
     retryable: false,
   },

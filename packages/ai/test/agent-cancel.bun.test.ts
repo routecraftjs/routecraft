@@ -360,7 +360,7 @@ describe("cooperative cancellation of agent runs", () => {
       description: "Ask",
       input: z.object({}),
       handler: (_i: unknown, ctx: FnHandlerContext) =>
-        ctx.defer({ schema: Approval }),
+        ctx.defer({ input: Approval }),
     };
     llm.script.push({ toolCalls: [{ toolName: "ask", input: {} }] });
 
@@ -408,7 +408,7 @@ describe("cooperative cancellation of agent runs", () => {
       description: "Ask",
       input: z.object({}),
       handler: (_i: unknown, ctx: FnHandlerContext) =>
-        ctx.defer({ schema: Approval }),
+        ctx.defer({ input: Approval }),
     };
     llm.script.push({ toolCalls: [{ toolName: "ask", input: {} }] });
     llm.script.push({ toolCalls: [{ toolName: "hang", input: {} }] });

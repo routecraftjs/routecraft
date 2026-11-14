@@ -1857,7 +1857,7 @@ describe("Mail Adapter", () => {
       const token = t.ctx.lookup(CONTINUATIONS)!.signer.mint(deferralId!);
       const ack = (await t.client.sendDirect("answers", {
         token,
-        result: { approved: true },
+        input: { approved: true },
       })) as { status: string };
       expect(ack.status).toBe("resumed");
 

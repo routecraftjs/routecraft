@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  craft,
   definePlugin,
   defineProject,
   direct,
+  lookupOf,
   noop,
   port,
   step,
+  type Destination,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 
@@ -78,5 +81,48 @@ describe("outsider: a plugin built on the published entry", () => {
 
     expect(seenRate).toBe(0.21);
     expect(result).toEqual({ id: "o-1", total: 100, gross: 121 });
+  });
+
+  /**
+   * @case A third-party adapter reads a port off the exchange it is handed, and gets the plugin that replaced it
+   * @preconditions A destination that calls lookupOf(exchange, RATES); one application installs the provider, a second also installs a plugin that replaces the port, and a third installs neither
+   * @expectedResult Each exchange is priced by its own application's provider, the replacement where one is installed, and the adapter reads undefined where nothing provides the port
+   */
+  test("an adapter reads a port by exchange", async () => {
+    const seen: Array<number | undefined> = [];
+    const quote: Destination<Order> = {
+      adapterId: "acme.quote",
+      async send(exchange) {
+        seen.push(lookupOf(exchange, RATES)?.rateFor(exchange.body));
+      },
+    };
+    const reduced = definePlugin({
+      id: "acme.reduced-rates",
+      provides: [RATES],
+      replaces: [RATES],
+      bind(c) {
+        c.provide(RATES, { rateFor: () => 0.09 });
+      },
+    });
+    const quoted = async (
+      plugins: NonNullable<Parameters<typeof defineProject>[0]["plugins"]>,
+    ) => {
+      const context = await testContext()
+        .with(defineProject({ plugins }).config)
+        .routes(craft().id("quotes").from(direct<Order>()).to(quote))
+        .build();
+      try {
+        await context.startAndWaitReady();
+        await context.client.sendDirect("quotes", { id: "o-1", total: 100 });
+      } finally {
+        await context.stop();
+      }
+    };
+
+    await quoted([rates]);
+    await quoted([rates, reduced]);
+    await quoted([]);
+
+    expect(seen).toEqual([0.21, 0.09, undefined]);
   });
 });

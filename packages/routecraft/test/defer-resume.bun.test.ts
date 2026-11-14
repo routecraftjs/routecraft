@@ -50,7 +50,7 @@ async function resumeTwice(
   const answer = () =>
     client.sendDirect("answers", {
       token,
-      result: { approved: true },
+      input: { approved: true },
     }) as Promise<ResumeAcknowledgment>;
   return [await answer(), await answer()];
 }
@@ -76,7 +76,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .tap((ex) => {
             after.push(ex.body);
           })
@@ -94,16 +94,16 @@ describe("defer and resume", () => {
     expect(deferred.status).toBe("deferred");
     expect(deferred.deferralId).toBeString();
     expect(deferred.token).toBeString();
-    expect(deferred.schema).toBeDefined();
+    expect(deferred.input).toBeDefined();
     expect(after).toHaveLength(0);
   });
 
   /**
    * @case A resume revives the deferred exchange at position N+1 with the answer in place
    * @preconditions A deferred payout, and a second route ending in .resume() fed by its own direct() ingress
-   * @expectedResult Only the steps after the defer run, ex.deferral.result carries the validated answer, and the acknowledgment reports the continuation's result
+   * @expectedResult Only the steps after the defer run, ex.deferral.input carries the validated answer, and the acknowledgment reports the continuation's result
    */
-  test("resume runs the continuation with ex.deferral.result populated", async () => {
+  test("resume runs the continuation with ex.deferral.input populated", async () => {
     const ran: Array<{ body: unknown; approved: boolean }> = [];
     t = await testContext()
       .with(deferring())
@@ -111,11 +111,11 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .tap((ex) => {
             ran.push({
               body: ex.body,
-              approved: ex.deferral.result.approved,
+              approved: ex.deferral.input.approved,
             });
           })
           .to(noop()),
@@ -133,7 +133,7 @@ describe("defer and resume", () => {
 
     const acknowledgment = await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true, note: "ok" },
+      input: { approved: true, note: "ok" },
     });
 
     expect(acknowledgment).toMatchObject({
@@ -162,7 +162,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform((body) => {
             runs++;
             return { paid: (body as Payout).amountCents };
@@ -196,7 +196,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform(() => ({ when: paidAt, receipt: Buffer.from("paid") }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -231,7 +231,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform(() => ({ paid: true, notify: () => undefined }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -273,7 +273,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform(() => {
             throw new Error(long);
           })
@@ -307,7 +307,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform(() => {
             throw new Error("");
           })
@@ -353,7 +353,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform(() => ({ when: new Date() }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -369,7 +369,7 @@ describe("defer and resume", () => {
     );
     const first = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as ResumeAcknowledgment;
     expect(first.continuation.status).toBe("completed");
 
@@ -377,7 +377,7 @@ describe("defer and resume", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toThrow(
       expect.objectContaining({
@@ -407,7 +407,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents }))
           .to(noop()),
       ])
@@ -433,7 +433,7 @@ describe("defer and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           // The edit: the tail now pays a different amount than the one
           // the approver was shown.
           .transform((body) => ({ paid: (body as Payout).amountCents * 2 }))
@@ -449,7 +449,7 @@ describe("defer and resume", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5048" });
 
@@ -480,9 +480,9 @@ describe("defer and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .tap((ex) => {
-            ran.push(ex.deferral.result);
+            ran.push(ex.deferral.input);
           })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -500,7 +500,7 @@ describe("defer and resume", () => {
     const rejected: unknown = await t.client
       .sendDirect("answers", {
         token: deferred.token,
-        result: { approved: "yes" },
+        input: { approved: "yes" },
       })
       .then(
         () => undefined,
@@ -520,7 +520,7 @@ describe("defer and resume", () => {
     // continuation runs exactly as it would have the first time.
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
     expect(acknowledgment.status).toBe("resumed");
     expect(acknowledgment.continuation.status).toBe("completed");
@@ -552,7 +552,7 @@ describe("defer and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval, ttl: "1ms" })
+          .defer({ input: Approval, ttl: "1ms" })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -568,7 +568,7 @@ describe("defer and resume", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
 
@@ -589,7 +589,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -599,7 +599,7 @@ describe("defer and resume", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: "not-a-token.at-all",
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5041" });
 
@@ -608,7 +608,7 @@ describe("defer and resume", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: orphan,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5046" });
   });
@@ -630,9 +630,9 @@ describe("defer and resume", () => {
             when<Payout>(
               (ex) => ex.body.amountCents >= 50_000,
               (b) => b
-                .defer({ schema: Approval })
+                .defer({ input: Approval })
                 .filter((ex) =>
-                  ex.deferral.result.approved ? true : { reason: "rejected" },
+                  ex.deferral.input.approved ? true : { reason: "rejected" },
                 ),
             ),
             otherwise((b) => b),
@@ -662,7 +662,7 @@ describe("defer and resume", () => {
 
     await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     });
     // The approved payout rejoined the main flow behind the fast one, on
     // the same contract: the branch restored the body it was handed.
@@ -674,7 +674,7 @@ describe("defer and resume", () => {
 
   /**
    * @case A rejected verdict is consumed inside the defer branch
-   * @preconditions The branch ends in .filter() reading ex.deferral.result; the answer is a rejection
+   * @preconditions The branch ends in .filter() reading ex.deferral.input; the answer is a rejection
    * @expectedResult The exchange is dropped inside the branch and never reaches the main flow's steps
    */
   test("a rejected verdict drops the exchange inside the branch", async () => {
@@ -688,8 +688,8 @@ describe("defer and resume", () => {
           .choice(
             when<Payout>(
               (ex) => ex.body.amountCents >= 50_000,
-              (b) => b.defer({ schema: Approval }).filter((ex) =>
-                ex.deferral.result.approved
+              (b) => b.defer({ input: Approval }).filter((ex) =>
+                ex.deferral.input.approved
                   ? true
                   : {
                       reason: `rejected by ${ex.deferral.resumedBy?.subject ?? "anonymous"}`,
@@ -715,7 +715,7 @@ describe("defer and resume", () => {
     );
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: false },
+      input: { approved: false },
     })) as { continuation: { status: string } };
 
     expect(acknowledgment.continuation.status).toBe("dropped");
@@ -741,7 +741,7 @@ describe("defer and resume", () => {
               token: ex.deferral.token,
             });
           })
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -759,7 +759,7 @@ describe("defer and resume", () => {
     // than the strings: what matters is that the early one resumes.
     const acknowledgment = await t.client.sendDirect("answers", {
       token: notified[0]!.token,
-      result: { approved: true },
+      input: { approved: true },
     });
     expect(acknowledgment).toMatchObject({ status: "resumed" });
   });
@@ -780,7 +780,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .tap((ex) => {
             receipts.push({
               subject: ex.deferral.resumedBy?.subject,
@@ -806,7 +806,7 @@ describe("defer and resume", () => {
     );
     await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     });
     await t.drain();
 
@@ -833,7 +833,7 @@ describe("defer and resume", () => {
             subject: "requester@acme.test",
             roles: ["payer"],
           }))
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .validate(authorize({ roles: ["payer"] }))
           .tap((ex) => {
             reached.push(ex.body);
@@ -849,7 +849,7 @@ describe("defer and resume", () => {
     );
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { continuation: { status: string; error?: { rc?: string } } };
 
     expect(acknowledgment.continuation.status).toBe("failed");
@@ -886,7 +886,7 @@ describe("defer and resume", () => {
           .id("payout")
           .from(direct())
           .process(capture("before"))
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .process(capture("after"))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -899,7 +899,7 @@ describe("defer and resume", () => {
     );
     await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     });
     await t.drain();
 
@@ -923,8 +923,8 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
+          .defer({ input: Approval })
           .transform(() => ({ paid: true }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -937,7 +937,7 @@ describe("defer and resume", () => {
     );
     const first = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as {
       status: string;
       continuation: { status: string; body?: unknown };
@@ -950,7 +950,7 @@ describe("defer and resume", () => {
 
     const duplicate = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string; body?: unknown } };
     expect(duplicate.status).toBe("duplicate");
     expect(duplicate.continuation.status).toBe("deferred");
@@ -974,7 +974,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents }))
           .to(noop()),
       ])
@@ -999,7 +999,7 @@ describe("defer and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents * 2 }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -1010,7 +1010,7 @@ describe("defer and resume", () => {
     const answer = () =>
       t!.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       });
 
     await expect(answer()).rejects.toMatchObject({ rc: "RC5048" });
@@ -1036,7 +1036,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -1062,7 +1062,7 @@ describe("defer and resume", () => {
     const answer = () =>
       t!.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       });
 
     await expect(answer()).rejects.toMatchObject({ rc: "RC5048" });
@@ -1098,7 +1098,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents }))
           .to(noop()),
       ])
@@ -1123,7 +1123,7 @@ describe("defer and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents * 2 }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -1134,7 +1134,7 @@ describe("defer and resume", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
     // The sweep owned the notification, so this request must not send a
@@ -1183,7 +1183,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -1202,7 +1202,7 @@ describe("defer and resume", () => {
 
     await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     });
     expect(details["resumed"]?.[0]).toMatchObject({
       routeId: "payout",
@@ -1224,7 +1224,7 @@ describe("defer and resume", () => {
           .id("payout")
           .from(direct())
           .transform(() => ({ callback: () => "nope" }))
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -1249,7 +1249,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(simple({ amountCents: 1 }))
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();
@@ -1270,7 +1270,7 @@ describe("defer and resume", () => {
         .id("bulk")
         .from(direct())
         .split()
-        .defer({ schema: Approval })
+        .defer({ input: Approval })
         .to(noop())
         .build(),
     ).toThrow(expect.objectContaining({ rc: "RC5051" }) as unknown as Error);
@@ -1286,7 +1286,7 @@ describe("defer and resume", () => {
       craft()
         .id("fanout")
         .from(direct())
-        .multicast((b) => b.defer({ schema: Approval }).to(noop()))
+        .multicast((b) => b.defer({ input: Approval }).to(noop()))
         .to(noop())
         .build(),
     ).toThrow(expect.objectContaining({ rc: "RC5051" }) as unknown as Error);
@@ -1303,7 +1303,7 @@ describe("defer and resume", () => {
         .id("payout")
         .cache()
         .from(direct())
-        .defer({ schema: Approval })
+        .defer({ input: Approval })
         .to(noop())
         .build(),
     ).toThrow(expect.objectContaining({ rc: "RC5003" }) as unknown as Error);
@@ -1332,7 +1332,7 @@ describe("defer and resume", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .defer({ schema: Approval, ttl: "1ms" })
+          .defer({ input: Approval, ttl: "1ms" })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -1346,7 +1346,7 @@ describe("defer and resume", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
 
@@ -1371,17 +1371,17 @@ describe("defer and resume", () => {
         .id("payout")
         .from(direct())
         .retry()
-        .defer({ schema: Approval })
+        .defer({ input: Approval })
         .to(noop()),
     ).toThrow(expect.objectContaining({ rc: "RC5003" }) as unknown as Error);
   });
 
   /**
-   * @case The expect schema types ex.deferral.result downstream of the defer
+   * @case The declared input schema types ex.deferral.input downstream of the defer
    * @preconditions A chain whose defer declares a zod object schema
    * @expectedResult The narrowed field is readable without a cast, and stays unknown before any defer (compile-time assertion; the runtime body is incidental)
    */
-  test("expect threads its type into ex.deferral.result", async () => {
+  test("the declared input threads its type into ex.deferral.input", async () => {
     const seen: string[] = [];
     t = await testContext()
       .with(deferring())
@@ -1390,13 +1390,13 @@ describe("defer and resume", () => {
           .id("typed")
           .from(direct())
           .tap((ex: Exchange<unknown>) => {
-            const before: unknown = deferralOf(ex).result;
+            const before: unknown = deferralOf(ex).input;
             seen.push(typeof before);
           })
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .tap((ex) => {
             // No cast: `approved` is boolean because `expect` said so.
-            const approved: boolean = ex.deferral.result.approved;
+            const approved: boolean = ex.deferral.input.approved;
             seen.push(String(approved));
           })
           .to(noop()),
@@ -1410,7 +1410,7 @@ describe("defer and resume", () => {
     );
     await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     });
     await t.drain();
 
@@ -1449,7 +1449,7 @@ describe("defer and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .defer({ schema: SlowApproval as never, ttl: "200ms" })
+          .defer({ input: SlowApproval as never, ttl: "200ms" })
           .tap((ex) => {
             continued.push(ex.body);
           })
@@ -1468,7 +1468,7 @@ describe("defer and resume", () => {
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
-        result: { approved: true },
+        input: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
 
@@ -1503,7 +1503,7 @@ describe("defer and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -1520,7 +1520,7 @@ describe("defer and resume", () => {
 
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string } };
 
     expect(acknowledgment.status).toBe("resumed");
@@ -1573,12 +1573,12 @@ describe("a claimed continuation at a step-scope bulkhead", () => {
     const second = asDeferred(await t.client.sendDirect("limited", { n: 2 }));
     const resumeFirst = t.client.sendDirect("answers", {
       token: first.token,
-      result: null,
+      input: null,
     });
     await entered.promise;
     const resumeSecond = t.client.sendDirect("answers", {
       token: second.token,
-      result: null,
+      input: null,
     });
     // The second continuation is at the bulkhead, waiting, before the first
     // is released: what the test is about.
@@ -1680,7 +1680,7 @@ describe("the deferral sequence guard", () => {
           .id("payout")
           .from(direct())
           .header("routecraft.deferral.sequence", "oops")
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();

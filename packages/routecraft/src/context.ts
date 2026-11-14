@@ -28,14 +28,20 @@ import {
 } from "./kernel/continuation/port.ts";
 import { ContinuationSweeper } from "./kernel/continuation/sweep.ts";
 import {
+  alwaysDefers,
   applyResolvedSites,
+  resolvedSitesOf,
   routeCanDefer,
+  usesResume,
 } from "./kernel/continuation/sites.ts";
 import {
-  reviveDeferral,
-  type ResumeRequest,
-  type RevivalOptions,
-} from "./kernel/continuation/resume.ts";
+  type Continuations,
+  continuationsFacade,
+} from "./kernel/continuation/facade.ts";
+import {
+  applicationKeyFor,
+  type ApplicationKey,
+} from "./kernel/application.ts";
 import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
 import {
@@ -669,7 +675,58 @@ export class CraftContext {
     }
   }
 
+  /**
+   * The key a plugin module holds this application's state under: what
+   * `c.application` is to a plugin and `applicationOf(exchange)` to an
+   * adapter, for a source reading its plugin's state in `subscribe`.
+   */
+  get application(): ApplicationKey {
+    return applicationKeyFor(this);
+  }
+
   private continuationSweeper: ContinuationSweeper | undefined;
+
+  #continuations: Continuations | undefined;
+
+  /**
+   * Parked exchanges: the reads, and the acts (resume, sweep, mint a
+   * token, rewrite step state). Route code reads through
+   * `continuationsOf(exchange)`, which carries no act.
+   */
+  get continuations(): Continuations {
+    this.#continuations ??= continuationsFacade(this, (options) =>
+      this.sweepContinuations(options),
+    );
+    return this.#continuations;
+  }
+
+  private readonly backgroundTasks = new Set<Promise<void>>();
+
+  /**
+   * Hold shutdown open for work that outlives the exchange that started
+   * it. Named for a route, the task is drained with that route; otherwise
+   * the application waits for it when it stops. A rejection is logged.
+   */
+  trackTask(
+    task: Promise<unknown>,
+    options?: { readonly route?: string },
+  ): void {
+    const routeId = options?.route;
+    const route =
+      routeId === undefined ? undefined : this.getRouteById(routeId);
+    if (route) {
+      route.trackTask(task);
+      return;
+    }
+    const handled = task.then(
+      () => undefined,
+      (err: unknown) => {
+        this.logger.error({ err }, "Background task failed");
+      },
+    );
+    this.backgroundTasks.add(handled);
+    void handled.finally(() => this.backgroundTasks.delete(handled));
+  }
 
   /**
    * One pass of the kernel's sweep, against the store `CONTINUATIONS`
@@ -768,16 +825,18 @@ export class CraftContext {
           return route !== undefined && routeCanDefer(route.definition, this);
         },
       },
+      application: applicationKeyFor(this),
+      continuations: this.continuations,
       execution: {
         deliver: (
           endpoint: string,
           body: unknown,
           headers?: Parameters<CraftClient["sendDirect"]>[2],
         ) => client.sendDirect(endpoint, body, headers),
-        resume: (request: ResumeRequest, options?: RevivalOptions) =>
-          reviveDeferral(this, request, options),
-        sweep: (options?: { readonly boot?: boolean }) =>
-          this.sweepContinuations(options),
+        trackTask: (
+          task: Promise<unknown>,
+          options?: { readonly route?: string },
+        ) => this.trackTask(task, options),
         capabilities: () => this.capabilities(),
         whenStarted: () =>
           this.lifecycleHooksRunning === 0
@@ -1126,16 +1185,18 @@ export class CraftContext {
         `An error slot hook declared with { mayDefer: true } can park route "${parked.definition.id}", but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
       );
     }
-    const deferring = this.routes.find(
-      (route) => (route.definition.deferSteps?.length ?? 0) > 0,
+    const deferring = this.routes.find((route) =>
+      alwaysDefers(route.definition),
     );
     // A resume ingress needs the runtime just as much: it verifies tokens
     // against the signer and reads the store. Left out, a resume-only
     // deployment starts clean and refuses every answer at request time.
-    const resuming = this.routes.find((route) => route.definition.usesResume);
+    const resuming = this.routes.find((route) => usesResume(route.definition));
     const offender = deferring ?? resuming;
     if (!offender) return;
-    const reached = deferring ? ".defer()" : ".resume()";
+    const reached = deferring
+      ? "step that defers (.defer())"
+      : "step that resumes (.resume())";
     this.refuseWithoutDeferralRuntime(
       `Route "${offender.definition.id}" can reach a ${reached}, but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
     );
@@ -1350,7 +1411,7 @@ export class CraftContext {
       // executor would find no site and refuse with RC5051, contradicting
       // the whole reason the sites are resolved for every route rather than
       // only for one that declares a `.defer()`.
-      if (definition.errorPathSites === undefined) {
+      if (resolvedSitesOf(definition) === undefined) {
         applyResolvedSites(definition);
       }
 
@@ -1732,8 +1793,19 @@ export class CraftContext {
       { routeCount: this.routes.length },
       "Draining context: waiting for all route handlers and tasks",
     );
-    await Promise.all(this.routes.map((r) => r.drain()));
+    await this.drainAll();
     this.logger.debug({}, "Context drained");
+  }
+
+  /**
+   * Every route's in-flight work, then the application's own tracked
+   * tasks. Looped, because a task may track another while it settles.
+   */
+  private async drainAll(): Promise<void> {
+    await Promise.all(this.routes.map((r) => r.drain()));
+    while (this.backgroundTasks.size > 0) {
+      await Promise.all(this.backgroundTasks);
+    }
   }
 
   /**
@@ -1885,7 +1957,7 @@ export class CraftContext {
     }
 
     // Bounded: past the deadline the work is abandoned, not waited out.
-    const drain = Promise.all(this.routes.map((r) => r.drain()));
+    const drain = this.drainAll();
     let drainError: unknown;
     let forced = false;
     let pending: string[] = [];

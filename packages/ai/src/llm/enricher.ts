@@ -1,12 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
-  getExchangeContext,
   isStandardSchema,
+  lookupOf,
   validateAgainst,
-  type CraftContext,
   type Enricher,
   type Exchange,
-  type MergedOptions,
 } from "@routecraft/routecraft";
 import { callLlm } from "./providers/index.ts";
 import {
@@ -64,11 +62,7 @@ async function parseStructuredTextFallback(
 export class LlmEnricherAdapter<
   S extends StandardSchemaV1 | undefined = undefined,
   T = unknown,
->
-  implements
-    Enricher<T, LlmResultWithOutput<S>>,
-    MergedOptions<LlmOptionsMerged<T>>
-{
+> implements Enricher<T, LlmResultWithOutput<S>> {
   readonly adapterId = "routecraft.adapter.llm";
 
   constructor(
@@ -80,8 +74,8 @@ export class LlmEnricherAdapter<
 
   public options: Partial<LlmOptionsMerged<T>>;
 
-  mergedOptions(context: CraftContext): LlmOptionsMerged<T> {
-    const store = context.lookup(LLM)?.defaults;
+  private merged(exchange: Exchange<T>): LlmOptionsMerged<T> {
+    const store = lookupOf(exchange, LLM)?.defaults;
     return {
       temperature: DEFAULT_TEMPERATURE,
       maxTokens: DEFAULT_MAX_TOKENS,
@@ -91,9 +85,11 @@ export class LlmEnricherAdapter<
   }
 
   async fetch(exchange: Exchange<T>): Promise<LlmResultWithOutput<S>> {
-    const context = getExchangeContext(exchange);
-    const { config, modelName } = resolveModel(this.modelId, context);
-    const merged = this.mergedOptions(context!);
+    const { config, modelName } = resolveModel(
+      this.modelId,
+      lookupOf(exchange, LLM),
+    );
+    const merged = this.merged(exchange);
 
     const system = resolvePrompt(merged.system, exchange);
     const resolvedUser = resolveUserPrompt(merged.user, exchange);

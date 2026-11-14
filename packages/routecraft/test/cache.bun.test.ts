@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { toSignalContext } from "../src/types.ts";
 import {
   bootServer,
   signHs256,
@@ -32,9 +33,9 @@ import {
   bindCacheProvider,
   cacheProvider,
   definePlugin,
-  getExchangeContext,
   port,
 } from "@routecraft/routecraft";
+import { getExchangeContext } from "../src/exchange.ts";
 
 /**
  * Helper: build a CacheProvider spy that records every call and
@@ -701,6 +702,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
     const ex1 = new DefaultExchange(ctx, { body: "a" });
     const ex2 = new DefaultExchange(ctx, { body: "b" });
     const stepContext: StepContext = {
+      ...toSignalContext(),
       takePending: () => [],
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),
@@ -752,6 +754,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
     const ex1 = new DefaultExchange(ctx, { body: "a" });
     const ex2 = new DefaultExchange(ctx, { body: "b" });
     const stepContext: StepContext = {
+      ...toSignalContext(),
       takePending: () => [],
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),

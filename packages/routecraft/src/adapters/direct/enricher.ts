@@ -1,7 +1,9 @@
 import type { Exchange } from "../../exchange";
 import type { Enricher } from "../../operations/enrich.ts";
 import type { DirectEndpoint, DirectClientOptions } from "./types";
-import { getDirectChannel, sanitizeEndpoint } from "./shared";
+import { sanitizeEndpoint } from "./shared";
+import type { RegisteredDirectEndpoint } from "../../registry.ts";
+import { type StepSignalContext, toSignalContext } from "../../types.ts";
 
 /**
  * DirectEnricherAdapter implements the Enricher (fetch) role for the direct
@@ -42,16 +44,12 @@ export class DirectEnricherAdapter<
     this.options = options;
   }
 
-  fetch = async (exchange: Exchange<TIn>): Promise<TOut> => {
-    // Import dynamically to avoid circular dependency
-    const { getExchangeContext } = await import("../../exchange");
-    const context = getExchangeContext(exchange);
-    if (!context) {
-      throw new Error("Exchange has no context; cannot call direct endpoint");
-    }
-
-    // Resolve endpoint dynamically if needed
-    const endpoint = this.resolveEndpoint(exchange);
+  fetch = async (
+    exchange: Exchange<TIn>,
+    ctx?: StepSignalContext,
+  ): Promise<TOut> => {
+    const target = this.resolveEndpoint(exchange);
+    const endpoint = sanitizeEndpoint(target);
     this.resolvedEndpoints.set(exchange, endpoint);
 
     exchange.logger.debug(
@@ -59,15 +57,12 @@ export class DirectEnricherAdapter<
       "Preparing to send message to direct endpoint",
     );
 
-    const channel = getDirectChannel<TIn>(context, endpoint, this.options);
-
-    // Send and wait for result - this is synchronous blocking behavior
-    const result = await channel.send(endpoint, exchange);
-
-    // The wire-level channel is body-symmetric, but the consumer route may
-    // produce a body whose shape differs from the caller's input. That shape
-    // is opaque to this adapter at compile time, so we widen here.
-    return result.body as unknown as TOut;
+    // The consumer route may produce a body whose shape differs from the
+    // caller's input; that shape is opaque here, so it is widened.
+    return (await toSignalContext(ctx).forward(
+      target as RegisteredDirectEndpoint,
+      exchange.body,
+    )) as TOut;
   };
 
   /**
@@ -97,10 +92,8 @@ export class DirectEnricherAdapter<
   }
 
   private resolveEndpoint(exchange: Exchange<TIn>): string {
-    const endpoint =
-      typeof this.rawEndpoint === "function"
-        ? this.rawEndpoint(exchange)
-        : this.rawEndpoint;
-    return sanitizeEndpoint(endpoint);
+    return typeof this.rawEndpoint === "function"
+      ? this.rawEndpoint(exchange)
+      : this.rawEndpoint;
   }
 }

@@ -114,7 +114,7 @@ async function callClient(
   options: HttpClientOptions<unknown>,
 ): Promise<HttpResult> {
   const enricher = http(options);
-  return (await enricher.fetch({} as Exchange<unknown>, {})) as HttpResult;
+  return (await enricher.fetch({} as Exchange<unknown>)) as HttpResult;
 }
 
 describe("http() client redirect (cross-runtime contract)", () => {

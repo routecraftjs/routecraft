@@ -1,11 +1,8 @@
 import {
   authorityOf,
   deferralOf,
-  getExchangeContext,
-  getExchangeRoute,
-  markDeferCapable,
-  deferAside,
-  peekResumeStepState,
+  DEFERS,
+  lookupOf,
   rcError,
   type CraftContext,
   type Enricher,
@@ -13,6 +10,10 @@ import {
   type Principal,
   type StepSignalContext,
 } from "@routecraft/routecraft";
+import {
+  getExchangeContext,
+  getExchangeRoute,
+} from "@routecraft/routecraft/internal";
 import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
@@ -38,7 +39,12 @@ import type {
 import { anySignal } from "@routecraft/routecraft";
 import { streamAgentDeltas, type AgentStream } from "./delta-stream.ts";
 import type { AgentDeltaListener } from "./events.ts";
-import type { LlmModelId, LlmReasoningEffort } from "../llm/types.ts";
+import {
+  LLM,
+  type LlmModelId,
+  type LlmReasoningEffort,
+  type LlmService,
+} from "../llm/types.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import { backgroundReasonOf } from "./tools/types.ts";
 import type {
@@ -171,11 +177,11 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
 > {
   readonly adapterId = "routecraft.adapter.agent";
 
-  constructor(public readonly binding: AgentBinding<T>) {
-    // A tool handler may defer the run (ctx.defer / DeferError), so the
-    // defer-site walk assigns this adapter's hosting step a re-entrant
-    // site at build time. Routes that never defer pay nothing for it.
-    markDeferCapable(this);
+  constructor(public readonly binding: AgentBinding<T>) {}
+
+  /** A tool handler may defer the run, which then runs this step again. */
+  [DEFERS](): { readonly revival: "this-step" } {
+    return { revival: "this-step" };
   }
 
   async fetch(
@@ -195,7 +201,8 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     }
     const model = merged.model;
 
-    const { config, modelName } = resolveModel(model, context);
+    const llm = lookupOf(exchange, LLM);
+    const { config, modelName } = resolveModel(model, llm);
     // Registered agents carry their own id (used to attribute runs in
     // observability, and to name the agent in a tool-policy denial);
     // inline agents are identified by their route, so agentName stays
@@ -222,13 +229,18 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // instead (AI1006, the same refusal an unbound dispatch gets) puts the
     // error where the author can act on it.
     const deferral: AgentRunDeferral | undefined =
-      dispatchIdentity && agentIdentity !== undefined && merged.stream !== true
+      dispatchIdentity &&
+      agentIdentity !== undefined &&
+      merged.stream !== true &&
+      stepCtx?.defer !== undefined
         ? {
+            defer: stepCtx.defer,
             id: deferralOf(exchange).id,
             // Lazy: minting reads the context's signer and throws RC5052
             // without a deferral runtime; a handler that never builds a
             // resume link should not pay for or fail on it.
             mintToken: (callBinding: string) =>
+              // eslint-disable-next-line @routecraft/routecraft/restrict-continuation-minting -- the token a tool handler puts in its own resume link, bound to its call
               deferralOf(exchange).tokenFor(callBinding),
             agentId: agentIdentity,
           }
@@ -239,7 +251,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // this step settles, so a retried attempt (a provider 429 here, or a
     // setup failure below) still resumes instead of silently re-running
     // the whole loop from the original prompt.
-    const resumeRaw = peekResumeStepState(exchange);
+    const resumeRaw = stepCtx?.defer?.revived?.stepState;
     // A revived session continuation re-enters here too, carrying only
     // the session's name: the transcript and the inbox are in the session
     // record, and the turn they make is the runtime's to run.
@@ -248,11 +260,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       : undefined;
     const resume: AgentRunResume | undefined =
       resumeRaw !== undefined && revivedDeferral === undefined
-        ? rehydrateSession(
-            resumeRaw,
-            agentIdentity,
-            deferralOf(exchange).result,
-          )
+        ? rehydrateSession(resumeRaw, agentIdentity, deferralOf(exchange).input)
         : undefined;
 
     const userTools = resolveAgentTools(
@@ -283,6 +291,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       merged.blocks,
       exchange,
       context,
+      stepCtx?.forward,
     );
     const tools = mergeUserAndLoaderTools(userTools, loaderTools);
     const withBlocks = `${baseSystem}${systemAppend}`;
@@ -385,30 +394,26 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         });
       }
       const interrupt = perCall?.interrupt ?? merged.interrupt;
-      // Where this exchange can be deferred for a later turn: the re-entrant
-      // site the build assigned this step, when it sits on the primary flow.
-      const site = route?.definition.reentrantDeferSteps?.find(
-        (host) => host.adapter === this,
-      )?.deferSite;
+      // A later turn can be stored only where this step can be run again:
+      // on the primary flow of a built route.
+      const handle = stepCtx?.defer;
       const routeId = route?.definition.id;
       const defer =
-        site !== undefined && routeId !== undefined
+        handle !== undefined &&
+        handle.refused === undefined &&
+        routeId !== undefined
           ? async (
               announce: (deferral: AgentSessionDeferral) => Promise<void>,
             ): Promise<AgentSessionDeferral> => {
-              const { deferralId } = await deferAside(
-                context,
-                exchange,
-                site,
-                routeId,
-                (id): AgentSessionDeferralMarker => ({
+              const { deferralId } = await handle.aside({
+                stepState: (id): AgentSessionDeferralMarker => ({
                   kind: "agent-session-deferral",
                   agent: agentIdentity,
                   session: sessionKey,
                   deferralId: id,
                 }),
-                (id) => announce({ deferralId: id, routeId }),
-              );
+                announce: (id) => announce({ deferralId: id, routeId }),
+              });
               return { deferralId, routeId };
             }
           : undefined;
@@ -436,7 +441,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
           },
           abortSignal,
           onDelta,
-          context,
+          llm,
         ),
       });
     }
@@ -535,7 +540,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     input: Omit<AgentRunInput<T>, "onStep" | "resume">,
     abortSignal: AbortSignal,
     onDelta: AgentDeltaListener | undefined,
-    context: CraftContext,
+    llm: LlmService | undefined,
   ): AgentTurnExecutor {
     let last: AgentRun<T> | undefined;
     return {
@@ -545,7 +550,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         // no turns spent. `usage` is per turn for the same reason.
         const run = new AgentRun<T>({
           ...input,
-          ...chooseForTurn(input, overrides, context),
+          ...chooseForTurn(input, overrides, llm),
           resume: { messages: [...messages], turnsUsed: 0 },
           onStep,
         });
@@ -631,7 +636,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
 function chooseForTurn<T>(
   input: Omit<AgentRunInput<T>, "onStep" | "resume">,
   overrides: AgentSessionOverrides | undefined,
-  context: CraftContext,
+  llm: LlmService | undefined,
 ): Partial<AgentRunInput<T>> {
   if (overrides === undefined) return {};
   const chosen = applyOverrides(
@@ -646,7 +651,7 @@ function chooseForTurn<T>(
   );
   const model =
     chosen.model !== undefined && chosen.model !== input.model
-      ? { model: chosen.model, ...resolvedModelParts(chosen.model, context) }
+      ? { model: chosen.model, ...resolvedModelParts(chosen.model, llm) }
       : {};
   const options =
     chosen.reasoning === undefined ||
@@ -667,9 +672,9 @@ function withReasoning<O extends { reasoning?: LlmReasoningEffort }>(
 /** The provider config and model name a resolved model id maps to. */
 function resolvedModelParts(
   model: LlmModelId,
-  context: CraftContext,
+  llm: LlmService | undefined,
 ): Pick<AgentRunInput, "modelConfig" | "modelName"> {
-  const { config, modelName } = resolveModel(model, context);
+  const { config, modelName } = resolveModel(model, llm);
   return { modelConfig: config, modelName };
 }
 

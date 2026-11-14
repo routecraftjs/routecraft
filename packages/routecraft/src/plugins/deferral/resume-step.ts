@@ -1,22 +1,14 @@
 import { IDENTITY, type Identity } from "../../kernel/continuation/identity.ts";
 import { rcError } from "../../error.ts";
-import { anySignal } from "../../shared/abort.ts";
+import { RESUMES } from "../../dsl-symbol.ts";
 import {
   type Exchange,
   DefaultExchange,
   OperationType,
-  getExchangeContext,
-  getExchangeRoute,
 } from "../../exchange.ts";
-import { authorityOf } from "../../kernel/authority.ts";
-import { toSignalContext } from "../../types.ts";
-import type { Adapter, Step, StepContext, StepOutcome } from "../../types.ts";
-import {
-  type ResumeAcknowledgment,
-  type ResumeRequest,
-  reviveDeferral,
-} from "../../kernel/continuation/resume.ts";
-import { principalRef } from "../../kernel/continuation/principal-ref.ts";
+import type { Adapter, StepContext, StepOutcome } from "../../types.ts";
+import type { ResumingStep } from "../../kernel/continuation/sites.ts";
+import type { ResumeRequest } from "../../kernel/continuation/resume.ts";
 import type {
   ResumeAuthorizer,
   ResumeElevator,
@@ -35,7 +27,8 @@ import type {
 export type ResumeMapper<T = unknown> = (
   exchange: Exchange<T>,
   ctx?: { readonly signal?: AbortSignal },
-) => ResumeRequest | Promise<ResumeRequest>;
+) =>
+  Omit<ResumeRequest, "resumedBy"> | Promise<Omit<ResumeRequest, "resumedBy">>;
 
 /** Marker adapter for the resume step; the mapper lives on the step. */
 export interface ResumeAdapter extends Adapter {
@@ -126,7 +119,7 @@ export interface ResumeOptions {
  * returns the cached continuation result of the first one instead of running
  * anything.
  */
-export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
+export class ResumeStep<In = unknown> implements ResumingStep {
   readonly operation = OperationType.RESUME;
   readonly adapter: ResumeAdapter = {
     adapterId: "routecraft.operation.resume",
@@ -162,6 +155,10 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     }
   }
 
+  [RESUMES](): true {
+    return true;
+  }
+
   /** @internal */
   [IDENTITY](): Identity {
     return {
@@ -174,67 +171,28 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     };
   }
 
-  async execute(exchange: Exchange, ctx: StepContext): Promise<StepOutcome> {
-    const context = getExchangeContext(exchange);
-    if (!context) {
-      // Not RC5052: nothing is misconfigured. An exchange reaching a step
-      // without a context binding is a framework invariant violation, which
-      // is what the catch-all code is for.
+  async execute(exchange: Exchange, ctx?: StepContext): Promise<StepOutcome> {
+    if (!ctx?.resume) {
+      // Not RC5052: nothing is misconfigured. A resume step run outside the
+      // kernel has nothing to revive through.
       throw rcError("RC5001", undefined, {
         message:
-          "Cannot resume: this exchange has no context binding, so there is no deferral store to revive from.",
+          "Cannot resume: this step was run without the kernel's resume handle, so there is no deferral store to revive from.",
       });
     }
-
-    const signalCtx = toSignalContext(ctx) as {
-      readonly signal?: AbortSignal;
-    };
-    // The hook's bound is the route's intake signal (shutdown has begun) as
-    // well as an enclosing .timeout(): ctx.signal is populated only by a
-    // route-scope timeout, so
-    // racing the hook against that alone leaves a resume route without one
-    // unable to interrupt a hook that never settles, and an unsettled hook
-    // holds the step, which holds drain().
-    const route = getExchangeRoute(exchange);
-    const hookSignal = anySignal(route?.intakeSignal, signalCtx.signal);
-    // Only a principal this ingress verified live may stand as the resuming
-    // party. A revived exchange carries its deferred principal back marked
-    // restored, so a route that both defers and resumes would otherwise
-    // hand the hook storage data under a contract that says verified live.
-    const authority = authorityOf(exchange);
-    const claimed = authority.read(exchange);
-    const live =
-      claimed && !authority.isRestored(claimed) ? claimed : undefined;
+    // The mapper shapes a transport payload, which is what an attacker
+    // controls, so the door's own facts stay off its request: the hooks are
+    // passed beside it, the kernel names the resuming principal, and the
+    // mapper is handed the signal and nothing it could act with.
+    const signalCtx = ctx.signal ? { signal: ctx.signal } : {};
     const request = this.mapper
       ? await this.mapper(exchange as Exchange<In>, signalCtx)
       : fromBody(exchange);
-
-    const acknowledgment: ResumeAcknowledgment = await reviveDeferral(
-      context,
-      {
-        ...request,
-        // The ingress route's principal is the one worth recording: it was
-        // verified live here, on the route that accepted the submission,
-        // unlike anything read back out of the store. An explicit
-        // `resumedBy` from the mapper wins, for an ops tool resuming on
-        // someone's behalf.
-        ...(request.resumedBy === undefined && live
-          ? { resumedBy: principalRef(live) }
-          : {}),
-      },
-      // The door's own facts, kept OFF the mapper's request on purpose. The
-      // mapper shapes a transport payload, which is exactly what an attacker
-      // controls; letting it name the principal or supply the hook would let
-      // the untrusted half of an ingress choose what the trusted half checks.
-      {
-        ...(this.authorize !== undefined ? { authorize: this.authorize } : {}),
-        ...(this.elevate !== undefined ? { elevate: this.elevate } : {}),
-        ...(live ? { principal: live } : {}),
-        ...(hookSignal ? { signal: hookSignal } : {}),
-        ...(route ? { routeId: route.definition.id } : {}),
-        exchangeId: exchange.id,
-      },
-    );
+    const acknowledgment = await ctx.resume(request, {
+      ...(this.authorize !== undefined ? { authorize: this.authorize } : {}),
+      ...(this.elevate !== undefined ? { elevate: this.elevate } : {}),
+      ...(signalCtx.signal ? { signal: signalCtx.signal } : {}),
+    });
 
     return {
       kind: "continue",
@@ -251,7 +209,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
 
 /**
  * The convention fallback for a bare `.resume()`: the body is already
- * `{ token, result }`.
+ * `{ token, input: result }`.
  *
  * Refuses anything else rather than reviving with a token read out of a
  * shape it does not recognise, since the token is a bearer capability and a
@@ -259,18 +217,18 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
  *
  * @internal
  */
-function fromBody(exchange: Exchange): ResumeRequest {
-  const body = exchange.body as { token?: unknown; result?: unknown } | null;
+function fromBody(exchange: Exchange): Omit<ResumeRequest, "resumedBy"> {
+  const body = exchange.body as { token?: unknown; input?: unknown } | null;
   if (
     typeof body !== "object" ||
     body === null ||
     typeof body.token !== "string" ||
-    !("result" in body)
+    !("input" in body)
   ) {
     throw rcError("RC5041", undefined, {
       message:
-        "Bare .resume() expects the body to already be shaped { token, result }. Map it explicitly with .resume((ex) => ({ token, result })) when the ingress carries the payload in its own shape.",
+        "Bare .resume() expects the body to already be shaped { token, input }. Map it explicitly with .resume((ex) => ({ token, input })) when the ingress carries the payload in its own shape.",
     });
   }
-  return { token: body.token, result: body.result };
+  return { token: body.token, input: body.input };
 }

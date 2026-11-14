@@ -420,7 +420,7 @@ describe("argv() source", () => {
         craft()
           .id("payout")
           .from(argv())
-          .defer({ schema: z.object({ approved: z.boolean() }), ttl: "1h" })
+          .defer({ input: z.object({ approved: z.boolean() }), ttl: "1h" })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])

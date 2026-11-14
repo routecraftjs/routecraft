@@ -14,7 +14,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   setExchangeRoute,
-  setResumeStepState,
+  setRevival,
 } from "../../exchange.ts";
 import type { Route } from "../../route.ts";
 import type { Adapter, ExchangeScoped, Step } from "../../types.ts";
@@ -44,7 +44,7 @@ import {
   encodeOutcome,
 } from "./serialize.ts";
 import type { DetachedKind } from "../../pipeline/chain-policy.ts";
-import type { DeferSite } from "./sites.ts";
+import { type DeferSite, resolvedSitesOf } from "./sites.ts";
 import type { ErrorHook } from "../hooks.ts";
 import type { Principal } from "../../principal.ts";
 import { MAX_STORED_MESSAGE, resumable } from "./types.ts";
@@ -84,8 +84,8 @@ export const RENEWALS_PER_LEASE = 3;
 export interface ResumeRequest {
   /** The signed token minted when the exchange deferred. */
   token: string;
-  /** The submitted payload, validated against the deferring step's `schema`. */
-  result: unknown;
+  /** The submitted payload, validated against the deferring step's `input` schema. */
+  input: unknown;
   /**
    * Who resumed it. Defaults to the ingress exchange's own principal, which
    * is the value worth recording: it was verified live on the route that
@@ -321,7 +321,7 @@ export async function reviveDeferral(
   const hookInput = {
     principal: door.principal,
     deferred: deferredPrincipal(deferral, authority),
-    payload: request.result,
+    payload: request.input,
     record: recordView(deferral),
   };
   if (door.authorize) {
@@ -372,6 +372,16 @@ export async function reviveDeferral(
   }
 
   const site = findSite(context, route, deferral);
+  if (site === "ambiguous") {
+    return await refuseContinuation(
+      context,
+      runtime,
+      route,
+      deferral,
+      "ambiguous defer site",
+      `Route "${deferral.routeId}" has more than one defer site with the continuation this exchange was deferred with, and none of them is at position ${deferral.position} any more, so the site it parked at cannot be told apart.`,
+    );
+  }
   if (!site) {
     return await refuseContinuation(
       context,
@@ -393,21 +403,16 @@ export async function reviveDeferral(
       `Deferral "${id}" was parked by a release that digested steps differently, so it cannot be compared with route "${deferral.routeId}" as it is now.`,
     );
   }
-  // Keyed on `schemaIsLive`, not `site.schema`: a removed schema must still hash as absent.
   const liveSchema = site.schemaIsLive
     ? describeSchema(site.schema)
     : deferral.schema;
-  const current = continuationTailHash(
-    site.site.continuation,
-    liveSchema,
-    deferral.errorPath?.origin,
-  );
-  if (current !== deferral.continuationHash) {
+  if (liveTailHash(site, deferral) !== deferral.continuationHash) {
     const difference = continuationDifference(
       deferral.continuationHash,
       site.site.continuation,
       liveSchema,
       deferral.errorPath?.origin,
+      site.site.reentrant,
     );
     return await refuseContinuation(
       context,
@@ -420,9 +425,9 @@ export async function reviveDeferral(
   }
 
   // A Standard Schema cannot be persisted, so only the live one can validate.
-  let payload: unknown = request.result;
+  let payload: unknown = request.input;
   if (site.schema) {
-    const result = await validateAgainst(site.schema, request.result);
+    const result = await validateAgainst(site.schema, request.input);
     if (!result.ok) {
       const cause =
         door.routeId === undefined
@@ -489,17 +494,22 @@ export async function reviveDeferral(
   let continuation: SerializedOutcome;
   try {
     const exchange = rehydrate(context, route, deferral, {
-      result: payload,
+      input: payload,
       resumedAt,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
       ...(runAs ? { elevated: runAs } : {}),
     });
     // Internals, not headers: step state must not re-serialize into a second deferral.
-    if (site.site.reentrant && deferral.stepState !== undefined) {
-      setResumeStepState(
-        exchange,
-        decodePersistable(deferral.stepState, "stepState"),
-      );
+    // An error-path park re-enters the step that failed, which deferred nothing.
+    if (site.site.reentrant && !deferral.errorPath) {
+      setRevival(exchange, {
+        deferralId: id,
+        stepState:
+          deferral.stepState !== undefined
+            ? decodePersistable(deferral.stepState, "stepState")
+            : undefined,
+        input: payload,
+      });
     }
 
     // Set here rather than filled by `emit`: the resumed run has not entered
@@ -917,7 +927,7 @@ function rehydrate(
   route: Route,
   deferral: Deferral,
   resumption?: {
-    result: unknown;
+    input: unknown;
     resumedAt: Date;
     resumedBy?: PrincipalRef;
     /**
@@ -935,7 +945,7 @@ function rehydrate(
     [HeadersKeys.ROUTE_ID]: deferral.routeId,
     ...(resumption
       ? {
-          [DeferralHeaders.RESULT]: resumption.result,
+          [DeferralHeaders.INPUT]: resumption.input,
           [DeferralHeaders.RESUMED_AT]: resumption.resumedAt,
           ...(resumption.resumedBy
             ? { [DeferralHeaders.RESUMED_BY]: resumption.resumedBy }
@@ -1060,30 +1070,24 @@ async function runContinuation(
  * sites, and only for a record whose `errorPath` field says the error path
  * wrote it: every step carries an error-path site, a static `.defer()`
  * included, and an unguarded lookup would hand that step's own deferrals a
- * continuation that re-enters the defer. Lookups go by position because the
- * record carries a number; the walk is deterministic across processes.
+ * continuation that re-enters the defer.
  *
+ * Among the sites of the record's kind, the one whose continuation still
+ * digests to what the record stored is the site, wherever it now sits: a
+ * step added or removed before a defer point moves its position and
+ * nothing the approval covered. The position decides between several such
+ * sites, and is the fallback when none matches, so the comparison that
+ * follows can say which step changed.
+ *
+ * @returns `"ambiguous"` when several sites carry the stored continuation
+ *   and none is at the stored position
  * @internal
  */
 function findSite(
   context: CraftContext,
   route: Route,
   deferral: Deferral,
-):
-  | {
-      step?: Step<Adapter>;
-      site: DeferSite;
-      schema?: StandardSchemaV1;
-      /**
-       * The site's schema can be read back off the route TODAY: a static
-       * `.defer()` declares it on the step, and an error-path park on the
-       * `.error()` or the error hook that parked it. A re-entrant step raised
-       * its schema inside its own body, which the route cannot be asked
-       * about.
-       */
-      schemaIsLive?: boolean;
-    }
-  | undefined {
+): FoundSite | "ambiguous" | undefined {
   if (deferral.errorPath) {
     const schema = liveErrorPathSchema(
       context,
@@ -1099,34 +1103,76 @@ function findSite(
       const site = route.definition.admissionSite;
       return site ? { site, ...live } : undefined;
     }
-    const errorPathSite = findErrorPathSite(route, deferral.position);
-    if (errorPathSite) {
-      return { site: errorPathSite.site, step: errorPathSite.step, ...live };
+    const candidates: FoundSite[] = [];
+    for (const [step, resolved] of route.definition.errorPathSites ?? []) {
+      if (resolved.kind === "site") {
+        candidates.push({ site: resolved.site, step, ...live });
+      }
     }
-    return undefined;
+    return pickSite(candidates, deferral);
   }
-  for (const step of route.definition.deferSteps ?? []) {
-    if (step.site?.position === deferral.position) {
-      return {
-        step,
-        site: step.site,
-        schemaIsLive: true,
-        ...(step.schema !== undefined ? { schema: step.schema } : {}),
-      };
-    }
+  const candidates: FoundSite[] = [];
+  for (const [step, declared] of resolvedSitesOf(route.definition)?.declared ??
+    []) {
+    if (declared.kind !== "site") continue;
+    candidates.push(
+      declared.revival === "this-step"
+        ? { step, site: declared.site }
+        : {
+            step,
+            site: declared.site,
+            schemaIsLive: true,
+            ...(declared.input !== undefined ? { schema: declared.input } : {}),
+          },
+    );
   }
-  for (const host of route.definition.reentrantDeferSteps ?? []) {
-    if (host.deferSite?.position === deferral.position) {
-      return { step: host, site: host.deferSite };
-    }
-  }
-  return undefined;
+  return pickSite(candidates, deferral);
+}
+
+/** A defer site a record can be addressed against, with what is live of it. */
+interface FoundSite {
+  step?: Step<Adapter>;
+  site: DeferSite;
+  schema?: StandardSchemaV1;
+  /**
+   * The site's schema can be read back off the route TODAY: a static
+   * `.defer()` declares it on the step, and an error-path park on the
+   * `.error()` or the error hook that parked it. A re-entrant step raised
+   * its schema inside its own body, which the route cannot be asked
+   * about.
+   */
+  schemaIsLive?: boolean;
+}
+
+/** What a site's continuation digests to now, as the record's was digested. */
+function liveTailHash(found: FoundSite, deferral: Deferral): string {
+  // Keyed on `schemaIsLive`, not `found.schema`: a removed schema must still hash as absent.
+  return continuationTailHash(
+    found.site.continuation,
+    found.schemaIsLive ? describeSchema(found.schema) : deferral.schema,
+    deferral.errorPath?.origin,
+    found.site.reentrant,
+  );
+}
+
+function pickSite(
+  candidates: readonly FoundSite[],
+  deferral: Deferral,
+): FoundSite | "ambiguous" | undefined {
+  const atPosition = (found: FoundSite): boolean =>
+    found.site.position === deferral.position;
+  const unchanged = candidates.filter(
+    (found) => liveTailHash(found, deferral) === deferral.continuationHash,
+  );
+  if (unchanged.length === 1) return unchanged[0];
+  if (unchanged.length > 1) return unchanged.find(atPosition) ?? "ambiguous";
+  return candidates.find(atPosition);
 }
 
 /**
  * The schema an error-path park's resume payload is validated against, read
  * live off the handler that parked it: the route's `.error(handler, {
- * schema })` or the error hook the record names. A handler that declares
+ * input })` or the error hook the record names. A handler that declares
  * none, or that is gone, yields no schema, and the hash comparison that
  * follows decides whether that matches what was parked. A record written
  * before the handler was recorded falls back to the descriptor: the one
@@ -1142,37 +1188,12 @@ function liveErrorPathSchema(
   const hooks = context.errorHooks(route).decide;
   if (errorPath.handler !== undefined) {
     const parker = hooks.find((entry) => entry.id === errorPath.handler);
-    return parker ? (parker.hook as ErrorHook).schema : undefined;
+    return parker ? (parker.hook as ErrorHook).input : undefined;
   }
   const declared = [
     route.definition.errorPathSchema,
-    ...hooks.map((entry) => (entry.hook as ErrorHook).schema),
+    ...hooks.map((entry) => (entry.hook as ErrorHook).input),
   ].filter((schema): schema is StandardSchemaV1 => schema !== undefined);
   if (stored.absent) return declared[0];
   return declared.find((schema) => describeSchema(schema).hash === stored.hash);
-}
-
-/**
- * The error-path site stamped at `position`, if the route still has one
- * there.
- *
- * Kept apart from the two defer lists because it answers a different
- * question: those say the route CAN defer here, this says where a park
- * WOULD land. A record written for an error-path park is resolved from it
- * alone, so editing the route into or out of a defer site cannot silently
- * move a parked exchange onto a different continuation; the hash comparison
- * that follows catches the rest.
- *
- * @internal
- */
-function findErrorPathSite(
-  route: Route,
-  position: number,
-): { step: Step<Adapter>; site: DeferSite } | undefined {
-  for (const [step, resolved] of route.definition.errorPathSites ?? []) {
-    if (resolved.kind === "site" && resolved.site.position === position) {
-      return { step, site: resolved.site };
-    }
-  }
-  return undefined;
 }

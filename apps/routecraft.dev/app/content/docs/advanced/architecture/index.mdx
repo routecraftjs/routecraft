@@ -152,7 +152,7 @@ The [`restrict-principal-minting`](/docs/advanced/linting) lint rule flags every
 
 A route can park an exchange (`.defer()`) and resume it later by a signed token, across restarts. The kernel owns that protocol: writing the record, the door order a resume passes through, the compare-and-swap that makes a resume happen once, and retiring overdue records through the route's error channel.
 
-The kernel reaches storage only through `CONTINUATIONS`. The `routecraft.deferral` plugin (the `deferral` config key) provides it over a memory or SQLite store, mints and verifies resume tokens, and drives the kernel's sweep on its cadence through `c.execution.sweep()`. A plugin that installs with the same id takes its place, for a different store or a different cadence, and the protocol stays the kernel's.
+The kernel reaches storage only through `CONTINUATIONS`. The `routecraft.deferral` plugin (the `deferral` config key) provides it over a memory or SQLite store, mints and verifies resume tokens, and drives the kernel's sweep on its cadence through `c.continuations.sweep()`. A plugin that installs with the same id takes its place, for a different store or a different cadence, and the protocol stays the kernel's.
 
 ## Typing what a plugin adds
 

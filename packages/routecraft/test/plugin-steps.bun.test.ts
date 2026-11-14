@@ -560,7 +560,7 @@ describe("plugin step continuations across a restart", () => {
         craft()
           .id("answer")
           .from<{ readonly token: string }>(direct())
-          .resume((ex) => ({ token: ex.body.token, result: undefined })),
+          .resume((ex) => ({ token: ex.body.token, input: undefined })),
       ])
       .build();
     await booted.startAndWaitReady();

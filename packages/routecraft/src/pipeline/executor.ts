@@ -8,12 +8,12 @@ import {
   HeadersKeys,
   DefaultExchange,
   EXCHANGE_INTERNALS,
-  clearResumeStepState,
+  clearRevival,
   isDropped,
   isDeferredRun,
   OperationType,
-  peekResumeStepState,
-  setResumeStepState,
+  peekRevival,
+  setRevival,
   getStartedAt,
   setStartedAt,
 } from "../exchange.ts";
@@ -23,6 +23,19 @@ import {
   type RecoveryDefer,
 } from "../recovery.ts";
 import { deferExchange } from "../kernel/continuation/park.ts";
+import {
+  deferHandleFor,
+  deferWasRaised,
+  resumeFnFor,
+} from "../kernel/continuation/handles.ts";
+import { isDeferSignal } from "../kernel/continuation/signal.ts";
+import {
+  declaresResume,
+  deferDeclarationOf,
+  isDeferTicket,
+  mintDeferTicket,
+  resolvedSitesOf,
+} from "../kernel/continuation/sites.ts";
 import { DeferralHeaders } from "../kernel/continuation/exchange-state.ts";
 import { insufficientAuthorityOf } from "../authorization-refusal.ts";
 import { parseDuration } from "../shared/duration.ts";
@@ -338,7 +351,13 @@ export async function runPipeline(
 
   // takePending only collects survivors, so a filter-dropped split child
   // never leaves aggregate waiting.
-  const stepContext: StepContext = {
+  const resolvedSites = resolvedSitesOf(deps.route.definition);
+  const routeView = {
+    id: deps.routeId,
+    tags: routeTags(deps.route.definition),
+  };
+  const stepContext: Omit<StepContext, "forward"> = {
+    route: routeView,
     // Handed to steps so cancellation-aware IO stops on expiry, not just
     // the scheduling loop.
     ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
@@ -503,11 +522,48 @@ export async function runPipeline(
     }
 
     try {
-      const outcome = await step.execute(exchange, stepContext);
+      const stepExchange = exchange;
+      // Resolved by the walk for a built route; a hand-assembled one is asked directly.
+      const declared = resolvedSites
+        ? resolvedSites.declared.get(step)
+        : undefined;
+      const defers =
+        declared !== undefined ||
+        (resolvedSites === undefined && deferDeclarationOf(step) !== undefined);
+      const deferHandle = defers
+        ? deferHandleFor(deps.context, deps.routeId, stepExchange, declared)
+        : undefined;
+      const perStep: StepContext = {
+        ...stepContext,
+        forward: deps.buildForward(stepExchange),
+        ...(deferHandle ? { defer: deferHandle } : {}),
+        ...(declaresResume(step)
+          ? { resume: resumeFnFor(deps.context, deps.route, stepExchange) }
+          : {}),
+      };
+      // Same conversion as executeStep, inline so a step costs no extra tick.
+      let outcome: StepOutcome;
+      try {
+        outcome = await step.execute(stepExchange, perStep);
+      } catch (err) {
+        if (!isDeferSignal(err)) throw err;
+        outcome = {
+          kind: "defer",
+          exchange: stepExchange,
+          request: err.ticket,
+        };
+      }
+      if (deferHandle && outcome?.kind !== "defer") {
+        if (deferWasRaised(deferHandle)) {
+          throw rcError("RC5032", undefined, {
+            message: `Step "${stepLabel}" called ctx.defer() and then returned, so the exchange would have run on past the point it asked to stop at. Await or return the call, and let its rejection through any catch (isDeferSignal).`,
+          });
+        }
+      }
       if (step === admissionStep) pendingSourceParse = false;
       if (step === lastPreAdmission) admitted = true;
       // Cleared only on a settled step, so a thrown attempt keeps the state for its retry.
-      clearResumeStepState(exchange);
+      clearRevival(exchange);
 
       switch (outcome?.kind) {
         case "continue":
@@ -530,9 +586,9 @@ export async function runPipeline(
         case "drop":
           break;
         case "defer": {
-          if (!outcome.request) {
+          if (!isDeferTicket(outcome.request)) {
             throw rcError("RC5032", undefined, {
-              message: `Step "${stepLabel}" returned a "defer" outcome without a defer request, so the engine cannot work out what to defer or what would resume.`,
+              message: `Step "${stepLabel}" returned a "defer" outcome the kernel did not issue. A step defers by declaring DEFERS and calling ctx.defer(), which carries where the exchange resumes.`,
             });
           }
           // A cancelled run must not leave a live resume link its caller saw fail.
@@ -541,10 +597,17 @@ export async function runPipeline(
               message: `Step "${stepLabel}" raised a deferral after its run was cancelled; nothing was deferred.`,
             });
           }
+          // Intake as well as the run's own signal, so stop can interrupt a notify hook that never settles.
+          const notifySignal =
+            outcome.request.notify !== undefined
+              ? anySignal(deps.route.intakeSignal, deps.abortSignal)
+              : undefined;
           const deferred = await deferExchange(
             deps.context,
             outcome.exchange,
-            outcome.request,
+            notifySignal
+              ? { ...outcome.request, notifySignal }
+              : outcome.request,
             deps.routeId,
             deps.abortSignal,
           );
@@ -996,7 +1059,7 @@ async function runErrorSlot(
         admitted: args.admitted,
         ...(args.failingStep ? { failingStep: args.failingStep } : {}),
         handler: entry.id,
-        ...(handler.schema ? { schema: handler.schema } : {}),
+        ...(handler.input ? { schema: handler.input } : {}),
       });
     } catch (thrown) {
       const handlerErr = processError(thrown);
@@ -1130,7 +1193,7 @@ async function applyErrorDecision(
  * not make never reaches the record and its `notify` never runs:
  *
  * - the failing position cannot be revived (`RC5051`), which is exactly the
- *   set a `DeferSignal` is refused from;
+ *   set a `ctx.defer()` is refused from;
  * - the failure was raised after admission at a position the walk does not
  *   address (`RC5051`), which is a framework-owned carrier around the
  *   pipeline: a route-scope `.timeout()` raising its deadline, a bulkhead
@@ -1240,7 +1303,7 @@ async function parkFromErrorPath(
   return await deferExchange(
     deps.context,
     args.exchange,
-    {
+    mintDeferTicket({
       site,
       ...(notifySignal ? { notifySignal } : {}),
       ...(schema !== undefined ? { schema } : {}),
@@ -1256,7 +1319,7 @@ async function parkFromErrorPath(
         handler: args.handler,
         ...(refused ? { refusedScopes: refused } : {}),
       },
-    },
+    }),
     deps.routeId,
     cancellation,
   );
@@ -1345,7 +1408,7 @@ function buildPositionStep(
     skipStepEvents: true,
     execute(exchange, ctx) {
       const abandon = ctx?.signal ?? deps.abortSignal;
-      const resumeSnapshot = peekResumeStepState(exchange);
+      const revival = peekRevival(exchange);
       return position.run({
         routeId: deps.routeId,
         scope: "route",
@@ -1358,9 +1421,7 @@ function buildPositionStep(
         forward: deps.buildForward(exchange),
         emit: (event, details) => deps.context.emit(event, details),
         async attempt(signal) {
-          if (resumeSnapshot !== undefined) {
-            setResumeStepState(exchange, resumeSnapshot);
-          }
+          if (revival !== undefined) setRevival(exchange, revival);
           return segmentResultToOutcome(
             await runPipeline(
               nestedDeps(deps, segment, {

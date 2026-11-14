@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { toSignalContext } from "../src/types.ts";
 import {
   testContext,
   testSubscription,
@@ -703,7 +704,7 @@ describe("Directory Adapter - Enricher (list mid-route)", () => {
 
     const fetching = adapter.fetch(
       { body: undefined, headers: {} } as unknown as Exchange,
-      { signal: controller.signal },
+      toSignalContext({ signal: controller.signal }),
     );
 
     await expect(fetching).rejects.toThrow(/aborted before completion/);

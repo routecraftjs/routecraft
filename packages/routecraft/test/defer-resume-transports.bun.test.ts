@@ -104,7 +104,7 @@ describe("defer and resume across transports", () => {
         craft()
           .id("payout")
           .from(http({ path: "/payouts", method: "POST" }))
-          .defer({ schema: Approval, ttl: "72h" })
+          .defer({ input: Approval, ttl: "72h" })
           .transform(() => ({ paid: true }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -135,7 +135,7 @@ describe("defer and resume across transports", () => {
 
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: body.token,
-      result: { approved: true },
+      input: { approved: true },
     })) as { status: string; continuation: { status: string; body: unknown } };
     expect(acknowledgment.status).toBe("resumed");
     expect(acknowledgment.continuation.body).toEqual({ paid: true });
@@ -169,7 +169,7 @@ describe("defer and resume across transports", () => {
           .choice(
             when<{ amountCents: number }>(
               (ex) => ex.body.amountCents >= 50_000,
-              (b) => b.defer({ schema: Approval }),
+              (b) => b.defer({ input: Approval }),
             ),
             otherwise((b) => b),
           )
@@ -225,11 +225,11 @@ describe("defer and resume across transports", () => {
           .tap((ex) => {
             deferred.push(ex.deferral.token);
           })
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .tap((ex) => {
             continued.push({
               from: ex.headers["routecraft.mail.from"],
-              approved: ex.deferral.result.approved,
+              approved: ex.deferral.input.approved,
             });
           })
           .to(noop()),
@@ -240,7 +240,7 @@ describe("defer and resume across transports", () => {
             const body = ex.body as { token: string; verdict: string };
             return {
               token: body.token,
-              result: { approved: body.verdict === "yes" },
+              input: { approved: body.verdict === "yes" },
             };
           })
           .transform(() => ({ recorded: true }))
@@ -276,7 +276,7 @@ describe("defer and resume across transports", () => {
         craft()
           .id("queued")
           .from(queueSource({ amountCents: 90_000 }, settled))
-          .defer({ schema: Approval })
+          .defer({ input: Approval })
           .to(noop()),
       ])
       .build();

@@ -9,6 +9,8 @@ import type { CraftContext } from "../../context.ts";
 import { port } from "../../kernel/port.ts";
 import { isRoutecraftError } from "../../brand.ts";
 import { rcError } from "../../error.ts";
+import type { Exchange } from "../../exchange.ts";
+import { lookupOf } from "../../kernel/application.ts";
 import type { CarddavClientManager } from "./client-manager.ts";
 
 /** Default CardDAV server for iCloud Contacts. */
@@ -112,11 +114,17 @@ export function getClientManager(
   return context.lookup(CARDDAV) ?? null;
 }
 
-/** Get the CarddavClientManager, throwing RC5003 when it is absent. */
+/** The manager of the application an exchange runs in, when it has carddav configuration. */
+export function clientManagerOf(
+  exchange: Exchange,
+): CarddavClientManager | null {
+  return lookupOf(exchange, CARDDAV) ?? null;
+}
+
+/** The manager, or RC5003 when the application has no carddav configuration. */
 export function requireClientManager(
-  context: CraftContext | undefined,
+  manager: CarddavClientManager | null,
 ): CarddavClientManager {
-  const manager = getClientManager(context);
   if (!manager) {
     throw rcError("RC5003", undefined, {
       message:
