@@ -1,10 +1,11 @@
 import {
-  logger as frameworkLogger,
+  defaultLogger,
   authorityOf,
   isStandardSchema,
   type Authority,
   parseDuration,
   rcError,
+  type Logger,
   type Principal,
 } from "@routecraft/routecraft";
 import {
@@ -77,9 +78,10 @@ export function makeFnHandlerContext(
   correlationId: string | undefined,
   authority: Authority,
   exchangeId?: string,
+  logger: Logger = defaultLogger(),
 ): FnHandlerContext {
   const hctx: FnHandlerContext = {
-    logger: frameworkLogger.child({ tool: toolName }),
+    logger: logger.child({ tool: toolName }),
     abortSignal,
     ...(correlationId !== undefined ? { correlationId } : {}),
     ...(exchangeId !== undefined ? { exchangeId } : {}),

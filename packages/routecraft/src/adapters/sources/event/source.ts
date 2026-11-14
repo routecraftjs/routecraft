@@ -33,7 +33,7 @@ import type { EventFilter } from "./types";
  * craft()
  *   .id("step-metrics")
  *   .from(event("route:step:completed"))
- *   .to(log())
+ *   .log("info", "Done")
  *
  * // Failed exchanges of one route only
  * craft()

@@ -49,7 +49,7 @@ craft()
   .id('periodic-summary')
   .from(timer({ interval: 60_000 }))
   .to(agent('summariser'))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be registered via `llmPlugin({ providers: {...} })`. There is no inline-credentials escape hatch on `agent({...})`; centralised wiring via `llmPlugin` is the only path.

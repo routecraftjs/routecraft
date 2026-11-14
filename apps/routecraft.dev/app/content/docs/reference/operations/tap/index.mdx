@@ -19,7 +19,7 @@ The tap receives a **deep copy** of the exchange with:
 
 ```ts skip="fragment: not a complete statement on its own"
 // Simple function-based tapping
-.tap(log()) // Built-in logging
+.tap((ex) => metrics.count(ex.headers['routecraft.route'])) // Fire-and-forget side effect
 .tap((exchange) => console.log('Processing:', exchange.body))
 .tap(async (exchange) => await sendNotification(exchange.body))
 

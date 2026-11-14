@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { craft, direct, log } from "@routecraft/routecraft";
+import { craft, direct, noop } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   agentPlugin,
@@ -46,7 +46,7 @@ function switchableRoute(id: string, flag: { on: boolean }) {
     .description("List the monitors.")
     .input(z.object({}))
     .from(direct())
-    .to(log());
+    .to(noop());
 }
 
 describe("agent tools follow route enablement", () => {
@@ -205,7 +205,7 @@ describe("directTool fns over a disabled route", () => {
           .enabled(() => "BARE_TOKEN is unset", { refresh: "1h" })
           .input(z.object({}))
           .from(direct())
-          .to(log()),
+          .to(noop()),
       ])
       .with({
         plugins: [agentPlugin({ functions: { bare: directTool("bare") } })],
@@ -229,7 +229,7 @@ describe("directTool fns over a disabled route", () => {
           .input(z.object({}))
           .from(direct())
           .defer({ schema: z.object({ ok: z.boolean() }) })
-          .to(log()),
+          .to(noop()),
       ])
       .with({
         deferral: {},

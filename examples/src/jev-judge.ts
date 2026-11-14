@@ -231,7 +231,7 @@ const callerRoute = craft()
       passAt: 0.9,
     }),
   )
-  .to(direct<JudgeRequest>("judge-agent-result"))
-  .log();
+  .to(direct<JudgeRequest, Judgement>("judge-agent-result"))
+  .log("info", "Caller received verdict", (ex) => ({ verdict: ex.body }));
 
 export default [judgeRoute, callerRoute];

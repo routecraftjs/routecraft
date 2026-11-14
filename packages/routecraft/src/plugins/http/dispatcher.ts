@@ -1,7 +1,7 @@
 import { jsonResponse, missingCredentialResponse } from "./response.ts";
 import { callerRefusalResponse } from "./caller-refusal.ts";
 import { anySignal } from "../../shared/abort.ts";
-import { logger as defaultLogger } from "../../logger";
+import { defaultLogger, type Logger } from "../../logger";
 import {
   type Exchange,
   type ExchangeHeaders,
@@ -130,8 +130,8 @@ export interface DispatcherOptions {
    * observability surface as credential failures.
    */
   onSignatureRejected?: (reason: HttpWebhookSignatureRejection) => void;
-  /** Optional logger; defaults to the framework logger. */
-  logger?: typeof defaultLogger;
+  /** Where the dispatcher logs. Default `defaultLogger()`. */
+  logger?: Logger;
 }
 
 /**
@@ -147,7 +147,7 @@ export function createDispatcher(
   authenticate?: () => Promise<AuthResult | undefined>,
   claimStreamingSlot?: () => (() => void) | undefined,
 ) => Promise<Response> {
-  const log = opts.logger ?? defaultLogger;
+  const log = opts.logger ?? defaultLogger();
 
   return async function dispatch(
     req: Request,

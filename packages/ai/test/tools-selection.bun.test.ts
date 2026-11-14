@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
-import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
+import { craft, direct, isRoutecraftError, noop } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, tools } from "../src/index.ts";
 import { currentTimeFn, randomUuidFn } from "./helpers/fn-fixtures.ts";
@@ -76,7 +76,7 @@ describe("tools() resolver - bare references", () => {
           .description("Fetch an order by id.")
           .input(inputSchema)
           .from(direct())
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -115,7 +115,7 @@ describe("tools() resolver - bare references", () => {
           .description("Route description.")
           .input(z.object({}))
           .from(direct())
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -404,7 +404,7 @@ describe("tools() resolver - builder form", () => {
           .input(z.object({}))
           .tag("read-only")
           .from(direct())
-          .to(log()),
+          .to(noop()),
       ])
       .build();
     await t.startAndWaitReady();

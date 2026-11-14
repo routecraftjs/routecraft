@@ -53,7 +53,7 @@ craft()
     const card = VCard.wrap(body)
     return { name: card.text('FN'), email: card.text('EMAIL') }
   })
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 
 craft().from(carddav({ account: 'work', addressBook: 'Colleagues', limit: 500 })).to(...)
 ```

@@ -12,7 +12,6 @@ import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
   simple,
-  log,
   noop,
   DefaultExchange,
   getExchangeContext,
@@ -629,7 +628,7 @@ describe("Route Behavior", () => {
         craft()
           .id("aggregate-direct-test")
           .from(simple("original"))
-          .tap(log())
+          .tap(noop())
           .aggregate((exchanges) => {
             return {
               ...exchanges[0],

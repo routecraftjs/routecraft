@@ -21,7 +21,7 @@ Install as a devDependency. Requires `@routecraft/routecraft`. No test runner de
 ```typescript
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { testContext, type TestContext } from '@routecraft/testing';
-import { craft, simple, log } from '@routecraft/routecraft';
+import { craft, simple } from '@routecraft/routecraft';
 
 describe('send-email capability', () => {
   let t: TestContext | undefined;
@@ -34,7 +34,7 @@ describe('send-email capability', () => {
     const capability = craft()
       .id('send-email')
       .from(simple({ to: 'user@example.com', subject: 'Hello' }))
-      .to(log());
+      .log('info', 'Mail queued', (ex) => ({ to: ex.body.to }));
 
     // Pass your runner's mock factory for native matcher support
     // (vi.fn for Vitest, mock from bun:test). Omit { fn } to use the

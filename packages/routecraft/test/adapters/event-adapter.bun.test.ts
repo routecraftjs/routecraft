@@ -8,9 +8,9 @@ import {
   craft,
   direct,
   event,
-  log,
   simple,
   type EventName,
+  noop,
 } from "@routecraft/routecraft";
 import { EventSourceAdapter } from "../../src/adapters/sources/event/index.ts";
 
@@ -41,7 +41,7 @@ describe("Event Source Adapter", () => {
     const triggerRoute = craft()
       .id("trigger-route")
       .from(simple("test"))
-      .to(log());
+      .to(noop());
 
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
@@ -78,7 +78,7 @@ describe("Event Source Adapter", () => {
     const triggerRoute = craft()
       .id("trigger-route-2")
       .from(simple("test"))
-      .to(log());
+      .to(noop());
 
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
@@ -109,7 +109,7 @@ describe("Event Source Adapter", () => {
     const triggerRoute = craft()
       .id("trigger-route-3")
       .from(simple("test"))
-      .to(log());
+      .to(noop());
 
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
@@ -152,7 +152,7 @@ describe("Event Source Adapter", () => {
     const triggerRoute = craft()
       .id("trigger-route-4")
       .from(simple("test"))
-      .to(log());
+      .to(noop());
 
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
@@ -221,7 +221,7 @@ describe("Event Source Adapter", () => {
     const triggerRoute = craft()
       .id("trigger-route-5")
       .from(simple("test"))
-      .to(log());
+      .to(noop());
 
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
@@ -265,7 +265,7 @@ describe("Event Source Adapter", () => {
     const workRoute = craft()
       .id("work-route")
       .from(simple([1, 2, 3]))
-      .to(log());
+      .to(noop());
 
     t = await testContext().routes([monitorRoute, workRoute]).build();
 
@@ -385,7 +385,7 @@ describe("Event Source Adapter", () => {
     const triggerRoute = craft()
       .id("trigger-route-6")
       .from(simple("test"))
-      .to(log());
+      .to(noop());
 
     t = await testContext().routes([eventRoute, triggerRoute]).build();
 
@@ -409,7 +409,7 @@ describe("Event Source Adapter", () => {
       "route:step:completed",
       seen,
     );
-    const worker = craft().id("step-worker").from(simple("go")).to(log());
+    const worker = craft().id("step-worker").from(simple("go")).to(noop());
 
     t = await testContext().routes([watcher, worker]).build();
     await t.test();
@@ -430,7 +430,7 @@ describe("Event Source Adapter", () => {
       "route:exchange:completed",
       seen,
     );
-    const worker = craft().id("exchange-worker").from(simple("go")).to(log());
+    const worker = craft().id("exchange-worker").from(simple("go")).to(noop());
 
     t = await testContext().routes([watcher, worker]).build();
     await t.test();
@@ -457,7 +457,7 @@ describe("Event Source Adapter", () => {
           (ex.body as { details: { routeId: string } }).details.routeId,
         );
       });
-    const worker = craft().id("forwarded-worker").from(simple("go")).to(log());
+    const worker = craft().id("forwarded-worker").from(simple("go")).to(noop());
 
     t = await testContext().routes([watcher, sink, worker]).build();
     await t.test();

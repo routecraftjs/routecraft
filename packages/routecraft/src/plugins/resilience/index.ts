@@ -82,6 +82,7 @@ export const resilienceProvider: ResiliencePositions = {
                 : `for step "${run.stepLabel}"`,
             ),
           () => run.attempt(run.abandon),
+          run.exchange.logger,
         );
       },
     };

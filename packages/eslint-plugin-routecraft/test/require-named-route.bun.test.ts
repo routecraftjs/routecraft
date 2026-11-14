@@ -29,11 +29,11 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
   valid: [
     {
       code: `
-        import { craft, simple, log } from "@routecraft/routecraft";
+        import { craft, simple, noop } from "@routecraft/routecraft";
         export default craft()
           .id("user-processor")
           .from(simple({ userId: 1 }))
-          .to(log());
+          .to(noop());
       `,
     },
     {
@@ -42,7 +42,7 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
           .id("complex-route")
           .from(timer({ interval: 5000 }))
           .transform((x) => x * 2)
-          .to(log());
+          .to(noop());
       `,
     },
     {
@@ -67,7 +67,7 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
           .metadata({ version: "1.0" })
           .from(simple())
           .transform(x => x)
-          .to(log());
+          .to(noop());
       `,
     },
   ],
@@ -76,7 +76,7 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
       code: `
         craft()
           .from(simple({ userId: 1 }))
-          .to(log());
+          .to(noop());
       `,
       errors: [{ messageId: "missingId" }],
     },
@@ -91,7 +91,7 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
         craft()
           .id("")
           .from(simple())
-          .to(log());
+          .to(noop());
       `,
       errors: [{ messageId: "missingId" }],
     },
@@ -100,7 +100,7 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
         craft()
           .id("   ")
           .from(timer())
-          .to(log());
+          .to(noop());
       `,
       errors: [{ messageId: "missingId" }],
     },
@@ -109,15 +109,15 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
         craft()
           .from(simple())
           .id("late-id")
-          .to(log());
+          .to(noop());
       `,
       errors: [{ messageId: "missingId" }],
     },
     {
       code: `
-        const route1 = craft().id("valid").from(simple()).to(log());
+        const route1 = craft().id("valid").from(simple()).to(noop());
         const route2 = craft().from(timer()).to(noop());
-        const route3 = craft().id("also-valid").from(direct()).to(log());
+        const route3 = craft().id("also-valid").from(direct()).to(noop());
       `,
       errors: [{ messageId: "missingId" }],
     },
@@ -127,7 +127,7 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
         craft()
           .id(routeName)
           .from(simple())
-          .to(log());
+          .to(noop());
       `,
       errors: [{ messageId: "missingId" }],
     },
@@ -136,7 +136,7 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
         craft()
           .id(getName())
           .from(timer())
-          .to(log());
+          .to(noop());
       `,
       errors: [{ messageId: "missingId" }],
     },
@@ -146,7 +146,7 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
           .metadata({ version: "1.0" })
           .from(simple())
           .transform(x => x)
-          .to(log());
+          .to(noop());
       `,
       errors: [{ messageId: "missingId" }],
     },

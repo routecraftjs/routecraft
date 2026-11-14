@@ -1,4 +1,4 @@
-import { log, craft, simple, http, direct } from "@routecraft/routecraft";
+import { craft, simple, http, direct } from "@routecraft/routecraft";
 import { z } from "zod";
 
 const GreetInput = z.object({ userId: z.number() });
@@ -22,7 +22,7 @@ const greetRoute = craft()
     }),
   )
   .transform((result) => `Hello, ${result.body.name}!`)
-  .to(log());
+  .log("info", "Greeting built", (ex) => ({ greeting: ex.body }));
 
 // "hello-world" caller: dispatches a user id to the greet service.
 const helloWorldRoute = craft()

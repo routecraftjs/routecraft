@@ -1,5 +1,6 @@
 import type { SqliteConnection } from "./sqlite-connection.ts";
-import type { TelemetryEvent, TelemetryLogger } from "./types.ts";
+import type { Logger } from "../logger.ts";
+import type { TelemetryEvent } from "./types.ts";
 
 /**
  * Upper bound on events retained in memory while flushes keep failing. A
@@ -18,7 +19,7 @@ const MAX_BUFFERED_EVENTS = 10_000;
  * External backends derive the same view from trace data.
  */
 export class SqliteEventWriter {
-  private readonly logger: TelemetryLogger | undefined;
+  private readonly logger: Pick<Logger, "warn"> | undefined;
   private readonly batchSize: number;
   private readonly flushIntervalMs: number;
   private readonly insertStmt: { run(...params: unknown[]): unknown };

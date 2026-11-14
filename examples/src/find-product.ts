@@ -3,7 +3,6 @@ import {
   direct,
   noop,
   only,
-  log,
   simple,
   json,
 } from "@routecraft/routecraft";
@@ -64,6 +63,6 @@ const lookupRoute = craft()
   .id("lookup")
   .from(simple<FindProduct>({ id: "GIZMO-C" }))
   .to(direct<FindProduct>("find-product"))
-  .to(log());
+  .log("info", "Product found", (ex) => ({ product: ex.body }));
 
 export default [findProductRoute, lookupRoute];

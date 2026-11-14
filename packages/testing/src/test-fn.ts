@@ -1,7 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   isStandardSchema,
-  logger as defaultLogger,
+  defaultLogger,
+  type Logger,
   parseDuration,
   rcError,
   validateAgainst,
@@ -28,7 +29,7 @@ export interface TestFnSpec<TIn, TOut> {
  * structural contract.
  */
 export interface TestFnHandlerContext {
-  logger: ReturnType<typeof defaultLogger.child>;
+  logger: Logger;
   abortSignal: AbortSignal;
   /**
    * Structural twin of the production `ctx.defer`: returns a sentinel
@@ -67,8 +68,8 @@ export interface TestFnDeferSentinel {
 export interface TestFnOptions {
   /** Caller-supplied abort signal. Defaults to a never-firing signal. */
   signal?: AbortSignal;
-  /** Caller-supplied logger. Defaults to a child of the framework logger bound to `{ test: "fn" }`. */
-  logger?: ReturnType<typeof defaultLogger.child>;
+  /** Caller-supplied logger. Defaults to a child of `defaultLogger()` bound to `{ test: "fn" }`. */
+  logger?: Logger;
 }
 
 /**
@@ -115,7 +116,7 @@ export async function testFn<TIn, TOut>(
   }
 
   const ctx: TestFnHandlerContext = {
-    logger: options.logger ?? defaultLogger.child({ test: "fn" }),
+    logger: options.logger ?? defaultLogger().child({ test: "fn" }),
     abortSignal: options.signal ?? new AbortController().signal,
     defer: (deferOptions) => {
       // Same refusal as the production ctx.defer (RC5003 from

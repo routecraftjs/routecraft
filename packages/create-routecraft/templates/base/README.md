@@ -92,7 +92,7 @@ none, so a scheduled run is a small route of its own that builds the input and c
 capability through `direct()`.
 
 ```ts
-import { craft, direct, log } from "@routecraft/routecraft";
+import { craft, direct } from "@routecraft/routecraft";
 import { mcp } from "@routecraft/ai";
 
 export default craft()
@@ -101,7 +101,7 @@ export default craft()
   .description("What an agent reads before it decides to call this")
   .from(direct(), mcp())
   .transform((body) => body)
-  .to(log());
+  .log("info", "Done", (ex) => ({ result: ex.body }));
 ```
 
 Delete `capabilities/hello-world` once you no longer need it, and this file with it.

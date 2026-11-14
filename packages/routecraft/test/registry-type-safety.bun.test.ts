@@ -145,7 +145,7 @@ describe("to() body type preservation", () => {
 
   /**
    * @case chaining after void to() retains original body type
-   * @preconditions .from(simple("test")).to(log()).transform(...)
+   * @preconditions .from(simple("test")).to(noop()).transform(...)
    * @expectedResult transform receives string, not void
    */
   test("chaining after void to() retains original body", () => {

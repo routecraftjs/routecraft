@@ -15,7 +15,7 @@ import {
   getExchangeContext,
   port,
   type Exchange,
-  type PluginLogger,
+  type Logger,
 } from "@routecraft/routecraft";
 import type { AgentSurfaceRef } from "./header.ts";
 import type { AgentSurfaceConnection, SurfaceRequest } from "./types.ts";
@@ -110,7 +110,7 @@ export interface SurfaceState {
   /** Recently cancelled turns, oldest first, bounded. */
   readonly cancelledTurns: Set<string>;
   /** Where a cleanup sent after the turn ended reports, since nothing awaits it. */
-  readonly logger: Pick<PluginLogger, "debug" | "warn">;
+  readonly logger: Pick<Logger, "debug" | "warn">;
 }
 
 /**

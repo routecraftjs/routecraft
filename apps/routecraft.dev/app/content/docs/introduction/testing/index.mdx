@@ -47,9 +47,9 @@ describe("hello-world", () => {
 
     expect(httpMock.calls.send).toHaveLength(1);
     const logged = (t.logger.info as ReturnType<typeof mock>).mock.calls.find(
-      (call) => call[1] === "LogAdapter output",
+      (call) => call[1] === "Greeting built",
     );
-    expect(logged?.[0].body).toBe("Hello, Leanne Graham!");
+    expect(logged?.[0].greeting).toBe("Hello, Leanne Graham!");
   });
 });
 ```
@@ -91,9 +91,9 @@ describe("hello-world", () => {
 
     expect(httpMock.calls.send).toHaveLength(1);
     const logged = (t.logger.info as ReturnType<typeof vi.fn>).mock.calls.find(
-      (call) => call[1] === "LogAdapter output",
+      (call) => call[1] === "Greeting built",
     );
-    expect(logged?.[0].body).toBe("Hello, Leanne Graham!");
+    expect(logged?.[0].greeting).toBe("Hello, Leanne Graham!");
   });
 });
 ```
@@ -287,7 +287,7 @@ const httpMock = mockAdapter(http, {
 
 The factory form is nicer when the factory covers a single role. The class form is required when the factory has no tag or when you want to target one specific role of a multi-role factory. Both forms can be mixed on the same `testContext()`.
 
-In-process adapters like `direct()`, `simple()`, `log()`, and `noop()` do not talk to an external system. Use `spy()` or drive inputs directly for those.
+In-process adapters like `direct()`, `simple()`, and `noop()` do not talk to an external system. Use `spy()` or drive inputs directly for those.
 
 ## Common testing patterns
 
@@ -332,38 +332,30 @@ expect(spyAdapter.calls.send).toBe(1);
 
 ### Assert on log output
 
-`testContext().build()` returns a test context whose `t.logger` is a spy. Use it to assert on pino log calls (e.g. from `.to(log())` or adapter logging):
+`testContext().build()` returns a test context whose `t.logger` is a spy. Use it to assert on log calls, from a `.log()` step or from an adapter:
 
 ```ts
 import { testContext } from "@routecraft/testing";
-import { craft, simple, log } from "@routecraft/routecraft";
+import { craft, simple } from "@routecraft/routecraft";
 import { expect, test } from "vitest";
 
 test('logs messages correctly', async () => {
   const route = craft()
     .id("log-test")
     .from(simple("Hello, World!"))
-    .to(log());
+    .log("info", "Greeting built", (ex) => ({ greeting: ex.body }));
 
   const t = await testContext().routes(route).build();
   await t.test();
 
-  expect(t.logger.info.mock.calls.length).toBeGreaterThan(0);
-  const loggedMessage = t.logger.info.mock.calls[0][1];
-  expect(loggedMessage).toContain("Hello, World!");
+  expect(t.logger.info.mock.calls).toContainEqual([
+    { greeting: "Hello, World!" },
+    "Greeting built",
+  ]);
 });
 ```
 
-**Tip:** Use `spy()` adapter instead of `log()` when you need more control over assertions.
-
-Filter logs by route id (from `LogAdapter` headers):
-
-```ts skip="fragment: t is illustrative"
-const infoCalls = t.logger.info.mock.calls.map((c) => c[0]);
-const logsForRoute = infoCalls.filter(
-  (arg) => typeof arg === "object" && arg != null && "headers" in arg && (arg as any).headers?.["routecraft.route"] === "channel-adapter-1",
-);
-```
+**Tip:** `t.logger` receives the lines routes and exchanges write, and `t.contextLogger` the ones the context and its plugins write. Two test contexts alive at once each see only their own. To assert on what a route produced rather than what it logged, use the `spy()` adapter.
 
 ### Test custom sources that await the final exchange
 
@@ -524,7 +516,7 @@ A first exchange that failed exits non-zero. The [CLI reference](/docs/reference
 
 - Hanging tests: use `await t.test()` for standard flows, or ensure you `await t.ctx.stop()` and then `await execution` when driving lifecycle manually.
 - Flaky timers: prefer fake timers or increase the wait to 100 to 200ms.
-- No logs captured: ensure your route includes `.to(log())` and assert on `t.logger.info` (or `t.logger.warn` / `t.logger.debug`) after `await t.test()`.
+- No logs captured: ensure your route has a `.log()` step and assert on `t.logger.info` (or `t.logger.warn` / `t.logger.debug`) after `await t.test()`.
 - Errors in tests: check `t.errors` after `await t.test()`; Routecraft errors are collected automatically.
 
 ---

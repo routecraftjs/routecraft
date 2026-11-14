@@ -23,7 +23,7 @@ capabilities
 
 ```ts
 // capabilities/invoice-status/route.ts
-import { craft, direct, http, log } from "@routecraft/routecraft";
+import { craft, direct, http } from "@routecraft/routecraft";
 import { mcp } from "@routecraft/ai";
 import { z } from "zod";
 
@@ -46,7 +46,7 @@ export default craft()
     }),
   )
   .transform((result) => result.body)
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 ```
 
 Everything before `.from()` describes the capability. Everything after it is the work, run in the order written.
@@ -88,7 +88,7 @@ A file may hold more than one capability, which suits a capability and the small
 
 ```ts
 // capabilities/hello-world/route.ts
-import { craft, direct, log, simple } from "@routecraft/routecraft";
+import { craft, direct, simple } from "@routecraft/routecraft";
 import { z } from "zod";
 
 const GreetInput = z.object({ name: z.string() });
@@ -99,7 +99,7 @@ const greet = craft()
   .input({ body: GreetInput })
   .from(direct())
   .transform((body) => `Hello, ${body.name}!`)
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 
 const helloWorld = craft()
   .id("hello-world")

@@ -18,11 +18,8 @@
  * bearer is the identity every imported route runs under.
  */
 
-import type {
-  Plugin,
-  PluginContext,
-  PluginLogger,
-} from "../../kernel/plugin.ts";
+import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
+import type { Logger } from "../../logger.ts";
 import { rcError } from "../../error";
 import type { Capability } from "../../capabilities";
 import { sanitizeEndpoint } from "../../adapters/direct/shared";
@@ -81,7 +78,7 @@ interface RemoteRuntime {
 
 /** What every remote of one application reconciles against. */
 interface Host {
-  logger: PluginLogger;
+  logger: Logger;
   /** The application's direct endpoints, where imported routes are installed. */
   direct: DirectRegistry;
   /** Imported routes holding their endpoint, by local endpoint. */
@@ -336,9 +333,7 @@ async function reconcile(host: Host, remote: RemoteRuntime): Promise<void> {
     // The last inventory stays: a remote that blinks must not take every
     // imported endpoint with it, and a dispatch against a route that is
     // truly gone finds out at the door and forces the next refresh.
-    const log = remote.down ? host.logger.debug : host.logger.warn;
-    log.call(
-      host.logger,
+    host.logger[remote.down ? "debug" : "warn"](
       { remote: name, url: remote.definition.url, err: error },
       `Remote "${name}" inventory could not be read; keeping the last inventory (${String(remote.channels.size)} routes)`,
     );
@@ -362,9 +357,7 @@ async function reconcile(host: Host, remote: RemoteRuntime): Promise<void> {
     install(host, remote, endpoint, detail);
   }
 
-  const log = remote.seen ? host.logger.debug : host.logger.info;
-  log.call(
-    host.logger,
+  host.logger[remote.seen ? "debug" : "info"](
     { remote: name, url: remote.definition.url, routes: details.length },
     `Remote "${name}" inventory read: ${String(details.length)} dispatchable routes`,
   );

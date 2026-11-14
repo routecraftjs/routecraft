@@ -8,7 +8,7 @@ import {
   fetchMessages,
   markMessagesSeen,
   throwMailConnectionError,
-  type MailFetchLogger,
+  type MailLogger,
 } from "./shared.ts";
 
 /**
@@ -74,12 +74,7 @@ export class MailEnricherAdapter implements Enricher<unknown, MailFetchResult> {
     try {
       await client.mailboxOpen(folder);
       if (usePool) manager!.trackMailbox(account, client, folder);
-      const logger: MailFetchLogger | undefined = context?.logger
-        ? {
-            debug: (obj, msg) => context.logger.debug(obj, msg),
-            warn: (obj, msg) => context.logger.warn(obj, msg),
-          }
-        : undefined;
+      const logger: MailLogger | undefined = context?.logger;
       const messages = await fetchMessages(client, resolved, folder, logger);
 
       // The fetch role has no post-commit hook, so mark Seen here.

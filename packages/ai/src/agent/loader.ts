@@ -1,4 +1,4 @@
-import { logger, rcError } from "@routecraft/routecraft";
+import { defaultLogger, rcError } from "@routecraft/routecraft";
 import {
   optionalBoolean,
   optionalEnum,
@@ -284,7 +284,7 @@ function toolSelection(
   // must not fail quietly.
   for (const ref of denied) {
     if (!refs.some((granted) => isDeniedBy(granted, ref))) {
-      logger.warn(
+      defaultLogger().warn(
         `Markdown file "${source}": "disallowedTools" names "${ref}", which is not in "tools", so the entry removes nothing. Check the spelling.`,
       );
     }
@@ -299,7 +299,7 @@ function toolSelection(
       if (!registered.has(name) && CLAUDE_BUILTIN_TOOLS.has(name)) {
         if (!warned.has(name)) {
           warned.add(name);
-          logger.warn(
+          defaultLogger().warn(
             `Markdown file "${source}": tool "${name}" is a Claude Code built-in this runtime does not provide; skipping it for this agent.`,
           );
         }
@@ -512,7 +512,7 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
       });
     }
     if (!SUPPORTED_AGENT_KEYS.has(key)) {
-      logger.warn(
+      defaultLogger().warn(
         `Markdown file "${source}": frontmatter field "${key}" is not supported and was ignored. Supported fields: ${[...SUPPORTED_AGENT_KEYS].sort().join(", ")}.`,
       );
     }
@@ -769,7 +769,7 @@ export async function agents(
       // later, so warning here would cry wolf on the common path. An
       // override is no signal either way: it may set blocks that have
       // nothing to do with the declared skills.
-      logger.debug(
+      defaultLogger().debug(
         `Markdown file "${loaded.source}": frontmatter "skills" needs the house and bundle folders to resolve, which agents() is not given, so this call did not load it. The project runtime resolves it; from a direct agents() call, attach skills with the "blocks" override.`,
       );
     }

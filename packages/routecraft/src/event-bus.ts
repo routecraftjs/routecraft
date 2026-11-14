@@ -1,15 +1,7 @@
+import type { Logger } from "./logger.ts";
 import { rcError } from "./error.ts";
 import type { EventHandler, EventName, EventPayload } from "./types.ts";
 import { isThenable } from "./shared/thenable.ts";
-
-/**
- * Minimal logging surface the bus needs for handler-error reporting.
- * Matches the pino child logger used by `CraftContext`.
- */
-type EventBusLogger = {
-  warn(obj: unknown, msg?: string): void;
-  error(obj: unknown, msg?: string): void;
-};
 
 /**
  * In-process event bus backing `CraftContext.on/once/emit`.
@@ -36,7 +28,7 @@ export class EventBus {
 
   constructor(
     private readonly contextId: string,
-    private readonly logger: EventBusLogger,
+    private readonly logger: Pick<Logger, "warn" | "error">,
   ) {}
 
   /**

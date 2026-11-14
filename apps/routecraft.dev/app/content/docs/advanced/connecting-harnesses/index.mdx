@@ -76,7 +76,7 @@ craft()
   .from(cron("0 8 * * 1"))
   .enrich(direct("find-overdue-invoices")) // the team harness's capability
   .enrich(direct("lab:forecast")) //           a second remote, qualified
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 ```
 
 The same names work everywhere a capability does. In an agent's tool list, `Direct(find-overdue-invoices)` grants one, and `Remote(lab)` grants every capability the `lab` remote exposes. From a terminal, `craft exec find-overdue-invoices` runs it once the laptop opens its own ops `dispatch` tier. The remote's input schema is advertised to your agents as the team harness renders it, and validation runs where the schema lives: at the team harness's door.

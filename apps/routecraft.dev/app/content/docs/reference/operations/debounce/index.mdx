@@ -17,7 +17,7 @@ Suppress bursts of exchanges, releasing only the **last** one in a burst after a
 .from(file({ path: './config', watch: true }))
 .debounce({ wait: 500 }) // wait for editing to finish
 .process(reloadConfig)
-.to(log())
+.log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 Each arrival is held (not passed downstream) and resets a `wait` quiet timer; a newer arrival supersedes and drops the one being held. When the timer finally fires, the held exchange is released through the steps that follow `.debounce()`.

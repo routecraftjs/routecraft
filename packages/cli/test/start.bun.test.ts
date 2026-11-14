@@ -14,7 +14,8 @@ import { dirname, join } from "node:path";
 // Silence logger output. Bun:test has no `importActual`/spread-and-override
 // equivalent for `mock.module`, so spy on the live `logger` singleton
 // directly. Spies are installed once and restored after all tests.
-const { logger } = await import("@routecraft/routecraft");
+const { defaultLogger } = await import("@routecraft/routecraft");
+const logger = defaultLogger();
 const { startCommand } = await import("../src/start");
 
 /**
@@ -89,8 +90,8 @@ describe("CLI start command", () => {
 
   function routeFile(id: string): string {
     return [
-      `import { craft, simple, log } from "@routecraft/routecraft";`,
-      `export default craft().id(${JSON.stringify(id)}).from(simple("hi")).to(log());`,
+      `import { craft, simple, noop } from "@routecraft/routecraft";`,
+      `export default craft().id(${JSON.stringify(id)}).from(simple("hi")).to(noop());`,
       "",
     ].join("\n");
   }
@@ -107,11 +108,11 @@ describe("CLI start command", () => {
       "craft.config.ts": EMPTY_CONFIG,
       "capabilities/healthy.ts": routeFile("healthy"),
       "capabilities/broken.ts": [
-        `import { craft, log } from "@routecraft/routecraft";`,
+        `import { craft, noop } from "@routecraft/routecraft";`,
         `const exploding = {`,
         `  subscribe() { throw new Error("source refused to start"); },`,
         `};`,
-        `export default craft().id("broken").from(exploding).to(log());`,
+        `export default craft().id("broken").from(exploding).to(noop());`,
         "",
       ].join("\n"),
     });
@@ -138,12 +139,12 @@ describe("CLI start command", () => {
     const root = makeProject({
       "craft.config.ts": EMPTY_CONFIG,
       "capabilities/throws.ts": [
-        `import { craft, simple, log } from "@routecraft/routecraft";`,
+        `import { craft, simple, noop } from "@routecraft/routecraft";`,
         `export default craft()`,
         `  .id("throws")`,
         `  .from(simple("hi"))`,
         `  .transform(() => { throw new Error("exchange blew up"); })`,
-        `  .to(log());`,
+        `  .to(noop());`,
         "",
       ].join("\n"),
     });
@@ -351,8 +352,8 @@ describe("CLI start command", () => {
     const root = makeProject({
       "craft.config.ts": EMPTY_CONFIG,
       "capabilities/inbox.ts": [
-        `import { craft, direct, log } from "@routecraft/routecraft";`,
-        `export default craft().id("inbox").from(direct()).to(log());`,
+        `import { craft, direct, noop } from "@routecraft/routecraft";`,
+        `export default craft().id("inbox").from(direct()).to(noop());`,
         "",
       ].join("\n"),
       "capabilities/tick.ts": routeFile("tick"),
@@ -372,8 +373,8 @@ describe("CLI start command", () => {
     const root = makeProject({
       "craft.config.ts": EMPTY_CONFIG,
       "capabilities/inbox.ts": [
-        `import { craft, direct, log } from "@routecraft/routecraft";`,
-        `export default craft().id("inbox").from(direct()).to(log());`,
+        `import { craft, direct, noop } from "@routecraft/routecraft";`,
+        `export default craft().id("inbox").from(direct()).to(noop());`,
         "",
       ].join("\n"),
     });

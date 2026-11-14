@@ -34,7 +34,7 @@ import { when, otherwise } from "@routecraft/routecraft";
 .to(audit); // runs for urgent and review; skipped for otherwise (halted)
 ```
 
-Each branch is a path: either a bare destination or a sub-pipeline callback `(b) => b...`. Sub-pipeline branches support the full set of pipeline operations available on the main route: `to()`, `transform()`, `enrich()`, `filter()`, `header()`, `tap()`, `process()`, `validate()`, plus the sugar methods `log()`, `debug()`, `map()`, and `schema()`. The only path-specific op is `halt()`, which short-circuits convergence. Route-level operations (`id`, `batch`, `error`, `from`, `split`, `aggregate`, `choice`, `build`) are deliberately not exposed inside branches because they either configure the route itself or fan out in ways that break the "branch converges" model.
+Each branch is a path: either a bare destination or a sub-pipeline callback `(b) => b...`. Sub-pipeline branches support the full set of pipeline operations available on the main route: `to()`, `transform()`, `enrich()`, `filter()`, `header()`, `tap()`, `process()`, `validate()`, plus the sugar methods `log()`, `map()`, and `schema()`. The only path-specific op is `halt()`, which short-circuits convergence. Route-level operations (`id`, `batch`, `error`, `from`, `split`, `aggregate`, `choice`, `build`) are deliberately not exposed inside branches because they either configure the route itself or fan out in ways that break the "branch converges" model.
 
 ## Branch output types
 

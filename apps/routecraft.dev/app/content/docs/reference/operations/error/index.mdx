@@ -30,7 +30,7 @@ The error handler can:
 craft()
   .id('with-error-handler')
   .error((error, exchange) => {
-    exchange.logger.error(error, 'Step failed');
+    exchange.logger.error({ err: error }, 'Step failed');
   })
   .from(source())
   .process(mightFail)

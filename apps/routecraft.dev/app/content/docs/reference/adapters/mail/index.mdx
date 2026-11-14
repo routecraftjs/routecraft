@@ -34,7 +34,7 @@ The source follows the payload-on-`body`, envelope-on-`headers` convention share
 craft()
   .id('inbox-watcher')
   .from(mail('INBOX', { markSeen: true }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 
 // Read the envelope off headers, the content off the body.
 craft()
@@ -42,7 +42,7 @@ craft()
   .from(mail('INBOX', { markSeen: true }))
   .filter((ex) => ex.headers['routecraft.mail.from']?.endsWith('@acme.test') ?? false)
   .transform((body) => body.text ?? '')
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 **Source delivery modes:** the source runs in one of two modes.
@@ -87,14 +87,14 @@ craft()
   .id('check-inbox')
   .from(cron('0 */5 * * * *'))
   .enrich(mail('INBOX'))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 
 // Object form: `folder` is required and marks the fetch intent
 craft()
   .id('check-unread')
   .from(cron('0 */5 * * * *'))
   .enrich(mail({ folder: 'INBOX', unseen: true, limit: 10 }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 **Send destination (SMTP):** Call with no arguments or client options (no `folder`) to send email. The exchange body must be a `MailSendPayload`. The send is void: the body flows through the `.to()` step unchanged, and the send receipt lands on headers (`routecraft.mail.sentMessageId`, `routecraft.mail.accepted`, `routecraft.mail.rejected`, `routecraft.mail.response`; see [send receipt headers](#send-receipt-headers)). The inbound `routecraft.mail.messageId` (set by the source) is left untouched, so mail-to-mail routes keep their correlation id.
@@ -179,12 +179,12 @@ export const craftConfig: CraftConfig = {
 ```ts skip="multi-file: imports a sibling file the page describes in prose"
 // capabilities/inbox-watcher.ts
 export { craftConfig } from '../craft.config'
-import { craft, mail, log } from '@routecraft/routecraft'
+import { craft, mail } from '@routecraft/routecraft'
 
 export default craft()
   .id('inbox-watcher')
   .from(mail('INBOX', { markSeen: true }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 When multiple accounts are configured, select one per adapter call with the `account` option:
@@ -314,7 +314,7 @@ craft()
     }
     return { reason: s?.reason ?? 'no sender info' };
   })
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 **`MailSendPayload` (exchange body for `.to(mail())`):**

@@ -48,7 +48,7 @@ export type DirectoryChunkedAdapter<T = unknown> = Source<DirectoryEntry> &
  *     file({ path: (ex) => ex.body.path }),
  *     only((content: string) => content, "content"),
  *   )
- *   .to(log());
+ *   .log("info", "Done");
  * ```
  */
 export function directory<T = unknown>(
@@ -106,7 +106,7 @@ export function directory<T = unknown>(
  *     file({ path: (ex) => ex.body.path }),
  *     only((content: string) => content, "content"),
  *   )
- *   .to(log());
+ *   .log("info", "Done");
  *
  * // List a directory mid-route, e.g. inside a direct() capability
  * craft()
@@ -114,7 +114,7 @@ export function directory<T = unknown>(
  *   .from(direct())
  *   .to(directory({ path: "./notes", recursive: true }))
  *   .transform((entries) => entries.filter((e) => e.ext === ".md"))
- *   .to(log());
+ *   .log("info", "Done");
  * ```
  */
 export function directory<T = unknown>(

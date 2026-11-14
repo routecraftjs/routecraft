@@ -534,14 +534,49 @@ A failure the route's own `.error()` did not settle reaches the `error` slot, wh
 
 ## Logging configuration
 
-Logging uses a single pino instance configured at module load. Precedence (highest wins):
+Every line a context writes goes to one root logger. The context's, each capability's, each plugin's and each exchange's logger are children of it, so a line carries its scope without your adding it: every line has `contextId`, a route's lines add `route`, and an exchange's lines add `exchangeId` and `correlationId`.
+
+### Your own logger
+
+Hand the project a logger and nothing is read from the environment:
+
+```ts
+// craft.config.ts
+import { createLogger, defineProject } from '@routecraft/routecraft'
+
+export default defineProject({
+  logger: createLogger({ level: 'info', stream: 'stderr' }),
+})
+```
+
+`logger` takes anything that satisfies `Logger`: `child(bindings)`, `isLevelEnabled(level)`, the six level methods (`trace` to `fatal`, each called as `(bindings, message)` or `(message)`) and an optional `flush()`, which `context.stop()` calls and waits on for up to two seconds, whether it returns a promise or takes a callback as pino's does. A [pino](https://getpino.io) logger fits as it is, so `logger: pino({ level: 'info' })` works with no adapter. A logger must never throw.
+
+`createLogger(options)` builds the logger Routecraft ships:
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `level` | `'trace' \| 'debug' \| 'info' \| 'warn' \| 'error' \| 'fatal' \| 'silent'` | `'warn'` | The lowest level written |
+| `file` | `string` | none | Append NDJSON to this file instead of a standard stream |
+| `stream` | `'stdout' \| 'stderr'` | `'stdout'` | The standard stream written to when no file is named |
+| `redact` | `string[]` | none | Paths to redact, in pino's syntax, added to the defaults below |
+| `pretty` | `boolean` | `false` | Human-readable lines through the optional peer `pino-pretty`; [`RC5017`](/docs/reference/errors#rc-5017) when it is not installed. Ignored with `file` |
+
+Lines are written synchronously, so none is lost when the process exits right after.
+
+### Redaction
+
+Every logger `createLogger` and the default build redacts the headers that carry a credential, on a line that logs `headers`: `headers.authorization`, `headers.cookie`, `headers["set-cookie"]` and `headers["proxy-authorization"]`. A configured `redact` adds to that list and never replaces it. A logger of your own redacts what you tell it to: `DEFAULT_REDACT` exports the same list, so `pino({ redact: [...DEFAULT_REDACT] })` starts from it.
+
+### The default logger
+
+With no `logger` configured, the context uses `defaultLogger()`, built on its first use, not when the package is imported. Precedence (highest wins):
 
 1. **Environment variables**: `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`, `LOG_REDACT` / `CRAFT_LOG_REDACT` (comma-separated paths to redact), `LOG_STREAM` / `CRAFT_LOG_STREAM` (`stdout` or `stderr`: the standard stream used when no file is named; `craft run` sets `stderr` unless you set it)
 2. **Config file in cwd**: `craft.log.cjs` or `craft.log.js` in the current working directory
 3. **Config file in home**: `craft.log.cjs` or `craft.log.js` in `~/.routecraft/`
-4. **Defaults**: level `"warn"`, stdout (stderr under `craft run`), no redact
+4. **Defaults**: level `"warn"`, stdout (stderr under `craft run`), the credential headers redacted
 
-The config file exports a **native pino options object** (e.g. `level`, `redact`, `formatters`, `transport`). Env vars are merged on top, so env always wins.
+The config file sets `level`, `file` and `redact`, and nothing else in it is read. For any other pino option, build the logger yourself and pass it as `logger`.
 
 Example `craft.log.js` (or `craft.log.cjs` in a CommonJS project):
 
@@ -553,7 +588,11 @@ export default {
 };
 ```
 
-When using the CLI, pass `--log-level` or `--log-file` to set the corresponding env var before the logger initializes, so CLI flags override any config file. The env files the CLI loads are in place before the logger initializes too, and a flag beats them.
+A `LOG_LEVEL` that names no level is reported on stderr and ignored. Lines are pretty-printed when `pino-pretty` is installed, no file is named and `NODE_ENV` is unset or `development`; `PINO_PRETTY=1` asks for that outright.
+
+Code that runs outside any context, such as a module-level helper, calls `defaultLogger()` itself. Inside one, use `context.logger`, `exchange.logger` or a plugin's `host.logger`.
+
+When using the CLI, pass `--log-level` or `--log-file` to set the corresponding env var before the logger is built, so CLI flags override any config file. The env files the CLI loads are in place before the logger is built too, and a flag beats them.
 
 A log file that cannot be opened for appending is handled differently by the two entry points. The CLI refuses to start and names the path. An embedding application is never stopped by its logger, so there the logs go to a file of the same name in the system temporary directory, or to stderr when that fails too.
 

@@ -6,7 +6,7 @@ import type { ExchangeHeaders } from "../exchange.ts";
 import { OperationType } from "../exchange.ts";
 import type { ForwardFn } from "../route.ts";
 import type { Adapter, Step } from "../types.ts";
-import type { PluginLogger } from "./plugin.ts";
+import type { Logger } from "../logger.ts";
 
 /**
  * The slots of the route chain, in order. Positions sit between them and
@@ -460,7 +460,7 @@ export class HookTable {
       readonly points?: readonly PointDeclaration[];
     }[],
     private readonly config: HooksConfig,
-    private readonly logger: PluginLogger,
+    private readonly logger: Logger,
   ) {
     for (const plugin of plugins) {
       for (const point of plugin.points ?? []) {

@@ -3,7 +3,7 @@
  *
  * Kept apart from `runtime-gate.ts` because the entry point checks for Bun
  * before anything else, and that check must not load core: `runtime-gate.ts`
- * reads the version with core's parser, and loading core builds the logger.
+ * reads the version with core's parser.
  */
 
 export const INSTALL_URL = "https://bun.com/docs/installation";

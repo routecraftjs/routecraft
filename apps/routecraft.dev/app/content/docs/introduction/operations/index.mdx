@@ -17,7 +17,7 @@ craft()
   .transform((body) => normalise(body))
   .filter((ex) => ex.body.amount > 0)
   .enrich(http({ url: '/inventory' }))
-  .tap(log())
+  .log('info', 'Seen', (ex) => ({ body: ex.body }))
   .to(destination)
 ```
 

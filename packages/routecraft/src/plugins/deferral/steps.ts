@@ -154,7 +154,7 @@ export interface DeferralStepMethods<S extends BuilderState, This> {
    *     token: tokenFrom(ex.headers["routecraft.mail.subject"]),
    *     result: { approved: /^yes/i.test(ex.body.text ?? "") },
    *   }))
-   *   .to(log())
+   *   .log("info", "Done")
    * ```
    */
   resume(

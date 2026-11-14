@@ -8,9 +8,9 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   simple,
-  log,
   telemetry,
   SqliteConnection,
+  noop,
 } from "@routecraft/routecraft";
 import { SqliteEventWriter } from "../src/telemetry/sqlite-event-writer.ts";
 import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
@@ -61,7 +61,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("test-route")
       .from(simple([1]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -84,7 +84,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("schema-test")
       .from(simple([1]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -118,7 +118,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("wal-test")
       .from(simple([1]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -147,7 +147,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("recorded-route")
       .from(simple([1, 2]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -185,7 +185,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("exchange-test")
       .from(simple([10, 20, 30]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -226,7 +226,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("events-test")
       .from(simple([1]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -257,7 +257,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("snap-off")
       .from(simple([1]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -305,7 +305,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("snap-on")
       .from(simple([1]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -347,7 +347,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("custom-path")
       .from(simple([1]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -373,7 +373,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("teardown-test")
       .from(simple([1, 2]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -404,7 +404,7 @@ describe("TelemetryPlugin", () => {
     const route = craft()
       .id("no-sqlite")
       .from(simple([1]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .with({ plugins: [plugin] })
       .routes(route)
@@ -437,7 +437,11 @@ describe("TelemetryPlugin", () => {
     const warnings: string[] = [];
     const conn = await SqliteConnection.open(
       { dbPath },
-      { warn: (_bindings, message) => warnings.push(message) },
+      {
+        warn: (_bindings: unknown, message?: string) => {
+          warnings.push(message ?? "");
+        },
+      },
       {
         bun: () => Promise.reject(new Error("no bun:sqlite here")),
         node: () => Promise.reject(new Error("no better-sqlite3 here")),

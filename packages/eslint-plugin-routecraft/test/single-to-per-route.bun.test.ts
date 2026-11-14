@@ -29,17 +29,17 @@ ruleTester.run("single-to-per-route", singleToPerRouteRule, {
   valid: [
     {
       code: `
-        import { craft, simple, log } from "@routecraft/routecraft";
+        import { craft, simple, noop } from "@routecraft/routecraft";
         craft()
           .from(simple(['a', 'b']))
-          .to(log());
+          .to(noop());
       `,
     },
     {
       code: `
         craft()
           .from(simple(1))
-          .tap(log())
+          .tap(noop())
           .to(dest);
       `,
     },
@@ -55,9 +55,9 @@ ruleTester.run("single-to-per-route", singleToPerRouteRule, {
       code: `
         craft()
           .from(simple(1))
-          .to(log())
+          .to(noop())
           .from(simple(2))
-          .to(log());
+          .to(noop());
       `,
     },
     {
@@ -69,10 +69,10 @@ ruleTester.run("single-to-per-route", singleToPerRouteRule, {
   invalid: [
     {
       code: `
-        import { craft, simple, log } from "@routecraft/routecraft";
+        import { craft, simple, noop } from "@routecraft/routecraft";
         craft()
           .from(simple([1,2,3]))
-          .to(log())
+          .to(noop())
           .to(dest);
       `,
       errors: [{ messageId: "multipleToPerRoute" }],
@@ -91,7 +91,7 @@ ruleTester.run("single-to-per-route", singleToPerRouteRule, {
       code: `
         craft()
           .from(simple(1))
-          .to(log())
+          .to(noop())
           .from(simple(2))
           .to(a)
           .to(b);

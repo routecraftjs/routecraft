@@ -55,13 +55,13 @@ The CLI handles graceful shutdown on `SIGINT` / `SIGTERM` (a repeated one is ign
 
 ```typescript
 // capabilities/timer-ping.ts
-import { craft, timer, log } from '@routecraft/routecraft';
+import { craft, timer } from '@routecraft/routecraft';
 
 export default craft()
   .id('timer-ping')
   .from(timer({ interval: "1s" }))
   .transform((ex) => ({ timestamp: Date.now() }))
-  .to(log());
+  .log('info', 'Done', (ex) => ({ result: ex.body }));
 ```
 
 ```bash

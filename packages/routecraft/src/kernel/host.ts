@@ -1,10 +1,10 @@
+import type { Logger } from "../logger.ts";
 import { isReservedFacet } from "./facets.ts";
 import { rcError } from "../error.ts";
 import {
   namespaceOf,
   type Plugin,
   type PluginContext,
-  type PluginLogger,
   type PluginRoutes,
   type Execution,
 } from "./plugin.ts";
@@ -18,7 +18,7 @@ import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
  * @internal
  */
 export interface HostEnvironment {
-  readonly logger: PluginLogger;
+  readonly logger: Logger;
   readonly routes: PluginRoutes;
   readonly execution: Execution;
   observe<K extends EventName>(

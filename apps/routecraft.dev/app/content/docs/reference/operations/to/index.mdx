@@ -19,7 +19,7 @@ Hand the exchange to a destination or enricher. Resolution follows the role mode
 A destination's `send` is strictly void: the body flows through the `.to()` step untouched. A send that produces a receipt (a message id, an etag, a created-resource URL) surfaces it via the `SendContext` header sink, and the step merges the collected headers onto the continuing exchange.
 
 ```ts skip="fragment: a chain shown without its route"
-.to(log()) // Log the final result; body unchanged
+.to(noop()) // Discard the final result; body unchanged
 .to(file({ path: './out.txt' })) // Write the body to a file; body unchanged
 .to(mail()) // SMTP send; receipt lands on routecraft.mail.* headers
 .to(async (exchange) => {
@@ -67,7 +67,7 @@ The function form receives the `SendContext` as its second argument; use `ctx.se
 // Mix sends and fetches
 .to(saveToDB) // Send: void, body unchanged
 .to(http({ url: 'https://api.example.com/enrich' })) // Fetch: body becomes HttpResult
-.to(log()) // Send: logs the HttpResult, body unchanged
+.to(noop()) // Send: nothing is returned, body unchanged
 ```
 
 **Note:** Unlike `.enrich()`, `.to()` takes no aggregator. A fetch result completely replaces the body; use `.enrich()` with `only()` or a custom aggregator when you want to merge.

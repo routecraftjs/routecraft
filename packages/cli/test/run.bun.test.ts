@@ -13,10 +13,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 // Silence logger output. Bun:test has no `importActual`/spread-and-override
-// equivalent for `mock.module`, so spy on the live `logger` singleton
+// equivalent for `mock.module`, so spy on the live default logger
 // directly. Pino-style loggers are mutable. Spies are installed once and
-// restored after all tests so the singleton is clean for other test files.
-const { logger } = await import("@routecraft/routecraft");
+// restored after all tests so the logger is clean for other test files.
+const { defaultLogger } = await import("@routecraft/routecraft");
+const logger = defaultLogger();
 const runModule = await import("../src/run");
 
 describe("CLI run command", () => {
@@ -77,8 +78,8 @@ describe("CLI run command", () => {
       await writeFile(
         f,
         `
-        import { craft, simple, log } from "@routecraft/routecraft";
-        export default craft().id("x").from(simple("y")).to(log());
+        import { craft, simple, noop } from "@routecraft/routecraft";
+        export default craft().id("x").from(simple("y")).to(noop());
       `,
       );
       const { runCommand } = runModule;
@@ -124,9 +125,9 @@ describe("CLI run command", () => {
     await writeFile(
       "with-config.js",
       `
-      import { craft, simple, log } from "@routecraft/routecraft";
+      import { craft, simple, noop } from "@routecraft/routecraft";
       export const craftConfig = { };
-      export default craft().id("x").from(simple("y")).to(log());
+      export default craft().id("x").from(simple("y")).to(noop());
     `,
     );
     const { runCommand } = runModule;
@@ -143,8 +144,8 @@ describe("CLI run command", () => {
     await writeFile(
       "route-builder.js",
       `
-      import { craft, simple, log } from "@routecraft/routecraft";
-      export default craft().id("test-route").from(simple("test")).to(log());
+      import { craft, simple, noop } from "@routecraft/routecraft";
+      export default craft().id("test-route").from(simple("test")).to(noop());
     `,
     );
     const { runCommand } = runModule;
@@ -161,9 +162,9 @@ describe("CLI run command", () => {
     await writeFile(
       "route-builder-array.js",
       `
-      import { craft, simple, log } from "@routecraft/routecraft";
-      const route1 = craft().id("route-1").from(simple("test1")).to(log());
-      const route2 = craft().id("route-2").from(simple("test2")).to(log());
+      import { craft, simple, noop } from "@routecraft/routecraft";
+      const route1 = craft().id("route-1").from(simple("test1")).to(noop());
+      const route2 = craft().id("route-2").from(simple("test2")).to(noop());
       export default [route1, route2];
     `,
     );

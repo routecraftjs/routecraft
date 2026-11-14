@@ -29,7 +29,7 @@ craft()
     token: tokenFrom(ex.headers['routecraft.mail.subject']),
     result: { approved: /^yes/i.test(ex.body.text ?? '') },
   }))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 
 // Fallback: the body is already shaped { token, result }.
 craft().id('resume-api').from(http({ path: '/resume', method: 'POST' })).resume()
@@ -96,7 +96,7 @@ craft()
     authorize: ({ principal, deferred, payload, record }) =>
       yourPolicy(principal, deferred, payload, record),
   })
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 | Argument | What it is |

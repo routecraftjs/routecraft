@@ -1,3 +1,4 @@
+import { isRoutecraftError } from "../../brand.ts";
 import { rcError } from "../../error.ts";
 
 /**
@@ -37,11 +38,18 @@ export function loadOptionalPeer<T>(
       // <our peer>" hint.
       throw cause;
     }
-    throw rcError("RC5017", cause, {
-      message:
-        `${ctx.consumer} requires the optional peer dependency "${ctx.packageName}". ` +
-        `Install it: bun add ${ctx.packageName} (or npm install ${ctx.packageName}).`,
-    });
+    throw missingPeer(cause, ctx);
+  });
+}
+
+function missingPeer(
+  cause: unknown,
+  ctx: { consumer: string; packageName: string },
+): Error {
+  return rcError("RC5017", cause, {
+    message:
+      `${ctx.consumer} requires the optional peer dependency "${ctx.packageName}". ` +
+      `Install it: bun add ${ctx.packageName} (or npm install ${ctx.packageName}).`,
   });
 }
 
@@ -90,5 +98,37 @@ function isMissingExpectedPackage(
   });
 }
 
+/**
+ * Whether `error` is the `RC5017` that {@link loadOptionalPeer} and
+ * {@link loadOptionalPeerSync} raise for a package that is not installed.
+ *
+ * @internal
+ */
+export function isMissingOptionalPeer(error: unknown): boolean {
+  return isRoutecraftError(error) && error.rc === "RC5017";
+}
+
 /** Quote characters a runtime may wrap a specifier in. */
 const QUOTES = ["'", '"'] as const;
+
+/**
+ * {@link loadOptionalPeer} for a caller that cannot wait: a `require` behind
+ * a thunk, with the same `RC5017` for an absent package and the same
+ * rethrow for any other failure. Use it only where the result is needed
+ * before the caller can return, as the logger's and the csv parser's are.
+ *
+ * @param loader - Thunk that performs the `require("...")` call
+ * @param ctx - The subsystem that wanted the package, and the package
+ * @returns What the thunk returned
+ */
+export function loadOptionalPeerSync<T>(
+  loader: () => T,
+  ctx: { consumer: string; packageName: string },
+): T {
+  try {
+    return loader();
+  } catch (cause: unknown) {
+    if (!isMissingExpectedPackage(cause, ctx.packageName)) throw cause;
+    throw missingPeer(cause, ctx);
+  }
+}

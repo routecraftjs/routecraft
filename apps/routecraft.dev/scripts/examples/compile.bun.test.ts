@@ -36,10 +36,10 @@ function run(blocks: ExampleBlock[]): BlockOutcome[] {
 
 describe('compileBlocks', () => {
   const okBlock = block(
-    "craft()\n  .id('ok')\n  .from(json({ path: './in.json' }))\n  .to(log())",
+    "craft()\n  .id('ok')\n  .from(json({ path: './in.json' }))\n  .to(noop())",
   )
   const badOptionBlock = block(
-    "craft()\n  .id('bad')\n  .from(json({ file: './in.json' }))\n  .to(log())",
+    "craft()\n  .id('bad')\n  .from(json({ file: './in.json' }))\n  .to(noop())",
   )
   const proseBlock = block('this is not typescript at all !!!', {
     kind: 'skip',
@@ -54,10 +54,10 @@ describe('compileBlocks', () => {
     reason: 'this actually compiles',
   })
   const domGlobalBlock = block(
-    "craft()\n  .id('events')\n  .from(event('route:error'))\n  .to(log())",
+    "craft()\n  .id('events')\n  .from(event('route:error'))\n  .to(noop())",
   )
   const outgrownSkipBlock = block(
-    "craft()\n  .id('outgrown')\n  .from(json({ path: './in.json' }))\n  .to(log())",
+    "craft()\n  .id('outgrown')\n  .from(json({ path: './in.json' }))\n  .to(noop())",
     { kind: 'skip', reason: 'fragment: this block has outgrown its excuse' },
   )
 
@@ -86,7 +86,7 @@ describe('compileBlocks', () => {
 
   /**
    * @case A block naming package exports without importing them still compiles
-   * @preconditions Block uses craft, json and log with no import statement
+   * @preconditions Block uses craft, json and noop with no import statement
    * @expectedResult Outcome is ok, because the imports are synthesised from the packages' exports
    */
   test('missing imports are synthesised', () => {

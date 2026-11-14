@@ -58,7 +58,7 @@ export default definePlugin({
     })
 
     c.observe('context:error', ({ details: { error } }) => {
-      c.logger.error(error, 'Context error')
+      c.logger.error({ err: error }, 'Context error')
     })
   },
 })
@@ -183,11 +183,11 @@ One adapter instance serves every exchange on the route, so derive metadata from
 
 ```ts skip="fragment: ctx are illustrative"
 ctx.on('route:exchange:completed', ({ details: { routeId, exchangeId, duration } }) => {
-  logger.info({ routeId, exchangeId, duration }, 'exchange completed')
+  ctx.logger.info({ routeId, exchangeId, duration }, 'exchange completed')
 })
 
 ctx.on('route:exchange:failed', ({ details: { routeId, exchangeId, error } }) => {
-  logger.error({ routeId, exchangeId, error }, 'exchange failed')
+  ctx.logger.error({ routeId, exchangeId, err: error }, 'exchange failed')
 })
 ```
 

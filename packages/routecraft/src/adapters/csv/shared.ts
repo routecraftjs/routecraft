@@ -1,23 +1,25 @@
 import { createRequire } from "node:module";
+import { loadOptionalPeerSync } from "../shared/optional-peer.ts";
 import type { CsvData, CsvParseOptions } from "./types.ts";
 
 const require = createRequire(import.meta.url);
 
 /**
- * Dynamically load papaparse and verify it is installed.
- * Throws with installation instructions if not available.
+ * Load papaparse, an optional peer.
+ *
+ * @throws RC5017 when papaparse is not installed
  *
  * @internal Not exported from the package public API.
  */
 export function ensurePapaparse(): typeof import("papaparse") {
-  try {
-    const papa = require("papaparse");
-    return papa.default || papa;
-  } catch {
-    throw new Error(
-      "csv adapter requires 'papaparse' to be installed. Install it with: npm install papaparse",
-    );
-  }
+  const papa = loadOptionalPeerSync(
+    () =>
+      require("papaparse") as typeof import("papaparse") & {
+        default?: typeof import("papaparse");
+      },
+    { consumer: "csv adapter", packageName: "papaparse" },
+  );
+  return papa.default ?? papa;
 }
 
 /**

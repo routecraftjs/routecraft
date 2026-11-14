@@ -8,22 +8,6 @@
     "description": "Static or dynamic data source from a value or function."
   },
   {
-    "name": "log",
-    "category": "Core",
-    "roles": [
-      "Destination"
-    ],
-    "description": "Console logging for debugging and inspection."
-  },
-  {
-    "name": "debug",
-    "category": "Core",
-    "roles": [
-      "Destination"
-    ],
-    "description": "Verbose dump of the full exchange for development."
-  },
-  {
     "name": "timer",
     "category": "Core",
     "roles": [

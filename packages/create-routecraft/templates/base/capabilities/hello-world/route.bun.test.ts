@@ -20,7 +20,7 @@ describe("Hello World Routes", () => {
   /**
    * @case Verifies that the simple route dispatches to the direct "greet" route, which looks the user up and greets them by name
    * @preconditions Both routes are registered, the mcp() source is mocked so no MCP transport starts, and the http() lookup is mocked to return a JSON Placeholder user
-   * @expectedResult greet calls the http() lookup once with userId 1 and logs "Hello, [name]!" via the LogAdapter
+   * @expectedResult greet calls the http() lookup once with userId 1 and logs "Hello, [name]!" as its last step
    */
   test("dispatches from simple route into direct route and greets by name", async () => {
     const httpMock = mockAdapter(http, {
@@ -43,10 +43,12 @@ describe("Hello World Routes", () => {
     expect(httpMock.calls.send[0].exchange.body).toEqual({ userId: 1 });
 
     const infoSpy = t.logger.info as ReturnType<typeof mock>;
-    const logAdapterCall = infoSpy.mock.calls.find(
-      (call: unknown[]) => call[1] === "LogAdapter output",
+    const greeting = infoSpy.mock.calls.find(
+      (call: unknown[]) => call[1] === "Greeting built",
     );
-    expect(logAdapterCall).toBeDefined();
-    expect(logAdapterCall![0].body).toBe("Hello, Leanne Graham!");
+    expect(greeting).toBeDefined();
+    expect((greeting![0] as { greeting: string }).greeting).toBe(
+      "Hello, Leanne Graham!",
+    );
   });
 });

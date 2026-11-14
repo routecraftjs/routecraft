@@ -10,7 +10,7 @@ Naming conventions for Routecraft adapters, interfaces, and option types.
 - **Destination** = push OUT, per exchange, strictly void (`.to()`, `.tap()`). Interface: `Destination<T>`; method: `send`.
 - **Enricher** = pull IN, per exchange, produces a value (`.enrich()`; also accepted by `.to()` / `.tap()`). Interface: `Enricher<T, R>`; method: `fetch`.
 
-Keep **Source**, **Destination**, and **Enricher** for these interfaces. They are protocol-agnostic and apply to every adapter (timer, log, direct, mcp, http, etc.). Class names follow the role: `{Concept}EnricherAdapter` for the fetch role (`HttpEnricherAdapter`, `MailEnricherAdapter`), `{Concept}DestinationAdapter` for the send role.
+Keep **Source**, **Destination**, and **Enricher** for these interfaces. They are protocol-agnostic and apply to every adapter (timer, direct, mcp, http, etc.). Class names follow the role: `{Concept}EnricherAdapter` for the fetch role (`HttpEnricherAdapter`, `MailEnricherAdapter`), `{Concept}DestinationAdapter` for the send role.
 
 ## Protocol config (two-sided adapters only)
 
@@ -43,7 +43,7 @@ When an ambiguous shape can still reach the factory at runtime (plain JS), throw
 
 ## Single-role adapters
 
-Adapters that only act as source or only as destination (timer, simple, log, noop) use a single options type: **XxxOptions** (e.g., `TimerOptions`, `LogOptions`). Do not use Server/Client in their option names.
+Adapters that only act as source or only as destination (timer, cron, noop) use a single options type: **XxxOptions** (e.g., `TimerOptions`, `CronOptions`). Do not use Server/Client in their option names.
 
 ## Schema field names
 

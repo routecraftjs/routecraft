@@ -20,12 +20,16 @@ const sources: Node[] = [
 //   cron   → agent   (row 0 → row 4, ↘ 4)
 //   mcp    → file    (row 1 → row 0, ↗ 1)
 //   http   → direct  (row 2 → row 3, ↘ 1)
-//   mail   → log     (row 3 → row 1, ↗ 2)
+//   mail   → jsonl   (row 3 → row 1, ↗ 2)
 //   file   → http    (row 4 → row 5, ↘ 1)
 //   timer  → mail    (row 5 → row 2, ↗ 3)
 const destinations: Node[] = [
   { key: 'file', label: 'file', call: "file({ path: 'brief.md' })" },
-  { key: 'log', label: 'log', call: 'log()' },
+  {
+    key: 'jsonl',
+    label: 'jsonl',
+    call: "jsonl({ path: 'audit.jsonl', append: true })",
+  },
   { key: 'mail', label: 'mail', call: 'mail()' },
   { key: 'direct', label: 'direct', call: "direct('publish-brief')" },
   { key: 'agent', label: 'agent', call: "agent('eywa')" },

@@ -3,8 +3,8 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   simple,
-  log,
   type AnyRouteBuilder,
+  noop,
 } from "@routecraft/routecraft";
 import { forRoute } from "../src/types.ts";
 import type { EventName, EventHandler } from "../src/types.ts";
@@ -29,7 +29,7 @@ describe("Events API", () => {
     const route = craft()
       .id("evt-route")
       .from(simple([1, 2, 3]))
-      .to(log());
+      .to(noop());
     t = await testContext()
       .on("context:starting", () => {
         events.push("context:starting");
@@ -89,7 +89,7 @@ describe("Events API", () => {
     const def = craft()
       .id("later-route")
       .from(simple([1]))
-      .to(log())
+      .to(noop())
       .build()[0];
     t.ctx.registerRoutes(def);
     expect(events).toContain("route:registered");
@@ -184,7 +184,7 @@ describe("Events API", () => {
             sub.ready();
             throw new Error("channel died");
           })
-          .to(log()),
+          .to(noop()),
       )
       .build();
 
@@ -225,7 +225,7 @@ describe("Events API", () => {
               );
             });
           })
-          .to(log()),
+          .to(noop()),
       )
       .build();
 
@@ -256,7 +256,7 @@ describe("Events API", () => {
           .from(() => {
             throw startError;
           })
-          .to(log()),
+          .to(noop()),
       )
       .build();
 
@@ -293,7 +293,7 @@ describe("Events API", () => {
 
     t = await testContext()
       .routesReadyTimeout(20)
-      .routes(craft().id("never-ready").from(neverReady).to(log()))
+      .routes(craft().id("never-ready").from(neverReady).to(noop()))
       .build();
 
     await expect(t.test()).rejects.toThrow(
@@ -315,7 +315,7 @@ describe("Events API", () => {
 
     t = await testContext()
       .routesReadyTimeout(30_000)
-      .routes(craft().id("quiet-poller").from(quietPoller).to(log()))
+      .routes(craft().id("quiet-poller").from(quietPoller).to(noop()))
       .build();
     t.ctx.on("route:started", ({ details }) => {
       started.push(details.routeId);
@@ -536,7 +536,7 @@ describe("Event ordering", () => {
         .id("r")
         .from(simple("hi"))
         .transform((b) => b)
-        .to(log()),
+        .to(noop()),
     );
 
     const byName = (name: string) => events.filter((e) => e.event === name);
@@ -622,7 +622,7 @@ describe("Event ordering", () => {
 
     const toStep = stepStarted.find((e) => e.details["operation"] === "to");
     expect(toStep).toBeDefined();
-    expect(toStep!.details["adapter"]).toBe("log");
+    expect(toStep!.details["adapter"]).toBe("noop");
   });
 
   /**
@@ -639,7 +639,7 @@ describe("Event ordering", () => {
         .transform(() => {
           throw new Error("boom");
         })
-        .to(log()),
+        .to(noop()),
     );
     const failed = failEvents.find((e) => e.event === "route:exchange:failed");
     expect(failed).toBeDefined();
@@ -657,7 +657,7 @@ describe("Event ordering", () => {
         .id("r")
         .from(simple("hi"))
         .filter(() => false)
-        .to(log()),
+        .to(noop()),
     );
     const dropped = dropEvents.find(
       (e) => e.event === "route:exchange:dropped",
@@ -682,7 +682,7 @@ describe("Event ordering", () => {
         .id("r")
         .from(simple("hi"))
         .transform((b) => b)
-        .to(log()),
+        .to(noop()),
     );
     const names = events.map((e) => e.event);
     expect(names).toEqual([
@@ -720,7 +720,7 @@ describe("Event ordering", () => {
         .transform(() => {
           throw new Error("boom");
         })
-        .to(log()),
+        .to(noop()),
     );
     const names = events.map((e) => e.event);
     expect(names).toEqual([
@@ -758,7 +758,7 @@ describe("Event ordering", () => {
         .split()
         .transform((b) => b * 10)
         .aggregate()
-        .to(log()),
+        .to(noop()),
     );
     const names = events.map((e) => e.event);
     expect(names).toEqual([
@@ -833,7 +833,7 @@ describe("Event ordering", () => {
         .filter((ex) => ex.body !== 1)
         .transform((b) => b * 10)
         .aggregate()
-        .to(log()),
+        .to(noop()),
     );
     const names = events.map((e) => e.event);
     expect(names).toEqual([
@@ -904,7 +904,7 @@ describe("Event ordering", () => {
           return b * 10;
         })
         .aggregate()
-        .to(log()),
+        .to(noop()),
     );
     const names = events.map((e) => e.event);
     expect(names).toEqual([
@@ -965,7 +965,7 @@ describe("Event ordering", () => {
           return b * 10;
         })
         .aggregate()
-        .to(log()),
+        .to(noop()),
     );
     const names = events.map((e) => e.event);
     expect(names).toEqual([

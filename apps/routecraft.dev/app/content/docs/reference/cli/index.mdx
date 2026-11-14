@@ -24,7 +24,7 @@ Global options (must appear **before** the subcommand):
 | --- | --- |
 | -h, --help | Show usage help |
 | -v, --version | Print version and exit |
-| --log-level \<level\> | Any pino level (trace, debug, info, warn, error, fatal) or silent. Default: warn. Applied before the logger initializes. |
+| --log-level \<level\> | trace, debug, info, warn, error, fatal or silent. Default: warn. Applied before the default logger is built; a project that sets its own `logger` ignores it. |
 | --log-file \<path\> | Write logs to a file instead of the standard stream (stdout; stderr under `run`) |
 
 `start` and `run` also take `--log-level` and `--log-file` as their own options, and the command's own flag wins over the global one. On `run` they belong before the file, because anything after `run <file>` is the route's input: the [`argv()`](/docs/reference/adapters/argv) source reads it, and only `--help` and `--format` after the file belong to the CLI.

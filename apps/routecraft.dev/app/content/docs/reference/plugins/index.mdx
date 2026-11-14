@@ -90,7 +90,7 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | Member | Meaning |
 | --- | --- |
 | `id`, `namespace` | The plugin's own id and namespace. |
-| `logger` | A child logger carrying the plugin id. |
+| `logger` | A [`Logger`](/docs/reference/configuration#logging-configuration): a child of the context's, carrying the plugin id. |
 | `require(port)` | The provider of a port declared in `requires` or `optional`. Throws `RC1108` for an undeclared port and `RC1104` when an optional port has no provider. |
 | `lookup(port)` | Like `require`, but `undefined` when an optional port has no provider. |
 | `provide(port, value)` | Provide a port declared in `provides`. In `bind` only: `RC1109` for an undeclared port, `RC1110` after the application froze. |
@@ -325,7 +325,7 @@ Without `[IDENTITY]()`, a raw step is identified by its operation and its adapte
 | Function | Its source as the runtime reports it, unless a Routecraft helper returned it, which is digested by the helper's name and arguments |
 | A class instance, a native or bound function, a symbol, a schema with no JSON Schema rendering, a symbol-keyed or accessor property, a value that contains itself, anything nested more than five deep | A placeholder. The value is reported by `describeIdentity` and by [`RC5071`](/docs/reference/errors#rc-5071) on a route that defers or caches under the default key. |
 
-The digest does not cover what a function captured, what a `direct()` target, a named agent or a tool selected by name does, the contents of a file a step reads when it runs, or an environment variable. A wrapper's `label` names its events and is left out too. A core step is digested by the options it was given, so a default that changes in a release moves nothing by itself. `.log()` and `.debug()` are left out of it.
+The digest does not cover what a function captured, what a `direct()` target, a named agent or a tool selected by name does, the contents of a file a step reads when it runs, or an environment variable. A wrapper's `label` names its events and is left out too. A core step is digested by the options it was given, so a default that changes in a release moves nothing by itself. `.log()` is left out of it: a log line can be added or reworded while exchanges are parked.
 
 ### Structural steps
 

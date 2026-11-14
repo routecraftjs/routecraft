@@ -4,7 +4,7 @@ Pick the row that best matches the user's intent. Then `WebFetch` both URLs in t
 
 | If the user wants... | Read this doc | Then study this example |
 |---|---|---|
-| The simplest possible capability (in-memory source, transform, log destination) | https://routecraft.dev/raw/docs/introduction/operations.md | https://raw.githubusercontent.com/routecraftjs/routecraft/main/examples/src/hello-world.ts (multi-purpose: also covers direct-call routing and HTTP enrichment) |
+| The simplest possible capability (in-memory source, transform, log line) | https://routecraft.dev/raw/docs/introduction/operations.md | https://raw.githubusercontent.com/routecraftjs/routecraft/main/examples/src/hello-world.ts (multi-purpose: also covers direct-call routing and HTTP enrichment) |
 | Direct-call routing between two capabilities (one capability invokes another by id) | https://routecraft.dev/raw/docs/reference/adapters.md | https://raw.githubusercontent.com/routecraftjs/routecraft/main/examples/src/hello-world.ts (the same file; focus on the `direct(...)` source and the second capability calling the first by id) |
 | HTTP enrichment (call an API mid-pipeline; the result replaces the body, or merge it with `only(...)`) | https://routecraft.dev/raw/docs/reference/operations.md | https://raw.githubusercontent.com/routecraftjs/routecraft/main/examples/src/hello-world.ts (the same file; focus on the `.enrich(http(...))` step) |
 | Split a collection, process each item, then aggregate (fan-out / fan-in) | https://routecraft.dev/raw/docs/reference/operations.md | https://raw.githubusercontent.com/routecraftjs/routecraft/main/examples/src/split.ts |
@@ -21,6 +21,6 @@ Filter on **shape of the pipeline** first, **trigger** second, **destinations** 
 
 1. Linear vs split/aggregate vs choice -- this picks the example
 2. What triggers the capability (direct, MCP, mail, simple) -- this picks the source adapter
-3. Where the result goes (log, http, mail, direct) -- this picks the destination adapter
+3. Where the result goes (http, mail, direct, or nowhere beyond a `.log()` line) -- this picks the destination adapter, or a `.log()` step in its place
 
 If no row is a clean match, pick by pipeline shape and adapt the source and destination to the user's case.

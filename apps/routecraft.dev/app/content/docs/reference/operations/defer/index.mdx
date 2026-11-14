@@ -36,7 +36,7 @@ craft()
     ),
   )
   .transform((payout) => executePayout(payout))
-  .to(log())
+  .log('info', 'Done', (ex) => ({ result: ex.body }))
 ```
 
 | Option | Type | Default | Required | Description |

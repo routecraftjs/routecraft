@@ -8,19 +8,20 @@ Log and observe your capabilities at runtime.
 
 ## Capability-level logging
 
-Use `tap(log())` anywhere in a capability to emit a structured log of the current exchange without altering it. Use `tap(debug())` for verbose output you only want visible at debug level. Both can also be used as a final destination with `.to()`.
+Use [`.log()`](/docs/reference/operations/log) anywhere in a capability to write one log line about the exchange passing through, without altering it. Give it a level, a fixed message, and the fields that vary.
 
 ```ts skip="fragment: enrichOrder is illustrative"
-import { craft, simple, log, debug } from '@routecraft/routecraft'
+import { craft, simple } from '@routecraft/routecraft'
 
 export default craft()
   .id('order-pipeline')
   .from(simple({ orderId: '123' }))
-  .tap(debug())              // debug-level: verbose, filtered out by default
+  .log('debug', 'Order received', (ex) => ({ orderId: ex.body.orderId })) // verbose, filtered out by default
   .transform(enrichOrder)
-  .tap(log())                // info-level: visible in normal operation
-  .to(log())                 // log the final exchange as the destination
+  .log('info', 'Order enriched', (ex) => ({ orderId: ex.body.orderId })) // visible at --log-level info
 ```
+
+A line that cannot be built never fails the exchange: it is reported once at `warn` and the capability carries on. There is no `error` level on `.log()`, because a failure is logged once, where it is handled.
 
 Each log entry includes `contextId`, `routeId`, `exchangeId`, and `correlationId` for end-to-end tracing in your log aggregator, and `causationId`, the exchange that caused this one, when there is one. See [journeys](/docs/introduction/exchange#journeys-correlation-and-causation).
 

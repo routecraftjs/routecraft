@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { craft, logger, noop, simple } from "@routecraft/routecraft";
+import { craft, noop, simple } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 
 describe("context logger spy", () => {
@@ -43,20 +43,37 @@ describe("context logger spy", () => {
   });
 
   /**
-   * @case Stopping a context restores the global logger child implementation
-   * @preconditions A test context has installed its context and route logger spies
-   * @expectedResult logger.child returns a framework logger rather than a test spy after teardown
+   * @case Two test contexts alive at once each see only their own lines
+   * @preconditions Two test contexts built concurrently, each with one route that logs its own marker
+   * @expectedResult Each context's route spy holds its own marker and not the other's
    */
-  test("restores logger.child after teardown", async () => {
-    const originalChild = logger.child;
-    t = await testContext()
-      .routes(
-        craft().id("context-logger-restore").from(simple("hello")).to(noop()),
-      )
-      .build();
+  test("keeps concurrent contexts' lines apart", async () => {
+    const build = (marker: string) =>
+      testContext()
+        .routes(
+          craft()
+            .id(`concurrent-${marker}`)
+            .from(simple("hello"))
+            .log("info", marker)
+            .to(noop()),
+        )
+        .build();
+    const [first, second] = await Promise.all([
+      build("first"),
+      build("second"),
+    ]);
+    t = first;
+    try {
+      await Promise.all([first.test(), second.test()]);
+    } finally {
+      await second.stop();
+    }
 
-    await t.stop();
-
-    expect(logger.child).toBe(originalChild);
+    const lines = (context: TestContext) =>
+      context.logger.info.mock.calls.map((call) => call.at(-1));
+    expect(lines(first)).toContain("first");
+    expect(lines(first)).not.toContain("second");
+    expect(lines(second)).toContain("second");
+    expect(lines(second)).not.toContain("first");
   });
 });

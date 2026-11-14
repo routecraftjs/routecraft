@@ -4,11 +4,11 @@ import {
   craft,
   simple,
   http,
-  log,
   only,
   type Enricher,
   type Exchange,
   type HttpResult,
+  noop,
 } from "@routecraft/routecraft";
 
 // Use t.test() for normal runs (start → wait routes ready → drain → stop). Use t.ctx.start() when a route does not emit routeStarted (e.g. dynamic source) or when you need manual lifecycle control.
@@ -31,9 +31,9 @@ describe("Unified Destination Adapter", () => {
   });
 
   /**
-   * @case Verify .to() with void-returning adapter (log)
+   * @case Verify .to() with a void-returning adapter (noop)
    * @preconditions Adapter returns void
-   * @expectedResult Body unchanged, log called
+   * @expectedResult Body unchanged for the next destination
    */
   test(".to() with void-returning adapter ignores result", async () => {
     const s = spy();
@@ -43,7 +43,7 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-void-adapter")
           .from(simple({ userId: 1, name: "John" }))
-          .to(log())
+          .to(noop())
           .to(s),
       )
       .build();

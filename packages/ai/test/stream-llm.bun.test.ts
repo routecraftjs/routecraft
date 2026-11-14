@@ -7,7 +7,9 @@ import {
   beforeEach,
   afterEach,
 } from "bun:test";
-import { logger as frameworkLogger } from "@routecraft/routecraft";
+import { defaultLogger } from "@routecraft/routecraft";
+
+const frameworkLogger = defaultLogger();
 
 // Mock the Vercel AI SDK so the real `streamLlm` (not its re-implementation
 // in agent-streaming.bun.test.ts) is exercised end to end. The mock provides

@@ -33,7 +33,7 @@ export async function loadProjectConfig(
     const loaded = await loadConfig(configPath);
     const config = await withFolderPlugins(
       root,
-      projectContentRoot(root),
+      projectContentRoot(root, loaded.logger),
       loaded,
     );
     return { root, configPath, config };

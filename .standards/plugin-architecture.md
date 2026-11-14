@@ -337,7 +337,7 @@ the getter; the exchange's own fields (`id`, `headers`, `body`, `logger`,
 `principalOf(exchange)`.
 
 `registerDsl` and the `StepBuilderBase` augmentation are removed. The sugar
-`.log()`, `.debug()`, `.map()` and `.schema()` are ordinary builder methods.
+`.log()`, `.map()` and `.schema()` are ordinary builder methods.
 
 A raw step that runs steps of its own reports them through `NESTED_STEPS`
 (`NestingStep`, `NestedSteps`), a registered symbol the walks of a route's
@@ -463,8 +463,8 @@ it compares: what a resume would run after each defer site, the whole
 pipeline when the error path declares a park (`.error(handler, { schema })`
 or a hook with `mayDefer`), and the pipeline a default cache key stands
 for at either scope. Each entry says which (`affects: "resume" | "cache"`).
-An `.error()` handler that parks without declaring a schema is not walked. `.log()` and `.debug()` are exempt from the
-digest. The stored `continuationHash` is `d2:<sha256>/<per-step digests>`;
+An `.error()` handler that parks without declaring a schema is not walked. `.log()` is exempt from the digest, by the symbol its step carries and
+not by its label. The stored `continuationHash` is `d2:<sha256>/<per-step digests>`;
 a record in an older format is refused with `RC5048`. The deferral plugin provides
 that port over the memory or SQLite store, mints and verifies resume tokens,
 sets the default deadline, calls `execution.sweep()` on its cadence, and

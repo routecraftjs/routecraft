@@ -50,12 +50,14 @@ describe("Hello World Routes", () => {
       "https://jsonplaceholder.typicode.com/users/1",
     );
 
-    // The route's LogAdapter logs the greeting as the final step.
+    // The route logs the greeting as its final step.
     const infoSpy = t.logger.info as ReturnType<typeof mock>;
-    const logAdapterCall = infoSpy.mock.calls.find(
-      (c: unknown[]) => c[1] === "LogAdapter output",
+    const greeting = infoSpy.mock.calls.find(
+      (call: unknown[]) => call[1] === "Greeting built",
     );
-    expect(logAdapterCall).toBeDefined();
-    expect(logAdapterCall![0].body).toBe("Hello, Leanne Graham!");
+    expect(greeting).toBeDefined();
+    expect((greeting![0] as { greeting: string }).greeting).toBe(
+      "Hello, Leanne Graham!",
+    );
   });
 });

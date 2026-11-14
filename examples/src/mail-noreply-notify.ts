@@ -1,5 +1,5 @@
 export { craftConfig } from "./craft.config";
-import { craft, mail, log } from "@routecraft/routecraft";
+import { craft, mail } from "@routecraft/routecraft";
 
 /**
  * Watch for unseen no-reply emails via IMAP IDLE and forward a
@@ -18,13 +18,10 @@ export default craft()
       header: { "Reply-To": ["noreply", "no-reply"] },
     }),
   )
-  .tap(
-    log(
-      (ex) =>
-        `No-reply from ${ex.headers["routecraft.mail.from"]}: ` +
-        `"${ex.headers["routecraft.mail.subject"]}"`,
-    ),
-  )
+  .log("info", "No-reply mail received", (ex) => ({
+    from: ex.headers["routecraft.mail.from"],
+    subject: ex.headers["routecraft.mail.subject"],
+  }))
   // The mail source puts the message payload on `body` and the envelope
   // (from, subject, date, ...) on `routecraft.mail.*` headers, so read the
   // envelope off the exchange rather than the body.

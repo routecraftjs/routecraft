@@ -1,4 +1,4 @@
-import { log, craft, simple, http, direct } from "@routecraft/routecraft";
+import { craft, simple, http, direct } from "@routecraft/routecraft";
 import { mcp } from "@routecraft/ai";
 import { z } from "zod";
 
@@ -25,7 +25,7 @@ const greetRoute = craft()
     }),
   )
   .transform((result) => `Hello, ${result.body.name}!`)
-  .to(log());
+  .log("info", "Greeting built", (ex) => ({ greeting: ex.body }));
 
 // "hello-world" calls greet once at start, so the project shows it runs.
 const helloWorldRoute = craft()

@@ -6,7 +6,7 @@ import type {
   EventHandler,
   EventName,
   ExchangeHeaders,
-  PluginLogger,
+  Logger,
 } from "@routecraft/routecraft";
 import {
   adoptTraceContext,
@@ -208,7 +208,7 @@ type SdkServerOptions = {
  * context for logging and events, and the service it serves and proxies.
  */
 export interface McpServerHost {
-  readonly logger: PluginLogger;
+  readonly logger: Logger;
   emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
   observe<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
   /** The tools this application serves, and the clients it proxies. */
@@ -1755,7 +1755,10 @@ export class McpServer {
           ? out
           : { type: "object" };
       } catch (error) {
-        this.host.logger.debug(error, "Standard JSON Schema conversion failed");
+        this.host.logger.debug(
+          { err: error },
+          "Standard JSON Schema conversion failed",
+        );
         return { type: "object" };
       }
     }

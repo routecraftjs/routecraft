@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
+import { craft, direct, isRoutecraftError, noop } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { z } from "zod";
 import {
@@ -130,7 +130,7 @@ async function buildCtx(opts: {
       .description("Cancel an order.")
       .input(z.object({}))
       .from(direct())
-      .to(log()),
+      .to(noop()),
     craft()
       .id("inline-run")
       .from(direct())

@@ -6,16 +6,14 @@
  * The CLI runs on Bun. For Node-based usage, embed @routecraft/routecraft
  * programmatically (see https://routecraft.dev/docs/advanced/programmatic-invocation).
  *
- * Nothing here may import `@routecraft/routecraft` at module scope, and
- * nothing `prepareCommand()` imports before the runtime gate may either.
- * Core builds its logger when it loads, from the environment as it stands
- * then, so a core import that runs before a command has settled its
- * environment fixes the logger for the life of the process. The program's
- * `preAction` hook runs `prepareCommand()` before every command: it loads
- * the environment the command selects, applies the logging flags over it,
- * checks the log file can be written, and only then runs the Bun version
- * check, the first thing that loads core. Whether Bun is present at all is
- * checked here, before anything, without core.
+ * Nothing may log through `defaultLogger()` before a command has settled
+ * its environment: core builds that logger on its first use, from the
+ * environment as it stands then, and keeps it for the life of the process.
+ * The program's `preAction` hook runs `prepareCommand()` before every
+ * command: it loads the environment the command selects, applies the
+ * logging flags over it, runs the Bun version check, and only then builds
+ * the logger and checks its log file could be opened. Whether Bun is
+ * present at all is checked here, before anything, without core.
  */
 
 import { resolve } from "node:path";
@@ -72,10 +70,10 @@ if (process.argv.length <= 2) {
  * 2. The logging flags, over it: a flag is the more specific thing said.
  *    `craft run` also sends logs to stderr unless the environment chose a
  *    stream, because its stdout carries the route's result.
- * 3. The Bun version gate, which reads the version with core's parser and
- *    so is the first thing that loads core and builds the logger.
- * 4. The log file core was asked for, which it diverts somewhere nobody
- *    looks when it cannot open it; the CLI owns the setting, so it refuses.
+ * 3. The Bun version gate, which reads the version with core's parser.
+ * 4. The logger, built here from the settled environment, and the log file
+ *    it was asked for: core diverts that somewhere nobody looks when it
+ *    cannot open it, and the CLI owns the setting, so it refuses.
  */
 async function prepareCommand(command: CommanderCommand): Promise<void> {
   const notes = await selectEnvironment(command);
@@ -92,7 +90,9 @@ async function prepareCommand(command: CommanderCommand): Promise<void> {
   const gate = checkBunRuntime();
   if (!gate.ok) await refuse(1, gate.message);
 
-  const { logFileDiversion, logger } = await import("@routecraft/routecraft");
+  const { logFileDiversion, defaultLogger } =
+    await import("@routecraft/routecraft");
+  const logger = defaultLogger();
   const diverted = logFileDiversion();
   if (diverted !== undefined) {
     const source =
