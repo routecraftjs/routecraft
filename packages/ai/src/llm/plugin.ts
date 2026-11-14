@@ -1,5 +1,5 @@
 import { definePlugin, type Plugin } from "@routecraft/routecraft";
-import { LLM } from "./types.ts";
+import { LLM, llmServices, type LlmService } from "./types.ts";
 import type {
   LlmModelConfig,
   LlmPluginOptions,
@@ -54,10 +54,12 @@ export function llmPlugin(
         options.defaultOptions && Object.keys(options.defaultOptions).length > 0
           ? options.defaultOptions
           : undefined;
-      c.provide(LLM, {
+      const service: LlmService = {
         providers: map,
         ...(defaults !== undefined ? { defaults } : {}),
-      });
+      };
+      c.provide(LLM, service);
+      llmServices.set(c.application, service);
     },
   });
 }

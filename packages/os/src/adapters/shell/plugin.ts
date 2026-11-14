@@ -1,4 +1,5 @@
 import {
+  applicationState,
   definePlugin,
   port,
   type Duration,
@@ -26,6 +27,9 @@ export interface ShellPluginOptions {
 /** The context-wide {@link ShellPluginOptions} the shell plugin provides. */
 export const SHELL = port<ShellPluginOptions>("routecraft.os.shell@1");
 
+/** The defaults `shellPlugin` was given, per application, for `shell()` to read. */
+export const shellDefaults = applicationState<ShellPluginOptions>();
+
 /**
  * Register context-wide defaults for `shell()`.
  *
@@ -45,7 +49,9 @@ export function shellPlugin(options: ShellPluginOptions = {}): Plugin {
     id: "routecraft.os.shell",
     provides: [SHELL],
     bind(c) {
-      c.provide(SHELL, { ...options });
+      const defaults = { ...options };
+      c.provide(SHELL, defaults);
+      shellDefaults.set(c.application, defaults);
     },
   });
 }

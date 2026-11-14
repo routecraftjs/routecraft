@@ -1,8 +1,4 @@
-import {
-  rcError,
-  type CraftContext,
-  type Exchange,
-} from "@routecraft/routecraft";
+import { rcError, type Exchange } from "@routecraft/routecraft";
 import type {
   LlmModelConfig,
   LlmPromptPart,
@@ -11,7 +7,7 @@ import type {
   LlmSamplingOptionsMerged,
   LlmUserPromptSource,
 } from "./types.ts";
-import { LLM } from "./types.ts";
+import type { LlmService } from "./types.ts";
 
 /**
  * Sampling defaults for every model call the framework makes, `llm()` and
@@ -96,7 +92,7 @@ export function parseProviderModel(id: string): {
  */
 export function resolveModel(
   model: string | LlmModelConfig,
-  context: CraftContext | undefined,
+  service: LlmService | undefined,
 ): { config: LlmModelConfig; modelName: string } {
   if (typeof model !== "string") {
     const modelName = (model as { modelId?: string }).modelId ?? "";
@@ -116,13 +112,7 @@ export function resolveModel(
     return { config: model, modelName };
   }
 
-  if (!context) {
-    throw new Error(
-      `LLM model id "${model}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so the providers the llm plugin registered can be read.`,
-    );
-  }
-
-  const store = context.lookup(LLM)?.providers;
+  const store = service?.providers;
   if (!store) {
     throw new Error(
       `LLM provider not found: no providers registered. Add llmPlugin({ providers: { ollama: { provider: "ollama" }, ... } }) to your config.`,

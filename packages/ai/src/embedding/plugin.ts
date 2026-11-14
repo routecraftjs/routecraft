@@ -1,7 +1,11 @@
 import { definePlugin, type Plugin } from "@routecraft/routecraft";
 import { disposeEmbeddingPipelineCache } from "./providers/index.ts";
-import { EMBEDDING } from "./types.ts";
-import type { EmbeddingModelConfig, EmbeddingPluginOptions } from "./types.ts";
+import { EMBEDDING, embeddingServices } from "./types.ts";
+import type {
+  EmbeddingModelConfig,
+  EmbeddingPluginOptions,
+  EmbeddingService,
+} from "./types.ts";
 
 /** Normalize provider options to full EmbeddingModelConfig (providerId wins over opts.provider). */
 function toModelConfig(
@@ -40,10 +44,12 @@ export function embeddingPlugin(
         options.defaultOptions && Object.keys(options.defaultOptions).length > 0
           ? options.defaultOptions
           : undefined;
-      c.provide(EMBEDDING, {
+      const service: EmbeddingService = {
         providers: map,
         ...(defaults !== undefined ? { defaults } : {}),
-      });
+      };
+      c.provide(EMBEDDING, service);
+      embeddingServices.set(c.application, service);
     },
     async stop() {
       await disposeEmbeddingPipelineCache();

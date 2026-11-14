@@ -33,9 +33,9 @@ import {
   bindCacheProvider,
   cacheProvider,
   definePlugin,
-  getExchangeContext,
   port,
 } from "@routecraft/routecraft";
+import { getExchangeContext } from "../src/exchange.ts";
 
 /**
  * Helper: build a CacheProvider spy that records every call and

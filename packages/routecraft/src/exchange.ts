@@ -512,6 +512,34 @@ export function getExchangeContext(
 }
 
 /**
+ * Whether an exchange is one a route is running, as opposed to an envelope
+ * built outside any route (a client call, a tool dispatch, a tap's copy).
+ *
+ * @internal
+ */
+export function isRouteBound(exchange: Exchange): boolean {
+  return internalsOf(exchange)?.route !== undefined;
+}
+
+/**
+ * Builds the exchange a transport answers a caller with: a new exchange in
+ * the same application as `origin`, carrying its headers and the given
+ * body. Unlike a rewrap it shares no state with `origin`, so a drop or a
+ * deferral of one is not the other's.
+ *
+ * @returns `undefined` when `origin` was built outside an application
+ * @internal
+ */
+export function answerTo(
+  origin: Exchange,
+): (<T>(body: T) => DefaultExchange<T>) | undefined {
+  const context = internalsOf(origin)?.context;
+  if (context === undefined) return undefined;
+  return (body) =>
+    new DefaultExchange(context, { body, headers: origin.headers });
+}
+
+/**
  * Resolve an exchange's internals: symbol-keyed slot first (which works
  * across duplicate copies of the package in one process), WeakMap second.
  *

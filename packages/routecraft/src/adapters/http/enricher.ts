@@ -1,9 +1,9 @@
 import type { Enricher } from "../../operations/enrich.ts";
 import { anySignal } from "../../shared/abort.ts";
-import { HeadersKeys, getExchangeContext, type Exchange } from "../../exchange";
+import { HeadersKeys, type Exchange } from "../../exchange";
 import { parseDuration } from "../../shared/duration.ts";
 import { rcError } from "../../error";
-import { sendsTraceContext, traceContextOf } from "../../trace-context.ts";
+import { sendsTraceContextFor, traceContextOf } from "../../trace-context.ts";
 import {
   declaredLengthOver,
   resolveMaxBodySize,
@@ -102,10 +102,7 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     // adapter directly) has no journey to carry.
     if (
       typeof exchange.headers?.[HeadersKeys.ID] === "string" &&
-      sendsTraceContext(
-        getExchangeContext(exchange),
-        this.options.traceContext,
-      ) &&
+      sendsTraceContextFor(exchange, this.options.traceContext) &&
       !hasHeader(headers, "traceparent")
     ) {
       const carrier = traceContextOf(exchange);

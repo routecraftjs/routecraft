@@ -24,6 +24,16 @@ const KERNEL = [
  */
 const FORBIDDEN = ["plugins", "auth", "adapters/direct"];
 
+/**
+ * The files outside the kernel that still read the application off an
+ * exchange, through the `/internal` subpath. Entries leave this list; none
+ * is added.
+ */
+const ACCESSOR_DEBT = [
+  "ai/src/agent/enricher.ts",
+  "ai/src/mcp/adapters/mcp/enricher.ts",
+];
+
 function filesUnder(path: string): string[] {
   const full = join(SRC, path);
   if (!statSync(full).isDirectory()) return [full];
@@ -103,5 +113,28 @@ describe("the kernel boundary", () => {
   test("the scanner finds real edges", () => {
     const edges = edgesOf(join(SRC, "plugins", "auth", "index.ts"));
     expect(edges).toContain(join("auth", "authorize.ts"));
+  });
+
+  /**
+   * @case Adapters, plugins and sibling packages do not read the application off an exchange
+   * @preconditions Every source file under adapters/, plugins/ and the sibling packages
+   * @expectedResult None names getExchangeContext or getExchangeRoute, except the listed agent-tier files, which still run with no plugin to hold their state
+   */
+  test("only the kernel reads an exchange's context and route", () => {
+    const packages = join(SRC, "..", "..");
+    const sources = [
+      ...filesUnder("adapters"),
+      ...filesUnder("plugins"),
+      ...["ai", "os", "cli", "testing"].flatMap((name) =>
+        filesUnder(join("..", "..", name, "src")),
+      ),
+    ];
+    const readers = sources
+      .filter((file) =>
+        /\bgetExchange(Context|Route)\b/.test(readFileSync(file, "utf8")),
+      )
+      .map((file) => relative(packages, file))
+      .sort();
+    expect(readers).toEqual(ACCESSOR_DEBT);
   });
 });

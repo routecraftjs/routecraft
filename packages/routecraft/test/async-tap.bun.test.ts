@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, getExchangeRoute } from "@routecraft/routecraft";
+import { craft, simple } from "@routecraft/routecraft";
+import { getExchangeRoute } from "../src/exchange.ts";
 
 describe("Async Tap Execution", () => {
   let t: TestContext;

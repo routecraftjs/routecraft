@@ -3,12 +3,11 @@ import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
   DefaultExchange,
-  getExchangeContext,
-  getExchangeRoute,
   simple,
   type Exchange,
 } from "@routecraft/routecraft";
 import { markDropped, isDropped } from "../src/exchange.ts";
+import { getExchangeContext, getExchangeRoute } from "../src/exchange.ts";
 
 describe("Exchange immutability contract", () => {
   let t: TestContext;

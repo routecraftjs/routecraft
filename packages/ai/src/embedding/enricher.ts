@@ -1,17 +1,12 @@
-import {
-  getExchangeContext,
-  type CraftContext,
-  type Enricher,
-  type Exchange,
-  type MergedOptions,
-} from "@routecraft/routecraft";
+import type { Enricher, Exchange } from "@routecraft/routecraft";
 import { callEmbedding } from "./providers/index.ts";
 import type {
   EmbeddingModelConfig,
   EmbeddingOptions,
   EmbeddingResult,
+  EmbeddingService,
 } from "./types.ts";
-import { EMBEDDING } from "./types.ts";
+import { embeddingServices } from "./types.ts";
 
 function parseProviderModel(id: string): {
   providerId: string;
@@ -31,14 +26,9 @@ function parseProviderModel(id: string): {
 
 function resolveProviderAndModel(
   modelId: string,
-  context: CraftContext | undefined,
+  service: EmbeddingService | undefined,
 ): { config: EmbeddingModelConfig; modelName: string } {
-  if (!context) {
-    throw new Error(
-      `Embedding adapter: model id "${modelId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so embedding providers can be read.`,
-    );
-  }
-  const store = context.lookup(EMBEDDING)?.providers;
+  const store = service?.providers;
   if (!store) {
     throw new Error(
       "Embedding provider not found: no providers registered. Add embeddingPlugin({ providers: { huggingface: {} } }) to your config.",
@@ -68,9 +58,10 @@ function buildText<T>(
  * (e.g. huggingface:all-MiniLM-L6-v2), resolves the provider from the plugin store,
  * and returns { embedding: number[] }. Use with .enrich(embedding("provider:model", { using: ... })).
  */
-export class EmbeddingEnricherAdapter<T = unknown>
-  implements Enricher<T, EmbeddingResult>, MergedOptions<EmbeddingOptions>
-{
+export class EmbeddingEnricherAdapter<T = unknown> implements Enricher<
+  T,
+  EmbeddingResult
+> {
   readonly adapterId = "routecraft.adapter.embedding";
 
   constructor(
@@ -82,18 +73,16 @@ export class EmbeddingEnricherAdapter<T = unknown>
 
   public options: Partial<EmbeddingOptions>;
 
-  mergedOptions(context: CraftContext): EmbeddingOptions {
-    const store = context.lookup(EMBEDDING)?.defaults;
-    return { ...store, ...this.options } as EmbeddingOptions;
-  }
-
   async fetch(exchange: Exchange<T>): Promise<EmbeddingResult> {
-    const context = getExchangeContext(exchange);
+    const service = embeddingServices.of(exchange);
     const { config, modelName } = resolveProviderAndModel(
       this.modelId,
-      context,
+      service,
     );
-    const merged = this.mergedOptions(context!);
+    const merged = {
+      ...service?.defaults,
+      ...this.options,
+    } as EmbeddingOptions;
 
     const getText = buildText(
       merged.using as (e: Exchange<unknown>) => string | string[],

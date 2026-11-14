@@ -6,6 +6,7 @@ import type { CraftContext } from "../../context.ts";
 import { port } from "../../kernel/port.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
+import { applicationState } from "../../kernel/application.ts";
 import { isRoutecraftError } from "../../brand.ts";
 import type {
   MailBody,
@@ -96,13 +97,20 @@ export function getClientManager(
   return context.lookup(MAIL) ?? null;
 }
 
+/** The mail plugin's manager, per application; its adapters read it from the exchange. */
+export const mailManagers = applicationState<MailClientManager>();
+
+/** The manager of the application an exchange runs in; null in standalone mode. */
+export function clientManagerOf(exchange: Exchange): MailClientManager | null {
+  return mailManagers.of(exchange) ?? null;
+}
+
 /**
- * Get the MailClientManager from the exchange context, throwing if not found.
+ * The manager, or RC5003 when the application has no mail configuration.
  */
 export function requireClientManager(
-  context: CraftContext | undefined,
+  manager: MailClientManager | null,
 ): MailClientManager {
-  const manager = getClientManager(context);
   if (!manager) {
     throw rcError("RC5003", undefined, {
       message:

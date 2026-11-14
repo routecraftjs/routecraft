@@ -2,8 +2,6 @@ import {
   authorityOf,
   deferralOf,
   DEFERS,
-  getExchangeContext,
-  getExchangeRoute,
   rcError,
   type CraftContext,
   type Enricher,
@@ -11,6 +9,10 @@ import {
   type Principal,
   type StepSignalContext,
 } from "@routecraft/routecraft";
+import {
+  getExchangeContext,
+  getExchangeRoute,
+} from "@routecraft/routecraft/internal";
 import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
@@ -36,7 +38,12 @@ import type {
 import { anySignal } from "@routecraft/routecraft";
 import { streamAgentDeltas, type AgentStream } from "./delta-stream.ts";
 import type { AgentDeltaListener } from "./events.ts";
-import type { LlmModelId, LlmReasoningEffort } from "../llm/types.ts";
+import {
+  llmServices,
+  type LlmModelId,
+  type LlmReasoningEffort,
+  type LlmService,
+} from "../llm/types.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import { backgroundReasonOf } from "./tools/types.ts";
 import type {
@@ -193,7 +200,8 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     }
     const model = merged.model;
 
-    const { config, modelName } = resolveModel(model, context);
+    const llm = llmServices.of(exchange);
+    const { config, modelName } = resolveModel(model, llm);
     // Registered agents carry their own id (used to attribute runs in
     // observability, and to name the agent in a tool-policy denial);
     // inline agents are identified by their route, so agentName stays
@@ -281,6 +289,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       merged.blocks,
       exchange,
       context,
+      stepCtx?.forward,
     );
     const tools = mergeUserAndLoaderTools(userTools, loaderTools);
     const withBlocks = `${baseSystem}${systemAppend}`;
@@ -430,7 +439,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
           },
           abortSignal,
           onDelta,
-          context,
+          llm,
         ),
       });
     }
@@ -529,7 +538,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     input: Omit<AgentRunInput<T>, "onStep" | "resume">,
     abortSignal: AbortSignal,
     onDelta: AgentDeltaListener | undefined,
-    context: CraftContext,
+    llm: LlmService | undefined,
   ): AgentTurnExecutor {
     let last: AgentRun<T> | undefined;
     return {
@@ -539,7 +548,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         // no turns spent. `usage` is per turn for the same reason.
         const run = new AgentRun<T>({
           ...input,
-          ...chooseForTurn(input, overrides, context),
+          ...chooseForTurn(input, overrides, llm),
           resume: { messages: [...messages], turnsUsed: 0 },
           onStep,
         });
@@ -625,7 +634,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
 function chooseForTurn<T>(
   input: Omit<AgentRunInput<T>, "onStep" | "resume">,
   overrides: AgentSessionOverrides | undefined,
-  context: CraftContext,
+  llm: LlmService | undefined,
 ): Partial<AgentRunInput<T>> {
   if (overrides === undefined) return {};
   const chosen = applyOverrides(
@@ -640,7 +649,7 @@ function chooseForTurn<T>(
   );
   const model =
     chosen.model !== undefined && chosen.model !== input.model
-      ? { model: chosen.model, ...resolvedModelParts(chosen.model, context) }
+      ? { model: chosen.model, ...resolvedModelParts(chosen.model, llm) }
       : {};
   const options =
     chosen.reasoning === undefined ||
@@ -661,9 +670,9 @@ function withReasoning<O extends { reasoning?: LlmReasoningEffort }>(
 /** The provider config and model name a resolved model id maps to. */
 function resolvedModelParts(
   model: LlmModelId,
-  context: CraftContext,
+  llm: LlmService | undefined,
 ): Pick<AgentRunInput, "modelConfig" | "modelName"> {
-  const { config, modelName } = resolveModel(model, context);
+  const { config, modelName } = resolveModel(model, llm);
   return { modelConfig: config, modelName };
 }
 

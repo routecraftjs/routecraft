@@ -1,6 +1,6 @@
 import type { Plugin, PluginContext } from "@routecraft/routecraft";
 import { bindSurfaceLifecycle } from "./cancellation.ts";
-import { SURFACES, createSurfaceState } from "./state.ts";
+import { SURFACES, createSurfaceState, surfaceStates } from "./state.ts";
 
 /**
  * The surfaces runtime: provides {@link SURFACES}, the one state every
@@ -35,6 +35,7 @@ function createSurfacesPlugin(): Plugin {
     bind(c: PluginContext) {
       const state = createSurfaceState(c.logger);
       c.provide(SURFACES, state);
+      surfaceStates.set(c.application, state);
       bindSurfaceLifecycle(state, c);
     },
   };

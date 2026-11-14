@@ -14,12 +14,12 @@ import {
   simple,
   noop,
   DefaultExchange,
-  getExchangeContext,
   splitChild,
   HeadersKeys,
 } from "@routecraft/routecraft";
 import { defaultAggregate } from "../src/operations/aggregate.ts";
 import type { Exchange, Source } from "@routecraft/routecraft";
+import { getExchangeContext } from "../src/exchange.ts";
 
 /**
  * Emits each item in `list` as its own exchange, strictly typed. Simpler

@@ -1,7 +1,7 @@
 import { registerConfigApplier } from "../../config-applier.ts";
 import { definePlugin } from "../../kernel/plugin.ts";
 import { CarddavClientManager } from "./client-manager.ts";
-import { CARDDAV } from "./shared.ts";
+import { CARDDAV, carddavManagers } from "./shared.ts";
 import type { CarddavContextConfig } from "./types.ts";
 
 declare module "@routecraft/routecraft" {
@@ -26,6 +26,7 @@ registerConfigApplier("carddav", (options) =>
     bind(c) {
       const manager = new CarddavClientManager(options);
       c.provide(CARDDAV, manager);
+      carddavManagers.set(c.application, manager);
       c.onDispose(() => manager.drain());
     },
   }),

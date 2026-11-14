@@ -45,8 +45,6 @@ export {
   type Exchange,
   type ExchangeHeaders,
   deferralOf,
-  getExchangeContext,
-  getExchangeRoute,
   HeadersKeys,
   type HeaderValue,
   type HeaderLiteral,
@@ -432,6 +430,7 @@ export {
   isTraceContextMode,
   isTraceId,
   sendsTraceContext,
+  sendsTraceContextFor,
   traceContextFor,
   traceContextOf,
   MAX_TRACE_ID_LENGTH,
@@ -1085,4 +1084,9 @@ export {
 } from "./kernel/continuation/identity.ts";
 export { principalRef } from "./kernel/continuation/principal-ref.ts";
 
-export { applicationOf, type ApplicationKey } from "./kernel/application.ts";
+export {
+  applicationOf,
+  applicationState,
+  type ApplicationKey,
+  type ApplicationState,
+} from "./kernel/application.ts";

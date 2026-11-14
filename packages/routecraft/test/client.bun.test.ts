@@ -5,10 +5,10 @@ import {
   direct,
   noop,
   recovery,
-  getExchangeContext,
   DefaultExchange,
   type Exchange,
 } from "@routecraft/routecraft";
+import { getExchangeContext } from "../src/exchange.ts";
 
 describe("CraftClient", () => {
   let t: TestContext;

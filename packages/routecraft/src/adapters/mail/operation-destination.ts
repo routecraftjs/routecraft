@@ -1,8 +1,8 @@
 import type { Destination } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
-import { getExchangeContext } from "../../exchange.ts";
 import type { MailAction, MailSendPayload } from "./types.ts";
 import {
+  clientManagerOf,
   requireClientManager,
   resolveMailTarget,
   toArray,
@@ -35,8 +35,7 @@ export class MailOperationDestinationAdapter implements Destination<unknown> {
   constructor(private readonly action: MailAction) {}
 
   async send(exchange: Exchange<unknown>): Promise<void> {
-    const context = getExchangeContext(exchange);
-    const manager = requireClientManager(context);
+    const manager = requireClientManager(clientManagerOf(exchange));
     const account = this.action.account;
 
     if (this.action.action === "append") {
@@ -83,8 +82,7 @@ export class MailOperationDestinationAdapter implements Destination<unknown> {
   }
 
   private async handleAppend(exchange: Exchange<unknown>): Promise<void> {
-    const context = getExchangeContext(exchange);
-    const manager = requireClientManager(context);
+    const manager = requireClientManager(clientManagerOf(exchange));
     const action = this.action as Extract<MailAction, { action: "append" }>;
     const account = action.account;
 

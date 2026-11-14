@@ -20,7 +20,6 @@
 import {
   anySignal,
   formatSchemaIssues,
-  getExchangeContext,
   HeadersKeys,
   rcError,
   tagAdapter,
@@ -216,7 +215,7 @@ export function surface<M extends SurfaceMethod, T = unknown>(
         if (issues === undefined) return answer as SurfaceRequestResponses[M];
         const rendered = formatSchemaIssues(issues);
         if (method === "session/request_permission") {
-          getExchangeContext(exchange)?.logger.warn(
+          exchange.logger.warn(
             {
               method,
               session: ref.session,

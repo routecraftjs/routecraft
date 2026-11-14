@@ -1,4 +1,4 @@
-import { port, type Exchange } from "@routecraft/routecraft";
+import { applicationState, port, type Exchange } from "@routecraft/routecraft";
 
 /** What the `embedding` plugin provides: its providers by id, and context-level defaults. */
 export interface EmbeddingService {
@@ -8,6 +8,14 @@ export interface EmbeddingService {
 
 /** The embedding providers and defaults the `embedding` plugin provides. */
 export const EMBEDDING = port<EmbeddingService>("routecraft.ai.embedding@1");
+
+/**
+ * What the `embedding` plugin provides, per application, for the adapter
+ * that resolves a model from the exchange it is handed.
+ *
+ * @internal
+ */
+export const embeddingServices = applicationState<EmbeddingService>();
 
 export interface EmbeddingModelConfigHuggingFace {
   provider: "huggingface";

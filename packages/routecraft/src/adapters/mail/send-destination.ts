@@ -1,9 +1,8 @@
 import type { Destination, SendContext } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
-import { getExchangeContext } from "../../exchange.ts";
 import type { MailSendPayload, MailClientOptions } from "./types.ts";
 import {
-  getClientManager,
+  clientManagerOf,
   createSmtpTransport,
   buildMessageOptions,
   throwMailConnectionError,
@@ -51,8 +50,7 @@ export class MailSendDestinationAdapter implements Destination<MailSendPayload> 
     exchange: Exchange<MailSendPayload>,
     ctx?: SendContext,
   ): Promise<void> {
-    const context = getExchangeContext(exchange);
-    const manager = getClientManager(context);
+    const manager = clientManagerOf(exchange);
     const account = this.adapterOptions.account;
 
     // Resolve options

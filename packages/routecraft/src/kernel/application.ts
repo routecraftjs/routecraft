@@ -35,3 +35,47 @@ export function applicationOf(exchange: Exchange): ApplicationKey | undefined {
   const context = getExchangeContext(exchange);
   return context && applicationKeyFor(context);
 }
+
+/** One plugin module's state, kept per application. See {@link applicationState}. */
+export interface ApplicationState<T> {
+  /** Keep `value` for an application. A plugin calls it in `bind` with `c.application`. */
+  set(application: ApplicationKey, value: T): void;
+  get(application: ApplicationKey | undefined): T | undefined;
+  /** What the application an exchange runs in holds, for an adapter. */
+  of(exchange: Exchange): T | undefined;
+}
+
+/**
+ * Per-application state for a plugin module: the plugin writes it in
+ * `bind`, its adapters read it from the exchange they are handed. It is a
+ * `WeakMap` keyed by {@link ApplicationKey}, so the state goes with the
+ * application.
+ *
+ * @example
+ * ```ts
+ * const clients = applicationState<Client>()
+ *
+ * export const acme = definePlugin({
+ *   id: "acme.client",
+ *   bind(c) {
+ *     clients.set(c.application, new Client())
+ *   },
+ * })
+ *
+ * const lookup: Enricher = { fetch: (ex) => clients.of(ex)?.get(ex.body) }
+ * ```
+ */
+export function applicationState<T>(): ApplicationState<T> {
+  const held = new WeakMap<ApplicationKey, T>();
+  return {
+    set: (application, value) => {
+      held.set(application, value);
+    },
+    get: (application) =>
+      application === undefined ? undefined : held.get(application),
+    of: (exchange) => {
+      const application = applicationOf(exchange);
+      return application === undefined ? undefined : held.get(application);
+    },
+  };
+}

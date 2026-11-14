@@ -11,14 +11,10 @@
  * caller can tell apart.
  */
 
-import { sendsTraceContext, traceContextOf } from "../../trace-context.ts";
+import { sendsTraceContextFor, traceContextOf } from "../../trace-context.ts";
 import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
-import {
-  DefaultExchange,
-  getExchangeContext,
-  type Exchange,
-} from "../../exchange";
+import { answerTo, type Exchange } from "../../exchange";
 import type { Logger } from "../../logger.ts";
 import type { DirectChannel } from "../../adapters/direct/types";
 import { InMemoryDirectChannel } from "../../adapters/direct/shared";
@@ -128,8 +124,8 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
 
   private async dispatch(exchange: Exchange): Promise<Exchange> {
     const { remote, id, client } = this.target;
-    const ctx = getExchangeContext(exchange);
-    if (ctx === undefined) {
+    const answer = answerTo(exchange);
+    if (answer === undefined) {
       throw new Error(
         `Remote channel for "${this.target.endpoint}": the exchange has no context binding, so the answer cannot be built. Send through CraftClient, forward() or a direct() destination.`,
       );
@@ -139,7 +135,7 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
       outcome = await client.dispatch(
         id,
         exchange.body,
-        sendsTraceContext(ctx, this.target.traceContext)
+        sendsTraceContextFor(exchange, this.target.traceContext)
           ? traceContextOf(exchange)
           : undefined,
       );
@@ -148,10 +144,7 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
     }
     switch (outcome.outcome) {
       case "completed":
-        return new DefaultExchange(ctx, {
-          body: outcome.body,
-          headers: exchange.headers,
-        });
+        return answer(outcome.body);
       case "deferred": {
         // Re-branded so the local transports recognise the deferral the way they
         // recognise one of their own: the ops door answers 202, an agent
@@ -159,15 +152,14 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
         // fooled by a body that merely looks deferred. Resume stays at the
         // remote's door, under the remote's policy.
         const { deferralId, token, input, expiresAt } = outcome.deferral;
-        return new DefaultExchange(ctx, {
-          body: createDeferred({
+        return answer(
+          createDeferred({
             deferralId,
             token,
             ...(input !== undefined ? { input } : {}),
             ...(expiresAt !== undefined ? { expiresAt } : {}),
           }),
-          headers: exchange.headers,
-        });
+        );
       }
       case "dropped":
         throw rcError("RC5031", undefined, {

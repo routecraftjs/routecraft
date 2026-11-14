@@ -2,6 +2,7 @@ import {
   rcError,
   type CraftContext,
   type Exchange,
+  type ForwardFn,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FnOptions } from "../fn/types.ts";
@@ -141,13 +142,14 @@ export async function resolveBlocks(
   blocks: Blocks | undefined,
   exchange: Exchange<unknown>,
   context: CraftContext | undefined,
+  forward?: ForwardFn,
 ): Promise<ResolvedBlocks> {
   if (!blocks) return { systemAppend: "", loaderTools: [] };
   const flat = flattenBlocks(blocks);
   if (flat.size === 0) {
     return { systemAppend: "", loaderTools: [] };
   }
-  const client = makeBlockClient(exchange);
+  const client = makeBlockClient(forward);
   const parts: string[] = [];
   const loaderTools: BlockLoaderTool[] = [];
   for (const [name, body] of flat) {
