@@ -130,6 +130,13 @@ export function failureCode(error: OpsClientError): number {
   // reporting it as a failure would send a script's error path looking for
   // an exchange that never existed.
   if (error.status === 409) return EXEC_EXIT.usage;
+  // A payload the dispatched route itself refused as invalid is the command
+  // line's fault. The same code answered with 500 came from a route that one
+  // called, which the caller's payload never reached.
+  const code = (error.detail as { code?: unknown } | undefined)?.code;
+  if (error.status === 400 && (code === "RC5065" || code === "RC5068")) {
+    return EXEC_EXIT.usage;
+  }
   return EXEC_EXIT.failed;
 }
 

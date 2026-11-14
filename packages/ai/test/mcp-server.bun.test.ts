@@ -1289,7 +1289,7 @@ describe("McpServer", () => {
         /**
          * @case An expired token (routine refresh cycle) logs at debug, not warn
          * @preconditions McpServer with a validator that throws jose's ERR_JWT_EXPIRED; POST /mcp with a bearer token
-         * @expectedResult 401; debug logged as "Auth rejected: token expired"; no "token validation failed" warn
+         * @expectedResult 401; debug logged as "Auth rejected: token expired"; no "token validation failed" warn; the event names jose's code
          */
         test("logs an expired token at debug, not warn", async () => {
           const rejections: Array<Record<string, unknown>> = [];
@@ -1332,6 +1332,7 @@ describe("McpServer", () => {
             reason: "expired",
             scheme: "bearer",
             source: "mcp",
+            code: "ERR_JWT_EXPIRED",
           });
         });
 

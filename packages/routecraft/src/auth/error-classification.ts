@@ -117,3 +117,99 @@ export function classifyRejectionReason(err: unknown): AuthRejectionReason {
   }
   return "invalid_token";
 }
+
+/**
+ * Every code `jose` attaches to an error it throws. A closed list rather than
+ * a pattern, so a custom validator's own `code` never reaches an event field.
+ */
+const JOSE_CODES = new Set([
+  "ERR_JOSE_ALG_NOT_ALLOWED",
+  "ERR_JOSE_GENERIC",
+  "ERR_JOSE_NOT_SUPPORTED",
+  "ERR_JWE_DECRYPTION_FAILED",
+  "ERR_JWE_INVALID",
+  "ERR_JWK_INVALID",
+  "ERR_JWKS_INVALID",
+  "ERR_JWKS_MULTIPLE_MATCHING_KEYS",
+  "ERR_JWKS_NO_MATCHING_KEY",
+  "ERR_JWKS_TIMEOUT",
+  "ERR_JWS_INVALID",
+  "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+  "ERR_JWT_CLAIM_VALIDATION_FAILED",
+  "ERR_JWT_EXPIRED",
+  "ERR_JWT_INVALID",
+]);
+
+/** The registered claim names (RFC 7519 section 4.1, and `typ`) a diagnosis may name. */
+const DIAGNOSABLE_CLAIMS = new Set([
+  "iss",
+  "sub",
+  "aud",
+  "exp",
+  "nbf",
+  "iat",
+  "jti",
+  "typ",
+]);
+
+/**
+ * Why a verifier refused a token, in terms that are safe to index.
+ *
+ * `reason` on `auth:rejected` says only `invalid_token` for a bad signature,
+ * a wrong issuer and a wrong audience alike, which have three different fixes.
+ * This is the discriminator between them.
+ */
+export interface AuthRejectionDiagnosis {
+  /** The `jose` error code, present only when the verifier error is one of `jose`'s. */
+  code?: string;
+  /** The name of the claim that failed validation. Never its value. */
+  claim?: string;
+  /**
+   * The verifier error reduced for a log binding, present only when it is one
+   * of `jose`'s. An error from a custom validator is withheld, because its
+   * message is the validator's own text and could carry the bearer, and the
+   * `jose` error is not passed whole, because a claim failure holds the
+   * token's entire claims set as `payload`.
+   */
+  err?: { type: string; code: string; message: string };
+}
+
+/**
+ * Read a bounded diagnosis off a token-verification error.
+ *
+ * `code` and `claim` come from closed lists, and `err` is built only for an
+ * error carrying one of those codes, so nothing a custom validator writes into
+ * its error (a message, a made-up code, a claim value) can reach an event
+ * payload or a log binding through here (see `.standards/security.md` sections
+ * 4 and 10). The `cause` chain is walked because userinfo enrichment and a
+ * wrapping verifier nest the `jose` error, bounded against a cycle.
+ *
+ * @param err - What the verifier threw
+ * @returns An empty object when the error is not one of `jose`'s
+ */
+export function diagnoseRejection(err: unknown): AuthRejectionDiagnosis {
+  let current: unknown = err;
+  for (let depth = 0; depth < 5; depth++) {
+    if (typeof current !== "object" || current === null) return {};
+    const { code, claim } = current as { code?: unknown; claim?: unknown };
+    if (typeof code === "string" && JOSE_CODES.has(code)) {
+      const { name, message } = current as {
+        name?: unknown;
+        message?: unknown;
+      };
+      return {
+        code,
+        ...(typeof claim === "string" && DIAGNOSABLE_CLAIMS.has(claim)
+          ? { claim }
+          : {}),
+        err: {
+          type: typeof name === "string" ? name : "Error",
+          code,
+          message: typeof message === "string" ? message : "",
+        },
+      };
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return {};
+}

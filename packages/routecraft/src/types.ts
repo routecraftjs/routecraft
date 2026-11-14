@@ -636,7 +636,15 @@ export interface EventDetailsMap {
 
   // -- Auth --
   "auth:success": { subject: string; scheme: string; source: string };
-  "auth:rejected": { reason: string; scheme: string; source: string };
+  "auth:rejected": {
+    reason: string;
+    scheme: string;
+    source: string;
+    /** The `jose` error code behind the rejection, when the verifier error was one of `jose`'s. */
+    code?: string;
+    /** The name of the claim that failed validation, never its value. */
+    claim?: string;
+  };
 
   // -- Route lifecycle --
   "route:registered": { routeId: string; route: Route };

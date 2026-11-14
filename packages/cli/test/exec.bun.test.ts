@@ -306,7 +306,7 @@ describe("craft exec", () => {
    * @case A payload the route's own schema refused
    * @preconditions An instance answering 400 with RC5065, the shape the ops
    *   dispatch surface returns when `.input()` rejects the caller's body
-   * @expectedResult The schema's issues are in the message, and the next
+   * @expectedResult The command exits 2 as a usage error, the schema's issues are in the message, and the next
    *   step is the local command that prints the schema, not "read the
    *   instance's log": the answer is one command away and nothing on the
    *   instance says so
@@ -332,13 +332,45 @@ describe("craft exec", () => {
         url: `http://127.0.0.1:${String(port)}`,
         ...isolated(),
       });
-      expect(result.code).toBe(EXEC_EXIT.failed);
+      expect(result.code).toBe(EXEC_EXIT.usage);
       expect(result.error).toContain("name: Expected string");
       expect(result.error).toContain("craft ops routes greet");
       expect(result.error).not.toMatch(/its own log/);
     } finally {
       await new Promise<void>((resolve) => refusing.close(() => resolve()));
     }
+  });
+
+  /**
+   * @case Only a refusal of the caller's own payload is a usage error
+   * @preconditions Instances answering 400 with RC5068 (a validate hook found
+   *   the payload invalid) and 500 with RC5065 (a route further in refused
+   *   what this route sent it)
+   * @expectedResult The first exits 2, the second 1: the 500 is not the
+   *   command line's fault and retyping the command would not fix it
+   */
+  test("exits 2 only when the caller's own payload was refused", async () => {
+    const answerWith = async (status: number, code: string) => {
+      const refusing = createServer((_req, res) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "refused", code }));
+      });
+      await new Promise<void>((resolve) =>
+        refusing.listen(0, "127.0.0.1", resolve),
+      );
+      const port = (refusing.address() as { port: number }).port;
+      try {
+        return await execCommand("greet", ["--name=world"], {
+          url: `http://127.0.0.1:${String(port)}`,
+          ...isolated(),
+        });
+      } finally {
+        await new Promise<void>((resolve) => refusing.close(() => resolve()));
+      }
+    };
+
+    expect((await answerWith(400, "RC5068")).code).toBe(EXEC_EXIT.usage);
+    expect((await answerWith(500, "RC5065")).code).toBe(EXEC_EXIT.failed);
   });
 
   /**
