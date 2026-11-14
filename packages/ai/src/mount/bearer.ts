@@ -11,6 +11,7 @@
  * arm because it is only a refusal on these surfaces.
  */
 
+import { diagnoseRejection } from "@routecraft/routecraft";
 import type {
   PluginContext,
   HttpMountAuth,
@@ -63,7 +64,12 @@ export function refuseBearer(
     }
   }
   if (auth.kind === "reject") {
-    const detail = { reason: auth.reason, scheme: "bearer", source };
+    const detail = {
+      reason: auth.reason,
+      scheme: "bearer",
+      source,
+      ...diagnoseRejection(auth.cause).fields,
+    };
     if (auth.reason === "infrastructure") {
       context.logger.warn(detail, "Auth unavailable: validator failed");
       return Response.json(

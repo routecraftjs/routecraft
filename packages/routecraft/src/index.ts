@@ -21,8 +21,10 @@ export { refusal as authorizationRefusal } from "./authorization-refusal.ts";
 export { delegate, type DelegateOptions } from "./auth/delegate.ts";
 export {
   classifyRejectionReason,
+  diagnoseRejection,
   isExpiredTokenError,
   isInfrastructureError,
+  type AuthRejectionDiagnosis,
   type AuthRejectionReason,
 } from "./auth/error-classification.ts";
 export { isPrincipalExpired } from "./auth/expiry.ts";
@@ -658,7 +660,9 @@ export {
   type ConsumerDeps,
   type ConsumerType,
   type ErrorHandlerScope,
+  type DiagnosableClaim,
   type EventDetailsMap,
+  type JoseErrorCode,
   type EventName,
   type EventHandler,
   type EventPayload,

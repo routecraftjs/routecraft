@@ -9,6 +9,7 @@ import { port, type PortLookup } from "../../kernel/port.ts";
 import type { Logger } from "../../logger.ts";
 import type { EventDetailsMap, EventName } from "../../types.ts";
 import { rcError } from "../../error.ts";
+import { diagnoseRejection } from "../../auth/error-classification.ts";
 import type { HttpServerRuntime } from "../http/server/index.ts";
 import type { HttpAuth, HttpMethod } from "../../adapters/http/types.ts";
 import type {
@@ -567,11 +568,20 @@ export class HttpMountRegistry implements WebIngress {
             source: mount.id,
           });
         } else if (auth.kind === "reject") {
-          this.host.emit("auth:rejected", {
+          const { fields, err } = diagnoseRejection(auth.cause);
+          const detail = {
             reason: auth.reason,
             scheme: auth.scheme,
             source: mount.id,
-          });
+            ...fields,
+          };
+          if (err !== undefined) {
+            this.host.logger.debug(
+              { ...detail, err },
+              "Auth rejected: the verifier refused the credential",
+            );
+          }
+          this.host.emit("auth:rejected", detail);
         }
         return auth;
       })();

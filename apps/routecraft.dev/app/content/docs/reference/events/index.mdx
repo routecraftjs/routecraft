@@ -441,9 +441,20 @@ Emitted on every auth attempt by every auth-enabled surface: HTTP routes, the MC
 | Event | When it fires | Details |
 | --- | --- | --- |
 | `auth:success` | Credential validated and principal resolved | `{ subject, scheme, source }` |
-| `auth:rejected` | Auth failed | `{ reason, scheme, source }` |
+| `auth:rejected` | Auth failed | `{ reason, scheme, source, code?, claim? }` |
 
 `reason` is a bounded vocabulary, never free text. Bearer authentication uses `"expired"`, `"infrastructure"`, `"invalid_token"`, `"missing_header"`, `"unsupported_scheme"`, and `"insufficient_scope"` where applicable (an `"infrastructure"` rejection is answered with a 500, never a 401, so clients keep their cached token during an IdP blip). API-key authentication uses `"missing api key"` and `"invalid api key"`. Webhook signatures use `"missing signature header"`, `"invalid signature"`, and `"signature expired"` with `scheme: "signature"`.
+
+`invalid_token` covers a bad signature, a wrong issuer and a wrong audience, which have different fixes, so a rejection whose verifier error came from `jose` (what `jwks()` uses) also carries `code`, the library's own error code, and `claim`, the name of the claim that failed:
+
+| `code` | `claim` | What to check |
+| --- | --- | --- |
+| `ERR_JWT_CLAIM_VALIDATION_FAILED` | `aud` | The token was issued for another audience than the one configured |
+| `ERR_JWT_CLAIM_VALIDATION_FAILED` | `iss` | The token came from another issuer |
+| `ERR_JWS_SIGNATURE_VERIFICATION_FAILED` | | The signature does not match the key in the key set |
+| `ERR_JWKS_NO_MATCHING_KEY` | | The token names a signing key the key set does not hold |
+
+Both fields are absent for any other error, a custom validator's included: its message and its own `code` are text the framework did not write and never copies into an event. `claim` is only ever one of the registered names (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`, `typ`) and never a claim's value. The ingress logs the same rejection at `debug` with the code under `err`. The error's own message is never logged: `jose` quotes the token's header in some of them.
 
 ## Server events
 

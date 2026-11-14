@@ -1,4 +1,10 @@
 import { isRoutecraftError } from "../brand.ts";
+import {
+  DIAGNOSABLE_CLAIMS,
+  JOSE_CODES,
+  type DiagnosableClaim,
+  type JoseErrorCode,
+} from "../types.ts";
 
 /**
  * Whether a token verification error represents an expired token.
@@ -73,19 +79,31 @@ const NETWORK_ERROR_CODES = new Set([
  * to guard against a self-referential `cause` cycle.
  */
 export function isInfrastructureError(err: unknown): boolean {
+  return (
+    findInCauseChain(
+      err,
+      (code) =>
+        JOSE_INFRASTRUCTURE_CODES.has(code) || NETWORK_ERROR_CODES.has(code),
+    ) !== undefined
+  );
+}
+
+/**
+ * The first error in a `cause` chain, the error itself included, whose
+ * `code` satisfies `match`. Bounded against a self-referential chain.
+ */
+function findInCauseChain(
+  err: unknown,
+  match: (code: string) => boolean,
+): Record<string, unknown> | undefined {
   let current: unknown = err;
   for (let depth = 0; depth < 5; depth++) {
-    if (typeof current !== "object" || current === null) return false;
-    const code = (current as { code?: unknown }).code;
-    if (
-      typeof code === "string" &&
-      (JOSE_INFRASTRUCTURE_CODES.has(code) || NETWORK_ERROR_CODES.has(code))
-    ) {
-      return true;
-    }
-    current = (current as { cause?: unknown }).cause;
+    if (typeof current !== "object" || current === null) return undefined;
+    const link = current as Record<string, unknown>;
+    if (typeof link["code"] === "string" && match(link["code"])) return link;
+    current = link["cause"];
   }
-  return false;
+  return undefined;
 }
 
 /**
@@ -116,4 +134,59 @@ export function classifyRejectionReason(err: unknown): AuthRejectionReason {
     return "infrastructure";
   }
   return "invalid_token";
+}
+
+const isJoseCode = (code: string): code is JoseErrorCode =>
+  (JOSE_CODES as readonly string[]).includes(code);
+
+/**
+ * Why a verifier refused a token, in terms that are safe to index.
+ *
+ * `reason` on `auth:rejected` says only `invalid_token` for a bad signature,
+ * a wrong issuer and a wrong audience alike, which have three different fixes.
+ * This is the discriminator between them.
+ */
+export interface AuthRejectionDiagnosis {
+  /**
+   * What an `auth:rejected` payload and a log line may carry, spread as it
+   * is. Empty when the verifier error is not one of `jose`'s.
+   */
+  fields: {
+    /** The `jose` error code. */
+    code?: JoseErrorCode;
+    /** The name of the claim that failed validation. Never its value. */
+    claim?: DiagnosableClaim;
+  };
+  /**
+   * The `{ err }` log binding, present only for a `jose` error and never an
+   * event field. It holds the code and nothing the error itself wrote: a
+   * custom validator's message could carry the bearer, a `jose` message can
+   * quote the token's header, and a claim failure holds the token's whole
+   * claims set as `payload`.
+   */
+  err?: { type: "JOSEError"; code: JoseErrorCode };
+}
+
+/**
+ * Read a bounded diagnosis off a token-verification error.
+ *
+ * `code` and `claim` come from closed lists and nothing else is copied, so
+ * nothing a custom validator or the presented token wrote (a message, a
+ * made-up code, a claim value, a header parameter) can reach an event payload
+ * or a log binding through here (see `.standards/security.md` sections 4 and
+ * 10). The `cause` chain is walked because userinfo enrichment and a wrapping
+ * verifier nest the `jose` error.
+ *
+ * @param err - What the verifier threw
+ * @returns Empty `fields` and no `err` when the error is not one of `jose`'s
+ */
+export function diagnoseRejection(err: unknown): AuthRejectionDiagnosis {
+  const found = findInCauseChain(err, isJoseCode);
+  if (found === undefined) return { fields: {} };
+  const code = found["code"] as JoseErrorCode;
+  const claim = DIAGNOSABLE_CLAIMS.find((name) => name === found["claim"]);
+  return {
+    fields: { code, ...(claim !== undefined ? { claim } : {}) },
+    err: { type: "JOSEError", code },
+  };
 }
