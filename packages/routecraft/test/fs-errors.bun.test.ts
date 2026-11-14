@@ -84,10 +84,10 @@ describe("filesystem adapter errors", () => {
       .build();
     await t.test();
 
-    expect(seen).toEqual([
-      { rc: "RC5014", errno: "ENOENT" },
-      { rc: "RC5014", errno: "ENOTDIR" },
-    ]);
+    // The two exchanges run concurrently, so they settle in either order.
+    expect(seen).toHaveLength(2);
+    expect(seen).toContainEqual({ rc: "RC5014", errno: "ENOENT" });
+    expect(seen).toContainEqual({ rc: "RC5014", errno: "ENOTDIR" });
   });
 
   /**

@@ -27,14 +27,14 @@
     "@routecraft/testing": "workspace:*",
     "@types/dockerode": "^4.0.2",
     "dockerode": "^5.0.1",
-    "execa": "^9.6.1",
+    "execa": "^10.2.1",
     "shescape": "^3.0.2",
     "vitest": "^4.1.12"
   },
   "peerDependencies": {
     "@routecraft/routecraft": ">=0.8.0-0 <1.0.0",
     "dockerode": "^5.0.1",
-    "execa": "^9.6.0",
+    "execa": "^9.6.0 || ^10.0.0",
     "shescape": "^3.0.2"
   },
   "peerDependenciesMeta": {
