@@ -136,4 +136,6 @@ Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 
 **Peer dependency:** Requires `papaparse` to be installed separately.
 
+**A missing path:** Reading a path that does not exist throws [`RC5014`](/docs/reference/errors#rc-5014), and a path the process may not read throws [`RC5015`](/docs/reference/errors#rc-5015). Both keep the errno error as `cause`, so a route's `.error()` handler can treat a missing file as empty by testing `error.rc`.
+
 **Exported symbols:** `CsvHeaders` (the header key object used above, e.g. `CsvHeaders.ROW` / `CsvHeaders.PATH`); types `CsvAdapter`, `CsvChunkedAdapter`, `CsvOptions`, `CsvTransformerOptions`, `CsvFileOptions`, `CsvRow`, `CsvData`

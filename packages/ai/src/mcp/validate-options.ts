@@ -1,3 +1,4 @@
+import { invalidOption } from "../shared/invalid-option.ts";
 import { isRecord } from "../shared/is-record.ts";
 import {
   TRACE_CONTEXT_MODES,
@@ -36,8 +37,9 @@ const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
 export function normalizeMcpPath(raw: string): string {
   const path = normalizeStaticPathPrefix(raw, "mcpPlugin");
   if (path === "/") {
-    throw new TypeError(
+    throw invalidOption(
       'mcpPlugin: path must not be "/". Mount the MCP endpoint under a non-root path such as "/mcp".',
+      'Set `path` to a non-root path such as "/mcp".',
     );
   }
   return path;
@@ -46,16 +48,21 @@ export function normalizeMcpPath(raw: string): string {
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
   const trace = options.traceContext;
   if (trace !== undefined && !isTraceContextMode(trace)) {
-    throw new TypeError(
+    throw invalidOption(
       `mcpPlugin: traceContext must be one of ${TRACE_CONTEXT_MODES.map((m) => JSON.stringify(m)).join(", ")}; received ${JSON.stringify(trace)}`,
+      "Set `traceContext` to one of the listed modes, or leave it out for the default.",
     );
   }
   if (options.name !== undefined && options.name.trim().length === 0) {
-    throw new TypeError("mcpPlugin: name must not be empty");
+    throw invalidOption(
+      "mcpPlugin: name must not be empty",
+      "Give `name` a non-empty string, or leave it out.",
+    );
   }
   if ((options as { proxy?: unknown }).proxy !== undefined) {
-    throw new TypeError(
+    throw invalidOption(
       "mcpPlugin: `proxy` was removed. A client's tools are re-exposed by a route: .from(mcp({ proxy: 'server:*' })).to(mcp('server:*')) for every tool of a client, .from(mcp({ proxy: 'server:tool' })) for one, with .authorize() and the route's steps where a guard used to be. See the 0.7 to 0.8 migration guide, section 8.",
+      "Remove `proxy` from the plugin options and declare the proxy as a route.",
     );
   }
   if (options.transport === "http") {
@@ -64,12 +71,16 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       host?: unknown;
     };
     if (removed.port !== undefined || removed.host !== undefined) {
-      throw new TypeError(
+      throw invalidOption(
         'mcpPlugin: `port` and `host` were removed. Define `servers.default: { host, port }` and set `server: "default"`.',
+        'Move `host` and `port` to `servers.default` and set `server: "default"`.',
       );
     }
     if (options.server !== undefined && options.server.length === 0) {
-      throw new TypeError("mcpPlugin: server name must not be empty");
+      throw invalidOption(
+        "mcpPlugin: server name must not be empty",
+        "Set `server` to the name of an entry under `servers`, or leave it out for the default server.",
+      );
     }
     if (options.path !== undefined) {
       normalizeMcpPath(options.path);
@@ -93,8 +104,9 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       Array.isArray(origin) ||
       typeof origin === "function";
     if (!ok) {
-      throw new TypeError(
+      throw invalidOption(
         "mcpPlugin: cors.origin must be '*', a string, a string array, or a function",
+        "Set `cors.origin` to '*', one origin, a list of origins, or a function that decides per request.",
       );
     }
   }
@@ -112,25 +124,28 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       "verifyAccessToken" in auth ||
       "getClient" in auth
     ) {
-      throw new TypeError(
+      throw invalidOption(
         "mcpPlugin: auth uses the removed OAuth authorization-server proxy shape " +
           "({ provider, endpoints, verifyAccessToken, getClient }). The MCP server is " +
           "now a resource server: use oauth({ verify, issuer, requiredScopes }) and " +
           "point clients at your IdP's own authorization and token endpoints, which " +
           "they discover from the protected-resource metadata.",
+        "Replace the auth object with oauth({ verify, issuer, requiredScopes }).",
       );
     }
 
     if ("validator" in auth) {
       if (typeof auth["validator"] !== "function") {
-        throw new TypeError(
-          "mcpPlugin: auth.validator must be a function that returns a Principal (throw to reject)",
+        throw invalidOption(
+          `mcpPlugin: auth.validator must be a function that returns a Principal (throw to reject); got ${typeof auth["validator"]}`,
+          "Pass jwt(), jwks() or oauth(), or a { validator } object whose validator is a function.",
         );
       }
     } else {
-      throw new TypeError(
+      throw invalidOption(
         "mcpPlugin: auth must have a 'validator' function. " +
           "Use jwt(), jwks(), oauth(), or a custom { validator } object.",
+        "Pass jwt(), jwks() or oauth(), or a { validator } object whose validator is a function.",
       );
     }
 
@@ -141,16 +156,18 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
     const requiredScopes = auth["requiredScopes"];
     if (requiredScopes !== undefined) {
       if (!Array.isArray(requiredScopes)) {
-        throw new TypeError(
-          "mcpPlugin: auth.requiredScopes must be an array of scope strings",
+        throw invalidOption(
+          `mcpPlugin: auth.requiredScopes must be an array of scope strings; got ${typeof requiredScopes}`,
+          'Set `auth.requiredScopes` to an array such as ["mcp:read"].',
         );
       }
       for (const scope of requiredScopes as unknown[]) {
         if (typeof scope !== "string" || !SCOPE_TOKEN.test(scope)) {
-          throw new TypeError(
+          throw invalidOption(
             `mcpPlugin: auth.requiredScopes contains an invalid scope ${JSON.stringify(scope)}. ` +
               "A scope token is one or more visible ASCII characters excluding space, " +
               "double quote and backslash (RFC 6749 §3.3).",
+            "Remove spaces, double quotes and backslashes from the scope, and list several scopes as separate array entries.",
           );
         }
       }
@@ -165,8 +182,9 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
         !Number.isFinite(clockToleranceSec) ||
         clockToleranceSec < 0)
     ) {
-      throw new TypeError(
-        "mcpPlugin: auth.clockToleranceSec must be a finite, non-negative number of seconds",
+      throw invalidOption(
+        `mcpPlugin: auth.clockToleranceSec must be a finite, non-negative number of seconds; got ${String(clockToleranceSec)}`,
+        "Set `auth.clockToleranceSec` to a number of seconds such as 30, or leave it out.",
       );
     }
   }
@@ -245,8 +263,9 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
         config.transport === "stdio"
       ) {
         if (!config.command || typeof config.command !== "string") {
-          throw new TypeError(
+          throw invalidOption(
             `mcpPlugin: stdio client "${name}" must have a non-empty command string`,
+            'Set the client\'s `command` to the executable to start, for example "npx".',
           );
         }
       }
@@ -260,8 +279,9 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       !Number.isInteger(options.maxRestarts) ||
       options.maxRestarts < 0
     ) {
-      throw new TypeError(
-        "mcpPlugin: maxRestarts must be a non-negative integer",
+      throw invalidOption(
+        `mcpPlugin: maxRestarts must be a non-negative integer; got ${JSON.stringify(options.maxRestarts)}`,
+        "Set `maxRestarts` to 0 or a positive whole number.",
       );
     }
   }
@@ -269,8 +289,9 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
     try {
       parseDuration(options.restartDelay, "restartDelay");
     } catch {
-      throw new TypeError(
+      throw invalidOption(
         "mcpPlugin: restartDelay must be a positive duration",
+        'Set `restartDelay` to a positive duration such as "1s".',
       );
     }
   }
@@ -279,7 +300,10 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       typeof options.restartBackoffMultiplier !== "number" ||
       options.restartBackoffMultiplier < 1
     ) {
-      throw new TypeError("mcpPlugin: restartBackoffMultiplier must be >= 1");
+      throw invalidOption(
+        `mcpPlugin: restartBackoffMultiplier must be >= 1; got ${JSON.stringify(options.restartBackoffMultiplier)}`,
+        "Set `restartBackoffMultiplier` to a number of 1 or more; 1 keeps the delay constant.",
+      );
     }
   }
 
@@ -288,8 +312,9 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
     try {
       parseDuration(options.toolRefreshInterval, "toolRefreshInterval", 0);
     } catch {
-      throw new TypeError(
+      throw invalidOption(
         "mcpPlugin: toolRefreshInterval must be a non-negative duration",
+        'Set `toolRefreshInterval` to a duration such as "5m".',
       );
     }
   }
@@ -310,20 +335,25 @@ export async function validateWithSchema(
   schema: StandardSchemaV1,
 ): Promise<McpPluginOptions> {
   if (!isStandardSchema(schema)) {
-    throw new Error(
+    throw invalidOption(
       "mcpPlugin: schema must be a StandardSchemaV1 with ~standard.validate",
+      "Pass a schema from a Standard Schema library such as Zod, Valibot or ArkType.",
     );
   }
   const result = await validateAgainst(schema, options);
   if (!result.ok) {
-    throw new Error(`mcpPlugin options validation failed: ${result.message}`);
+    throw invalidOption(
+      `mcpPlugin options validation failed: ${result.message}`,
+      "Correct the options the message names.",
+    );
   }
   // A transforming schema can pass while producing `undefined`, which is not
   // usable as plugin options. `validateAgainst` falls back to the input when a
   // passing result carries no `value`, so only an explicit one reaches here.
   if (result.value === undefined) {
-    throw new Error(
+    throw invalidOption(
       "mcpPlugin options validation failed: schema produced undefined options",
+      "Make the schema return the options object.",
     );
   }
   return result.value as McpPluginOptions;

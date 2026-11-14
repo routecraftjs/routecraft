@@ -30,7 +30,7 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 ### Core
 
 - **Ports, hooks and facets** -- plugins share values through versioned ports, add hooks to the slots of the fixed chain, declare typed builder steps, and expose a facet on the exchange. A plugin can replace what fills `.authorize()`, the resilience operations and the cache store. See [plugins](/docs/next/advanced/plugins).
-- **Journeys** -- every exchange a hand-off produces records the exchange that caused it, events and log lines carry it, and W3C trace context crosses the `http()`, ops and MCP doors. See [what is new](/docs/next/migrating/0.7-to-0.8#25-what-is-new-in-080).
+- **Journeys** -- every exchange a hand-off produces records the exchange that caused it, events and log lines carry it, and W3C trace context crosses the `http()`, ops and MCP doors. See [what is new](/docs/next/migrating/0.7-to-0.8#26-what-is-new-in-080).
 - **`auth:rejected` says why** -- the event carries a bounded `code` and `claim` for a refused JWT, never the token or the verifier's message. See [events](/docs/next/reference/events).
 - **`isTransient(error)`** -- the rule `.retry()` and `.circuitBreaker()` apply by default is exported, and `route:retry:stopped` says why a retry stopped.
 
@@ -40,6 +40,7 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 - **A cut-off model call fails** -- a call the provider ends on its output limit or content filter before the model produced anything fails with `AI1020` instead of returning an empty answer, and the default `maxTokens` of 1024 is not sent when `reasoning` asks the model to think. See [model outcomes](/docs/next/migrating/0.7-to-0.8#23-model-outcomes).
 - **`llm()` sends an empty `user:` as given** -- the body is used only when `user` is absent, as `agent()` already does.
 - **A route proxies a remote MCP server** -- `mcpPlugin({ proxy })` and its `guard` are removed; `.from(mcp({ proxy: 'server:*' }))` re-exposes a client's tools behind the chain every route has. See [MCP proxy routes](/docs/next/migrating/0.7-to-0.8#8-mcp-proxy-route).
+- **Invalid plugin options are `RC5003`** -- `mcpPlugin()` and `llmPlugin()` threw a `TypeError` for an invalid option; code that caught one tests `err.rc`. See [coded errors](/docs/next/migrating/0.7-to-0.8#25-coded-errors).
 - **A remote MCP server is reached over `https`** -- a client on plain `http` to a host that is not loopback sets `allowHttp: true`. See [MCP outbound](/docs/next/migrating/0.7-to-0.8#15-mcp-outbound).
 - **An editor turn's body is the prompt text**, and an MCP tool call's arguments ride in `_snapshot`. See [ACP turn body](/docs/next/migrating/0.7-to-0.8#7-acp-turn-body) and [tool call arguments](/docs/next/migrating/0.7-to-0.8#14-mcp-tool-called-args).
 
@@ -63,6 +64,7 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 ### Adapters
 
 - **A mail message's flags are an array** <Badge color="red">Breaking</Badge> -- `flags` was a `Set`, which cannot be stored, so a route sourced from `mail()` could not defer. Code that calls `flags.has()` uses `flags.includes()`. See [mail flags](/docs/next/migrating/0.7-to-0.8#9-mail-flags).
+- **A missing file is `RC5014`** -- `file()`, `jsonl()`, `csv()` and `directory()` threw a bare error for a path that does not exist or cannot be read; they throw `RC5014` and `RC5015` with the errno error as `cause`. See [coded errors](/docs/next/migrating/0.7-to-0.8#25-coded-errors).
 - **`verify: 'strict'` passes long DKIM keys on Bun** -- a key over 255 bytes is split across TXT strings, which Bun's resolver returned as separate records.
 
 ### Packages <Badge color="red">Breaking</Badge>
