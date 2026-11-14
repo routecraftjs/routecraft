@@ -348,6 +348,7 @@ describe("the deferral summary projection", () => {
     const store = new MemoryDeferralStore();
     const full: NewDeferral = {
       id: "d-1",
+      format: 3,
       routeId: "payout",
       position: 3,
       continuationHash: "c".repeat(64),

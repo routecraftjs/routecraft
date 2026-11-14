@@ -39,6 +39,7 @@ import {
   isCurrentContinuationHash,
 } from "../src/kernel/continuation/hash.ts";
 import { DelegateStep } from "../src/operations/delegate.ts";
+import { LogStep } from "../src/operations/log.ts";
 import { NESTED_STEPS } from "../src/dsl-symbol.ts";
 import {
   describeSteps,
@@ -888,6 +889,25 @@ describe("step identity: steps and adapters", () => {
         r.retry({ maxAttempts: 2 }).log("info", "Seen").to(noop()),
       ),
     ).toBe(digestOf((r) => r.to(noop())));
+  });
+
+  /**
+   * @case A step that is not a log line claims the exemption for itself
+   * @preconditions A processing step carrying the registered symbol an earlier canary read the exemption from, and a log step object the route builder did not create
+   * @expectedResult Both stay in the digest: only a `.log()` the builder placed is left out, so no step can change what runs after an approval without the digest moving
+   */
+  test("a step cannot exempt itself", () => {
+    const plain = digestOf((r) => r.to(noop()));
+
+    const claimed = stepsOf((r) => r.process((ex) => ex).to(noop()));
+    (claimed[0] as unknown as Record<symbol, unknown>)[
+      Symbol.for("routecraft.step.digestExempt")
+    ] = true;
+    expect(stepsDigest(claimed)).not.toBe(plain);
+
+    const withLog = stepsOf((r) => r.to(noop()));
+    withLog.unshift(new LogStep("info", "Seen", undefined));
+    expect(stepsDigest(withLog)).not.toBe(plain);
   });
 
   /**

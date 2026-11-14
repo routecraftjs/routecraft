@@ -59,8 +59,8 @@ function unwrap(expression: unknown): unknown {
  * - `<x>.deferral.tokenFor(...)` and `deferralOf(exchange).tokenFor(...)`,
  *   which mint a token for a call binding
  * - `<signer>.mint(...)` where the signer is the `signer` of
- *   `require(CONTINUATIONS)` / `lookup(CONTINUATIONS)`, or a variable
- *   holding either
+ *   `require(CONTINUATIONS)` / `lookup(CONTINUATIONS)` /
+ *   `lookupOf(exchange, CONTINUATIONS)`, or a variable holding one
  *
  * Not flagged: reading `ex.deferral.token` or `Deferred.token`, the
  * documented way for a route to send a link to its own deferral. Knowingly
@@ -114,7 +114,7 @@ const rule: Rule.RuleModule = {
       return resolveBinding(context, node, expression).kind === "other";
     };
 
-    /** `x.require(CONTINUATIONS)` / `x.lookup(CONTINUATIONS)`, or a `const` holding one. */
+    /** `x.require(CONTINUATIONS)` / `x.lookup(CONTINUATIONS)` / `lookupOf(ex, CONTINUATIONS)`, or a `const` holding one. */
     const isRuntime = (node: Rule.Node, wrapped: unknown): boolean => {
       const expression = unwrap(wrapped);
       if (isIdentifier(expression)) {
@@ -123,6 +123,13 @@ const rule: Rule.RuleModule = {
       }
       if (!isCallExpression(expression)) return false;
       const callee: unknown = expression.callee;
+      if (isRoutecraftExport(node, callee, "lookupOf")) {
+        return isRoutecraftExport(
+          node,
+          expression.arguments[1],
+          "CONTINUATIONS",
+        );
+      }
       if (!isMemberExpression(callee)) return false;
       const method = memberPropertyName(callee);
       return (

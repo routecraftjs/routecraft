@@ -1,4 +1,8 @@
 import type { Duration } from "./shared/duration.ts";
+import {
+  exemptFromDigest,
+  isDigestExempt,
+} from "./kernel/continuation/identity.ts";
 import { ENRICH_MERGE_TYPE } from "./brand.ts";
 import type { Adapter, Step } from "./types.ts";
 import type { Exchange, HeaderValue, HeaderLiteral } from "./exchange.ts";
@@ -81,7 +85,6 @@ import {
   BUILDER_KIND,
   BUILDER_STATE,
   CATALOGUE,
-  DIGEST_EXEMPT,
   PUSH_STEP,
   STEP_PLUGIN,
   STEP_ARGS,
@@ -394,10 +397,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
     if (tagged[STEP_PLUGIN] !== undefined) {
       (wrapped as typeof tagged)[STEP_PLUGIN] = tagged[STEP_PLUGIN];
     }
-    const exempt = step as { [DIGEST_EXEMPT]?: true };
-    if (exempt[DIGEST_EXEMPT] === true) {
-      (wrapped as typeof exempt)[DIGEST_EXEMPT] = true;
-    }
+    if (isDigestExempt(step)) exemptFromDigest(wrapped);
     return wrapped as unknown as Step<T>;
   }
 
@@ -913,14 +913,13 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
     message: string,
     bindings?: LogStepBindings<ExchangeOf<S>>,
   ): this {
-    this.pushLabelled(
-      new LogStep(
-        level as LogStepLevel,
-        message,
-        bindings as LogStepBindings | undefined,
-      ),
-      "log",
+    const logStep = new LogStep(
+      level as LogStepLevel,
+      message,
+      bindings as LogStepBindings | undefined,
     );
+    exemptFromDigest(logStep);
+    this.pushLabelled(logStep, "log");
     return this;
   }
 
