@@ -364,7 +364,10 @@ export class DispatchStep<In = unknown> implements Step<DispatchAdapter> {
       catalogue,
     );
     this.#weights = this.#targets.map((t) => t.weight);
-    this.#given = strategy;
+    this.#given =
+      typeof strategy === "object" && strategy !== null
+        ? { ...strategy }
+        : strategy;
     this.#controller = new DispatchController(
       this.#targets.length,
       this.#strategy.name === "sticky" ? this.#strategy.maxKeys : 1,

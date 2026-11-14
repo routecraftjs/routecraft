@@ -390,6 +390,10 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
     if (tagged[STEP_PLUGIN] !== undefined) {
       (wrapped as typeof tagged)[STEP_PLUGIN] = tagged[STEP_PLUGIN];
     }
+    const exempt = step as { [DIGEST_EXEMPT]?: true };
+    if (exempt[DIGEST_EXEMPT] === true) {
+      (wrapped as typeof exempt)[DIGEST_EXEMPT] = true;
+    }
     return wrapped as unknown as Step<T>;
   }
 

@@ -64,6 +64,6 @@ export function mask<T>(rules: MaskRules<T>): FieldTransform<T> {
   };
   return identified(fn, {
     kind: "routecraft.mask",
-    options: rules,
+    options: Object.entries(rules),
   }) as unknown as FieldTransform<T>;
 }

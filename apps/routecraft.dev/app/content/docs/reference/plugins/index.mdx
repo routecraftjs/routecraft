@@ -323,9 +323,9 @@ Without `[IDENTITY]()`, a raw step is identified by its operation and its adapte
 | Plain object | Its own enumerable string keys, sorted |
 | Standard Schema | Its JSON Schema rendering. A `.refine()` or `.transform()` callback is not part of a rendering, so an edit to one moves nothing: wrap such a schema in `versioned(schema, id)` |
 | Function | Its source as the runtime reports it, unless a Routecraft helper returned it, which is digested by the helper's name and arguments |
-| A class instance, a native or bound function, a schema with no JSON Schema rendering, a symbol-keyed or accessor property, a value that contains itself, anything nested more than five deep | A placeholder. The value is reported by `describeIdentity` and by [`RC5071`](/docs/reference/errors#rc-5071) on a route that defers or caches under the default key. |
+| A class instance, a native or bound function, a symbol, a schema with no JSON Schema rendering, a symbol-keyed or accessor property, a value that contains itself, anything nested more than five deep | A placeholder. The value is reported by `describeIdentity` and by [`RC5071`](/docs/reference/errors#rc-5071) on a route that defers or caches under the default key. |
 
-The digest does not cover what a function captured, what a `direct()` target or a named agent does, or an environment variable. A core step is digested by the options it was given, so a default that changes in a release moves nothing by itself. `.log()` and `.debug()` are left out of it.
+The digest does not cover what a function captured, what a `direct()` target, a named agent or a tool selected by name does, the contents of a file a step reads when it runs, or an environment variable. A wrapper's `label` names its events and is left out too. A core step is digested by the options it was given, so a default that changes in a release moves nothing by itself. `.log()` and `.debug()` are left out of it.
 
 ### Structural steps
 

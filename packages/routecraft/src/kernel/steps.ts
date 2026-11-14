@@ -62,9 +62,12 @@ interface CallbackAdapter<In, Out> extends Adapter {
  * exchange resumes only into the step it was parked under (`RC5048`). A
  * step built here is identified by its plugin, its name, the arguments the
  * builder recorded for its factory, and its adapter, so nothing has to be
- * restated. `identity.version` is for a change in behaviour none of those
- * show, and `identity.options` for a value the arguments do not carry. A
- * raw step that implements `IDENTITY` states its own identity instead.
+ * restated. A bare `step(fn)` outside a catalogue has only its callback's
+ * source, which does not show a value the callback closes over: state that
+ * value in `identity.options`. `identity.version` is for a change in
+ * behaviour none of those show. A raw step that implements `IDENTITY`
+ * states its own identity instead; the override is stamped on that step
+ * object, so one raw step carries one override.
  *
  * @template In - The body the step accepts; the method exists only on a
  *   route whose body is assignable to it

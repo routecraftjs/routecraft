@@ -366,7 +366,7 @@ export function jwt(options: JwtAuthOptions): OAuthValidatorAuthOptions {
       kind: "routecraft.jwt",
       options: isHmac(options)
         ? { ...options, secret: secret(options.secret) }
-        : options,
+        : { ...options },
     }),
     issuer: options.issuer,
     ...(options.clockToleranceSec !== undefined && {

@@ -38,6 +38,8 @@ import {
   describeSchema,
   isCurrentContinuationHash,
 } from "../src/kernel/continuation/hash.ts";
+import { DelegateStep } from "../src/operations/delegate.ts";
+import { NESTED_STEPS } from "../src/dsl-symbol.ts";
 import {
   describeSteps,
   encodeIdentityValue,
@@ -705,6 +707,136 @@ describe("step identity: steps and adapters", () => {
   });
 
   /**
+   * @case A delegation's resolver or its fallback changes
+   * @preconditions `DelegateStep` with two resolvers, and one resolver under `drop` and `keep`
+   * @expectedResult Each change moves the digest
+   */
+  test("a delegate step is identified by its resolver and options", () => {
+    const first = () => undefined;
+    const second = () => null;
+    const digest = (resolve: () => unknown, otherwise: "drop" | "keep") =>
+      stepsDigest([new DelegateStep(resolve as never, { otherwise })]);
+    expect(digest(first, "drop")).not.toBe(digest(second, "drop"));
+    expect(digest(first, "drop")).not.toBe(digest(first, "keep"));
+    expect(digest(first, "drop")).toBe(digest(first, "drop"));
+  });
+
+  /**
+   * @case A third-party step turns an isolated branch into one that rejoins
+   * @preconditions A raw step with one nested branch, declared with `rejoins` false and true
+   * @expectedResult The digests differ: where a branch's exchange goes next is behaviour
+   */
+  test("whether a branch rejoins is part of the digest", () => {
+    const branching = (rejoins: boolean): Step<Adapter> =>
+      Object.assign(
+        {
+          operation: OperationType.PROCESS,
+          adapter: {},
+          execute: async (exchange: never) => ({ kind: "continue", exchange }),
+          [IDENTITY]: () => ({ kind: "acme.branch" }),
+        },
+        { [NESTED_STEPS]: () => [{ steps: [], rejoins }] },
+      ) as never;
+    expect(stepsDigest([branching(false)])).not.toBe(
+      stepsDigest([branching(true)]),
+    );
+  });
+
+  /**
+   * @case A class adapter that keeps its behaviour in a method
+   * @preconditions A class instance with an `adapterId` and a prototype `send()`
+   * @expectedResult It is reported as inferred: an edit to the method would not move the digest
+   */
+  test("a class adapter with prototype methods is reported", () => {
+    class Payout {
+      readonly adapterId = "acme.payout";
+      async send(): Promise<void> {}
+    }
+    const { inferred } = describeSteps(stepsOf((r) => r.to(new Payout())));
+    expect(inferred.map((node) => node.reason)).toEqual([
+      "an adapter whose methods live on its class",
+    ]);
+  });
+
+  /**
+   * @case A callable adapter whose stated options hold the adapter itself
+   * @preconditions A function with an `adapterId` and an `IDENTITY` whose options reference it
+   * @expectedResult The encoding ends in a cycle node and reports it, where it used to recurse without bound
+   */
+  test("a self-referencing callable adapter ends as a cycle", () => {
+    const adapter: {
+      (): void;
+      adapterId: string;
+      [IDENTITY]?: () => Identity;
+    } = Object.assign(() => {}, { adapterId: "acme.loop" });
+    adapter[IDENTITY] = () => ({
+      kind: "acme.loop",
+      options: { self: adapter },
+    });
+    const { encoded, inferred } = encodeIdentityValue(adapter);
+    expect(encoded).toContain("cycle");
+    expect(inferred).toHaveLength(1);
+  });
+
+  /**
+   * @case `.to(fn)` becomes `.to({ send: fn })`
+   * @preconditions One function, given to `.to()` bare and as the `send` of an adapter
+   * @expectedResult The digests differ: the bare form replaces the body with what the function returns and the adapter form does not
+   */
+  test("the two forms of .to() differ", () => {
+    const send = () => "replacement";
+    expect(digestOf((r) => r.to(send))).not.toBe(
+      digestOf((r) => r.to({ send } as never)),
+    );
+  });
+
+  /**
+   * @case The rules of a mask swap places
+   * @preconditions `mask()` with the same two overlapping rules in both orders
+   * @expectedResult The encodings differ: rules run in order, and each reads what the one before it wrote
+   */
+  test("mask() keeps the order of its rules", () => {
+    const one = () => 1;
+    const two = () => 2;
+    expect(encodeIdentityValue(mask({ a: one, "a.x": two })).encoded).not.toBe(
+      encodeIdentityValue(mask({ "a.x": two, a: one })).encoded,
+    );
+  });
+
+  /**
+   * @case A wrapper's label is renamed
+   * @preconditions `.concurrency()` and `.circuitBreaker()` with two labels and otherwise equal options
+   * @expectedResult The digests match: a label names events and changes nothing that runs
+   */
+  test("a wrapper's label is not part of its identity", () => {
+    const route = (label: string) =>
+      digestOf((r) =>
+        r
+          .concurrency({ max: 2, label })
+          .circuitBreaker({ failureThreshold: 3, label })
+          .to(noop()),
+      );
+    expect(route("a")).toBe(route("b"));
+  });
+
+  /**
+   * @case A raw step's stated options are overridden with null
+   * @preconditions A raw step stating `{ a: 1 }`, given `identity.options: null` and given no override
+   * @expectedResult The null replaces the stated options
+   */
+  test("a null options override is kept", () => {
+    const raw = (): Step<Adapter> & IdentifiedStep => ({
+      operation: OperationType.PROCESS,
+      adapter: {},
+      execute: async (exchange) => ({ kind: "continue", exchange }),
+      [IDENTITY]: () => ({ kind: "acme.raw", options: { a: 1 } }),
+    });
+    expect(
+      stepsDigest([typedStep(raw(), { identity: { options: null } })]),
+    ).not.toBe(stepsDigest([typedStep(raw())]));
+  });
+
+  /**
    * @case The roles a mid-pipeline authorization admits change
    * @preconditions `.validate(authorize({ roles }))` with two role lists, and the first list twice
    * @expectedResult The digests differ: the closure `authorize()` returns reads the same for every option, so its options are its identity
@@ -744,6 +876,9 @@ describe("step identity: steps and adapters", () => {
    */
   test("log steps are left out", () => {
     expect(digestOf((r) => r.log().debug().to(noop()))).toBe(
+      digestOf((r) => r.to(noop())),
+    );
+    expect(digestOf((r) => r.retry({ maxAttempts: 2 }).log().to(noop()))).toBe(
       digestOf((r) => r.to(noop())),
     );
   });

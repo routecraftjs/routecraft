@@ -362,7 +362,14 @@ export function assignCacheSites(route: RouteDefinition): {
           const below = describeSteps([current.wrapped]);
           current.assignSite(JSON.stringify([position, index, below.digest]));
           usesDefaultKey ||= current.usesDefaultKey;
-          if (current.usesDefaultKey) inferred.push(...below.inferred);
+          if (current.usesDefaultKey) {
+            inferred.push(
+              ...below.inferred.map((node) => ({
+                ...node,
+                path: `position ${position}: ${node.path}`,
+              })),
+            );
+          }
         }
         index++;
       }

@@ -93,6 +93,21 @@ export interface RequiredPosition {
  * authors land additional operations (retry, cache, timeout, circuit
  * breaker, etc.).
  */
+/**
+ * What a wrapper digests of the options it was given: a copy, so a caller
+ * that edits its object afterwards cannot move the identity away from the
+ * behaviour already resolved, and without `label`, which only names events.
+ *
+ * @internal
+ */
+export function givenOptions(options: unknown): unknown {
+  if (options === null || typeof options !== "object") return options;
+  if (Array.isArray(options)) return [...(options as unknown[])];
+  const behaviour = { ...(options as Record<string, unknown>) };
+  delete behaviour["label"];
+  return behaviour;
+}
+
 export abstract class WrapperStep<
   T extends Adapter = Adapter,
 > implements Step<T> {

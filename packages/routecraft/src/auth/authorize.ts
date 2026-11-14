@@ -194,7 +194,10 @@ export function authorize(
     if (refused !== undefined) throw refusal(exchange, refused());
     return exchange.body;
   };
-  return identified(validate, { kind: "routecraft.authorize", options });
+  return identified(validate, {
+    kind: "routecraft.authorize",
+    options: { ...options },
+  });
 }
 
 /**

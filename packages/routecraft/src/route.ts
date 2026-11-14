@@ -969,7 +969,7 @@ export class DefaultRoute implements Route {
     ) {
       walk(definition.steps, "resume", "on the error path");
     }
-    if (definition.cache !== undefined) {
+    if (definition.cache?.usesDefaultKey === true) {
       walk(definition.steps, "cache", "under the route's cache");
     }
     for (const node of definition.cacheInferred ?? []) {

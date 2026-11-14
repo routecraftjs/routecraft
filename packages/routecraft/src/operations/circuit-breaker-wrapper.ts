@@ -5,7 +5,7 @@ import type { CraftContext } from "../context.ts";
 import type { ForwardFn, Route } from "../route.ts";
 import type { RouteKey } from "../kernel/positions.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
-import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import { WrapperStep, givenOptions, type RequiredPosition } from "./wrapper.ts";
 import type { Identity } from "../kernel/continuation/identity.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
@@ -560,7 +560,7 @@ export class CircuitBreakerWrapperStep<
   constructor(inner: Step<T>, options: CircuitBreakerOptions) {
     super(inner);
     this.#options = resolveCircuitBreakerOptions(options);
-    this.#given = options;
+    this.#given = givenOptions(options);
   }
 
   protected override readonly wrapperKind = "routecraft.circuitBreaker";

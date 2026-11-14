@@ -430,7 +430,8 @@ Options are encoded canonically, each value under its own tag:
 
 | Value | Encoded as |
 | --- | --- |
-| `null`, `undefined`, string, boolean, number, bigint | Itself, with `-0` as `0` and the non-finite numbers by name |
+| `null`, string, boolean, number, bigint | Itself, with `-0` as `0` and the non-finite numbers by name |
+| `undefined` | Its own tag, so it never equals `null` or a missing key |
 | `Date`, `URL`, `RegExp` | ISO time, href, source and flags |
 | Array, `Map`, `Set` | Members in order |
 | Plain object | Own enumerable string keys, sorted; an accessor is not invoked |
@@ -439,7 +440,9 @@ Options are encoded canonically, each value under its own tag:
 | Any other function | Its source as the runtime reports it |
 | `secret(value)` | A constant: rotation moves nothing. For a value that configures without deciding the result; a credential that selects whose data comes back is `versioned(value, accountId)`, or two accounts share one cache key |
 | `versioned(value, id)` | `id` alone |
-| A class instance, a native or bound function, a symbol-keyed or accessor property, a cycle, anything nested more than five deep | A placeholder, and the value is reported as inferred |
+| A class instance, a native or bound function, a symbol, an accessor property, a cycle, anything nested more than five deep | A placeholder, and the value is reported as inferred |
+| A symbol-keyed property | Left out, the string keys still digested, and the object is reported as inferred |
+| An adapter that is a class instance with methods on its prototype | Its own properties, and reported as inferred: the methods are not read |
 
 Three rules follow. Core never lets its own source text into a digest, so a
 release, a minifier and the ESM or CJS build do not move it; a helper that

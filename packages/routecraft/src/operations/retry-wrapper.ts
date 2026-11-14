@@ -2,7 +2,7 @@ import type { Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
-import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import { WrapperStep, givenOptions, type RequiredPosition } from "./wrapper.ts";
 import { identified, type Identity } from "../kernel/continuation/identity.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
@@ -283,7 +283,7 @@ export class RetryWrapperStep<
   constructor(inner: Step<T>, options: RetryOptions = {}) {
     super(inner);
     this.#options = resolveRetryOptions(options);
-    this.#given = options;
+    this.#given = givenOptions(options);
   }
 
   protected override readonly wrapperKind = "routecraft.retry";

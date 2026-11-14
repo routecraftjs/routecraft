@@ -5,7 +5,7 @@ import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
-import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import { WrapperStep, givenOptions, type RequiredPosition } from "./wrapper.ts";
 import type { Identity } from "../kernel/continuation/identity.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
@@ -548,7 +548,7 @@ export class ThrottleWrapperStep<
   constructor(inner: Step<T>, options: ThrottleOptions) {
     super(inner);
     this.#options = resolveThrottleOptions(options);
-    this.#given = options;
+    this.#given = givenOptions(options);
   }
 
   protected override readonly wrapperKind = "routecraft.throttle";

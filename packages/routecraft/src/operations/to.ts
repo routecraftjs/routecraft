@@ -136,7 +136,10 @@ export class ToStep<T = unknown, R = unknown>
 
   /** @internal */
   [IDENTITY](): Identity {
-    return { kind: "routecraft.to", options: { adapter: this.adapter } };
+    return {
+      kind: "routecraft.to",
+      options: { adapter: this.adapter, callable: this.callable !== undefined },
+    };
   }
 
   async execute(

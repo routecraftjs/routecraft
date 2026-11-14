@@ -187,6 +187,9 @@ function encodeAdapter(adapter: object, path: string, walk: Walk): unknown {
   if (typeof adapter === "function") {
     return ["adapter", id, encodeFunction(adapter, path, walk)];
   }
+  if (hasClassMethods(adapter)) {
+    note(walk, path, "an adapter whose methods live on its class");
+  }
   const own: Record<string, unknown> = Object.create(null);
   for (const key of Object.keys(adapter).sort()) {
     if (key === "adapterId") continue;
@@ -200,13 +203,29 @@ function encodeAdapter(adapter: object, path: string, walk: Walk): unknown {
   return ["adapter", id, own];
 }
 
+/** Whether behaviour sits on the prototype chain, where own properties do not show it. */
+function hasClassMethods(value: object): boolean {
+  for (
+    let proto: object | null = Object.getPrototypeOf(value);
+    proto !== null && proto !== Object.prototype;
+    proto = Object.getPrototypeOf(proto)
+  ) {
+    if (
+      Object.getOwnPropertyNames(proto).some((key) => key !== "constructor")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function encodeFunction(fn: object, path: string, walk: Walk): unknown {
   const stated = identityOf(fn);
   if (stated) {
     return inside(fn, path, walk, () => encodeIdentity(stated, path, walk));
   }
   const source = Function.prototype.toString.call(fn);
-  if (source.includes("[native code]")) {
+  if (/\{\s*\[native code\]\s*\}\s*$/.test(source)) {
     note(walk, path, "a native or bound function");
     return ["fn", "[native]"];
   }
@@ -274,7 +293,7 @@ function encode(
       return ["opaque", "symbol"];
     case "function":
       return isAdapterLike(value)
-        ? encodeAdapter(value, path, walk)
+        ? inside(value, path, walk, () => encodeAdapter(value, path, walk))
         : encodeFunction(value, path, walk);
     default:
   }
@@ -373,6 +392,7 @@ interface StampedStep {
   [DIGEST_EXEMPT]?: true;
   [NESTED_STEPS]?: () => ReadonlyArray<{
     readonly steps: ReadonlyArray<Step<Adapter>>;
+    readonly rejoins?: boolean;
     readonly selector?: IdentityValue;
   }>;
   [WRAPPER_IDENTITY]?: () => Identity & { readonly inner: Step<Adapter> };
@@ -434,7 +454,12 @@ function encodeStepIdentity(
   const at = `${path}.options`;
   let options: unknown;
   if (stated) {
-    options = encode(over?.options ?? stated.options, at, 1, walk);
+    options = encode(
+      over?.options !== undefined ? over.options : stated.options,
+      at,
+      1,
+      walk,
+    );
   } else {
     const derived: Record<string, unknown> = Object.create(null);
     derived["adapter"] = encode(step.adapter, `${at}.adapter`, 1, walk);
@@ -493,6 +518,7 @@ function encodeStep(
       identity.options,
       nested.map((branch, index) => [
         encode(branch.selector, `${path}.branch[${index}].selector`, 1, walk),
+        branch.rejoins === true,
         encodeSteps(branch.steps, `${path}.branch[${index}]`, walk).map(
           (encoded) => encoded.node,
         ),

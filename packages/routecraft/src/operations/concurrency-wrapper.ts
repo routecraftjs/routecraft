@@ -4,7 +4,7 @@ import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
 import type { RouteKey } from "../kernel/positions.ts";
-import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
+import { WrapperStep, givenOptions, type RequiredPosition } from "./wrapper.ts";
 import type { Identity } from "../kernel/continuation/identity.ts";
 import { SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
@@ -518,7 +518,7 @@ export class ConcurrencyWrapperStep<
   constructor(inner: Step<T>, options: ConcurrencyOptions) {
     super(inner);
     this.#options = resolveConcurrencyOptions(options);
-    this.#given = options;
+    this.#given = givenOptions(options);
   }
 
   protected override readonly wrapperKind = "routecraft.concurrency";
