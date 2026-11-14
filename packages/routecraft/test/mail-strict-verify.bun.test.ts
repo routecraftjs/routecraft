@@ -28,6 +28,57 @@ describe("rejoinKeyRecord", () => {
   });
 
   /**
+   * @case Two records published at one key name stay two
+   * @preconditions A `_domainkey` lookup answered with two complete records, the second split in two strings, each string its own record
+   * @expectedResult Two records, the second holding both of its strings, as Node would return them
+   */
+  test("keeps two key records at one name apart", () => {
+    expect(
+      rejoinKeyRecord(
+        KEY_NAME,
+        "TXT",
+        [["v=DKIM1; p=OLD"], ["v=DKIM1; p=NEW"], ["MORE"]],
+        true,
+      ),
+    ).toEqual([["v=DKIM1; p=OLD"], ["v=DKIM1; p=NEW", "MORE"]]);
+  });
+
+  /**
+   * @case An answer that already groups its strings is left alone
+   * @preconditions A `_domainkey` lookup answered with a record of two strings, on a runtime flagged as splitting
+   * @expectedResult The records are returned untouched, so a runtime that stops splitting needs no change here
+   */
+  test("leaves an answer that is not in the split shape", () => {
+    const records = [["v=DKIM1; p=AAA", "BBB"], ["other"]];
+
+    expect(rejoinKeyRecord(KEY_NAME, "TXT", records, true)).toBe(records);
+  });
+
+  /**
+   * @case A split DMARC policy record is made whole
+   * @preconditions A `_dmarc` lookup answered as two single-string records
+   * @expectedResult One record holding both strings
+   */
+  test("joins the strings of a split DMARC record", () => {
+    expect(
+      rejoinKeyRecord(
+        "_dmarc.example.test",
+        "TXT",
+        [
+          ["v=DMARC1; p=reject; rua=mailto:a@example.test,"],
+          ["mailto:b@example.test"],
+        ],
+        true,
+      ),
+    ).toEqual([
+      [
+        "v=DMARC1; p=reject; rua=mailto:a@example.test,",
+        "mailto:b@example.test",
+      ],
+    ]);
+  });
+
+  /**
    * @case Distinct TXT records at an apex stay separate records
    * @preconditions An apex TXT lookup answered with an SPF record and a site verification record, on a runtime that splits
    * @expectedResult The two records are returned untouched, so the SPF policy is not corrupted

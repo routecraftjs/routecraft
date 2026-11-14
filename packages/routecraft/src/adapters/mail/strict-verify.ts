@@ -8,6 +8,7 @@
 import { promises as dns } from "node:dns";
 import { rcError } from "../../error.ts";
 import { loadOptionalPeer } from "../shared/optional-peer.ts";
+import { isBun } from "../../shared/runtime-env.ts";
 import type { MailSender } from "./analysis.ts";
 
 /**
@@ -100,23 +101,28 @@ export async function verifyStrict(
 }
 
 /**
- * Put a DKIM or ARC key record back together when the runtime split it.
+ * Put a DKIM, ARC or DMARC record back together when the runtime split it.
  *
  * A TXT string holds at most 255 bytes, so every real key is published as
  * several strings of one record. Node returns them as one record; Bun returns
  * each string as a record of its own, and `mailauth` reads only the first, so
  * the key arrives truncated and every signature fails as an invalid key.
  *
- * The join is scoped to `_domainkey` names, where a single logical record is
- * the rule (RFC 6376 section 3.6.2.2). Any other name keeps its records apart:
- * an apex publishes SPF beside unrelated TXT records, and joining those would
- * corrupt the SPF policy.
+ * The split shape is recognised, not assumed from the runtime alone: every
+ * record holds exactly one string. A string that opens with a `v=` tag starts
+ * a record and the strings after it continue that record, so two records
+ * published at one name (a key being rotated) stay two, as they are on Node.
+ *
+ * The join is scoped to `_domainkey` and `_dmarc` names, whose records open
+ * with a version tag. Any other name keeps its records apart: an apex
+ * publishes SPF beside unrelated TXT records that carry no such tag, and
+ * joining those would corrupt the SPF policy.
  *
  * @param name - The name that was looked up
  * @param rrtype - The record type that was asked for
  * @param records - What the runtime's resolver returned
  * @param splitsStrings - Whether this runtime returns each string as its own record
- * @returns The records, with a split key record made whole
+ * @returns The records, with a split record made whole
  */
 export function rejoinKeyRecord(
   name: string,
@@ -125,8 +131,20 @@ export function rejoinKeyRecord(
   splitsStrings: boolean,
 ): string[][] | string[] {
   if (!splitsStrings || rrtype !== "TXT" || records.length < 2) return records;
-  if (!name.toLowerCase().split(".").includes("_domainkey")) return records;
-  return [records.flat()];
+  const labels = name.toLowerCase().split(".");
+  if (!labels.includes("_domainkey") && labels[0] !== "_dmarc") return records;
+  const strings: string[] = [];
+  for (const record of records) {
+    if (!Array.isArray(record) || record.length !== 1) return records;
+    strings.push(record[0] as string);
+  }
+  const rejoined: string[][] = [];
+  for (const value of strings) {
+    const open = rejoined.at(-1);
+    if (open === undefined || /^\s*v\s*=/i.test(value)) rejoined.push([value]);
+    else open.push(value);
+  }
+  return rejoined;
 }
 
 /** The resolver `mailauth` is handed: the runtime's own, with {@link rejoinKeyRecord} applied. */
@@ -135,12 +153,7 @@ async function resolveForMailauth(
   rrtype: string,
 ): Promise<string[][] | string[]> {
   const records = (await dns.resolve(name, rrtype)) as string[][] | string[];
-  return rejoinKeyRecord(
-    name,
-    rrtype,
-    records,
-    process.versions["bun"] !== undefined,
-  );
+  return rejoinKeyRecord(name, rrtype, records, isBun());
 }
 
 // ---------------------------------------------------------------------------
