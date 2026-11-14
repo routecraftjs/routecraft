@@ -293,6 +293,14 @@ withLogOptions(
     program
       .command("run")
       .description("Run routes from a single TypeScript/JavaScript file")
+      .option(
+        "--config <path>",
+        "Project file to run the routes in (default: the file's own project export, then the craft.config beside the nearest package.json)",
+      )
+      .option(
+        "--no-config",
+        "Do not read the craft.config beside the nearest package.json",
+      )
       .argument("<file>", "Path to a file containing routes")
       .argument(
         "[args...]",
@@ -303,10 +311,15 @@ withLogOptions(
 )
   .passThroughOptions()
   .action(
-    async (filePath: string, args: string[], options: { profile?: string }) => {
+    async (
+      filePath: string,
+      args: string[],
+      options: { profile?: string; config?: string | false },
+    ) => {
       const { runCommand } = await import("./run.js");
       const result = await runCommand(filePath, args, {
         ...(options.profile === undefined ? {} : { profile: options.profile }),
+        ...(options.config === undefined ? {} : { config: options.config }),
         readStdin,
       });
       // Don't call process.exit() after a run; let the event loop drain
@@ -566,33 +579,19 @@ withEnvironment(
 });
 
 /**
- * The 'mcp pin' command lists the configured MCP clients and writes their
- * tool definitions to the lockfile a pinned client is held to. The file is
- * approved by committing it.
+ * The 'mcp' verb is the MCP plugin's: every command under it comes from that
+ * plugin's `tooling.commands`, read from the project in the working
+ * directory. `craft mcp pin` is one of them.
  *
  * Example:
  * craft mcp pin
  * craft mcp pin books
  */
-withEnvironment(
-  program
-    .command("mcp")
-    .description("Work with the configured MCP clients")
-    .command("pin")
-    .description(
-      "Write the tools the MCP clients list now to mcp.lock, for review and commit",
-    )
-    .argument(
-      "[client]",
-      "Client to pin, by its configured name; every client that sets pins when left out",
-    ),
-  () => process.cwd(),
-).action(async (client: string | undefined) => {
-  const { runProjectCommand } = await import("./project-command.js");
-  settle(
-    await runProjectCommand("mcp pin", client === undefined ? [] : [client]),
+program
+  .command("mcp")
+  .description(
+    "Work with the configured MCP clients; the commands come from the MCP plugin (craft mcp lists them)",
   );
-});
 
 /**
  * The 'acp' command is the pipe an editor runs.
@@ -783,6 +782,44 @@ program
     const { renderTui } = await import("./tui/app.js");
     await renderTui(dbPath);
   });
+
+await registerPluginCommand();
+
+/**
+ * Give the command line a plugin's command when it names one.
+ *
+ * Plugin commands are known only once the project is loaded, and the
+ * project is loaded only after the environment the command selects. So the
+ * one command this line names is registered from its words alone, with the
+ * environment flags every project command has, and its action reads the
+ * plugin's tooling.
+ */
+async function registerPluginCommand(): Promise<void> {
+  const { toolingInvocation } = await import("./tooling.js");
+  const { findConfigFile } = await import("./project.js");
+  const invoked = toolingInvocation(
+    process.argv.slice(2),
+    findConfigFile(process.cwd()) !== undefined,
+  );
+  if (invoked === undefined) return;
+  const { namespace, key } = invoked;
+  const verb =
+    program.commands.find((command) => command.name() === namespace) ??
+    program.command(namespace, { hidden: true });
+  const command = key === undefined ? verb : verb.command(key);
+  // Help is the plugin's to print, from the command's own summary and usage.
+  withEnvironment(
+    command
+      .argument("[args...]")
+      .allowUnknownOption()
+      .helpOption(false)
+      .addHelpCommand(false),
+    () => process.cwd(),
+  ).action(async (args: string[]) => {
+    const { runToolingCommand } = await import("./tooling.js");
+    settle(await runToolingCommand(namespace, key, args));
+  });
+}
 
 // Parse the command line arguments and execute the appropriate command
 await program.parseAsync();

@@ -213,7 +213,7 @@ interface ActiveTurn {
 export function noContinuationsStore(): Error {
   return rcError("RC5052", undefined, {
     message:
-      "agent({ session }) stores a turn's continuation in the deferral store, and this application has no deferral runtime. Add deferral: {} to defineProject (or defineConfig) to take the defaults, or deferral: { store, secret } to be explicit.",
+      "agent({ session }) stores a turn's continuation in the deferral store, and this application has no deferral runtime. Add deferral: {} to defineProject to take the defaults, or deferral: { store, secret } to be explicit.",
   });
 }
 

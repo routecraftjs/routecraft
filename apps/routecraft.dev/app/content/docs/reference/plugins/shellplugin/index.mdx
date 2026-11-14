@@ -13,10 +13,10 @@ import { shellPlugin } from '@routecraft/os'
 Context-wide defaults for [`shell()`](/docs/reference/adapters/shell). Deployment policy belongs here, so a project sets its posture once instead of repeating it at every call.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import { shellPlugin } from '@routecraft/os'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   plugins: [shellPlugin({ timeout: 30_000, maxOutputBytes: 1_048_576 })],
 })
 ```

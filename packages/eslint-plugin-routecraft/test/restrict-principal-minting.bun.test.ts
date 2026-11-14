@@ -21,7 +21,7 @@ const ruleTester = new RuleTester({
 });
 
 /**
- * @case restrict-principal-minting rule: every minting form is flagged with a branch-identifying message (route .authenticate() on craft chains including aliased and namespace craft, named, aliased, computed-member, and namespace imports of authenticate from @routecraft/routecraft, import-after-use, and mint()/brand() on the authority from authorityOf(), a const holding it, require(AUTHORITY), or the exported defaultAuthority as a named or namespace import); non-minting chains, same-named symbols from other modules, shadowing locals, and foreign craft() pass; the chain report anchors on the .authenticate property so the documented eslint-disable-next-line placement suppresses it
+ * @case restrict-principal-minting rule: every minting form is flagged with a branch-identifying message (route .authenticate() on craft chains including aliased and namespace craft, a project's craft() whether the project is defined in the file or imported from one of the codebase's own modules, and a craft a local module re-exports, named, aliased, computed-member, and namespace imports of authenticate from @routecraft/routecraft, import-after-use, and mint()/brand() on the authority from authorityOf(), a const holding it, require(AUTHORITY), or the exported defaultAuthority as a named or namespace import); non-minting chains, same-named symbols from other modules, shadowing locals, foreign craft(), and a project or craft from a bare package pass; the chain report anchors on the .authenticate property so the documented eslint-disable-next-line placement suppresses it
  * @preconditions Source snippets covering craft chains with and without .authenticate, helper imports from routecraft and from unrelated modules, aliased, namespace, computed-member and hoisted import call forms, shadowed bindings, and a multi-line chain with line/column expectations
  * @expectedResult Valid cases produce no errors; each invalid case produces one restrictedMint error per mint call carrying the expected data.what, and the multi-line chain error anchors on the .authenticate line
  */
@@ -108,6 +108,24 @@ ruleTester.run("restrict-principal-minting", restrictPrincipalMintingRule, {
         import * as rc from "@routecraft/routecraft";
         const { authenticate } = rc;
         authenticate({ subject: "x" });
+      `,
+    },
+    {
+      // a project or a craft from a bare package is somebody else's builder
+      code: `
+        import project from "some-other-lib";
+        import { craft } from "another-lib/builder";
+        project.craft().connect().authenticate({ apiKey: "k" });
+        craft().authenticate({ apiKey: "k" });
+      `,
+    },
+    {
+      // .craft() on a local that is not a project
+      code: `
+        const table = makeTable();
+        table.craft().authenticate({ apiKey: "k" });
+        const craft = table.craft;
+        craft().authenticate({ apiKey: "k" });
       `,
     },
     // Note: the sanctioning mechanism (a scoped eslint-disable comment or a
@@ -289,6 +307,78 @@ export default craft()
       `,
       errors: [
         { messageId: "restrictedMint", data: { what: "authority.brand()" } },
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+      ],
+    },
+    {
+      // a project's craft(), the project defined in the file
+      code: `
+        import { defineProject, simple, noop } from "@routecraft/routecraft";
+        const project = defineProject({ plugins: [] });
+        export default project.craft().id("p").from(simple({})).authenticate(mint).to(noop());
+      `,
+      errors: [
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+      ],
+    },
+    {
+      // a project imported from the codebase's own module, default or named
+      code: `
+        import project from "../craft.config.ts";
+        import { other } from "@/project";
+        export const a = project.craft().id("a").authenticate(mint);
+        export const b = other.craft().id("b").authenticate(mint);
+      `,
+      errors: [
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+      ],
+    },
+    {
+      // a project read off a namespace import of a local module
+      code: `
+        import * as config from "./craft.config";
+        export default config.project.craft().id("ns").authenticate(mint);
+      `,
+      errors: [
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+      ],
+    },
+    {
+      // defineProject(...).craft() without a variable, and through a namespace
+      code: `
+        import * as rc from "@routecraft/routecraft";
+        import { defineProject } from "@routecraft/routecraft";
+        export const a = defineProject({}).craft().id("a").authenticate(mint);
+        const project = rc.defineProject({});
+        export const b = project.craft().id("b").authenticate(mint);
+      `,
+      errors: [
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+      ],
+    },
+    {
+      // a craft re-exported by a local module, aliased or not
+      code: `
+        import { craft } from "./project";
+        import { craft as build } from "#project";
+        export const a = craft().id("a").authenticate(mint);
+        export const b = build().id("b").authenticate(mint);
+      `,
+      errors: [
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+      ],
+    },
+    {
+      // a craft taken off a project into a const
+      code: `
+        import project from "./craft.config";
+        const craft = project.craft;
+        export default craft().id("taken").authenticate(mint);
+      `,
+      errors: [
         { messageId: "restrictedMint", data: { what: ".authenticate()" } },
       ],
     },

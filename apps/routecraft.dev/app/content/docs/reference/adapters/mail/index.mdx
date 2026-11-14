@@ -151,13 +151,13 @@ craft()
 
 **Configuration via named accounts:**
 
-Mail connection details are set once in your `craft.config.ts` so individual routes do not need to repeat them. Each capability file re-exports the config:
+Mail connection details are set once in your `craft.config.ts` so individual routes do not need to repeat them. `craft run` and `craft start` both read it from there:
 
 ```ts
 // craft.config.ts
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
+export default defineProject({
   mail: {
     accounts: {
       default: {
@@ -173,12 +173,11 @@ export const craftConfig: CraftConfig = {
       },
     },
   },
-}
+})
 ```
 
-```ts skip="multi-file: imports a sibling file the page describes in prose"
+```ts
 // capabilities/inbox-watcher.ts
-export { craftConfig } from '../craft.config'
 import { craft, mail } from '@routecraft/routecraft'
 
 export default craft()

@@ -4,7 +4,12 @@ import { timer } from "../src/adapters/timer/index.ts";
 import { cron } from "../src/adapters/cron/index.ts";
 import { noop } from "../src/adapters/noop/index.ts";
 import { CraftContext } from "../src/context.ts";
-import { definePlugin, direct } from "../src/index.ts";
+import {
+  definePlugin,
+  direct,
+  serversPlugin,
+  telemetryPlugin,
+} from "../src/index.ts";
 import { rcCodeOf } from "../src/brand.ts";
 
 /**
@@ -123,12 +128,30 @@ describe("stale option names", () => {
   /**
    * @case A stale config key fails when the context is built, not at shutdown
    * @preconditions A CraftContext constructed with shutdown.timeoutMs
-   * @expectedResult RC5003 at construction. Checked in the constructor rather than in defineConfig() because defineConfig is an optional typing helper a config object can skip
+   * @expectedResult RC5003 at construction. Checked in the constructor rather than in defineProject() because a config object can reach a context without one
    */
   test("refuses a stale shutdown key at context construction", () => {
     expect(
       () => new CraftContext({ shutdown: { timeoutMs: 5000 } } as never),
     ).toThrow(/timeoutMs/);
+  });
+
+  /**
+   * @case A stale key inside a plugin's config block is refused by the plugin that owns the block
+   * @preconditions servers.default.requestTimeoutMs and telemetry.sqlite.eventFlushIntervalMs, each handed to its own plugin's factory
+   * @expectedResult RC5003 naming the stale key from each factory, so the kernel's context knows neither block
+   */
+  test("refuses a stale key in a plugin's own config block", () => {
+    expect(() =>
+      serversPlugin({
+        default: { port: 0, requestTimeoutMs: 1000 },
+      } as never),
+    ).toThrow(/servers\.default\(\{ requestTimeoutMs \}\)/);
+    expect(() =>
+      telemetryPlugin({
+        sqlite: { eventFlushIntervalMs: 1000 },
+      } as never),
+    ).toThrow(/telemetry\.sqlite\(\{ eventFlushIntervalMs \}\)/);
   });
 
   /**

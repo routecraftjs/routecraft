@@ -55,7 +55,7 @@ declare module "@routecraft/routecraft" {
 export type CredentialStoreConfig =
   string | { path: string } | "memory" | CredentialStore;
 
-/** Credentials configuration on `defineConfig`. */
+/** Credentials configuration on `defineProject`. */
 export interface CredentialsConfig {
   /**
    * Defaults to the SQLite store at {@link DEFAULT_CREDENTIALS_DB_PATH}, or

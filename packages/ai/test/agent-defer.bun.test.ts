@@ -775,7 +775,7 @@ describe("agent durable deferral (ctx.defer)", () => {
   /**
    * @case ctx.defer in a context without a deferral runtime fails as a typed step error naming the config line
    * @preconditions No `deferral` block on the config (legal: the route has no static .defer()); the tool defers at runtime
-   * @expectedResult The dispatch fails with RC5052 telling the user to add deferral: {} to defineConfig; nothing is deferred
+   * @expectedResult The dispatch fails with RC5052 telling the user to add deferral: {} to defineProject; nothing is deferred
    */
   test("ctx.defer without a deferral runtime fails with RC5052", async () => {
     const sink = spy();

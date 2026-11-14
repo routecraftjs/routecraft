@@ -145,7 +145,7 @@ export type { ToolGuard } from "../../fn/types.ts";
  *   expands to every route imported from that remote;
  *   `MCP(server:tool)` / `MCP(server)` and the raw `mcp__server__tool`
  *   / `mcp__server` / `mcp__server__*` forms resolve against
- *   the MCP plugin's tool registry (populated by `defineConfig.mcp` /
+ *   the MCP plugin's tool registry (populated by `defineProject({ mcp })` /
  *   `mcpPlugin({ clients })`).
  * - `{ name, guard?, description?, background? }`: same lookup, with
  *   optional per-binding overrides. The `description` override applies
@@ -813,7 +813,7 @@ function resolveRemoteRefs(
         `tools(): remote reference "${ref}" but remote "${remote}" has no imported routes. ` +
         (known.length > 0
           ? `Remotes with routes: ${known.map((k) => `"${k}"`).join(", ")}.`
-          : `No remote has imported routes in this context; configure defineConfig({ remotes }) and check the remote is reachable.`),
+          : `No remote has imported routes in this context; configure defineProject({ remotes }) and check the remote is reachable.`),
     });
   }
   const out: ResolvedTool[] = [];
@@ -1116,7 +1116,7 @@ function resolveMcpRefs(
   const registry = ctx.lookup(MCP)?.tools;
   if (!registry) {
     throw rcError("RC5003", undefined, {
-      message: `tools(): MCP reference "${ref}" but no MCP plugin is installed. Install mcpPlugin (defineConfig.mcp) so external clients populate the registry.`,
+      message: `tools(): MCP reference "${ref}" but no MCP plugin is installed. Install mcpPlugin (defineProject({ mcp })) so external clients populate the registry.`,
     });
   }
   const service = ctx.lookup(MCP);
@@ -1197,7 +1197,7 @@ function resolveMcpRefs(
  * authenticates the caller into routecraft and is intentionally
  * NOT forwarded to the MCP server. The MCP client is authenticated
  * separately via the static credentials registered on
- * `defineConfig.mcp({ clients: { name: { auth } } })`. If the agent
+ * `defineProject({ mcp: { clients: { name: { auth } } } })`. If the agent
  * needs to thread user-specific data into a tool call, it must do so
  * as a regular tool argument (e.g. include a `tenantId` field), never
  * by piggybacking on a credential. Two trust boundaries: principal

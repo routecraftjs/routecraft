@@ -50,7 +50,7 @@ const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
  *
  * `allowEphemeralSecret` is deliberately not on `DeferralConfig`: it
  * relaxes a security gate, so it must not be reachable from a user's
- * `defineConfig`. This is the one place that supplies it. The seam is the
+ * `defineProject`. This is the one place that supplies it. The seam is the
  * spread below: a spread carries the extra key without excess-property
  * checking, so the flag reaches the plugin without ever appearing on the
  * type a user writes against.

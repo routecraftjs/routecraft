@@ -13,10 +13,10 @@ Routecraft serves it as a mount, beside the MCP mount and the HTTP surface, on t
 ## Serving it
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: { port: 8080 },
   },

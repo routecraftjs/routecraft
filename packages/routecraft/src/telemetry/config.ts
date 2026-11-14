@@ -1,5 +1,5 @@
 import { registerConfigApplier } from "../config-applier.ts";
-import { telemetry } from "./index.ts";
+import { telemetryPlugin } from "./index.ts";
 import type { TelemetryOptions } from "./types.ts";
 
 declare module "@routecraft/routecraft" {
@@ -10,9 +10,9 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Register the `telemetry` config key so `defineConfig({ telemetry: {...} })`
- * is equivalent to `defineConfig({ plugins: [telemetry({...})] })`. Loaded
+ * Register the `telemetry` config key so `defineProject({ telemetry: {...} })`
+ * is equivalent to `defineProject({ plugins: [telemetryPlugin({...})] })`. Loaded
  * as a side-effect import from `packages/routecraft/src/index.ts`. Keeps
  * the core context free of telemetry plugin knowledge.
  */
-registerConfigApplier("telemetry", (options) => telemetry(options));
+registerConfigApplier("telemetry", (options) => telemetryPlugin(options));

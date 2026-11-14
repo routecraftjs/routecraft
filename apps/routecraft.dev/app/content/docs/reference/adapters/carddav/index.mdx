@@ -21,9 +21,9 @@ Requires the optional peer `tsdav` (DAV client): `bun add tsdav`. A missing peer
 **Credentials** live in context config as named accounts. For iCloud, `username` is your Apple ID and `appPassword` is an [app-specific password](https://support.apple.com/en-us/102654) (not your account password).
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   carddav: {
     accounts: {
       default: {

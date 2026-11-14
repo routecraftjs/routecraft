@@ -86,7 +86,7 @@ describe("CLI start command", () => {
     return root;
   }
 
-  const EMPTY_CONFIG = `export const craftConfig = {};\n`;
+  const EMPTY_CONFIG = `import { defineProject } from "@routecraft/routecraft";\nexport default defineProject({});\n`;
 
   function routeFile(id: string): string {
     return [
@@ -300,20 +300,29 @@ describe("CLI start command", () => {
   });
 
   /**
-   * @case A default-exported plain config is accepted
-   * @preconditions craft.config.ts default-exports the config object
-   * @expectedResult Start succeeds without a warning about the export
+   * @case A default-exported plain object is not a project
+   * @preconditions craft.config.ts default-exports a config object, then exports the pre-0.8 craftConfig const
+   * @expectedResult Start fails with RC1120 each time, and the message says how to rewrite that shape with defineProject
    */
-  test("accepts a default-exported config", async () => {
-    const root = makeProject({
+  test("refuses a config that is not a project with RC1120", async () => {
+    const plain = makeProject({
       "craft.config.ts": `export default { name: "app" };\n`,
       "capabilities/health.ts": routeFile("health"),
     });
-    const result = await startCommand(root, { once: true });
-    expect(result).toMatchObject({ success: true });
-    const warned =
-      warn?.mock.calls.map((c: unknown[]) => String(c[0])).join("\n") ?? "";
-    expect(warned).not.toMatch(/craftConfig/);
+    const refused = await startCommand(plain, { once: true });
+    expect(refused).toMatchObject({ success: false });
+    expect(refused.success === false && refused.message).toMatch(
+      /RC1120.*a plain object, not a project.*export default defineProject\(/s,
+    );
+
+    const named = makeProject({
+      "craft.config.ts": `export const craftConfig = {};\n`,
+      "capabilities/health.ts": routeFile("health"),
+    });
+    const old = await startCommand(named, { once: true });
+    expect(old.success === false && old.message).toMatch(
+      /RC1120.*craftConfig.*defineProject/s,
+    );
   });
 
   /**
@@ -386,11 +395,11 @@ describe("CLI start command", () => {
   });
 
   /**
-   * @case A config file exporting neither shape fails rather than booting empty
+   * @case A config file with no default export fails rather than booting empty
    * @preconditions craft.config.ts exports a wrongly-named const
-   * @expectedResult Failure naming the expected export, not a silent empty config
+   * @expectedResult RC1120 naming the expected export, not a silent empty config
    */
-  test("errors when craft.config.ts exports neither shape", async () => {
+  test("errors when craft.config.ts has no default export", async () => {
     const root = makeProject({
       "craft.config.ts": `export const config = {};\n`,
       "capabilities/health.ts": routeFile("health"),
@@ -398,7 +407,7 @@ describe("CLI start command", () => {
     const result = await startCommand(root);
     expect(result).toMatchObject({ success: false });
     expect(result.success === false && result.message).toMatch(
-      /exports neither a project nor a config/,
+      /RC1120.*export default defineProject\(/s,
     );
   });
 

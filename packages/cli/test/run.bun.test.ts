@@ -117,11 +117,35 @@ describe("CLI run command", () => {
   });
 
   /**
-   * @case Verifies that craftConfig named export is properly detected and processed
-   * @preconditions A file with both craftConfig named export and valid default route export
-   * @expectedResult runCommand succeeds and processes both exports
+   * @case A file's own project export is the project its routes run in
+   * @preconditions A file exporting `project` from defineProject with a plugin whose bind sets a global, and a default route built with project.craft()
+   * @expectedResult runCommand succeeds and the project's plugin was bound
    */
-  test("craftConfig named export is detected", async () => {
+  test("the file's project export is the project the run uses", async () => {
+    await writeFile(
+      "with-project.js",
+      `
+      import { defineProject, simple, noop } from "@routecraft/routecraft";
+      export const project = defineProject({
+        plugins: [{ id: "test.run-marker", bind() { globalThis.__runProjectBound = true; } }],
+      });
+      export default project.craft().id("x").from(simple("y")).to(noop());
+    `,
+    );
+    const { runCommand } = runModule;
+    const res = await runCommand("with-project.js");
+    expect(res).toEqual({ success: true });
+    const marks = globalThis as Record<string, unknown>;
+    expect(marks["__runProjectBound"]).toBe(true);
+    delete marks["__runProjectBound"];
+  });
+
+  /**
+   * @case The pre-0.8 craftConfig export is refused instead of being ignored
+   * @preconditions A file with a craftConfig named export beside a valid default route
+   * @expectedResult runCommand fails with RC1120 and the rewrite: export const project = defineProject
+   */
+  test("a lone craftConfig export is RC1120", async () => {
     await writeFile(
       "with-config.js",
       `
@@ -132,7 +156,114 @@ describe("CLI run command", () => {
     );
     const { runCommand } = runModule;
     const res = await runCommand("with-config.js");
+    expect(res).toMatchObject({ success: false });
+    if (!("message" in res)) throw new Error("expected a failure");
+    expect(res.message).toMatch(
+      /RC1120.*export const project = defineProject/s,
+    );
+  });
+
+  /**
+   * Routes typed by a shared project file, with the deployment's
+   * craft.config beside the package.json.
+   */
+  async function sharedProject(config: string): Promise<string[]> {
+    const marks = globalThis as Record<string, unknown>;
+    marks["__runBound"] = [];
+    const bind = (name: string): string =>
+      `bind() { globalThis.__runBound.push(${JSON.stringify(name)}); }`;
+    await writeFile("package.json", "{}\n");
+    await writeFile(
+      "project.js",
+      `
+      import { defineProject } from "@routecraft/routecraft";
+      export default defineProject({ plugins: [{ id: "test.base", ${bind("base")} }] });
+    `,
+    );
+    await writeFile(
+      "routes.js",
+      `
+      import { simple, noop } from "@routecraft/routecraft";
+      import project from "./project.js";
+      export default project.craft().id("x").from(simple("y")).to(noop());
+    `,
+    );
+    await writeFile(
+      "craft.config.js",
+      config.replaceAll("BIND", bind("config")),
+    );
+    return marks["__runBound"] as string[];
+  }
+
+  /**
+   * @case Routes built with a shared project run in the craft.config that extends it
+   * @preconditions routes typed by project.js, and a craft.config.js beside package.json that spreads that project's config and adds a plugin
+   * @expectedResult The run binds the base plugin and the added one: the extended plugin list is what starts
+   */
+  test("runs routes in the nearby config that extends their project", async () => {
+    const bound = await sharedProject(`
+      import { defineProject } from "@routecraft/routecraft";
+      import base from "./project.js";
+      export default defineProject({
+        ...base.config,
+        plugins: [...base.plugins, { id: "test.deploy", BIND }],
+      });
+    `);
+    const res = await runModule.runCommand("routes.js");
     expect(res).toEqual({ success: true });
+    expect(bound).toEqual(["base", "config"]);
+  });
+
+  /**
+   * @case A nearby config that does not install what the routes were built with is ignored, out loud
+   * @preconditions The same routes, beside a craft.config.js that installs an unrelated plugin only
+   * @expectedResult The run uses the routes' own project (only the base plugin binds) and logs an info line naming the ignored file and the plugin it lacks
+   */
+  test("ignores a nearby config that does not extend the routes' project", async () => {
+    const info = spyOn(logger, "info").mockImplementation(() => {});
+    try {
+      const bound = await sharedProject(`
+        import { defineProject } from "@routecraft/routecraft";
+        export default defineProject({ plugins: [{ id: "test.deploy", BIND }] });
+      `);
+      const res = await runModule.runCommand("routes.js");
+      expect(res).toEqual({ success: true });
+      expect(bound).toEqual(["base"]);
+      const lines = info.mock.calls.map((call) => String(call[0]));
+      expect(
+        lines.find((line) => line.startsWith("Ignoring craft.config.js")),
+      ).toMatch(/does not install "test\.base"/);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  /**
+   * @case --config and --no-config override the nearby file
+   * @preconditions The extending fixture, run with --no-config, then with --config naming the same file
+   * @expectedResult --no-config runs the routes' own project, so only the base plugin binds; --config runs the named project, so both bind
+   */
+  test("--no-config skips the nearby config and --config names one", async () => {
+    const skipped = await sharedProject(`
+      import { defineProject } from "@routecraft/routecraft";
+      import base from "./project.js";
+      export default defineProject({
+        ...base.config,
+        plugins: [...base.plugins, { id: "test.deploy", BIND }],
+      });
+    `);
+    expect(
+      await runModule.runCommand("routes.js", [], { config: false }),
+    ).toEqual({ success: true });
+    expect(skipped).toEqual(["base"]);
+
+    skipped.length = 0;
+    expect(
+      await runModule.runCommand("routes.js", [], {
+        config: "craft.config.js",
+      }),
+    ).toEqual({ success: true });
+    expect(skipped).toEqual(["base", "config"]);
   });
 
   /**

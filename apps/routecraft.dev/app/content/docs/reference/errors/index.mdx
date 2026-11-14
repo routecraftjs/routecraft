@@ -246,6 +246,15 @@ A plugin declares `replaces` for a port that no installed plugin provides, while
 **Suggestion**  
 Build the replacement against the version that is installed, or upgrade the plugin that provides the other one. A port's version changes whenever the shape of its value changes, so the two versions are different contracts and the replacement has to be written for the one in use.
 
+## RC1120
+No project export
+
+**Why it happens**  
+The command line read a `craft.config` file whose default export is not a project, or `craft run` was given a file that still exports `craftConfig`. A plain default-exported object, a `defineConfig(...)` result and the named `craftConfig` export are the pre-0.8 shapes; none of them is read. The message names the file and the shape it found.
+
+**Suggestion**  
+Write `export default defineProject({ ... })` in `craft.config.ts` with the same keys. In a file run with `craft run`, write `export const project = defineProject({ ... })`, or remove the export and let `craft run` find the project's `craft.config`. See [the migration guide](/docs/migrating/0.7-to-0.8#19-project-export).
+
 ## RC2001
 Invalid operation type
 
@@ -455,7 +464,7 @@ The error message names the adapter (`cron`, `html`, ...) and the missing packag
 HTTP source request rejected
 
 **Why it happens**  
-The HTTP source (`http({ path, method })` via `defineConfig({ http })`) could not service a request at the adapter boundary. It covers an oversized request body (returned to the client as `413 Payload Too Large`) and a body that cannot be parsed for its declared `Content-Type` (`400 Bad Request`, e.g. malformed JSON or multipart).
+The HTTP source (`http({ path, method })` via `defineProject({ http })`) could not service a request at the adapter boundary. It covers an oversized request body (returned to the client as `413 Payload Too Large`) and a body that cannot be parsed for its declared `Content-Type` (`400 Bad Request`, e.g. malformed JSON or multipart).
 
 **Suggestion**  
 For 413, raise `http: { maxBodySize }` or have the client send a smaller payload. For 400, fix the request body so it matches the `Content-Type`.
@@ -464,7 +473,7 @@ For 413, raise `http: { maxBodySize }` or have the client send a smaller payload
 HTTP server bind failed
 
 **Why it happens**  
-A named server (`defineConfig({ servers })`) could not bind its configured port/host during context start. The message names the server (`servers.<name>: bind failed on host:port`). The usual cause is `EADDRINUSE` (another process, or another listener in the same process, already owns the port) or `EADDRNOTAVAIL` (the host is not one this machine can bind). Declared duplicate binds are caught earlier at build time; RC5019 is the runtime authority for conflicts the build-time check cannot see (wildcard vs specific addresses, other processes).
+A named server (`defineProject({ servers })`) could not bind its configured port/host during context start. The message names the server (`servers.<name>: bind failed on host:port`). The usual cause is `EADDRINUSE` (another process, or another listener in the same process, already owns the port) or `EADDRNOTAVAIL` (the host is not one this machine can bind). Declared duplicate binds are caught earlier at build time; RC5019 is the runtime authority for conflicts the build-time check cannot see (wildcard vs specific addresses, other processes).
 
 **Suggestion**  
 Free the port or choose another via `servers: { <name>: { port } }` (use `0` to let the OS assign one), and check that `host` is an address this machine can bind. Surfaces that should share one listener mount on the same named server instead of declaring their own.
@@ -725,7 +734,7 @@ Resume-token signing secret not configured
 A context whose routes can reach a durable `.defer()` was built without a way to sign resume tokens. Resume tokens are the capability a deferred exchange hands its approver, so a context that cannot sign them cannot defer anything. The check runs while the context is being built, not on the first defer, so this surfaces at startup rather than on the first large payout.
 
 **Suggestion**  
-Set the `ROUTECRAFT_DEFERRAL_SECRET` environment variable, or pass `deferral: { secret }` to `defineConfig`. Prefer the environment variable: a secret in a config file is a secret in version control. Generate one with `openssl rand -base64 32`.
+Set the `ROUTECRAFT_DEFERRAL_SECRET` environment variable, or pass `deferral: { secret }` to `defineProject`. Prefer the environment variable: a secret in a config file is a secret in version control. Generate one with `openssl rand -base64 32`.
 
 At least 32 bytes are required, and a shorter secret raises this same code. A resume token is a bearer capability, so any holder of one token can guess the secret offline with no rate limit and no server involvement; a dictionary-strength value falls in seconds, after which an attacker can mint a token for any deferral.
 
@@ -849,7 +858,7 @@ Deferral runtime not configured
 A route in this context can reach a durable `.defer()`, but nothing configured where deferred exchanges are stored or how resume tokens are signed.
 
 **Suggestion**  
-Add `deferral: {}` to `defineConfig` to take the defaults, or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently defers into memory loses everything it promised on the next restart.
+Add `deferral: {}` to `defineProject` to take the defaults, or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently defers into memory loses everything it promised on the next restart.
 
 `deferral: {}` applies defaults; it does not supply a signing secret. In production, set `secret` or the `ROUTECRAFT_DEFERRAL_SECRET` environment variable, or startup fails with [`RC5040`](#rc-5040) instead. An ephemeral key is minted only for tests and development, because a key that dies with the process makes every outstanding resume token unverifiable across exactly the restart deferral exists to survive.
 
@@ -968,7 +977,7 @@ Raise the ceiling on the call when the endpoint legitimately returns more than 1
 Remote instance unreachable
 
 **Why it happens**  
-A dispatch to a route imported through [`defineConfig({ remotes })`](/docs/reference/plugins/remotesplugin) never got an answer from the remote instance. The connection was refused or the name did not resolve, the connection was lost after the request was sent, or the request timed out. The message names the remote and the route, and says which it was.
+A dispatch to a route imported through [`defineProject({ remotes })`](/docs/reference/plugins/remotesplugin) never got an answer from the remote instance. The connection was refused or the name did not resolve, the connection was lost after the request was sent, or the request timed out. The message names the remote and the route, and says which it was.
 
 **Suggestion**  
 Check the remote's `url` and that the instance is running and serving its ops surface. Only a connection that never opened is safe to retry, and the code is marked retryable for it. A connection lost after the request was sent, or a timeout, is not: the remote may still be running the work it accepted, so a retry could run a non-idempotent route twice, and those carry `retryable: false` on the error itself.

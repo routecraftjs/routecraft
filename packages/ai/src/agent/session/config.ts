@@ -52,7 +52,7 @@ const SESSION_CLAIMANT = "sessions: { store }";
 export type SessionStoreConfig =
   string | { path: string } | "memory" | SessionStore;
 
-/** The `sessions` block on `defineConfig`. */
+/** The `sessions` block on `defineProject`. */
 export interface AgentSessionsConfig {
   /**
    * Where session records are persisted. Defaults to the sqlite backend at

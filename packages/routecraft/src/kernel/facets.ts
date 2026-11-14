@@ -55,7 +55,7 @@ export function isReservedFacet(namespace: string): boolean {
  *   or one the language reads off every object (`then`)
  * @internal
  */
-export function installFacet(namespace: string): void {
+export function installFacet(namespace: string, remedy?: string): void {
   if (installed.has(namespace)) return;
   if (isReservedFacet(namespace)) {
     throw rcError("RC1114", undefined, {
@@ -73,7 +73,7 @@ export function installFacet(namespace: string): void {
       // nothing; one whose application lacks the plugin is a definition error.
       if (!context) return undefined;
       throw rcError("RC1111", undefined, {
-        message: `ex.${namespace} was read, but this application installs no plugin with that facet. Install the plugin, or build the route with the project's craft() so the read is a compile error instead.`,
+        message: `ex.${namespace} was read, but this application installs no plugin with that facet. ${remedy === undefined ? "Install the plugin, or" : `${remedy} Or`} build the route with the project's craft() so the read is a compile error instead.`,
       });
     },
   });

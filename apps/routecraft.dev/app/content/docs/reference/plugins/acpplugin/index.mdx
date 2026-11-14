@@ -15,10 +15,10 @@ Serves the [Agent Client Protocol](/docs/introduction/talk-from-your-editor) ove
 Nothing ships switched off. Installing the plugin serves the protocol, and the framework's own name reaches the editor unless the app replaces it.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: { port: 8080 },
   },
@@ -31,10 +31,10 @@ The `acp` key is the first-party form, beside `mcp`, and takes the same options 
 The factory is for `plugins`, where it must follow the `agentPlugin()` that registers the agents:
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import { acpPlugin, agentPlugin } from '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: { port: 8080 },
   },
@@ -50,7 +50,7 @@ export const craftConfig = defineConfig({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `path` | `string` | `'/acp'` | HTTP path the protocol is mounted on |
-| `server` | `string` | `'default'` | Named entry under `defineConfig({ servers })` to mount on |
+| `server` | `string` | `'default'` | Named entry under `defineProject({ servers })` to mount on |
 | `auth` | `HttpAuth \| false` | inherits `servers.<name>.auth` | Auth for the mount, the same union `mcpPlugin` takes. `false` removes the wall while keeping the inherited validator reachable |
 | `agent` | `string` | the only registered agent | The agent a harness serves when it names none |
 | `cors` | `HttpCorsOptions \| false` | loopback-only | Response-header policy and additional Origin refusal. `false` delegates CORS handling to the proxy; Host and browser-admission checks remain enforced. |

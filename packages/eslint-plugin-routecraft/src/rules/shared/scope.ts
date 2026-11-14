@@ -52,6 +52,44 @@ export function resolveBinding(
 }
 
 /**
+ * The module an identifier is imported from, whichever form the import
+ * takes (named, default or namespace); `undefined` for any other binding.
+ */
+export function importSource(
+  context: Rule.RuleContext,
+  node: Rule.Node,
+  identifier: { name: string },
+): string | undefined {
+  let scope: ReturnType<typeof context.sourceCode.getScope> | null =
+    context.sourceCode.getScope(node);
+  while (scope) {
+    const variable = scope.variables.find((v) => v.name === identifier.name);
+    if (variable) {
+      const def = variable.defs[0];
+      if (def?.type !== "ImportBinding") return undefined;
+      const source = def.parent.source.value;
+      return typeof source === "string" ? source : undefined;
+    }
+    scope = scope.upper;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a module specifier names a file of the project itself: a relative
+ * path, or one of the alias prefixes projects map onto their own source
+ * (`@/`, `~/`, `#`). A bare package name is somebody else's code.
+ */
+export function isProjectModule(source: string): boolean {
+  return (
+    source.startsWith(".") ||
+    source.startsWith("@/") ||
+    source.startsWith("~/") ||
+    source.startsWith("#")
+  );
+}
+
+/**
  * Whether an identifier is the named routecraft export `name`, whatever
  * it was imported as.
  */

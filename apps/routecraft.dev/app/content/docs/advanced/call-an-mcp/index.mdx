@@ -22,10 +22,10 @@ List the servers your capabilities need to reach under the `mcp` key's `clients`
 
 ```ts
 // craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   mcp: {
     clients: {
       browser: { url: 'http://127.0.0.1:8089/mcp' },
@@ -96,10 +96,10 @@ Some MCP servers take no API key: a person logs in once with OAuth, and the serv
 
 ```ts
 // craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import { connect } from '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   mcp: {
     clients: {
       mail: {
@@ -246,9 +246,9 @@ Set `pins` on the client, write the lockfile, and commit it:
 ```ts
 // craft.config.ts
 import '@routecraft/ai'
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   mcp: {
     clients: {
       books: {

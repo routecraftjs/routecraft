@@ -44,8 +44,8 @@ interface ResolvedMount {
 /**
  * HTTP plugin. Owns the route registries and request dispatchers for its
  * path-scoped mounts, registered on a named server (the listener itself
- * belongs to `defineConfig({ servers })`). Materialised by the config
- * applier so users typically configure it via `defineConfig({ http: {...} })`
+ * belongs to `defineProject({ servers })`). Materialised by the config
+ * applier so users typically configure it via `defineProject({ http: {...} })`
  * rather than pushing it onto `config.plugins`. The function is still
  * exported for advanced users who want to wire it manually.
  *

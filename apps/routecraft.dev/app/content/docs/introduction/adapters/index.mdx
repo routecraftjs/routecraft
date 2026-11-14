@@ -81,9 +81,9 @@ Many adapters support **merged options**: they merge their own per-call options 
 
 ```ts
 // craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   cron: { timezone: 'UTC', maxJitter: 2000 },
 })
 ```

@@ -85,10 +85,10 @@ const ctx = new ContextBuilder()
 Over stdio nothing else is needed. To serve MCP over HTTP, declare a listener under `servers` in `craft.config.ts` and mount MCP on it; outside `development` and `test` the plugin also needs an explicit HTTPS `resource.url` so the protected-resource metadata it advertises is correct:
 
 ```typescript
-import { defineConfig } from '@routecraft/routecraft';
+import { defineProject } from '@routecraft/routecraft';
 import '@routecraft/ai';
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: { public: { host: '0.0.0.0', port: 8080 } },
   mcp: { server: 'public', path: '/mcp' },
 });
@@ -137,7 +137,7 @@ Because the agent is a step, `.authorize()`, `.throttle()`, `.retry()`, `.timeou
 
 - **Sessions.** `agent(name, { session })` keeps a durable transcript per session id, with an inbox and one turn at a time; `interrupt: true` cancels the running turn. Background tools (`directTool(id, { background: true })`) hand long work to a route and post the result to the session's inbox when it finishes.
 - **Durable agents.** A tool that calls `ctx.defer()` defers the whole tool loop through the context's deferral store. The loop survives a restart and resumes mid-conversation, with the answer swapped into the tool result, when `.resume()` is called with the deferral's token.
-- **Talk from your editor.** `acp:` on `defineConfig` (or `acpPlugin()`) serves the Agent Client Protocol beside MCP, and `craft acp` is the bridge an editor runs. The `surface()` adapter lets a capability ask the person in the editor a question and wait for the answer.
+- **Talk from your editor.** `acp:` on `defineProject` (or `acpPlugin()`) serves the Agent Client Protocol beside MCP, and `craft acp` is the bridge an editor runs. The `surface()` adapter lets a capability ask the person in the editor a question and wait for the answer.
 
 ## Connecting Claude Desktop and Cursor
 

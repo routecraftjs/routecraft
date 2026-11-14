@@ -27,7 +27,7 @@ function isSourceOptions(
 
 /**
  * Create an HTTP source. Use with `.from(...)`. Requires `http: {...}` to be
- * configured on the context (typically via `defineConfig({ http: {...} })`)
+ * configured on the context (typically via `defineProject({ http: {...} })`)
  * so the plugin owns the port and the global auth check.
  *
  * @example

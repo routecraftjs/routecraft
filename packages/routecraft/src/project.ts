@@ -1,7 +1,7 @@
 // Self-reference via the published specifier so ecosystem augmentations of
-// `CraftConfig` reach this module, as in define-config.ts.
+// `CraftConfig` reach this module, as in config-applier.ts.
 import type { CraftConfig } from "@routecraft/routecraft";
-import { BRAND, setBrand } from "./brand.ts";
+import { BRAND, isBranded, setBrand } from "./brand.ts";
 import { RouteBuilder, type PreFromBuilder } from "./builder.ts";
 import type { Plugin } from "./kernel/plugin.ts";
 import { configuredPlugins } from "./config-applier.ts";
@@ -33,8 +33,93 @@ export interface Project<Installed> {
   readonly plugins: readonly Plugin[];
 }
 
+/**
+ * Where a route builder carries the project whose `craft()` started it.
+ * A registered symbol, so a builder from another copy of the package still
+ * names its project.
+ */
+const ROUTE_PROJECT = Symbol.for("routecraft.route-project");
+
+/**
+ * The project a route was built with, for a tool that runs the route
+ * outside its project's own entry point.
+ *
+ * @param route - A route builder, or anything else
+ * @returns The project whose `craft()` started the builder; `undefined`
+ *   for a route of the root `craft()`, a built definition, or a non-route
+ */
+export function projectOf(route: unknown): Project<unknown> | undefined {
+  if (typeof route !== "object" || route === null) return undefined;
+  const project = (route as Record<symbol, unknown>)[ROUTE_PROJECT];
+  return isBranded(project, BRAND.Project)
+    ? (project as Project<unknown>)
+    : undefined;
+}
+
+/**
+ * The id of every plugin a configuration installs, defaults and brought
+ * plugins included, in install order. What two projects are compared by
+ * when a tool asks whether one extends the other.
+ *
+ * @param config - A project's configuration
+ * @returns The ids; a repeatable plugin's id appears once per install
+ * @throws RC1117 when a listed plugin is not a descriptor
+ */
+export function installedPluginIds(config: CraftConfig): string[] {
+  return installedPlugins(applicationPlugins(configuredPlugins(config))).map(
+    (plugin) => plugin.id,
+  );
+}
+
 /** What a project definition is: a configuration, plugins included. */
 type ProjectDefinition = CraftConfig & { readonly plugins?: readonly Plugin[] };
+
+/** Every key any member of a union has. */
+type KeysOfUnion<T> = T extends unknown ? keyof T : never;
+
+/** The keys of a shape whose value is a function the shape cannot go without. */
+type RequiredMethods<S> = S extends unknown
+  ? {
+      [K in keyof S]-?: undefined extends S[K]
+        ? never
+        : S[K] extends (...args: never[]) => unknown
+          ? K
+          : never;
+    }[keyof S]
+  : never;
+
+/**
+ * Whether a config block is written as a literal of known keys. A block
+ * with an index signature takes any key, and one with a required method is
+ * an object with behaviour (a logger, a store) whose instances carry more
+ * than the interface names; neither is held to its declared keys.
+ */
+type IsClosedBlock<S> =
+  string extends KeysOfUnion<S>
+    ? false
+    : [RequiredMethods<S>] extends [never]
+      ? true
+      : false;
+
+/**
+ * `never` at every key a definition writes inside a config block that the
+ * block does not declare. Intersected into the parameter, it restores the
+ * excess-key check one level down, where a generic parameter would lose it:
+ * `shutdown: { timeoutMs }` is an error on `timeoutMs`.
+ */
+type UnknownBlockKeys<D> = {
+  [K in keyof D & keyof ProjectDefinition]?: D[K] extends
+    readonly unknown[] | ((...args: never[]) => unknown)
+    ? unknown
+    : D[K] extends object
+      ? IsClosedBlock<NonNullable<ProjectDefinition[K]>> extends true
+        ? Record<
+            Exclude<keyof D[K], KeysOfUnion<NonNullable<ProjectDefinition[K]>>>,
+            never
+          >
+        : unknown
+      : unknown;
+};
 
 /** The plugin types the config keys a definition sets install. */
 type ConfigKeyPluginsOf<D> = {
@@ -122,7 +207,7 @@ type InstalledPluginsOf<D> =
  *
  * @param definition - The configuration, with the plugins the project
  *   installs in `plugins`. A key `CraftConfig` does not have is a compile
- *   error.
+ *   error, at the top level and inside each config block.
  * @returns The project
  *
  * @example
@@ -143,19 +228,25 @@ type InstalledPluginsOf<D> =
 export function defineProject<const D extends ProjectDefinition>(
   // The mapped `never` restores the excess-key check a generic parameter
   // would otherwise lose: a misspelled key is still an error.
-  definition: D & Record<Exclude<keyof D, keyof ProjectDefinition>, never>,
+  definition: D &
+    Record<Exclude<keyof D, keyof ProjectDefinition>, never> &
+    NoInfer<UnknownBlockKeys<D>>,
 ): Project<InstalledPluginsOf<D>> {
-  const configured = configuredPlugins(definition);
+  // The parameter's `never` intersections are for the caller's literal only.
+  const given: ProjectDefinition = definition as D;
+  const configured = configuredPlugins(given);
   const catalogue = catalogueOf(
     installedPlugins(applicationPlugins(configured)),
   );
-  const plugins: readonly Plugin[] = definition.plugins ?? [];
+  const plugins: readonly Plugin[] = given.plugins ?? [];
   const project: Project<InstalledPluginsOf<D>> = {
     craft: () =>
-      new RouteBuilder(catalogue) as unknown as PreFromBuilder<
+      Object.defineProperty(new RouteBuilder(catalogue), ROUTE_PROJECT, {
+        value: project,
+      }) as unknown as PreFromBuilder<
         PathState<unknown, InstalledPluginsOf<D>>
       >,
-    config: { ...definition, plugins: [...plugins] },
+    config: { ...given, plugins: [...plugins] },
     plugins,
   };
   setBrand(project, BRAND.Project);

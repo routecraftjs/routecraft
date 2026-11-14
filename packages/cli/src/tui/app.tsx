@@ -1305,7 +1305,7 @@ export async function renderTui(dbPath: string): Promise<void> {
     process.stderr.write(`Failed to open telemetry database: ${msg}\n`);
     process.stderr.write(`Path: ${dbPath}\n`);
     process.stderr.write(
-      "Make sure you have a running Routecraft context with telemetry() enabled.\n",
+      "Make sure you have a running Routecraft context with the telemetry key set.\n",
     );
     process.exit(1);
   }

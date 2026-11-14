@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-  collectCredentialLogins,
   craft,
   credentialsPlugin,
   direct,
   MemoryCredentialStore,
   noop,
+  pluginTooling,
+  type CraftConfig,
   type CredentialLoginIO,
   type CredentialStore,
 } from "@routecraft/routecraft";
@@ -363,24 +364,33 @@ describe("connect(): MCP clients behind an OAuth login", () => {
 
   /**
    * @case craft connect finds the clients declared with connect()
-   * @preconditions One under the mcp key, one in an mcpPlugin() in plugins, one in a spread mcpPlugin(), and one with a static token
-   * @expectedResult The three connect() clients are collected under their names; the static one is not
+   * @preconditions Three configurations: clients under the mcp key (one with a static token), an mcpPlugin() in plugins, and a spread mcpPlugin() in plugins
+   * @expectedResult Each configuration's plugin tooling declares its connect() clients under their names; the static one is not a login
    */
-  test("the login collector reads both config forms", () => {
+  test("the mcp plugin's tooling declares its logins in every config form", () => {
     const auth = connect({ clientId: "app-1" });
-    const ids = collectCredentialLogins({
-      mcp: {
-        clients: {
-          a: { url: URL_, auth },
-          plain: { url: URL_, auth: { token: "t" } },
+    const logins = (config: CraftConfig): string[] =>
+      pluginTooling(config).flatMap((tooling) =>
+        tooling.logins.map((login) => `${login.id}=${login.owner}`),
+      );
+    expect(
+      logins({
+        mcp: {
+          clients: {
+            a: { url: URL_, auth },
+            plain: { url: URL_, auth: { token: "t" } },
+          },
         },
-      },
-      plugins: [
-        mcpPlugin({ clients: { b: { url: URL_, auth } } }),
-        { ...mcpPlugin({ clients: { c: { url: URL_, auth } } }) },
-      ],
-    }).map((login) => `${login.id}=${login.owner}`);
-    expect(ids).toEqual(["a=mcp:a", "b=mcp:b", "c=mcp:c"]);
+      }),
+    ).toEqual(["a=mcp:a"]);
+    expect(
+      logins({ plugins: [mcpPlugin({ clients: { b: { url: URL_, auth } } })] }),
+    ).toEqual(["b=mcp:b"]);
+    expect(
+      logins({
+        plugins: [{ ...mcpPlugin({ clients: { c: { url: URL_, auth } } }) }],
+      }),
+    ).toEqual(["c=mcp:c"]);
   });
 
   /**

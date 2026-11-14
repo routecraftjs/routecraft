@@ -60,7 +60,7 @@ export function ExchangeDeepView({
         "[Snapshots not captured]",
         "",
         "Enable with:",
-        "  telemetry({ sqlite: { captureSnapshots: true } })",
+        "  telemetry: { sqlite: { captureSnapshots: true } }",
       ];
 
   // Clamp so overscrolling past the last line cannot blank the panel or

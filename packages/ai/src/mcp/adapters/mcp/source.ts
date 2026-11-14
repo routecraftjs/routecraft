@@ -41,7 +41,7 @@ function requireMcpService(context: CraftContext, form: string): McpService {
   const service = context.lookup(MCP);
   if (!service) {
     throw rcError("RC5003", undefined, {
-      message: `MCP plugin required: routes using .from(${form}) require the MCP plugin. Add \`mcp: {}\` to defineConfig({...}) in craft.config.ts, or mcpPlugin() to the plugins of a context you build yourself.`,
+      message: `MCP plugin required: routes using .from(${form}) require the MCP plugin. Add \`mcp: {}\` to defineProject({...}) in craft.config.ts, or mcpPlugin() to the plugins of a context you build yourself.`,
     });
   }
   return service;

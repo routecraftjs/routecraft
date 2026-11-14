@@ -10,8 +10,8 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Register the `ops` config key so `defineConfig({ ops: {...} })` is
- * equivalent to `defineConfig({ plugins: [opsPlugin({...})] })`. Loaded as a
+ * Register the `ops` config key so `defineProject({ ops: {...} })` is
+ * equivalent to `defineProject({ plugins: [opsPlugin({...})] })`. Loaded as a
  * side-effect import from `packages/routecraft/src/index.ts` so users do not
  * have to wire it manually.
  */

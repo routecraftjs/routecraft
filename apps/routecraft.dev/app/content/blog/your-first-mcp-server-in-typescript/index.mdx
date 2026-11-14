@@ -204,9 +204,9 @@ Open `craft.config.ts` and replace it with:
 ```ts
 // craft.config.ts
 import { mcpPlugin } from '@routecraft/ai'
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   name: 'notebook',
   plugins: [
     mcpPlugin({
@@ -226,13 +226,12 @@ export const craftConfig = defineConfig({
 
 ```ts skip="multi-file: imports a sibling file the page describes in prose"
 // index.ts
-export { craftConfig } from './craft.config.js'
 import capabilities from './capabilities/index.js'
 
 export default capabilities
 ```
 
-This is the one piece of glue between the files you wrote and the runner: `index.ts` re-exports the config from `craft.config.ts` and the routes from `capabilities/`.
+This is the one piece of glue between the files you wrote and the runner: `index.ts` exports the routes from `capabilities/`, and `craft run` reads the project from the `craft.config.ts` beside your `package.json`.
 
 ## Inspect it with the MCP Inspector
 

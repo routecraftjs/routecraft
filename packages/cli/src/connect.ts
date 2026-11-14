@@ -184,9 +184,10 @@ async function openSession(): Promise<Session> {
     "craft connect",
     "the clients to log in",
   );
-  const { collectCredentialLogins, credentialsConfigOf, openCredentialStore } =
+  const { credentialsConfigOf, openCredentialStore } =
     await import("@routecraft/routecraft");
-  const logins = collectCredentialLogins(config);
+  const { toolingOf } = await import("./tooling.js");
+  const logins = (await toolingOf(config)).flatMap((each) => each.logins);
   const opened = await openCredentialStore(credentialsConfigOf(config));
   if (opened.backend === "memory") {
     await closeIf(opened);

@@ -145,7 +145,7 @@ describe("plugin steps", () => {
   });
 
   /**
-   * @case A misspelled config key is a compile error in defineProject, as in defineConfig
+   * @case A misspelled config key is a compile error in defineProject
    * @preconditions defineProject called with an unknown key
    * @expectedResult The call does not compile
    */

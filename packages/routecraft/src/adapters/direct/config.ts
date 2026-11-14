@@ -10,7 +10,7 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Register the `direct` config key so `defineConfig({ direct: {...} })`
+ * Register the `direct` config key so `defineProject({ direct: {...} })`
  * installs `routecraft.direct` with channel defaults in place of the default
  * one. Loaded as a side-effect import from `packages/routecraft/src/index.ts`
  * so users do not have to wire it manually.

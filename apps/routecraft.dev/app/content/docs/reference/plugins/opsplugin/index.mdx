@@ -14,12 +14,12 @@ Serves the operational surface: liveness, readiness, and operational health over
 
 Most of what it reports needs no application code. Route lifecycle, circuit-breaker position, and the context's own serving state are all derived from events the framework already emits. Indicators are the one thing an app adds by hand, for dependencies the framework cannot see.
 
-`ops` is a first-class core config key, so the common path is `defineConfig({ ops: {...} })` rather than `plugins: [opsPlugin(...)]`. The factory is exported for programmatic composition.
+`ops` is a first-class core config key, so the common path is `defineProject({ ops: {...} })` rather than `plugins: [opsPlugin(...)]`. The factory is exported for programmatic composition.
 
 ```ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: { default: { host: '0.0.0.0', port: 8080 } },
   ops: {},
 })
@@ -28,7 +28,7 @@ export const craftConfig = defineConfig({
 The surface is a mount on a [named server](/docs/reference/plugins/serversplugin), not a listener of its own. An internal-only ops port is a second named server this mount points at:
 
 ```ts
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: { host: '0.0.0.0', port: 8080 },
     internal: { host: '0.0.0.0', port: 9090 },
@@ -435,7 +435,7 @@ export const mailHealth = defineIndicator({
 Register it so a push has somewhere to land:
 
 ```ts skip="fragment: mailHealth is illustrative"
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: { ops: { host: '0.0.0.0', port: 9090 } },
   ops: { server: 'ops', indicators: [mailHealth] },
 })

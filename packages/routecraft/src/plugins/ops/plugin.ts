@@ -6,7 +6,7 @@
  * response contract in `report.ts`; this file is the wiring.
  *
  * The surface is a mount on a named server rather than a listener of its own,
- * so an internal-only ops port is a second entry in `defineConfig({ servers })`
+ * so an internal-only ops port is a second entry in `defineProject({ servers })`
  * that this mount points at, and the socket's lifecycle belongs to the server
  * plugin.
  */
@@ -71,7 +71,7 @@ interface Runtime {
  * The operational surface for a routecraft app.
  *
  * Materialised by the config applier, so apps normally configure it with
- * `defineConfig({ ops: {} })` rather than pushing it onto `config.plugins`.
+ * `defineProject({ ops: {} })` rather than pushing it onto `config.plugins`.
  * The function is exported for advanced wiring.
  *
  * What it reports needs no application code: route lifecycle, circuit-breaker
@@ -151,7 +151,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       // already-mounted handler reporting from a ledger nothing writes to.
       if (ingress.hasMount("ops")) {
         throw rcError("RC5053", undefined, {
-          message: `servers.${serverName} already carries an ops mount. One ops surface per server: configure it once through defineConfig({ ops }), or point the second at another named server.`,
+          message: `servers.${serverName} already carries an ops mount. One ops surface per server: configure it once through defineProject({ ops }), or point the second at another named server.`,
         });
       }
 

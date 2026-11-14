@@ -199,7 +199,7 @@ beforeAll(async () => {
   await writeFile(ROUTE, ROUTE_SOURCE);
   await writeFile(
     join(PROJECT, "craft.config.ts"),
-    "export const craftConfig = {};\n",
+    'import { defineProject } from "@routecraft/routecraft";\nexport default defineProject({});\n',
   );
   await writeFile(join(PROJECT, "capabilities", "probe.ts"), ROUTE_SOURCE);
   await writeFile(MARKER_ROUTE, MARKER_SOURCE);

@@ -2,6 +2,7 @@ import { AUTHORITY } from "../../kernel/authority.ts";
 import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { rcError } from "../../error.ts";
 import { type Duration, parseDuration } from "../../shared/duration.ts";
+import { rejectStaleOptions } from "../../shared/stale-options.ts";
 import { startServer, type HttpServerHandle } from "../http/server/index.ts";
 import { HttpMountRegistry, WEB_INGRESS } from "./registry.ts";
 import { resolveAllowedHostnames } from "./request-validation.ts";
@@ -274,6 +275,7 @@ function validateDefinitions(definitions: ServerDefinitions): void {
         message: "servers: names must not be empty",
       });
     }
+    rejectStaleOptions(definition, `servers.${name}`);
     if (definition.kind !== undefined && definition.kind !== "http") {
       throw rcError("RC5003", undefined, {
         message: `servers.${name}: unsupported kind ${JSON.stringify(definition.kind)}. Supported: "http".`,

@@ -24,9 +24,9 @@ Nothing configured, and a route with no `.authorize()`. Right for local developm
 
 ```ts
 // craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: { default: { port: 8080 } },
   ops: { tiers: { dispatch: true } },
 })
@@ -41,12 +41,12 @@ One shared secret in an environment variable, compared in constant time. The eve
 ```ts
 // craft.config.ts
 import {
-  defineConfig,
+  defineProject,
   timingSafeStringEqual,
   type Principal,
 } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: {
       port: 8080,
@@ -77,9 +77,9 @@ Present the same key from the caller's side: `craft exec <route> --token "$CRAFT
 
 ```ts
 // craft.config.ts
-import { defineConfig, jwt } from '@routecraft/routecraft'
+import { defineProject, jwt } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: {
       port: 8080,
@@ -116,9 +116,9 @@ console.log(token)
 
 ```ts
 // craft.config.ts
-import { defineConfig, jwks } from '@routecraft/routecraft'
+import { defineProject, jwks } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: {
       port: 8080,
@@ -137,10 +137,10 @@ You attach authentication with the `auth` option on `mcpPlugin({ transport: 'htt
 
 ```ts
 // craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import { mcpPlugin, jwt } from '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: { port: 3001 },
   },
@@ -363,7 +363,7 @@ Discovery is not MCP-only: every http server serves `/.well-known/oauth-protecte
 Protected-resource identity is configured on the plugin, not on the auth helper. It is orthogonal to the auth mode: the same `resource: {...}` block works whether you use `jwt()` / `jwks()` directly or via `oauth()`.
 
 ```ts
-// with servers: { public: { host: '0.0.0.0', port: 3001 } } in defineConfig
+// with servers: { public: { host: '0.0.0.0', port: 3001 } } in defineProject
 mcpPlugin({
   name: 'eywa',                          // machine identifier (MCP `serverInfo.name`)
   title: 'Eywa MCP',                     // human display; also the metadata `resource_name`
@@ -421,10 +421,10 @@ mcpPlugin({
 ACP uses the same settings. This configuration supports a proxy that preserves `Host: agents.example.com` and supplies CORS headers itself:
 
 ```ts
-import { defineConfig, jwt } from '@routecraft/routecraft'
+import { defineProject, jwt } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const proxiedAgentConfig = defineConfig({
+export const proxiedAgentConfig = defineProject({
   servers: {
     default: {
       host: '127.0.0.1',

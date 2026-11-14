@@ -608,6 +608,6 @@ export function requireWebIngress(
   if (ingress) return ingress;
   const names = ingresses ? [...ingresses.keys()] : [];
   throw rcError("RC5003", undefined, {
-    message: `Server "${serverName}" is not defined. Defined servers: ${names.length > 0 ? names.join(", ") : "none"}. Configure defineConfig({ servers: { ${serverName}: { port: 8080 } } }).`,
+    message: `Server "${serverName}" is not defined. Defined servers: ${names.length > 0 ? names.join(", ") : "none"}. Configure defineProject({ servers: { ${serverName}: { port: 8080 } } }).`,
   });
 }

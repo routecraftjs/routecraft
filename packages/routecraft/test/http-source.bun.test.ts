@@ -113,7 +113,7 @@ describe("HTTP Source Adapter", () => {
 
   /**
    * @case Plugin starts and serves a GET route
-   * @preconditions defineConfig({ http: { port: 0 } }) and a route using .from(http({ path }))
+   * @preconditions defineProject({ http: { port: 0 } }) and a route using .from(http({ path }))
    * @expectedResult The bound server returns the route's body as JSON with status 200
    */
   test("GET route returns the route body as JSON", async () => {
@@ -1216,7 +1216,7 @@ describe("HTTP Source Adapter", () => {
 
   /**
    * @case http() source used without httpPlugin throws RC5003 on start
-   * @preconditions defineConfig has no `http` block
+   * @preconditions defineProject has no `http` block
    * @expectedResult Starting the context surfaces RC5003
    */
   test("http() source without plugin throws RC5003", async () => {

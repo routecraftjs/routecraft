@@ -1,4 +1,4 @@
-export { craftConfig } from "./craft.config.ts";
+export { project } from "./craft.config.ts";
 import { craft, direct, noop } from "@routecraft/routecraft";
 import { mcp } from "@routecraft/ai";
 import { z } from "zod";

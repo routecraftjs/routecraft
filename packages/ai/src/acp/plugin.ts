@@ -30,7 +30,7 @@ import type { AcpPluginOptions } from "./types.ts";
  * Serve the Agent Client Protocol over Streamable HTTP.
  *
  * ```ts
- * export const craftConfig = defineConfig({
+ * export default defineProject({
  *   servers: { default: { port: 8080 } },
  *   acp: { auth },
  * });

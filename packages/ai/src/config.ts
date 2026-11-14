@@ -1,13 +1,6 @@
-import {
-  registerConfigApplier,
-  registerCredentialLogins,
-  registerProjectCommand,
-  type CredentialLogin,
-} from "@routecraft/routecraft";
+import { registerConfigApplier } from "@routecraft/routecraft";
 import { llmPlugin } from "./llm/plugin.ts";
-import { configuredMcpOptions, mcpPlugin } from "./mcp/plugin.ts";
-import { connectLogin, isConnectAuth } from "./mcp/connect.ts";
-import { mcpPinCommand } from "./mcp/pin-command.ts";
+import { mcpPlugin } from "./mcp/plugin.ts";
 import { embeddingPlugin } from "./embedding/plugin.ts";
 import { agentPlugin } from "./agent/plugin.ts";
 import type { LlmPluginOptions } from "./llm/types.ts";
@@ -24,10 +17,10 @@ import type { AcpPluginOptions } from "./acp/types.ts";
  * `@routecraft/ai` is imported, users can write:
  *
  * ```typescript
- * import { defineConfig } from "@routecraft/routecraft";
+ * import { defineProject } from "@routecraft/routecraft";
  * import "@routecraft/ai";
  *
- * export const craftConfig = defineConfig({
+ * export default defineProject({
  *   llm: { providers: { openai: { apiKey: "..." } } },
  *   mcp: { clients: { ... } },
  *   embedding: { providers: { ... } },
@@ -81,23 +74,3 @@ registerConfigApplier("agent", (options) => agentPlugin(options));
 registerConfigApplier("sessions", (options) => sessionsPlugin(options));
 // Last on purpose: it reads the registry `agent` filled.
 registerConfigApplier("acp", (options) => acpPlugin(options));
-
-// `craft connect` runs the logins of the clients declared with connect(),
-// whether under the `mcp` key or in an `mcpPlugin()` in `plugins`.
-registerCredentialLogins("mcp", (config) => {
-  const logins: CredentialLogin[] = [];
-  for (const options of configuredMcpOptions(config)) {
-    for (const [serverId, client] of Object.entries(options.clients ?? {})) {
-      if ("url" in client && isConnectAuth(client.auth)) {
-        logins.push(
-          connectLogin(serverId, client.url, client.auth, {
-            allowHttp: client.allowHttp,
-          }),
-        );
-      }
-    }
-  }
-  return logins;
-});
-
-registerProjectCommand("mcp pin", mcpPinCommand);

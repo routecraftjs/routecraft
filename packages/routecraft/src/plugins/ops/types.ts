@@ -202,7 +202,7 @@ export interface OpsHealthOptions {
 /** Options for {@link opsPlugin}. */
 export interface OpsPluginOptions {
   /**
-   * Named server (`defineConfig({ servers })`) to mount the health paths on.
+   * Named server (`defineProject({ servers })`) to mount the health paths on.
    * Defaults to `"default"`.
    *
    * A dedicated ops port is a second named server the surface points at, which
@@ -552,7 +552,7 @@ export interface OpsRouteSummary {
   tags?: string[];
   /**
    * The remote this route was imported from, for a route another instance
-   * exposes and `defineConfig({ remotes })` made dispatchable here. Absent
+   * exposes and `defineProject({ remotes })` made dispatchable here. Absent
    * for a route this instance defines. Additive: an existing consumer that
    * never reads it sees the listing it always saw.
    */

@@ -1,5 +1,9 @@
 import { describe, expect, expectTypeOf, test } from "bun:test";
-import { CraftContext, defineConfig } from "@routecraft/routecraft";
+import {
+  CraftContext,
+  defineProject,
+  type CraftConfig,
+} from "@routecraft/routecraft";
 import { LLM } from "../src/llm/types.ts";
 import { AGENTS } from "../src/agent/port.ts";
 import type { LlmPluginOptions } from "../src/llm/types.ts";
@@ -22,11 +26,11 @@ describe("@routecraft/ai config appliers", () => {
    */
   test("llm key provides providers through the LLM port", async () => {
     const ctx = new CraftContext(
-      defineConfig({
+      defineProject({
         llm: {
           providers: { openai: { apiKey: "sk-test" } },
         },
-      }),
+      }).config,
     );
     await ctx.initPlugins();
 
@@ -44,7 +48,7 @@ describe("@routecraft/ai config appliers", () => {
    */
   test("agent key registers agents via the store", async () => {
     const ctx = new CraftContext(
-      defineConfig({
+      defineProject({
         agent: {
           agents: {
             reply: {
@@ -54,7 +58,7 @@ describe("@routecraft/ai config appliers", () => {
             },
           },
         },
-      }),
+      }).config,
     );
     await ctx.initPlugins();
 
@@ -74,7 +78,7 @@ describe("@routecraft/ai config appliers", () => {
   test("llm key coexists with user plugins[]", async () => {
     let userPluginRan = false;
     const ctx = new CraftContext(
-      defineConfig({
+      defineProject({
         llm: {
           providers: { openai: { apiKey: "sk-test" } },
         },
@@ -86,7 +90,7 @@ describe("@routecraft/ai config appliers", () => {
             },
           },
         ],
-      }),
+      }).config,
     );
     await ctx.initPlugins();
 
@@ -101,19 +105,19 @@ describe("@routecraft/ai config appliers", () => {
    *   keys typed as their respective plugin options
    * @preconditions @routecraft/ai is imported (side-effect registers
    *   appliers and merges the augmentation into CraftConfig)
-   * @expectedResult defineConfig accepts each AI key with the matching
+   * @expectedResult defineProject accepts each AI key with the matching
    *   options type and rejects a key those options do not declare (the 0.6
    *   `mcp.host` / `mcp.port`). A regression that broke the augmentation,
-   *   the self-reference in define-config.ts, or the import path used by
+   *   the self-reference in project.ts, or the import path used by
    *   registerConfigApplier would fail these assertions.
    */
   test("augments CraftConfig with AI keys typed as plugin options", () => {
-    const cfg = defineConfig({
+    const cfg: CraftConfig = {
       llm: { providers: { openai: { apiKey: "sk" } } },
       mcp: {},
       embedding: { providers: {} },
       agent: { agents: {} },
-    });
+    };
 
     expectTypeOf(cfg.llm).toEqualTypeOf<LlmPluginOptions | undefined>();
     expectTypeOf(cfg.mcp).toEqualTypeOf<McpPluginOptions | undefined>();
@@ -122,9 +126,11 @@ describe("@routecraft/ai config appliers", () => {
     >();
     expectTypeOf(cfg.agent).toEqualTypeOf<AgentPluginOptions | undefined>();
 
-    defineConfig({
-      // @ts-expect-error 0.6 listener options; 0.7 declares them under servers
-      mcp: { transport: "http", host: "0.0.0.0", port: 8081 },
-    });
+    const refused = () =>
+      defineProject({
+        // @ts-expect-error 0.6 listener options; 0.7 declares them under servers
+        mcp: { transport: "http", host: "0.0.0.0", port: 8081 },
+      });
+    expect(refused).toBeFunction();
   });
 });

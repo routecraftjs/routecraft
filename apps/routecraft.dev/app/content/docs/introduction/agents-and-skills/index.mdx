@@ -16,10 +16,10 @@ bun add @ai-sdk/anthropic
 
 ```ts
 // craft.config.ts
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 import "@routecraft/ai";
 
-export const craftConfig = defineConfig({
+export default defineProject({
   mcp: {},
   llm: {
     providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },

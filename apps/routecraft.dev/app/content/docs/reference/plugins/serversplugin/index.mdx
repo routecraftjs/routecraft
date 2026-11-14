@@ -10,16 +10,16 @@ title: serversPlugin
 import { serversPlugin } from '@routecraft/routecraft'
 ```
 
-Owns every HTTP listener in the process. Each entry under `defineConfig({ servers })` declares one named listener; surfaces (the [http plugin](/docs/reference/plugins/httpplugin), the [MCP HTTP transport](/docs/reference/plugins/mcpplugin), custom plugins) select a listener by name and mount paths on it instead of binding their own socket. A surface that needs an isolated port declares another named server and points at it; there is no separate standalone mode.
+Owns every HTTP listener in the process. Each entry under `defineProject({ servers })` declares one named listener; surfaces (the [http plugin](/docs/reference/plugins/httpplugin), the [MCP HTTP transport](/docs/reference/plugins/mcpplugin), custom plugins) select a listener by name and mount paths on it instead of binding their own socket. A surface that needs an isolated port declares another named server and points at it; there is no separate standalone mode.
 
 Materialised by the `servers` config key; the factory is exported for programmatic composition.
 
 ```ts
-import { defineConfig, jwks } from '@routecraft/routecraft'
+import { defineProject, jwks } from '@routecraft/routecraft'
 // The `mcp` first-class config key registers only when @routecraft/ai is imported.
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: {
       host: '0.0.0.0',

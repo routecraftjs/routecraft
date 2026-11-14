@@ -1,4 +1,4 @@
-export { craftConfig } from "./craft.config";
+export { project } from "./craft.config";
 import { craft, mail } from "@routecraft/routecraft";
 
 /**

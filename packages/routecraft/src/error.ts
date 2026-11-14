@@ -65,6 +65,7 @@ export interface ErrorCodeRegistry {
   RC1117: RCMeta;
   RC1118: RCMeta;
   RC1119: RCMeta;
+  RC1120: RCMeta;
   RC2001: RCMeta;
   RC2002: RCMeta;
   RC3001: RCMeta;
@@ -332,6 +333,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A plugin declares replaces for a port nobody provides, while an installed plugin provides the same owner.capability at another version. The replacement would displace nobody and the application would run both. Build the replacement against the version that is installed, or upgrade the plugin that provides the other one.",
     docs: `${DOCS_BASE}#rc-1119`,
+    retryable: false,
+  },
+  RC1120: {
+    category: "Definition",
+    message: "No project export",
+    suggestion:
+      "The command line read a craft.config file whose default export is not a project. Write `export default defineProject({ ... })`: a plain object, a `defineConfig(...)` result and a named `craftConfig` export are the pre-0.8 shapes and are no longer read. Move the same keys into the defineProject call.",
+    docs: `${DOCS_BASE}#rc-1120`,
     retryable: false,
   },
   RC2001: {
@@ -629,7 +638,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Resume-token signing secret not configured",
     suggestion:
-      "A route in this context can reach a durable .defer(), so resume tokens must be signable. Set the ROUTECRAFT_DEFERRAL_SECRET environment variable, or pass deferral: { secret } to defineConfig; generate one with `openssl rand -base64 32`. At least 32 bytes are required, because a resume token is a bearer capability and its holder can guess the secret offline without limit. The secret is never generated into the store: a store compromise must not yield forgeable resume tokens. testContext() and NODE_ENV=development or test mint an ephemeral in-memory key, so tests and local iteration need no setup.",
+      "A route in this context can reach a durable .defer(), so resume tokens must be signable. Set the ROUTECRAFT_DEFERRAL_SECRET environment variable, or pass deferral: { secret } to defineProject; generate one with `openssl rand -base64 32`. At least 32 bytes are required, because a resume token is a bearer capability and its holder can guess the secret offline without limit. The secret is never generated into the store: a store compromise must not yield forgeable resume tokens. testContext() and NODE_ENV=development or test mint an ephemeral in-memory key, so tests and local iteration need no setup.",
     docs: `${DOCS_BASE}#rc-5040`,
     retryable: false,
   },
@@ -725,7 +734,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Deferral runtime not configured",
     suggestion:
-      "A route in this context can reach a durable `.defer()`, but nothing configured where deferred exchanges are stored or how resume tokens are signed. Add `deferral: {}` to `defineConfig` to take the defaults (sqlite plus the `ROUTECRAFT_DEFERRAL_SECRET` environment variable), or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently defers into memory loses everything it promised on the next restart.",
+      "A route in this context can reach a durable `.defer()`, but nothing configured where deferred exchanges are stored or how resume tokens are signed. Add `deferral: {}` to `defineProject` to take the defaults (sqlite plus the `ROUTECRAFT_DEFERRAL_SECRET` environment variable), or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently defers into memory loses everything it promised on the next restart.",
     docs: `${DOCS_BASE}#rc-5052`,
     retryable: false,
   },
@@ -805,7 +814,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Remote instance unreachable",
     suggestion:
-      "A dispatch to a route imported through `defineConfig({ remotes })` never got an answer from the remote instance: the connection was refused or the name did not resolve, the connection was lost after the request was sent, or the request timed out. Check the remote's `url` and that the instance is running and serving its ops surface. Only a connection that never opened is safe to retry; a lost connection or a timeout is not, because the remote may still be running the work it accepted, and the error carries `retryable: false` for those. The message says which it was.",
+      "A dispatch to a route imported through `defineProject({ remotes })` never got an answer from the remote instance: the connection was refused or the name did not resolve, the connection was lost after the request was sent, or the request timed out. Check the remote's `url` and that the instance is running and serving its ops surface. Only a connection that never opened is safe to retry; a lost connection or a timeout is not, because the remote may still be running the work it accepted, and the error carries `retryable: false` for those. The message says which it was.",
     docs: `${DOCS_BASE}#rc-5062`,
     retryable: true,
   },

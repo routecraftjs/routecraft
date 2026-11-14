@@ -323,7 +323,7 @@ These are the **coarse decision events**: broadcast to every subscriber, no opt-
 
 `agentName` is present only for by-name agents (`agent("id")`); inline agents are identified by their `routeId`. `model` is the resolved `providerId:modelName`. On the session events `agentName` is always present and is the session's agent: the registered name, or the route id for an inline agent with `session`.
 
-Tool input/output (and block-load output) ride in a `_snapshot` envelope. So does the thrown error on `:tool:error` / `:block:error`: error messages routinely echo the rejected input (schema validation, guards), so they are gated the same way. In-process subscribers always receive the envelope, but the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry({ sqlite: { captureSnapshots: true } })`), mirroring how exchange bodies are gated. The non-sensitive fields (`toolName`, `toolCallId`, `errorName`, `duration`) are always persisted.
+Tool input/output (and block-load output) ride in a `_snapshot` envelope. So does the thrown error on `:tool:error` / `:block:error`: error messages routinely echo the rejected input (schema validation, guards), so they are gated the same way. In-process subscribers always receive the envelope, but the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry: { sqlite: { captureSnapshots: true } }`), mirroring how exchange bodies are gated. The non-sensitive fields (`toolName`, `toolCallId`, `errorName`, `duration`) are always persisted.
 
 `route:agent:tool:denied` fires before any model call, once per tool the policy refused, and carries no `toolCallId` because the tool was never invoked. `reason` is `rule` (a policy decided against it), `rule-error` (a predicate threw, so the tool was denied to fail closed), or `unknown-provenance` (the tool's `source` is missing or names a kind the policy surface does not define, which means a hand-built `ResolvedTool` from outside the type contract; `toolKind` is `unknown`).
 
@@ -415,7 +415,7 @@ Emitted on every auth attempt by every auth-enabled surface: HTTP routes, the MC
 
 ## Server events
 
-Emitted by the named-servers listener (`defineConfig({ servers })`), which owns every shared HTTP socket. One event set per named server; the `server` field carries the name.
+Emitted by the named-servers listener (`defineProject({ servers })`), which owns every shared HTTP socket. One event set per named server; the `server` field carries the name.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
@@ -448,7 +448,7 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 | `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
 | `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason, proxied?, serverId?, remoteTool?, routeId?, mount? }` |
 
-The arguments of `called` ride in a `_snapshot` envelope, as an [agent tool's input](#agent-operations) does. In-process subscribers always receive it; the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry({ sqlite: { captureSnapshots: true } })`).
+The arguments of `called` ride in a `_snapshot` envelope, as an [agent tool's input](#agent-operations) does. In-process subscribers always receive it; the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry: { sqlite: { captureSnapshots: true } }`).
 
 `deferred` is deliberately not `completed`. A deferred run is neither finished nor failed: the real result belongs to execution two, which flows to the route's destinations when the answer arrives, so counting the deferral as a completion would publish a false receipt to every dashboard. The wire result is an ordinary `isError: false` answer whose `structuredContent` is the acknowledgment.
 
@@ -568,7 +568,7 @@ invocation to carry it.
 
 ## HTTP plugin events
 
-Events emitted by the HTTP plugin (configured via `defineConfig({ http })`). The listener itself belongs to the named server, so bind and close are reported by the [server events](#server-events) above; the plugin also emits the framework's [authentication events](#authentication-events) (`auth:success` / `auth:rejected`) with `source: "http"` when an `auth` strategy is configured or inherited.
+Events emitted by the HTTP plugin (configured via `defineProject({ http })`). The listener itself belongs to the named server, so bind and close are reported by the [server events](#server-events) above; the plugin also emits the framework's [authentication events](#authentication-events) (`auth:success` / `auth:rejected`) with `source: "http"` when an `auth` strategy is configured or inherited.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
@@ -586,7 +586,7 @@ On a route whose [`respond`](/docs/reference/adapters/http#acknowledge-then-proc
 
 ## Ops plugin events
 
-Events emitted by the ops plugin (configured via `defineConfig({ ops })`).
+Events emitted by the ops plugin (configured via `defineProject({ ops })`).
 
 | Event | When it fires | Details |
 | --- | --- | --- |

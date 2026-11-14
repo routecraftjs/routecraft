@@ -44,10 +44,10 @@ Stdio is the default, and the right transport for one person: the client starts 
 
 ```ts
 // craft.config.ts
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 import "@routecraft/ai";
 
-export const craftConfig = defineConfig({
+export default defineProject({
   mcp: {},
 });
 ```
@@ -105,10 +105,10 @@ Serve MCP over HTTP when the tools should run always on and more than one person
 
 ```ts
 // craft.config.ts
-import { defineConfig, jwt } from "@routecraft/routecraft";
+import { defineProject, jwt } from "@routecraft/routecraft";
 import "@routecraft/ai";
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     default: {
       host: "0.0.0.0",

@@ -4,9 +4,10 @@ import type { AuthProvider } from "@modelcontextprotocol/client";
 import {
   evaluateEnablementOnce,
   rcError,
-  type CraftConfig,
   type CredentialStore,
-  type ProjectCommand,
+  type ToolingCommand,
+  type ToolingContext,
+  type ToolingResult,
 } from "@routecraft/routecraft";
 import { isConnectAuth, storedAuthProvider } from "./connect.ts";
 import { createMcpHttpConnections } from "./http-connections.ts";
@@ -19,16 +20,13 @@ import {
   type McpLockedTool,
   type McpLockfile,
 } from "./pins.ts";
-import {
-  configuredMcpOptions,
-  isStdioConfig,
-  stdioManagerOptions,
-} from "./plugin.ts";
+import { isStdioConfig, stdioManagerOptions } from "./client-config.ts";
 import { assertRemoteUrl } from "./sdk.ts";
 import { StdioClientManager } from "./stdio-client-manager.ts";
 import type {
   McpClientServerConfig,
   McpClientStdioConfig,
+  McpPluginOptions,
   McpTool,
   McpToolClass,
 } from "./types.ts";
@@ -92,16 +90,12 @@ export interface McpPinResult {
  * @internal
  */
 export async function pinMcpClients(
-  config: CraftConfig,
+  options: McpPluginOptions,
   request: McpPinRequest,
 ): Promise<McpPinResult> {
-  const sources = configuredMcpOptions(config);
-  const configured = new Map<string, McpClientServerConfig>();
-  for (const options of sources) {
-    for (const [id, client] of Object.entries(options.clients ?? {})) {
-      if (!configured.has(id)) configured.set(id, client);
-    }
-  }
+  const configured = new Map<string, McpClientServerConfig>(
+    Object.entries(options.clients ?? {}),
+  );
   const targets =
     request.client !== undefined
       ? [...configured.keys()].filter((id) => id === request.client)
@@ -120,9 +114,7 @@ export async function pinMcpClients(
     });
   }
 
-  const path = lockfilePath(
-    sources.find((options) => options.lockfile !== undefined)?.lockfile,
-  );
+  const path = lockfilePath(options.lockfile);
   const existing = await readExisting(path);
   const previous =
     existing === undefined ? undefined : parseLockfile(existing, path);
@@ -296,15 +288,29 @@ function printable(text: string): string {
  * committing it, so the output names the changes and leaves the review to
  * the diff.
  *
+ * @param options - The options of the `mcpPlugin()` the command belongs to
  * @internal
  */
-export const mcpPinCommand: ProjectCommand = async (config, io) => {
-  if (io.args.length > 1) {
+export function mcpPinCommand(options: McpPluginOptions): ToolingCommand {
+  return {
+    summary:
+      "Write the tools the MCP clients list now to mcp.lock, for review and commit",
+    usage: "[client]",
+    run: (args, context) => runPin(options, args, context),
+  };
+}
+
+async function runPin(
+  options: McpPluginOptions,
+  args: readonly string[],
+  io: ToolingContext,
+): Promise<ToolingResult> {
+  if (args.length > 1) {
     return { code: 1, error: "craft mcp pin takes at most one client." };
   }
-  const result = await pinMcpClients(config, {
-    client: io.args[0],
-    credentials: io.credentials,
+  const result = await pinMcpClients(options, {
+    client: args[0],
+    credentials: () => io.credentials(),
   });
   const lines: string[] = [];
   for (const each of result.clients) {
@@ -337,4 +343,4 @@ export const mcpPinCommand: ProjectCommand = async (config, io) => {
     ...(lines.length > 0 ? { output: lines.join("\n") } : {}),
     ...(errors.length > 0 ? { error: errors.join("\n") } : {}),
   };
-};
+}

@@ -60,7 +60,7 @@ const PRUNE_INTERVAL_MS = 60_000;
  * `bun:sqlite` under Bun, `better-sqlite3` as an optional peer under Node.
  * When neither resolves, {@link open} returns `null` and the calling plugin
  * disables the SQLite path with a warn log, leaving an OTLP exporter
- * configured via `telemetry({ tracerProvider })` as the way to keep
+ * configured via `telemetry: { tracerProvider }` as the way to keep
  * telemetry flowing.
  */
 export class SqliteConnection {

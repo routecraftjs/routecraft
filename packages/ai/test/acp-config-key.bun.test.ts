@@ -1,5 +1,5 @@
 /**
- * `acp:` on `defineConfig`, the first-party way to serve the protocol.
+ * `acp:` on `defineProject`, the first-party way to serve the protocol.
  *
  * The key has to serve the agents the `agent` key registered whichever of
  * the two is written first, which config appliers give it: they apply in
@@ -18,7 +18,7 @@ import {
 } from "bun:test";
 import {
   MemoryDeferralStore,
-  defineConfig,
+  defineProject,
   type CraftConfig,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
@@ -82,7 +82,7 @@ describe("the acp config key", () => {
 
   /**
    * @case The key serves the protocol with the agents written under `agent`, written after it
-   * @preconditions defineConfig with `acp` before `agent` in the object, a named server, memory stores
+   * @preconditions defineProject with `acp` before `agent` in the object, a named server, memory stores
    * @expectedResult The instance boots and answers initialize as Routecraft: the key applied after `agent` whatever the key order
    */
   test("acp written before agent boots and serves the protocol", async () => {
@@ -192,18 +192,20 @@ describe("the acp config key", () => {
 
   /**
    * @case The key is typed as the factory's options
-   * @preconditions defineConfig with an `acp` value
+   * @preconditions defineProject with an `acp` value
    * @expectedResult `cfg.acp` is an AcpPluginOptions, so an option the factory does not take is a compile error here too
    */
   test("acp is typed as AcpPluginOptions", () => {
-    const cfg = defineConfig({
+    const cfg = defineProject({
       acp: { path: "/acp", toolCallPayloads: false },
-    });
+    }).config;
     expectTypeOf(cfg.acp).toEqualTypeOf<AcpPluginOptions | undefined>();
 
-    defineConfig({
-      // @ts-expect-error port belongs to servers, not to the acp options
-      acp: { path: "/acp", port: 8080 },
-    });
+    const refused = () =>
+      defineProject({
+        // @ts-expect-error port belongs to servers, not to the acp options
+        acp: { path: "/acp", port: 8080 },
+      });
+    expect(refused).toBeFunction();
   });
 });

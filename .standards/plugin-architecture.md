@@ -62,10 +62,23 @@ that adds none of them is still a plugin:
 | `repeatable`                 | several installs coexist (`id#1`, `id#2`, in list order), listed and brought alike, each distinct descriptor counting once; such a plugin contributes through another plugin's port and may not provide, replace, or declare hooks, points, steps or a facet                                                                                            | before anything binds               |
 | `hooks`                      | handlers and wrappers in the chain's slots, each with a phase                                                                                                                                                                                                                                                                                           | static, placed when routes compile  |
 | `keepsAlive`                 | the plugin owns a lifetime past the routes (a listener)                                                                                                                                                                                                                                                                                                 | at completion                       |
+| `tooling`                    | `{ commands, logins }` for the tools around an application: `craft <namespace> <command>` and `craft connect`. Read off the resolved plugin list without binding |
 | `bind(c)`                    | requires, provides, observes, registers routes                                                                                                                                                                                                                                                                                                          | in dependency order                 |
 | `start(c)` / `stop(c, info)` | acquires and releases what needs a running application                                                                                                                                                                                                                                                                                                  | after routes start; reverse at stop |
 
 `CraftPlugin` and its `apply` are removed. There is one plugin shape.
+
+`tooling` is the one field no application reads. `pluginTooling(config)`
+resolves the plugin list the way the application does and reads it off each
+descriptor, so a command or a login works from the options the plugin's
+factory closed over, with nothing bound. The kernel validates its shape
+(`RC1117`) and learns no verb: which namespaces the command line keeps for
+itself is the command line's table (`packages/cli/src/tooling.ts`), checked
+there. A command is handed the credential store narrowed to the owners its
+own plugin's `logins` declare (`RC5070` for any other), so one plugin's
+command cannot read another's credential through the tooling surface. There
+is no process-wide registry of commands or logins: a registry is the second
+copy of the plugin list, and it is the one that disagrees.
 
 ### The plugin context
 
@@ -188,6 +201,13 @@ kernel knows their names. The registry is module-local, so a second copy of
 the package never installs its defaults into the first copy's applications.
 Ahead, so the application's plugins keep their relative order: a plugin that
 requires a default binds after it either way.
+
+A third party cannot be a default plugin. It reaches every position a default
+fills through `replaces`, and an application opts into it by listing it. A
+shipped plugin that is not a default and whose steps or facet a route can
+reach registers a remedy sentence (`registerShippedPlugin(factory, { remedy
+})`), which the `RC1111` raised for its facet quotes, so the fault names the
+config key to add.
 
 ## 3. The chain
 
@@ -556,7 +576,7 @@ The rows the design left open, decided:
 | Event names                          | unchanged, except the plugin lifecycle events                                                         | renaming every event buys nothing a payload field does not                                                                    |
 | Error codes                          | the existing `RC` numbering stays; a new code is reserved in the ledger in `error-and-logging-policy.md` before use, and a retired one is never reused                 |                                                                                                                               |
 | Context error handlers (#818)        | become `error` slot hooks; `registerHandler` and the `handlers` config key are removed before release | one mechanism, not two                                                                                                        |
-| How the CLI finds the project        | `craft.config.ts` default-exports `defineProject(...)`; a plain config object still works             |                                                                                                                               |
+| How the CLI finds the project        | `craft.config.ts` default-exports `defineProject(...)`, and nothing else is read (`RC1120`); `defineConfig` is removed | two shapes meant two code paths and a config that typed no routes; `craft run` resolves `--config`, the file's `project`, the nearby config that extends the routes' project, the routes' project, the defaults |
 | Roles, actors, delegation            | stay on the principal, owned by the principals plugin                                                 | the spike's `subject` / `grants` / `lent` shape was a spike simplification                                                    |
 | Packages                             | first-party plugins stay in the package they ship in                                                  | the boundary is the import graph test, not the package count                                                                  |
 
@@ -583,6 +603,7 @@ The rows the design left open, decided:
 | RC1117 | an invalid plugin descriptor: a missing plugin or hook id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what only a single install may: `provides`, `replaces`, `hooks`, `points`, `steps` or a `facet` |
 | RC1118 | a `bind` or `start` hook awaited `c.execution.whenStarted()`, which resolves only once every hook returned, so the hook was waiting on itself |
 | RC1119 | a `replaces` that displaces nobody while an installed plugin provides the same `owner.capability` at another version |
+| RC1120 | the command line read a `craft.config` whose default export is not a project, or a `craft run` file that still exports `craftConfig` |
 | RC5068 | a `validate` hook or a route's `.validate()` step refused the exchange with `refuse()`                                                                                                                                                             |
 
 ## Related

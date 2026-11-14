@@ -20,9 +20,9 @@ A remote reads the team harness through its [ops management API](/docs/reference
 
 ```ts
 // craft.config.ts, on the team harness
-import { defineConfig, jwks } from "@routecraft/routecraft";
+import { defineProject, jwks } from "@routecraft/routecraft";
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: {
     internal: {
       host: "0.0.0.0",
@@ -52,9 +52,9 @@ What a remote can reach is every **dispatchable** capability: one with a `direct
 
 ```ts
 // craft.config.ts, on your laptop
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 
-export const craftConfig = defineConfig({
+export default defineProject({
   remotes: {
     default: {
       url: "https://routecraft-ops.example.internal",

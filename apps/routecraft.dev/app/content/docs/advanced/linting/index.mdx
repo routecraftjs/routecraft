@@ -95,7 +95,8 @@ const token = c.continuations.mintToken(record.id)
 `restrict-principal-minting` (error in both presets) treats identity fabrication as a
 security decision, not a convenience. `.authenticate()`, the `authenticate()` / `markAuthentic()` helpers and an
 authority's `mint()` / `brand()` produce a branded principal every downstream `authorize()`
-trusts, so the rule flags every mint site and you sanction the legitimate ones
+trusts, so the rule flags every mint site, on a route of the root `craft()` and on one
+built with a project's `craft()` alike, and you sanction the legitimate ones
 explicitly, either with a scoped disable comment carrying a justification:
 
 ```ts skip="fragment: not a complete statement on its own"

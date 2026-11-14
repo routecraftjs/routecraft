@@ -14,7 +14,7 @@ Internal development standards for Routecraft contributors (human and AI). These
 | [Naming Policy](./naming-policy.md) | Source/Destination vs Server/Client naming, schema field names (`input`/`output`), prompt-source field names |
 | [Error and Logging Policy](./error-and-logging-policy.md) | Throw/boundary rules, structured logging, level semantics, error code philosophy, the `RC` code ledger |
 | [Type Safety and Schemas](./type-safety-and-schemas.md) | Type flow policy, factory option types (no `Partial<>` on factory args), Standard Schema usage, plugin vs config vs store guidance |
-| [Plugin Architecture](./plugin-architecture.md) | The kernel and its import boundary, the plugin descriptor, ports, the fixed chain with its slots and phases, typed steps, facets and `defineProject`, the continuation protocol, the default plugins, and the RC1101-RC1119 faults |
+| [Plugin Architecture](./plugin-architecture.md) | The kernel and its import boundary, the plugin descriptor, ports, the fixed chain with its slots and phases, typed steps, facets and `defineProject`, the continuation protocol, the default plugins, and the RC1101-RC1120 faults |
 | [Plugin Lifecycle](./plugin-lifecycle.md) | The three hooks (`bind` and `start` in dependency order, `stop` in reverse), which work belongs in each, what a `start()` hook may do, ordering and failure semantics, readiness via `whenStarted()` |
 | [Testing](./testing.md) | Runner conventions, JSDoc-on-every-test, helpers from `@routecraft/testing`, lifecycle pattern, assertion patterns, outsider suites, benchmarks |
 | [CI/CD](./ci-cd.md) | PR gates, hook policy, peer-dependency rules, optional peer dependencies, release flow |

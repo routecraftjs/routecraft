@@ -47,7 +47,7 @@ export function isRemoteAbsence(error: unknown, endpoint: string): boolean {
 /** What a channel needs to know about the route it fronts. */
 export interface RemoteTarget {
   logger: Logger;
-  /** The remote's name in `defineConfig({ remotes })`. */
+  /** The remote's name in `defineProject({ remotes })`. */
   remote: string;
   /** The route id on the remote. */
   id: string;

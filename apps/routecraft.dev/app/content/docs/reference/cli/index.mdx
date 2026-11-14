@@ -135,7 +135,15 @@ echo '{"id":"12345"}' | craft run routes/work-item.ts
 craft run routes/work-item.ts --help
 ```
 
-The file must export a capability (or array of capabilities) as its default export, and optionally a `craftConfig` named export. A file whose routes are built with a project's `craft()` exports that project's config as `craftConfig` (`export const craftConfig = project.config`), or `craft run` fails to start with `RC1111`: startup compiles every route and checks that each plugin step it uses is installed before any route runs. See the [Configuration reference](/docs/reference/configuration) for the config export format.
+The file must export a capability (or array of capabilities) as its default export. `craft run` picks the project the routes run in, first match wins:
+
+1. `--config <path>`: the project that file default-exports.
+2. The file's own `export const project = defineProject({ ... })`.
+3. The `craft.config` beside the nearest `package.json` at or above the file, when it installs every plugin the routes were built with. One that does not is ignored, with an info line naming the plugins it lacks; `--no-config` skips this step.
+4. The project the routes were built with: the one whose `craft()` started them.
+5. The defaults, for routes built with the root `craft()`.
+
+The line logged at start names which one was chosen. A project file that is read must default-export a `defineProject(...)`, and a file that still exports `craftConfig` is refused, both with [`RC1120`](/docs/reference/errors#rc-1120). Routes run without their plugins fail to start with `RC1111`: startup compiles every route and checks that each plugin step it uses is installed before any route runs. See the [Configuration reference](/docs/reference/configuration) for the keys a project takes.
 
 Options:
 
@@ -144,6 +152,8 @@ Options:
 | `<file>` | TypeScript or JavaScript file (.ts/.mjs/.js/.cjs) to execute |
 | `--env <path>` | Load environment variables from a .env file |
 | `--profile <name>` | [Settings profile](#profiles) to select, and with it [the environment](#the-environment-a-profile-selects) |
+| `--config <path>` | The project file to run the routes in, in place of the one `craft run` would pick |
+| `--no-config` | Do not read the `craft.config` beside the nearest `package.json` |
 | `[route]` (after the file) | Id of the `argv()` route to run. Optional when the file has one, required when it has several |
 | `--help` (after the file) | Print the `argv()` route's input fields instead of running it, or the list of `argv()` routes when the file has several and none is named |
 | `--format <format>` (after the file) | Output of an `argv()` route: `pretty` (default), `json` or `raw` |
@@ -180,8 +190,8 @@ Options:
 
 What it loads, and in what order:
 
-1. `craft.config.ts` from the project root: a default-exported `defineProject(...)`, or
-   else a named `craftConfig` export, or else a default-exported config object. Importing
+1. `craft.config.ts` from the project root. Its default export must be a `defineProject(...)`;
+   anything else is refused with [`RC1120`](/docs/reference/errors#rc-1120). Importing
    this file is what pulls plugins and ecosystem packages into the module graph.
 2. `plugins/`, one plugin descriptor default-exported per module. A discovered plugin is added to what `craft.config.ts` installs, so a plugin listed there and present in `plugins/` is installed twice: refused with `RC1101`, or, for a repeatable plugin, numbered and bound twice. Keep each in one place. Routes under `capabilities/` built with the project's `craft()` are typed by the plugins `defineProject` lists, so a step of a plugin only `plugins/` supplies is a compile error even though it runs: list such a plugin in the project.
 3. Folder discoverers, ordered by the dependencies they declare. `@routecraft/ai` claims
@@ -351,7 +361,7 @@ A client that cannot be listed (unreachable, disabled by its `enabled`, or witho
 | --- | --- |
 | `--env <path>`, `--profile <name>` | The environment to load first, as for [`start`](#start) |
 
-The file is `mcp.lock` in the directory the command runs in, or the path [`lockfile`](/docs/reference/plugins/mcpplugin#pinning) names; the application reads the same path against the directory it starts in. A client's entries are dropped once the client is no longer in the config. For a client behind a login the command connects with the stored credential and may refresh it, as the application does. The config must import `@routecraft/ai`, which provides the command.
+The file is `mcp.lock` in the directory the command runs in, or the path [`lockfile`](/docs/reference/plugins/mcpplugin#pinning) names; the application reads the same path against the directory it starts in. A client's entries are dropped once the client is no longer in the config. For a client behind a login the command connects with the stored credential and may refresh it, as the application does. The command is the MCP plugin's own [tooling](#plugin-commands): it exists in a project that sets the `mcp` key or lists `mcpPlugin()`.
 
 ### ops
 
@@ -390,7 +400,7 @@ Every subcommand takes the same `--profile`, `--project`, `--url`, `--token` and
 
 ### tui
 
-Browse what a context recorded: routes, agents, tool calls, exchanges and live events, read from the SQLite database the [`telemetry()` plugin](/docs/introduction/monitoring#telemetry) writes. It reads the file rather than a running instance, so it works while the context runs and after it has stopped.
+Browse what a context recorded: routes, agents, tool calls, exchanges and live events, read from the SQLite database the [telemetry plugin](/docs/introduction/monitoring#telemetry) writes. It reads the file rather than a running instance, so it works while the context runs and after it has stopped.
 
 ```bash
 craft tui [--db <path>]
@@ -401,6 +411,29 @@ craft tui [--db <path>]
 | `--db <path>` | Telemetry database to read. Defaults to `.routecraft/telemetry.db` in the working directory |
 
 Navigation, views and keys are in the [Terminal UI guide](/docs/advanced/tui).
+
+### Plugin commands
+
+An installed plugin adds commands to `craft` through the [`tooling`](/docs/reference/plugins#tooling) field of its descriptor. They run from the project directory as `craft <namespace> <command>`, the namespace being the plugin's own, and take `--env` and `--profile` as [`start`](#start) does. The project is loaded and its plugin list resolved, and nothing is started.
+
+```bash
+craft <namespace>                  # list the plugin's commands
+craft <namespace> <command> --help # its usage line and summary
+craft <namespace> <command> [args]
+```
+
+`craft` keeps some first words for itself, and shares three with the first-party plugin of the same namespace:
+
+| Verb | Owner | A plugin's commands |
+| --- | --- | --- |
+| `run`, `start`, `exec`, `connect`, `disconnect`, `tui`, `help` | `craft` | None. A plugin with one of these namespaces that declares commands is refused with `RC1117` |
+| `mcp` | the MCP plugin | Every command is the plugin's (`pin`) |
+| `acp` | `craft` and the ACP plugin | `craft acp` itself is the bridge; a plugin command is `craft acp <command>` |
+| `ops` | `craft` and the ops plugin | `health`, `ready`, `routes`, `deferrals` and `indicators` are shipped; a plugin command with one of those names is refused with `RC1117` |
+| any other word | the plugin with that namespace | All of them |
+
+A namespace has one owner in an application (`RC1102`), so a third-party plugin cannot add commands under `ops` beside the ops plugin. A command is handed the project root, the project's logger, and the credential store narrowed to the owners its own plugin's logins declare.
+
 
 ## Settings file
 

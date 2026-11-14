@@ -14,9 +14,9 @@ Provides the embedding service that `embedding()` reads its provider credentials
 
 ```ts
 import { embeddingPlugin } from '@routecraft/ai'
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
+export default defineProject({
   plugins: [
     embeddingPlugin({
       providers: {
@@ -24,7 +24,7 @@ export const craftConfig: CraftConfig = {
       },
     }),
   ],
-}
+})
 
 ```
 

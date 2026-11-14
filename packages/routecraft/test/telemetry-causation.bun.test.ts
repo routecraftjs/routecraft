@@ -19,11 +19,11 @@ import {
   http,
   noop,
   simple,
-  telemetry,
-  SqliteConnection,
-  SqliteSpanProcessor,
+  telemetryPlugin,
   type CraftConfig,
 } from "../src/index.ts";
+import { SqliteConnection } from "../src/telemetry/sqlite-connection.ts";
+import { SqliteSpanProcessor } from "../src/telemetry/sqlite-processor.ts";
 
 const PARENT_TRACE = "4bf92f3577b34da6a3ce929d0e0e4736";
 const PARENT_SPAN = "00f067aa0ba902b7";
@@ -80,7 +80,9 @@ describe("Telemetry: causation", () => {
     const { exporter, provider } = tracing();
     t = await testContext()
       .with({
-        plugins: [telemetry({ disableSqlite: true, tracerProvider: provider })],
+        plugins: [
+          telemetryPlugin({ disableSqlite: true, tracerProvider: provider }),
+        ],
       })
       .routes([
         craft().id("span-caller").from(simple("x")).to(direct("span-callee")),
@@ -125,7 +127,9 @@ describe("Telemetry: causation", () => {
     const { exporter, provider } = tracing();
     t = await testContext()
       .with({
-        plugins: [telemetry({ disableSqlite: true, tracerProvider: provider })],
+        plugins: [
+          telemetryPlugin({ disableSqlite: true, tracerProvider: provider }),
+        ],
       })
       .routes(
         craft()
@@ -153,7 +157,9 @@ describe("Telemetry: causation", () => {
       .with({
         servers: { default: { port: 0, host: "127.0.0.1" } },
         http: { traceContext: "always" },
-        plugins: [telemetry({ disableSqlite: true, tracerProvider: provider })],
+        plugins: [
+          telemetryPlugin({ disableSqlite: true, tracerProvider: provider }),
+        ],
       } as CraftConfig)
       .on("server:listening", (({ details }: { details: { port: number } }) => {
         port = details.port;
@@ -269,7 +275,7 @@ describe("Telemetry: causation", () => {
   test("records causation_id on rows and events", async () => {
     const dbPath = resolve(testDir, "telemetry.db");
     t = await testContext()
-      .with({ plugins: [telemetry({ sqlite: { dbPath } })] })
+      .with({ plugins: [telemetryPlugin({ sqlite: { dbPath } })] })
       .routes([
         craft().id("row-caller").from(simple("x")).to(direct("row-callee")),
         craft()

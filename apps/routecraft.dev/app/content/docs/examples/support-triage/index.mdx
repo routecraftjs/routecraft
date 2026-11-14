@@ -124,10 +124,10 @@ Model providers live under the `llm` key, and the inbox the `mail()` source read
 
 ```ts
 // craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   llm: {
     providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
   },

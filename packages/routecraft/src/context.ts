@@ -180,17 +180,13 @@ function resolveShutdownTimeout(timeout: Duration | undefined): number {
 /**
  * Refuse pre-0.7 `Ms`-suffixed names on the config's authored durations.
  *
- * Checked here rather than in `defineConfig()`, which is an optional typing
- * helper: a config object handed straight to the context would otherwise
- * skip the guard entirely, and a `shutdown.timeoutMs` that means nothing is
- * a 30-second default nobody asked for.
+ * Checked here rather than in `defineProject()`: a config object handed
+ * straight to the context would otherwise skip the guard entirely, and a
+ * `shutdown.timeoutMs` that means nothing is a 30-second default nobody
+ * asked for.
  */
 function rejectStaleConfig(config: CraftConfig): void {
   rejectStaleOptions(config.shutdown, "shutdown");
-  for (const [name, server] of Object.entries(config.servers ?? {})) {
-    rejectStaleOptions(server, `servers.${name}`);
-  }
-  rejectStaleOptions(config.telemetry?.sqlite, "telemetry.sqlite");
 }
 
 /**

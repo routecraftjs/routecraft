@@ -6,7 +6,7 @@
  * Side-effect imports are exactly what packaging misconfiguration silently
  * drops: a `sideEffects` allowlist in package.json that omits the src config
  * modules made esbuild prune all of them from the published bundles, so
- * `defineConfig({ mail: {...} })` typechecked but did nothing at runtime.
+ * `defineProject({ mail: {...} })` typechecked but did nothing at runtime.
  *
  * This script derives the expected applier keys from the source (any
  * `registerConfigApplier("key", ...)` call under `src/`), imports the built

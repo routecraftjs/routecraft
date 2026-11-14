@@ -37,7 +37,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Naming Policy](.standards/naming-policy.md) -- Source/Destination vs Server/Client conventions
 - [Error and Logging Policy](.standards/error-and-logging-policy.md) -- throw/boundary rules, log levels, error codes and the `RC` code ledger, what crosses the wire at every door (code not message, caller faults mapped by origin)
 - [Type Safety and Schemas](.standards/type-safety-and-schemas.md) -- type flow, Standard Schema, plugin vs config
-- [Plugin Architecture](.standards/plugin-architecture.md) -- the kernel and its import boundary, the plugin descriptor, ports, the fixed chain with its slots and phases, typed steps, facets and `defineProject`, the continuation protocol, the default plugins, and the RC1101-RC1119 faults
+- [Plugin Architecture](.standards/plugin-architecture.md) -- the kernel and its import boundary, the plugin descriptor, ports, the fixed chain with its slots and phases, typed steps, facets and `defineProject`, the continuation protocol, the default plugins, and the RC1101-RC1120 faults
 - [Plugin Lifecycle](.standards/plugin-lifecycle.md) -- the three hooks (`bind` and `start` in dependency order, `stop` in reverse), which work belongs in each, ordering and failure semantics, readiness via `whenStarted()`
 - [Testing](.standards/testing.md) -- runner conventions, JSDoc-on-every-test, helpers, lifecycle, assertion patterns, outsider suites, benchmarks
 - [CI/CD](.standards/ci-cd.md) -- PR gates, hook policy, peer-dependency rules, release flow

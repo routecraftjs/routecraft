@@ -82,6 +82,56 @@ function invalidPlugin(where: string, why: string): never {
 /** Letters, digits, dots, dashes and underscores; "/" and "#" are the host's own separators. */
 const PLUGIN_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
+/** A command key is one command-line word: no spaces, never a flag. */
+const TOOLING_COMMAND = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+function validateTooling(p: Plugin, where: string): void {
+  const tooling: unknown = p.tooling;
+  if (tooling === undefined) return;
+  if (
+    typeof tooling !== "object" ||
+    tooling === null ||
+    Array.isArray(tooling)
+  ) {
+    invalidPlugin(where, "tooling must be an object");
+  }
+  const { commands, logins } = tooling as {
+    commands?: unknown;
+    logins?: unknown;
+  };
+  if (logins !== undefined && typeof logins !== "function") {
+    invalidPlugin(where, "tooling.logins must be a function");
+  }
+  if (commands === undefined) return;
+  if (
+    typeof commands !== "object" ||
+    commands === null ||
+    Array.isArray(commands)
+  ) {
+    invalidPlugin(where, "tooling.commands must be an object of commands");
+  }
+  for (const [key, command] of Object.entries(commands)) {
+    if (!TOOLING_COMMAND.test(key)) {
+      invalidPlugin(
+        where,
+        `tooling.commands key "${key}" must be one word of letters, digits, "-" and "_"`,
+      );
+    }
+    const shaped = command as { summary?: unknown; run?: unknown } | null;
+    if (
+      typeof shaped !== "object" ||
+      shaped === null ||
+      typeof shaped.summary !== "string" ||
+      typeof shaped.run !== "function"
+    ) {
+      invalidPlugin(
+        where,
+        `tooling.commands.${key} must be { summary, run(args, context) }`,
+      );
+    }
+  }
+}
+
 function validateShape(plugin: unknown, where: string): Plugin {
   if (typeof plugin !== "object" || plugin === null) {
     invalidPlugin(where, "expected an object");
@@ -129,6 +179,7 @@ function validateShape(plugin: unknown, where: string): Plugin {
       invalidPlugin(where, `${field} must be an array of ports`);
     }
   }
+  validateTooling(p, where);
   if (p.installs !== undefined && !Array.isArray(p.installs)) {
     invalidPlugin(where, "installs must be an array of plugins");
   }
@@ -144,6 +195,7 @@ function validateShape(plugin: unknown, where: string): Plugin {
         ["points", p.points?.length ?? 0],
         ["steps", p.steps === undefined ? 0 : Object.keys(p.steps).length],
         ["a facet", p.facet === undefined ? 0 : 1],
+        ["tooling commands", Object.keys(p.tooling?.commands ?? {}).length],
       ] as const
     ).find(([, count]) => count > 0);
     if (declared) {

@@ -12,12 +12,12 @@ import { httpPlugin } from '@routecraft/routecraft'
 
 Serves routes over HTTP. Backs the [`http()` source](/docs/reference/adapters/http); routes declare `.from(http({ path, method }))` and the plugin mounts them on a named server.
 
-`http` is a first-class core config key, so the common path is `defineConfig({ http: {...} })` rather than `plugins: [httpPlugin(...)]`. The factory is exported for programmatic composition.
+`http` is a first-class core config key, so the common path is `defineProject({ http: {...} })` rather than `plugins: [httpPlugin(...)]`. The factory is exported for programmatic composition.
 
 ```ts
-import { defineConfig, jwt } from '@routecraft/routecraft'
+import { defineProject, jwt } from '@routecraft/routecraft'
 
-export const craftConfig = defineConfig({
+export default defineProject({
   servers: { public: { port: 8080, host: '0.0.0.0' } },
   http: {
     server: 'public',

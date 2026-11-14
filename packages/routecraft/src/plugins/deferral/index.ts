@@ -11,6 +11,7 @@ import { deferralSteps } from "./steps.ts";
 import { registerConfigApplier } from "../../config-applier.ts";
 import {
   CONTINUATIONS,
+  CONTINUATIONS_REMEDY,
   type DeferralRuntime,
 } from "../../kernel/continuation/port.ts";
 import { registerDeferralsResource } from "./ops-resource.ts";
@@ -107,7 +108,7 @@ export type DeferralStoreConfig =
   string | { path: string } | "memory" | DeferralStore;
 
 /**
- * Deferral configuration on `defineConfig`.
+ * Deferral configuration on `defineProject`.
  */
 export interface DeferralConfig {
   /**
@@ -122,7 +123,7 @@ export interface DeferralConfig {
    * Prefer the {@link DEFERRAL_SECRET_ENV} environment variable: a secret
    * in a config file is a secret in version control. This field exists for
    * deployments that pull secrets from a manager at boot and hand them to
-   * `defineConfig` in code.
+   * `defineProject` in code.
    */
   secret?: string;
   /**
@@ -407,7 +408,7 @@ function assertStoreContract(store: object): void {
  */
 export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
   // Keyed by the plugin context, not a closure slot: one descriptor can serve
-  // two applications in the same process (a `defineConfig` export reused
+  // two applications in the same process (a `defineProject` export reused
   // across tests), and a single slot would let the second start overwrite the
   // first cadence, leaving its interval running against a store about to close.
   const runs = new WeakMap<
@@ -453,7 +454,9 @@ export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
   });
 }
 
-registerShippedPlugin(() => deferralPlugin());
+registerShippedPlugin(() => deferralPlugin(), {
+  remedy: CONTINUATIONS_REMEDY,
+});
 
 /**
  * The deferral plugin's descriptor type, for typing a project's routes.
