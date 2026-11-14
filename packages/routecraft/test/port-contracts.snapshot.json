@@ -103,9 +103,9 @@
     "value": "CarddavClientManager",
     "members": {
       "clients": "Map<string, Promise<CarddavDriverClient>>",
-      "config": "import(\"/home/user/rc-e/packages/routecraft/src/index\").CarddavContextConfig",
+      "config": "import(\"packages/routecraft/src/index\").CarddavContextConfig",
       "defaultAccount": "string",
-      "resolveConnection": "(account?: string) => import(\"/home/user/rc-e/packages/routecraft/src/index\").ResolvedCarddavConnection",
+      "resolveConnection": "(account?: string) => import(\"packages/routecraft/src/index\").ResolvedCarddavConnection",
       "resolveAddressBookName": "(account?: string) => string | undefined",
       "getClient": "(account?: string) => Promise<CarddavDriverClient>",
       "drain": "() => Promise<void>"

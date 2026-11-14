@@ -80,11 +80,14 @@ function readContracts(): Record<string, PortContract> {
       if (own && !value.aliasTypeArguments?.length) {
         for (const member of checker.getPropertiesOfType(value)) {
           const optional = member.flags & ts.SymbolFlags.Optional ? "?" : "";
-          members[`${member.name}${optional}`] = checker.typeToString(
-            checker.getTypeOfSymbolAtLocation(member, declaration),
-            declaration,
-            FORMAT,
-          );
+          // A type the checker qualifies by module carries the checkout's path.
+          members[`${member.name}${optional}`] = checker
+            .typeToString(
+              checker.getTypeOfSymbolAtLocation(member, declaration),
+              declaration,
+              FORMAT,
+            )
+            .replaceAll(repoRoot, "");
         }
       }
       const provisional = symbol
