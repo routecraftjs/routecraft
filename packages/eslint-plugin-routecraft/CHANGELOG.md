@@ -1,5 +1,62 @@
 # @routecraft/eslint-plugin-routecraft
 
+## 0.8.0
+
+### Minor Changes
+
+- [#966](https://github.com/routecraftjs/routecraft/pull/966) [`f3e510c`](https://github.com/routecraftjs/routecraft/commit/f3e510c0d9081593d7fa685869fe271ee4fcbab8) Thanks [@ex0b1t](https://github.com/ex0b1t)! - One defer contract: a resume payload is `input` everywhere, a step declares that it defers or resumes and the kernel hands it the handle, and a third party can build what the shipped `.defer()`, `.resume()` and agent step are built on ([#809](https://github.com/routecraftjs/routecraft/issues/809), [#817](https://github.com/routecraftjs/routecraft/issues/817)).
+
+  **Breaking: the payload is `input`.** `.defer({ schema })` is `.defer({ input })`, a resume request (the mapper's return value and the unmapped `.resume()` body) is `{ token, input }` in place of `{ token, result }`, `ex.deferral.result` is `ex.deferral.input`, and the header `routecraft.deferral.result` is `routecraft.deferral.input`. Whatever builds an approval link or form sends `input`.
+
+  **Breaking: deferring is declared.** `DeferSignal`, `markDeferCapable`, `peekResumeStepState`, `deferAside`, `reviveDeferral`, `deferralScope`, `decodePersistable` and `decodeOutcome` leave the entry. In their place:
+
+  - A step declares `step(fn, { defers: { revival: "next-step" | "this-step" } })`, or `[DEFERS]()` on a raw step or an adapter, and is handed `ctx.defer`, with `ctx.defer.revived`, `ctx.defer.refused` and `ctx.defer.aside()`.
+  - A resume door declares `step(fn, { resumes: true })`, or `[RESUMES]()`, and is handed `ctx.resume`. The kernel records the principal the route verified; a request naming `resumedBy` is `RC5003`, from a `.resume()` mapper too. `step()` types `ctx.defer` by the revival the step declares (`DeferHandleFor`), and a step that calls `ctx.defer()` and then returns is `RC5032`.
+  - A step result naming a deferral that the kernel did not issue is refused with `RC5032`.
+  - A plugin reads and drives parked exchanges through `c.continuations` (`get`, `list`, `verifyToken`, `resume`, `sweep`, `mintToken`, `rewriteStepState`), which replaces `c.execution.resume` and `c.execution.sweep`. An adapter reaches the read-only half with `continuationsOf(exchange)`.
+
+  **Breaking: an adapter does not read the context off an exchange.** `getExchangeContext` and `getExchangeRoute` leave the entry. What a plugin provides through a port is read with `lookupOf(exchange, PORT)`, state private to one module is an `applicationState<T>()` holder (`set(c.application, value)` in `bind`, `of(exchange)` in an adapter, `get(context.application)` in a source), the logger is `exchange.logger`, trace headers are decided by `sendsTraceContextFor(exchange)`, and background work is `c.execution.trackTask(task, { route })` or `context.trackTask(task, { route })`. `deferredPrincipal` and `reidentificationDeviation` leave the entry: they are members of `c.continuations`. The `llm()` and `embedding()` adapters no longer expose `mergedOptions(context)`.
+
+  **Breaking: the `CONTINUATIONS` port is `routecraft.continuations@2`.** The kernel encodes `stepState`, `meta` and the settled outcome before the store sees them, so a custom `DeferralStore` persists them as the JSON they arrive as. `deferralStoreConformance(name, open, runner)` in `@routecraft/testing` is the suite the shipped stores pass; run it against your own. The signer is typed `ResumeTokenSigning`.
+
+  **A parked exchange finds its defer site by what follows it.** A step added or removed ahead of a defer point no longer refuses the exchanges parked there. The digest binds which kind of site parked, so a step that parked itself on a 0.8 canary is refused once with `RC5048`, as a record from 0.7 is. Two sites of one kind followed by identical steps that both moved are refused with `RC5048` as ambiguous. The `RC5032` and `RC5048` messages say what to change.
+
+  A `schema` left where a resume payload is now declared as `input` is refused (`RC5003`, or `RC1115` on an error hook) rather than dropped. `context.stop()` waits for tasks tracked with no route, as `drain()` does.
+
+  **New lint rule `restrict-continuation-minting`**, an error in both presets: `continuations.mintToken()`, `resume()`, `rewriteStepState()`, `deferral.tokenFor()` and the continuations signer's `mint()` run no door policy, so each call site is sanctioned with a scoped disable comment or a per-file override.
+
+  Also off the entry, none of which a route needs: `ResolvedSampleOptions`, `ResolvedDedupeOptions`, `ResolvedThrottleOptions`, `ResolvedCircuitBreakerOptions`, `RouteEnablement` and `hashExchangeBody`.
+
+  See section 18 of the 0.7 to 0.8 migration guide.
+
+- [#969](https://github.com/routecraftjs/routecraft/pull/969) [`4a4e717`](https://github.com/routecraftjs/routecraft/commit/4a4e71769642de1be50227d36c19e72da98a9aab) Thanks [@ex0b1t](https://github.com/ex0b1t)! - The command line reads a project and nothing else, and a plugin declares its commands and logins on its descriptor.
+
+  Breaking: `defineConfig` is removed. `craft.config.ts` default-exports `defineProject({ ... })`, which takes the same keys; a plain default-exported object and the named `craftConfig` export are refused with the new `RC1120`, whose message says how to rewrite the shape it found. `defineProject` checks keys at the top level and inside each config block, not at every depth as `defineConfig` did.
+
+  Breaking: `craft run <file>` no longer reads a `craftConfig` export. It runs the routes in, first match wins: `--config <path>`, the file's own `export const project`, the `craft.config` beside the nearest `package.json` when it installs every plugin the routes were built with (`--no-config` skips it), the project the routes were built with, and otherwise the defaults. A capability no longer re-exports the config.
+
+  Breaking: `telemetry()` is `telemetryPlugin()`, a plugin descriptor like the others; the `telemetry` config key is unchanged. `SqliteConnection`, the SQLite span processor and event writer, `ATTR` and `SPAN_KIND` leave the entry.
+
+  New: `tooling: { commands, logins }` on a plugin descriptor. `craft <namespace> <command>` runs a plugin's command and `craft connect` runs its logins, both read from the project's resolved plugin list without starting it. A command is handed the project root, the logger and the credential store narrowed to the owners its own plugin's logins declare (new `RC5072` for any other). `pluginTooling(config)` and `scopedCredentialStore()` are exported for other tools, with `projectOf(route)` and `installedPluginIds(config)`. The process-wide registries (`registerProjectCommand`, `projectCommand`, `registerCredentialLogins`, `collectCredentialLogins`), which never shipped in a stable release, are gone.
+
+  `craft` keeps `run`, `start`, `exec`, `connect`, `disconnect`, `tui` and `help`; a plugin declaring commands under one of them, or a command named like a subcommand `craft` ships under `ops`, is refused with `RC1117`.
+
+  The `RC1111` raised for reading `ex.deferral` without the deferral runtime names the fix (`deferral: {}`), and `servers` and `telemetry` refuse their own renamed options instead of the context doing it for them.
+
+  `restrict-principal-minting` also flags `.authenticate()` on a route built with a project's `craft()`.
+
+### Patch Changes
+
+- [#977](https://github.com/routecraftjs/routecraft/pull/977) [`7c6425e`](https://github.com/routecraftjs/routecraft/commit/7c6425eacf4572b559145630a68af141994f7509) Thanks [@ex0b1t](https://github.com/ex0b1t)! - Three gaps in the defer contract are closed.
+
+  **Breaking: a deferral record carries its format.** `Deferral.format` is an integer the kernel writes, and a resume refuses a record in any other format, older or newer, with `RC5048` ("record format changed") and re-asks through the deferred route's `.error()`. A custom `DeferralStore` persists the field as given; the shipped SQLite store moves to schema version 4 on open, and a row written before the column reads as format `0`. The store conformance suite checks the round trip.
+
+  **A deferral parks the exchange it was raised for, once.** The signal `ctx.defer()` rejects with could be kept by a step and thrown on a later exchange, parking that exchange at a site it never reached. It is now `RC5032`.
+
+  **Only `.log()` is left out of the step digest.** The exemption was a registered symbol any step could carry, which let a step change what runs after an approval without the digest moving. It is now held by the kernel and set by the route builder alone.
+
+  `restrict-continuation-minting` also flags `lookupOf(exchange, CONTINUATIONS).signer.mint()`.
+
 ## 0.7.2
 
 ## 0.7.1
