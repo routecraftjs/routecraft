@@ -412,7 +412,7 @@ Reduce request frequency or configure retry with backoff.
 Resource not found
 
 **Why it happens**  
-The resource does not exist (e.g. 404, model ID not found, endpoint or queue name wrong). The filesystem adapters (`file()`, `jsonl()`, `csv()`, `directory()`) throw it for a path that does not exist, with the errno error (`ENOENT` or `ENOTDIR`) as `cause`.
+The resource does not exist (e.g. 404, model ID not found, endpoint or queue name wrong). The filesystem adapters (`file()`, `jsonl()`, `csv()`, `directory()`) throw it for a path that does not exist, and for a write below a directory that does not exist, with the errno error (`ENOENT` or `ENOTDIR`) as `cause`.
 
 **Suggestion**  
 Check that the resource exists (model ID, endpoint, queue name).
@@ -422,7 +422,7 @@ Permission denied
 
 **Why it happens**  
 Two cases share this code:
-- An upstream service denied the operation (e.g. 403 from access control or IAM), or the filesystem adapters may not read a path (`EACCES`, kept as `cause`).
+- An upstream service denied the operation (e.g. 403 from access control or IAM), or the filesystem adapters may not read, write or delete a path (`EACCES` or `EPERM`, kept as `cause`).
 - A route's `.authorize()` guard ran (or `.validate(authorize(...))` mid-pipeline), the exchange had a principal, but the principal was missing a required role, or a custom predicate returned `false`. A missing **scope** is not this code: it raises [`RC5038`](#rc-5038), because a role or predicate failure states something about who the subject is (permanent under current credentials), while a missing scope is recoverable through a consent or grant flow.
 
 **Suggestion**  

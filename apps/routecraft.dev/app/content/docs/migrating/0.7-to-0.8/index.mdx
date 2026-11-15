@@ -539,8 +539,8 @@ Two kinds of failure were thrown as bare errors, so the only way to recognise on
 | What fails | 0.7 | 0.8 |
 | --- | --- | --- |
 | `mcpPlugin()` or `llmPlugin()` is given an invalid option | `TypeError`, in three places a plain `Error` | `RC5003` |
-| `file()`, `jsonl()`, `csv()` or `directory()` is pointed at a path that does not exist | plain `Error` | `RC5014`, with the errno error as `cause` |
-| the same adapters may not read the path | plain `Error` | `RC5015`, with the errno error as `cause` |
+| `file()`, `jsonl()`, `csv()` or `directory()` is pointed at a path that does not exist, or writes below a directory that does not exist | plain `Error` | `RC5014`, with the errno error as `cause` |
+| the same adapters may not read, write or delete the path | plain `Error` | `RC5015`, with the errno error as `cause` |
 
 The messages are the ones 0.7 wrote, so log lines do not change. The thrown object does:
 

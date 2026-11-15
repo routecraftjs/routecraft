@@ -10,6 +10,7 @@ import { rcError, type RoutecraftError } from "@routecraft/routecraft";
 export function invalidOption(
   message: string,
   suggestion: string,
+  cause?: unknown,
 ): RoutecraftError {
-  return rcError("RC5003", undefined, { message, suggestion });
+  return rcError("RC5003", cause, { message, suggestion });
 }

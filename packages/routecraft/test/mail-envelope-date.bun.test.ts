@@ -18,6 +18,19 @@ describe("mail envelope date", () => {
   });
 
   /**
+   * @case An Invalid Date object does not reach the route
+   * @preconditions An envelope whose date is a Date that holds NaN, which imapflow 1 can hand back
+   * @expectedResult MailMessage.date is a valid Date
+   */
+  test("falls back to now when the envelope date is an Invalid Date", () => {
+    const message = toMailMessage(
+      { uid: 1, flags: [], envelope: { date: new Date("nope") } },
+      "INBOX",
+    );
+    expect(Number.isNaN(message.date.getTime())).toBe(false);
+  });
+
+  /**
    * @case A parsed Date header is kept
    * @preconditions An envelope whose date is a Date
    * @expectedResult MailMessage.date is that same instant

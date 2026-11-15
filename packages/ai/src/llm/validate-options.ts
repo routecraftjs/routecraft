@@ -118,7 +118,15 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
             "Pass the model an AI SDK provider returns, or a function that returns one.",
           );
         }
-        assertLanguageModelShape(model, "custom", "(custom)");
+        try {
+          assertLanguageModelShape(model, "custom", "(custom)");
+        } catch (cause) {
+          throw invalidOption(
+            `llmPlugin: providers["custom"].model is not an AI SDK language model: ${cause instanceof Error ? cause.message : String(cause)}`,
+            "Pass the model an AI SDK provider returns, or a function that returns one.",
+            cause,
+          );
+        }
         break;
       }
     }

@@ -1289,6 +1289,10 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     // operations (split, aggregate-restore-parent) construct a new
     // `DefaultExchange` directly rather than going through `rewrap`.
     //
+    // The source marker is forced the same way: hooks select by it, so a
+    // step that returns its own headers (`.process()`, an `.enrich()` or
+    // `.aggregate()` aggregator) must not be able to rename the source.
+    //
     // For body, use `'body' in partial` so an explicit `body: undefined`
     // (e.g. `transform(() => undefined)` or `json({ path: missingKey })`)
     // sets the new body to undefined rather than inheriting prev's.
@@ -1299,10 +1303,22 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     // from id/contextId/route/correlationId, all of which `rewrap`
     // preserves.
     const baseHeaders = partial.headers ?? prev.headers;
-    const newHeaders =
-      baseHeaders[HeadersKeys.ID] === prev.id
-        ? baseHeaders
-        : { ...baseHeaders, [HeadersKeys.ID]: prev.id };
+    const prevSource = prev.headers[HeadersKeys.SOURCE];
+    let newHeaders = baseHeaders;
+    if (
+      baseHeaders[HeadersKeys.ID] !== prev.id ||
+      baseHeaders[HeadersKeys.SOURCE] !== prevSource
+    ) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
+      const { [HeadersKeys.SOURCE]: _source, ...rest } = baseHeaders;
+      newHeaders = {
+        ...rest,
+        [HeadersKeys.ID]: prev.id,
+        ...(prevSource === undefined
+          ? {}
+          : { [HeadersKeys.SOURCE]: prevSource }),
+      };
+    }
     pendingRewrap = {
       internals: prevInternals,
       logger: prev.logger,

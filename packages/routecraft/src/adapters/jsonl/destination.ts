@@ -1,6 +1,6 @@
 import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { JsonlFileOptions } from "./types.ts";
-import { file } from "../file/index.ts";
+import { FileDestinationAdapter } from "../file/destination.ts";
 import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
 
 /**
@@ -34,7 +34,10 @@ export class JsonlDestinationAdapter implements Destination<unknown> {
 
     // Delete behavior: delegate to the file adapter (no stringify). Idempotent.
     if (remove) {
-      await file({ path: resolvedPath, delete: true }).send(exchange);
+      await new FileDestinationAdapter(
+        { path: resolvedPath, delete: true },
+        "jsonl",
+      ).send(exchange);
       return;
     }
 
@@ -53,12 +56,10 @@ export class JsonlDestinationAdapter implements Destination<unknown> {
       output = stringify(exchange.body) + "\n";
     }
 
-    const fileAdapter = file({
-      path: resolvedPath,
-      encoding,
-      append,
-      createDirs,
-    });
+    const fileAdapter = new FileDestinationAdapter(
+      { path: resolvedPath, encoding, append, createDirs },
+      "jsonl",
+    );
 
     await fileAdapter.send({ ...exchange, body: output });
   };

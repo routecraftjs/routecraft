@@ -7,7 +7,7 @@ import type {
 import type { CsvFileOptions, CsvData, CsvRow } from "./types.ts";
 import type { ExchangeHeaders } from "../../exchange.ts";
 import { CsvHeaders } from "./types.ts";
-import { file } from "../file/index.ts";
+import { FileSourceAdapter } from "../file/source.ts";
 import { ensurePapaparse, parseCsv } from "./shared.ts";
 import { throwFileError } from "../shared/fs-errors.ts";
 import {
@@ -67,10 +67,10 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
       throw staticSourcePathError("csv");
     }
 
-    const fileAdapter = file({
-      path: filePath,
-      encoding: this.options.encoding || "utf-8",
-    });
+    const fileAdapter = new FileSourceAdapter(
+      { path: filePath, encoding: this.options.encoding || "utf-8" },
+      "csv",
+    );
 
     const parseFn = (raw: unknown): CsvData =>
       parseCsv(raw as string, {

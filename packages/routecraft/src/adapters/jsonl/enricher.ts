@@ -28,10 +28,13 @@ export class JsonlEnricherAdapter<T = unknown> implements Enricher<
       typeof filePath === "function" ? filePath(exchange) : filePath;
     // Only the fetch slot is needed; skip the full file() facade on the
     // hot path.
-    const content = await new FileEnricherAdapter({
-      path: resolvedPath,
-      encoding,
-    }).fetch(exchange, ctx);
+    const content = await new FileEnricherAdapter(
+      {
+        path: resolvedPath,
+        encoding,
+      },
+      "jsonl",
+    ).fetch(exchange, ctx);
     return parseJsonl(content, reviver) as T[];
   };
 }

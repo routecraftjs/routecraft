@@ -622,7 +622,10 @@ export function toMailMessage(
     to: toList.length === 1 ? toList[0] : toList,
     subject: envelope.subject ?? "",
     // imapflow hands back the raw header text when it cannot parse the Date.
-    date: envelope.date instanceof Date ? envelope.date : new Date(),
+    date:
+      envelope.date instanceof Date && !Number.isNaN(envelope.date.getTime())
+        ? envelope.date
+        : new Date(),
     body,
     cc: ccAddrs
       .map((a) => a.address)

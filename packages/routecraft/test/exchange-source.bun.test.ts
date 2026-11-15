@@ -9,6 +9,7 @@ import {
   noop,
   simple,
   sourceOf,
+  type Exchange,
   type Hooks,
   type Source,
 } from "../src/index.ts";
@@ -156,6 +157,81 @@ describe("exchange source", () => {
       .build();
     await t.test();
     expect(seen).toEqual([SIMPLE, SIMPLE]);
+  });
+
+  /**
+   * @case A step that returns its own headers cannot rename the source
+   * @preconditions .process(), an .enrich() aggregator and an .aggregate() aggregator each return a forged routecraft.source; an exit hook is scoped to the forged name
+   * @expectedResult sourceOf() still reads the admitting adapter after each step, and the hook never runs
+   */
+  test("process, enrich and aggregate cannot forge the source", async () => {
+    const FORGED = "routecraft.adapter.argv";
+    const forge = <T extends { headers: Record<string, unknown> }>(ex: T) => ({
+      ...ex.headers,
+      [HeadersKeys.SOURCE]: FORGED,
+    });
+    const seen: Record<string, string | undefined> = {};
+    const hooked: unknown[] = [];
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.exit-watcher",
+            hooks: {
+              exit: {
+                id: "watch",
+                phase: "observe",
+                sources: [FORGED],
+                run: (exchange) => {
+                  hooked.push(exchange.body);
+                },
+              },
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("process")
+          .from(simple("a"))
+          .process((ex) => ({ ...ex, headers: forge(ex) }))
+          .tap((ex) => {
+            seen["process"] = sourceOf(ex);
+          })
+          .to(noop()),
+        craft()
+          .id("enrich")
+          .from(simple("a"))
+          .enrich(
+            () => "extra",
+            (ex: Exchange<string>) => ({ ...ex, headers: forge(ex) }),
+          )
+          .tap((ex) => {
+            seen["enrich"] = sourceOf(ex);
+          })
+          .to(noop()),
+        craft()
+          .id("aggregate")
+          .from(simple(["a", "b"]))
+          .split()
+          .aggregate((exchanges) => ({
+            body: exchanges.length,
+            headers: forge(exchanges[0]!),
+          }))
+          .tap((ex) => {
+            seen["aggregate"] = sourceOf(ex);
+          })
+          .to(noop()),
+      ])
+      .build();
+    await t.test();
+
+    expect(seen).toEqual({
+      process: SIMPLE,
+      enrich: SIMPLE,
+      aggregate: SIMPLE,
+    });
+    expect(hooked).toEqual([]);
   });
 
   /**

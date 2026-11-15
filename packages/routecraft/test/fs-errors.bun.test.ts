@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
+  csv,
   directory,
   file,
   isRoutecraftError,
@@ -14,6 +15,7 @@ import * as path from "node:path";
 import {
   throwDirectoryError,
   throwFileError,
+  throwFileWriteError,
 } from "../src/adapters/shared/fs-errors.ts";
 
 function errno(code: string): NodeJS.ErrnoException {
@@ -173,5 +175,116 @@ describe("filesystem adapter errors", () => {
       /csv adapter: failed to read file/,
     );
     expect(errnoOf(other)).toBe("EISDIR");
+  });
+
+  /**
+   * @case A write into a directory that does not exist is coded, and names the adapter the route used
+   * @preconditions .to(file()), .to(jsonl()) and .to(csv()) on a path below a missing directory, createDirs off
+   * @expectedResult Each .error() handler sees RC5014 with ENOENT on the cause chain and its own adapter in the message
+   */
+  test("a write below a missing directory is RC5014 for file, jsonl and csv", async () => {
+    const target = path.join(tmpDir, "absent", "out.txt");
+    const seen: Record<string, [unknown, string | undefined, string]> = {};
+    const record = (id: string) => (error: unknown) => {
+      seen[id] = [
+        isRoutecraftError(error) ? error.rc : undefined,
+        errnoOf(error),
+        (error as Error).message,
+      ];
+      return "handled";
+    };
+    t = await testContext()
+      .routes([
+        craft()
+          .id("file")
+          .error(record("file"))
+          .from(simple("x"))
+          .to(file({ path: target })),
+        craft()
+          .id("jsonl")
+          .error(record("jsonl"))
+          .from(simple({ a: 1 }))
+          .to(jsonl({ path: target })),
+        craft()
+          .id("csv")
+          .error(record("csv"))
+          .from(simple([{ a: 1 }]))
+          .to(csv({ path: target })),
+      ])
+      .build();
+    await t.test();
+
+    for (const id of ["file", "jsonl", "csv"]) {
+      expect(seen[id]?.[0]).toBe("RC5014");
+      expect(seen[id]?.[1]).toBe("ENOENT");
+      expect(seen[id]?.[2]).toContain(`${id} adapter: directory not found`);
+    }
+  });
+
+  /**
+   * @case A refused write or delete is RC5015 and any other failure keeps its errno as cause
+   * @preconditions throwFileWriteError given simulated EACCES, EPERM and EISDIR errors
+   * @expectedResult RC5015 for EACCES and EPERM; a plain Error with the original as cause for EISDIR
+   */
+  test("a refused write or delete is RC5015", () => {
+    const denied = thrownBy(() =>
+      throwFileWriteError("file", "write", "/p", errno("EACCES")),
+    );
+    expect(isRoutecraftError(denied) && denied.rc).toBe("RC5015");
+    expect((denied as Error).message).toMatch(/permission denied writing/);
+    expect(errnoOf(denied)).toBe("EACCES");
+
+    const removed = thrownBy(() =>
+      throwFileWriteError("csv", "delete", "/p", errno("EPERM")),
+    );
+    expect(isRoutecraftError(removed) && removed.rc).toBe("RC5015");
+    expect((removed as Error).message).toMatch(
+      /csv adapter: permission denied deleting/,
+    );
+
+    const other = thrownBy(() =>
+      throwFileWriteError("jsonl", "write", "/p", errno("EISDIR")),
+    );
+    expect(isRoutecraftError(other)).toBe(false);
+    expect(errnoOf(other)).toBe("EISDIR");
+  });
+
+  /**
+   * @case A read through csv() or jsonl() names that adapter, not file
+   * @preconditions .enrich(csv()) and .enrich(jsonl()) on a path that does not exist
+   * @expectedResult RC5014 whose message starts with the adapter the route used
+   */
+  test("csv and jsonl enrichers name themselves in a missing-file error", async () => {
+    const missing = path.join(tmpDir, "absent.dat");
+    const seen: string[] = [];
+    const record = (error: unknown) => {
+      seen.push((error as Error).message);
+      return "handled";
+    };
+    t = await testContext()
+      .routes([
+        craft()
+          .id("csv-enrich")
+          .error(record)
+          .from(simple("x"))
+          .enrich(csv({ path: missing }))
+          .to(spy()),
+        craft()
+          .id("jsonl-enrich")
+          .error(record)
+          .from(simple("x"))
+          .enrich(jsonl({ path: missing }))
+          .to(spy()),
+      ])
+      .build();
+    await t.test();
+
+    expect(seen).toHaveLength(2);
+    expect(seen).toContainEqual(
+      expect.stringContaining("csv adapter: file not found"),
+    );
+    expect(seen).toContainEqual(
+      expect.stringContaining("jsonl adapter: file not found"),
+    );
   });
 });

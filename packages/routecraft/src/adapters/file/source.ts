@@ -17,7 +17,14 @@ export class FileSourceAdapter<T = unknown> implements Source<string> {
 
   // Generic only so the factory can hand all three roles one options
   // object; the source honours a static string path alone.
-  constructor(private readonly options: FileOptions<T>) {}
+  /**
+   * @param options - File options
+   * @param owner - Adapter named in errors; `csv()` reads through this class
+   */
+  constructor(
+    private readonly options: FileOptions<T>,
+    private readonly owner: string = "file",
+  ) {}
 
   /**
    * Source implementation: subscribe to file content.
@@ -68,12 +75,12 @@ export class FileSourceAdapter<T = unknown> implements Source<string> {
         );
       } catch (err) {
         if (sub.signal.aborted) return;
-        throwFileError("file", filePath, err);
+        throwFileError(this.owner, filePath, err);
       }
     } else {
       const content = await fsp
         .readFile(filePath, { encoding })
-        .catch((err) => throwFileError("file", filePath, err));
+        .catch((err) => throwFileError(this.owner, filePath, err));
 
       // Check if aborted before emitting
       if (sub.signal.aborted) return;

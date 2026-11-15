@@ -37,6 +37,19 @@ const MCP_CASES: [string, unknown, RegExp][] = [
   ["root path", { transport: "http", path: "/" }, /path must not be "\/"/],
   ["unknown traceContext", { traceContext: "sometimes" }, /traceContext/],
   ["empty name", { name: " " }, /name must not be empty/],
+  ["name type", { name: 5 }, /name must be a string; got number/],
+  ["relative path", { transport: "http", path: "no-slash" }, /invalid path/],
+  ["auth type", { transport: "http", auth: 5 }, /auth must be an options/],
+  [
+    "pins shape",
+    { clients: { a: { url: "https://x.test", pins: { added: "nope" } } } },
+    /pins must be an object/,
+  ],
+  [
+    "enabled type",
+    { clients: { a: { url: "https://x.test", enabled: 5 } } },
+    /enabled must be true, false/,
+  ],
   ["removed proxy", { proxy: {} }, /`proxy` was removed/],
   ["removed port", { transport: "http", port: 1 }, /`port` and `host`/],
   ["empty server", { transport: "http", server: "" }, /server name/],
@@ -80,6 +93,11 @@ const LLM_CASES: [string, unknown, RegExp][] = [
   ["provider entry", { providers: { openai: 3 } }, /must be an object/],
   ["unknown provider", { providers: { acme: {} } }, /not a supported/],
   ["api key", { providers: { openai: {} } }, /apiKey is required/],
+  [
+    "custom model shape",
+    { providers: { custom: { model: {} } } },
+    /is not an AI SDK language model.*doGenerate/,
+  ],
   [
     "keyed baseURL",
     { providers: { openai: { apiKey: "k", baseURL: 1 } } },

@@ -1,8 +1,8 @@
 /**
  * Shared filesystem error mapping for adapters that read files or scan
- * directories, so `file`, `csv`, `jsonl`, and `directory` report the same
+ * directories, and write or delete files, so `file`, `csv`, `jsonl`, and `directory` report the same
  * underlying failure the same way: a missing path is `RC5014`, a path the
- * process may not read is `RC5015`, and anything else is a plain error. The
+ * process may not read or change is `RC5015`, and anything else is a plain error. The
  * errno error is always the `cause`, so its `code` survives.
  *
  * @internal Not exported from the package public API.
@@ -44,6 +44,43 @@ function throwFsError(
   }
   const message = err instanceof Error ? err.message : String(err);
   throw new Error(`${adapter} adapter: failed to read ${noun}: ${message}`, {
+    cause: err,
+  });
+}
+
+/**
+ * Throws a standardized error for a failed write, append or delete.
+ * A missing parent directory is `RC5014`, a path the process may not
+ * change is `RC5015`.
+ *
+ * @param adapter - Adapter name for the error prefix (e.g. 'file', 'csv', 'jsonl')
+ * @param action - What the adapter was doing to the file
+ * @param filePath - The file path that caused the error
+ * @param err - The original error
+ */
+export function throwFileWriteError(
+  adapter: string,
+  action: "write" | "delete",
+  filePath: string,
+  err: unknown,
+): never {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === "ENOENT" || code === "ENOTDIR") {
+    throw rcError("RC5014", err, {
+      message: `${adapter} adapter: directory not found for file: ${filePath} (use createDirs: true to create parent directories)`,
+      suggestion:
+        "Create the parent directory, or set `createDirs: true` to have the adapter create it.",
+    });
+  }
+  if (code === "EACCES" || code === "EPERM") {
+    throw rcError("RC5015", err, {
+      message: `${adapter} adapter: permission denied ${action === "write" ? "writing" : "deleting"} file: ${filePath}`,
+      suggestion:
+        "Give the process write access to the file and its directory.",
+    });
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  throw new Error(`${adapter} adapter: failed to ${action} file: ${message}`, {
     cause: err,
   });
 }

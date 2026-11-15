@@ -24,10 +24,13 @@ export class CsvEnricherAdapter implements Enricher<unknown, CsvData> {
     // Only the fetch slot is needed; constructing the full file() facade
     // (three role instances plus tagging) per exchange would be waste on
     // this hot path.
-    const content = await new FileEnricherAdapter({
-      path: resolvedPath,
-      encoding: this.options.encoding ?? "utf-8",
-    }).fetch(exchange, ctx);
+    const content = await new FileEnricherAdapter(
+      {
+        path: resolvedPath,
+        encoding: this.options.encoding ?? "utf-8",
+      },
+      "csv",
+    ).fetch(exchange, ctx);
     return parseCsv(content, this.options) as CsvData;
   };
 }
