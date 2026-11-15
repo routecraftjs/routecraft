@@ -13,7 +13,14 @@ import { throwFileError } from "../shared/fs-errors.ts";
 export class FileEnricherAdapter<T = unknown> implements Enricher<T, string> {
   readonly adapterId = "routecraft.adapter.file";
 
-  constructor(private readonly options: FileOptions<T>) {}
+  /**
+   * @param options - File options
+   * @param owner - Adapter named in errors; `csv()` and `jsonl()` read through this class
+   */
+  constructor(
+    private readonly options: FileOptions<T>,
+    private readonly owner: string = "file",
+  ) {}
 
   /** Fetch implementation: read the resolved path and return the content. */
   fetch: CallableEnricher<T, string> = async (exchange) => {
@@ -22,6 +29,6 @@ export class FileEnricherAdapter<T = unknown> implements Enricher<T, string> {
       typeof filePath === "function" ? filePath(exchange) : filePath;
     return fsp
       .readFile(resolvedPath, { encoding })
-      .catch((err) => throwFileError("file", resolvedPath, err));
+      .catch((err) => throwFileError(this.owner, resolvedPath, err));
   };
 }

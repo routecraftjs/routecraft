@@ -3,7 +3,7 @@ import * as nodePath from "node:path";
 import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
 import type { CsvFileOptions } from "./types.ts";
-import { file } from "../file/index.ts";
+import { FileDestinationAdapter } from "../file/destination.ts";
 import { ensurePapaparse } from "./shared.ts";
 import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
 
@@ -120,7 +120,10 @@ export class CsvDestinationAdapter implements Destination<unknown> {
 
     // Delete behavior: delegate to the file adapter (no format). Idempotent.
     if (this.options.delete) {
-      await file({ path: resolvedPath, delete: true }).send(exchange);
+      await new FileDestinationAdapter(
+        { path: resolvedPath, delete: true },
+        "csv",
+      ).send(exchange);
       return;
     }
 
@@ -211,12 +214,15 @@ export class CsvDestinationAdapter implements Destination<unknown> {
       if (!csvContent.endsWith("\n")) csvContent += separator;
     }
 
-    const fileAdapter = file({
-      path: resolvedPath,
-      encoding,
-      append,
-      createDirs: this.options.createDirs || false,
-    });
+    const fileAdapter = new FileDestinationAdapter(
+      {
+        path: resolvedPath,
+        encoding,
+        append,
+        createDirs: this.options.createDirs || false,
+      },
+      "csv",
+    );
 
     const fileExchange = {
       ...exchange,

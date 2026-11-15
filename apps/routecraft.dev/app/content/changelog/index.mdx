@@ -80,7 +80,7 @@ This section covers every change since the v0.7.2 release. 0.8.0 is the plugin r
 ### Adapters
 
 - **A mail message's flags are an array** <Badge color="red">Breaking</Badge> -- `flags` was a `Set`, which cannot be stored, so a route sourced from `mail()` could not defer. Code that calls `flags.has()` uses `flags.includes()`. See [mail flags](/docs/next/migrating/0.7-to-0.8#9-mail-flags).
-- **A missing file is `RC5014`** -- `file()`, `jsonl()`, `csv()` and `directory()` threw a bare error for a path that does not exist or cannot be read; they throw `RC5014` and `RC5015` with the errno error as `cause`. See [coded errors](/docs/next/migrating/0.7-to-0.8#25-coded-errors).
+- **A missing file is `RC5014`** -- `file()`, `jsonl()`, `csv()` and `directory()` threw a bare error for a path that does not exist or cannot be read or written; they throw `RC5014` and `RC5015` with the errno error as `cause`, on a read, a write and a delete alike. See [coded errors](/docs/next/migrating/0.7-to-0.8#25-coded-errors).
 - **`http({ signature })` takes `"ed25519"`** -- a public-key signature over the timestamp and the raw body, as Telnyx and Discord sign their webhooks.
 - **`http()` cookies** -- `routecraft.http.cookies` reads request cookies by name, and a response header takes an array to send several `Set-Cookie` fields.
 - **`mail({ gmailSearch })`** -- a Gmail search query sent as `X-GM-RAW` and ANDed with the other filters.

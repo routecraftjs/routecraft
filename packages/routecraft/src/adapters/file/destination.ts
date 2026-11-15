@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { FileOptions } from "./types.ts";
 import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
+import { throwFileWriteError } from "../shared/fs-errors.ts";
 
 /**
  * FileDestinationAdapter implements the Destination (send) role for file I/O.
@@ -15,7 +16,14 @@ import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
 export class FileDestinationAdapter<T = unknown> implements Destination<T> {
   readonly adapterId = "routecraft.adapter.file";
 
-  constructor(private readonly options: FileOptions<T>) {
+  /**
+   * @param options - File options
+   * @param owner - Adapter named in errors; `csv()` and `jsonl()` write through this class
+   */
+  constructor(
+    private readonly options: FileOptions<T>,
+    private readonly owner: string = "file",
+  ) {
     assertExclusiveSendBehavior("file", options);
   }
 
@@ -42,13 +50,7 @@ export class FileDestinationAdapter<T = unknown> implements Destination<T> {
       try {
         await fsp.rm(resolvedPath, { force: true });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if ((err as NodeJS.ErrnoException).code === "EACCES") {
-          throw new Error(
-            `file adapter: permission denied deleting file: ${resolvedPath}`,
-          );
-        }
-        throw new Error(`file adapter: failed to delete file: ${message}`);
+        throwFileWriteError(this.owner, "delete", resolvedPath, err);
       }
       return;
     }
@@ -68,9 +70,13 @@ export class FileDestinationAdapter<T = unknown> implements Destination<T> {
       try {
         await fsp.mkdir(dir, { recursive: true });
       } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EACCES") {
+          throwFileWriteError(this.owner, "write", resolvedPath, err);
+        }
         const message = err instanceof Error ? err.message : String(err);
         throw new Error(
-          `file adapter: failed to create directories for ${resolvedPath}: ${message}`,
+          `${this.owner} adapter: failed to create directories for ${resolvedPath}: ${message}`,
+          { cause: err },
         );
       }
     }
@@ -83,18 +89,7 @@ export class FileDestinationAdapter<T = unknown> implements Destination<T> {
         await fsp.writeFile(resolvedPath, content, { encoding });
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new Error(
-          `file adapter: directory not found for file: ${resolvedPath} (use createDirs: true to create parent directories)`,
-        );
-      }
-      if ((err as NodeJS.ErrnoException).code === "EACCES") {
-        throw new Error(
-          `file adapter: permission denied writing file: ${resolvedPath}`,
-        );
-      }
-      throw new Error(`file adapter: failed to write file: ${message}`);
+      throwFileWriteError(this.owner, "write", resolvedPath, err);
     }
   };
 }

@@ -35,7 +35,16 @@ const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
  * @internal
  */
 export function normalizeMcpPath(raw: string): string {
-  const path = normalizeStaticPathPrefix(raw, "mcpPlugin");
+  let path: string;
+  try {
+    path = normalizeStaticPathPrefix(raw, "mcpPlugin");
+  } catch (cause) {
+    throw invalidOption(
+      cause instanceof Error ? cause.message : String(cause),
+      'Set `path` to an absolute static path such as "/mcp".',
+      cause,
+    );
+  }
   if (path === "/") {
     throw invalidOption(
       'mcpPlugin: path must not be "/". Mount the MCP endpoint under a non-root path such as "/mcp".',
@@ -53,9 +62,15 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       "Set `traceContext` to one of the listed modes, or leave it out for the default.",
     );
   }
-  if (options.name !== undefined && options.name.trim().length === 0) {
+  const serverName: unknown = options.name;
+  if (
+    serverName !== undefined &&
+    (typeof serverName !== "string" || serverName.trim().length === 0)
+  ) {
     throw invalidOption(
-      "mcpPlugin: name must not be empty",
+      typeof serverName === "string"
+        ? "mcpPlugin: name must not be empty"
+        : `mcpPlugin: name must be a string; got ${typeof serverName}`,
       "Give `name` a non-empty string, or leave it out.",
     );
   }
@@ -113,6 +128,12 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
 
   // Validate auth options
   if (options.auth !== undefined && options.auth !== false) {
+    if (typeof options.auth !== "object" || options.auth === null) {
+      throw invalidOption(
+        `mcpPlugin: auth must be an options object or false; got ${options.auth === null ? "null" : typeof options.auth}`,
+        "Set `auth` to an object such as jwt({ ... }) returns, or to false for no authentication.",
+      );
+    }
     const auth = options.auth as unknown as Record<string, unknown>;
 
     // The pre-2026 authorization-server-proxy shape. It has no `validator`, so
@@ -202,9 +223,10 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
           ![undefined, "serve", "hold"].includes(added as string) ||
           ![undefined, "serve", "warn", "hold"].includes(changed as string)
         ) {
-          throw rcError("RC5003", undefined, {
-            message: `mcpPlugin: clients.${name}.pins must be an object with added ("serve" or "hold") and changed ("serve", "warn" or "hold"), each optional and "hold" when left out.`,
-          });
+          throw invalidOption(
+            `mcpPlugin: clients.${name}.pins must be an object with added ("serve" or "hold") and changed ("serve", "warn" or "hold"), each optional and "hold" when left out.`,
+            'Set `pins` to an object such as { added: "hold", changed: "warn" }, or leave it out.',
+          );
         }
       }
       // A client name is one segment of the `mcp__<server>__<tool>` wire
@@ -237,9 +259,10 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
         typeof enabled !== "string" &&
         typeof enabled !== "function"
       ) {
-        throw rcError("RC5003", undefined, {
-          message: `mcpPlugin: clients.${name}.enabled must be true, false, a reason string, or a function returning one, the shape a route's .enabled() takes.`,
-        });
+        throw invalidOption(
+          `mcpPlugin: clients.${name}.enabled must be true, false, a reason string, or a function returning one, the shape a route's .enabled() takes.`,
+          "Set `enabled` to a boolean, a reason string or a function, or leave it out.",
+        );
       }
       if (!isSplittableNameHead(name)) {
         // Collapse runs and trim the edges, so the name offered back is
