@@ -42,7 +42,7 @@ you:
 | `scripts/generate-docs-catalogue.ts` | `app/lib/generated/` | The reference catalogues from `docs/_data/*.json`, checked against the pages that document them |
 | `scripts/generate-raw-docs.ts` | `public/raw/`, `public/llms*.txt` | The plain-markdown mirrors and the LLM bundles |
 | `scripts/generate-og-images.ts` | `public/og/` | Social preview images and the manifest the page heads read |
-| `scripts/generate-sitemap.ts` | `public/sitemap.xml` | Indexable URLs, minus the noindex surfaces |
+| `scripts/generate-sitemap.ts` | `public/sitemap.xml` | Indexable HTML pages, minus the noindex surfaces; the raw mirrors are left to llms.txt |
 | `scripts/generate-robots.ts` | `public/robots.txt` | Crawler policy |
 | `scripts/generate-feed.ts` | `public/feed.xml` | The blog RSS feed |
 

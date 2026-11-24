@@ -9,7 +9,7 @@
  *
  * The next-channel outputs exist so the in-development docs can be handed to a
  * model when testing against the canary. They are deliberately absent from
- * llms.txt and the sitemap, matching that channel's noindex.
+ * llms.txt, matching that channel's noindex.
  *
  * Run as: bun scripts/generate-raw-docs.ts
  */
@@ -71,7 +71,7 @@ function extractTitle(md: string): string | undefined {
 }
 
 // Drafts and unpublished posts must not be mirrored to public/raw: those files
-// are publicly fetchable and get listed in the sitemap, so emitting one would
+// are publicly fetchable and get listed in llms.txt, so emitting one would
 // leak a draft's full content and make it discoverable. The blog index, RSS
 // feed, and per-post robots meta already hide drafts; this keeps the raw mirror
 // consistent with them. Detection goes through the same `parseFrontmatter`
@@ -136,8 +136,7 @@ for (const file of files) {
 // Clean the output directory before regenerating. This script owns public/raw
 // entirely and rewrites it from scratch each run, so removing it first is what
 // keeps the mirror in sync with the source tree: a page that became a draft, or
-// was deleted or renamed, leaves no stale .md behind for the sitemap (which
-// enumerates whatever files exist under public/raw) to keep advertising.
+// was deleted or renamed, leaves no stale .md behind to keep being served.
 fs.rmSync(OUT_DIR, { recursive: true, force: true })
 
 // Write individual page files
@@ -259,7 +258,7 @@ const llmsFullPath = path.join(ROOT, 'public', 'llms-full.txt')
 fs.writeFileSync(llmsFullPath, withHeader, 'utf8')
 
 // -- The same pair for the in-development channel --
-// Kept out of llms.txt and the sitemap: /docs/next is noindex, and a model
+// Kept out of llms.txt: /docs/next is noindex, and a model
 // pointed at the site's index should get the released docs. This bundle is for
 // deliberately testing against the canary, so it is addressed directly.
 const nextNotice =

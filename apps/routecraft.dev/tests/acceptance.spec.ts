@@ -452,4 +452,39 @@ test.describe('sitemap', () => {
     expect(body).not.toContain('/docs/next')
     expect(body).not.toContain('/raw/docs-next.md')
   })
+
+  test('lists HTML pages only, leaving the raw mirrors to llms.txt', async ({
+    request,
+  }) => {
+    const body = await (await request.get('/sitemap.xml')).text()
+    expect(body).toContain('/docs/introduction/')
+    expect(body).not.toContain('/raw/')
+    expect(body).not.toContain('/llms')
+  })
+})
+
+test.describe('trailing slash', () => {
+  test('a page without its slash moves permanently to the slash form', async ({
+    request,
+  }) => {
+    const response = await request.get('/docs/introduction?from=test', {
+      maxRedirects: 0,
+    })
+    expect(response.status()).toBe(308)
+    expect(response.headers().location).toMatch(
+      /\/docs\/introduction\/\?from=test$/,
+    )
+  })
+
+  test('a versioned slug is a page, not a file', async ({ request }) => {
+    const response = await request.get('/docs/migrating/0.7-to-0.8', {
+      maxRedirects: 0,
+    })
+    expect(response.status()).toBe(308)
+  })
+
+  test('a file path is served as it is', async ({ request }) => {
+    const response = await request.get('/llms.txt', { maxRedirects: 0 })
+    expect(response.status()).toBe(200)
+  })
 })

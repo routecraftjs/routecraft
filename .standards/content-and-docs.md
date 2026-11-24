@@ -320,8 +320,9 @@ homepage, is pointed at that address at render time, so the link check passes on
 release. `public/raw/**` mirrors both
 channels (`/raw/docs/**` and `/raw/docs/next/**`, with whole-channel bundles at
 `/raw/docs.md` and `/raw/docs-next.md`), because the in-development docs are what you hand a
-model when testing against the canary. The next mirror stays out of `llms.txt` and the
-sitemap, matching the channel's noindex.
+model when testing against the canary. The next mirror stays out of `llms.txt`, matching the
+channel's noindex. No raw mirror is in the sitemap: it lists the HTML pages only, and models
+find the mirrors through `llms.txt`.
 
 **A deploy asserts all of this rather than trusting it.** `apps/routecraft.dev/scripts/verify-docs-freeze.ts`
 runs after the build, against the prerender output in `.output/public`, and fails the deploy

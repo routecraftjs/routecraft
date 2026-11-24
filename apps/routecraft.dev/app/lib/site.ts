@@ -53,8 +53,9 @@ export const organization = {
 /**
  * Normalise a site-relative path to the trailing-slash form the site actually
  * serves. Canonicals, og:url, JSON-LD, and feed links must use this so they
- * agree with the sitemap and the served URL instead of pointing at a 301
- * redirect, which means the router must keep serving the trailing-slash form.
+ * agree with the sitemap and the served URL instead of pointing at a redirect.
+ * The request middleware in `app/start.ts` sends every other form here with a
+ * 308.
  */
 export function canonicalPath(pathname: string): string {
   if (!pathname.startsWith('/')) pathname = `/${pathname}`
