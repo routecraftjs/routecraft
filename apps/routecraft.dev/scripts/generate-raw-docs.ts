@@ -9,7 +9,7 @@
  *
  * The next-channel outputs exist so the in-development docs can be handed to a
  * model when testing against the canary. They are deliberately absent from
- * llms.txt and the sitemap, matching that channel's noindex.
+ * llms.txt, matching that channel's noindex.
  *
  * Run as: bun scripts/generate-raw-docs.ts
  */
@@ -258,7 +258,7 @@ const llmsFullPath = path.join(ROOT, 'public', 'llms-full.txt')
 fs.writeFileSync(llmsFullPath, withHeader, 'utf8')
 
 // -- The same pair for the in-development channel --
-// Kept out of llms.txt and the sitemap: /docs/next is noindex, and a model
+// Kept out of llms.txt: /docs/next is noindex, and a model
 // pointed at the site's index should get the released docs. This bundle is for
 // deliberately testing against the canary, so it is addressed directly.
 const nextNotice =

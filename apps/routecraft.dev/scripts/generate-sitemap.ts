@@ -16,7 +16,7 @@
  * Two omissions are load-bearing and checked by the deploy gate:
  *
  *   1. The `/docs/next` channel is an in-development mirror of the latest docs
- *      and is noindex, so neither its pages nor its raw mirrors are advertised.
+ *      and is noindex, so none of its pages are advertised.
  *   2. A cross-posted article (frontmatter `canonical` pointing at another
  *      site) canonicalises elsewhere, so listing it here would claim a URL the
  *      page itself tells crawlers not to index in our favour. It stays served

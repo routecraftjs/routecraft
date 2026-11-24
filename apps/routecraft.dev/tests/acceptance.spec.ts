@@ -476,6 +476,13 @@ test.describe('trailing slash', () => {
     )
   })
 
+  test('a versioned slug is a page, not a file', async ({ request }) => {
+    const response = await request.get('/docs/migrating/0.7-to-0.8', {
+      maxRedirects: 0,
+    })
+    expect(response.status()).toBe(308)
+  })
+
   test('a file path is served as it is', async ({ request }) => {
     const response = await request.get('/llms.txt', { maxRedirects: 0 })
     expect(response.status()).toBe(200)
