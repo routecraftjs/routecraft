@@ -4,9 +4,14 @@
  * Writes `public/sitemap.xml`.
  *
  * The static build serves `public/` as-is, so the sitemap is produced here
- * rather than by a route. It covers the home page, the released docs tree, the
- * blog, the changelog, the cheat sheet, the `/raw/**` markdown mirrors and the
- * two llms.txt bundles.
+ * rather than by a route. It covers the HTML pages a search engine should rank:
+ * the home page, the released docs tree, the blog, the changelog and the cheat
+ * sheet.
+ *
+ * The `/raw/**` markdown mirrors and the llms.txt bundles are for models, which
+ * find them through llms.txt and the copy-page links. Listed here they compete
+ * with the HTML page they mirror for the same query, and search engines index
+ * neither well.
  *
  * Two omissions are load-bearing and checked by the deploy gate:
  *
@@ -14,8 +19,8 @@
  *      and is noindex, so neither its pages nor its raw mirrors are advertised.
  *   2. A cross-posted article (frontmatter `canonical` pointing at another
  *      site) canonicalises elsewhere, so listing it here would claim a URL the
- *      page itself tells crawlers not to index in our favour. Its raw mirror
- *      goes with it; both stay served for readers and direct links.
+ *      page itself tells crawlers not to index in our favour. It stays served
+ *      for readers and direct links.
  *
  * Run as: bun scripts/generate-sitemap.ts
  */
@@ -43,7 +48,6 @@ interface SitemapEntry {
 const buildTime = new Date()
 
 const DOCS_DIR = path.join(CONTENT_DIR, 'docs')
-const RAW_DIR = path.join(PUBLIC_DIR, 'raw')
 
 /**
  * A page's directory-relative URL and its file mtime, for every authored page
@@ -78,40 +82,6 @@ function collectContentPages(
     }
 
     pages.push(...collectContentPages(fullPath, url))
-  }
-
-  return pages
-}
-
-/** Every `.md` under `dir`, as a site-relative URL plus its mtime. */
-function collectRawMarkdown(
-  dir: string,
-  urlPrefix: string,
-): Array<{ url: string; mtime: Date }> {
-  const pages: Array<{ url: string; mtime: Date }> = []
-
-  let entries: fs.Dirent[]
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
-  } catch (error: unknown) {
-    const code =
-      typeof error === 'object' && error !== null && 'code' in error
-        ? (error as { code?: unknown }).code
-        : undefined
-    if (code === 'ENOENT') return pages
-    throw error
-  }
-
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    const fullPath = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      pages.push(...collectRawMarkdown(fullPath, `${urlPrefix}/${entry.name}`))
-    } else if (entry.name.endsWith('.md')) {
-      pages.push({
-        url: `${urlPrefix}/${entry.name}`,
-        mtime: fs.statSync(fullPath).mtime,
-      })
-    }
   }
 
   return pages
@@ -190,38 +160,6 @@ routes.push({
   changeFrequency: 'weekly',
   priority: 0.7,
 })
-
-const crossPostRawUrls = new Set(
-  getPublishedPosts()
-    .filter((post) => post.canonical)
-    .map((post) => `/raw/blog/${post.slug}.md`),
-)
-
-const rawPages = collectRawMarkdown(RAW_DIR, '/raw').filter(
-  ({ url }) =>
-    !crossPostRawUrls.has(url) &&
-    !url.startsWith('/raw/docs/next/') &&
-    url !== '/raw/docs/next.md' &&
-    url !== '/raw/docs-next.md',
-)
-
-for (const { url, mtime } of rawPages) {
-  routes.push({
-    url,
-    lastModified: mtime,
-    changeFrequency: 'monthly',
-    priority: 0.6,
-  })
-}
-
-for (const url of ['/llms.txt', '/llms-full.txt']) {
-  routes.push({
-    url,
-    lastModified: buildTime,
-    changeFrequency: 'weekly',
-    priority: 0.7,
-  })
-}
 
 function escapeXml(value: string): string {
   return value
